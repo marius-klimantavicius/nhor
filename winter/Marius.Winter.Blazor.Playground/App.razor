@@ -1,0 +1,457 @@
+<Panel>
+    <GridLayout Columns="@(new[] { TrackSize.Fr(2), TrackSize.Fr(3) })"
+                Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1) })"
+                ColumnGap="8" />
+
+    @* ── Row 0: Menu Bar ── *@
+    <MenuBar LayoutData="@(new GridItem { Column = 0, Row = 0, ColumnSpan = 2 })">
+        <Menu Title="File">
+            <MenuItem Label="New" OnClick="@(() => SetTitle("File → New"))" />
+            <MenuItem Label="Open" OnClick="@(() => SetTitle("File → Open"))" />
+            <MenuItem Label="Save" OnClick="@(() => SetTitle("File → Save"))" />
+        </Menu>
+        <Menu Title="Edit">
+            <MenuItem Label="Undo" OnClick="@(() => SetTitle("Edit → Undo"))" />
+            <MenuItem Label="Redo" OnClick="@(() => SetTitle("Edit → Redo"))" />
+            <MenuItem Label="Cut" OnClick="@(() => SetTitle("Edit → Cut"))" />
+            <MenuItem Label="Copy" OnClick="@(() => SetTitle("Edit → Copy"))" />
+            <MenuItem Label="Paste" OnClick="@(() => SetTitle("Edit → Paste"))" />
+        </Menu>
+        <Menu Title="View">
+            <MenuItem Label="Toggle Theme" OnClick="ToggleTheme" />
+        </Menu>
+        <Menu Title="Help">
+            <MenuItem Label="About" OnClick="@(() => SetTitle("Winter Blazor Playground v1.0"))" />
+        </Menu>
+    </MenuBar>
+
+    @* ── Row 1, Col 0: Left Panel ── *@
+    <ScrollPanel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
+        <FlexLayout Direction="Orientation.Vertical" Gap="18" />
+
+        <Label Text="@_title" FontSize="20" />
+        <Label Text="A nanogui-inspired UI toolkit" />
+
+        <Separator />
+
+        @* Buttons *@
+        <Panel>
+            <FlexLayout Gap="8" />
+            <Button Text="Click Me" OnClick="HandleClick" />
+            <Button Text="Reset" OnClick="HandleReset" />
+        </Panel>
+
+        <Separator />
+
+        @* Checkbox → enables/disables slider *@
+        <Checkbox Text="Enable slider" IsChecked="@_sliderEnabled"
+                   OnChanged="@(v => _sliderEnabled = v)" />
+
+        @* Slider + Progress *@
+        <Label Text="@($"Slider: {_sliderValue:F0}")" />
+        <Slider Value="@_sliderValue" Min="0" Max="100" Step="1"
+                 Enabled="@_sliderEnabled"
+                 OnValueChanged="@(v => _sliderValue = v)" />
+
+        <Label Text="@($"Progress: {_sliderValue:F0}%")" />
+        <ProgressBar Value="@(_sliderValue / 100f)" />
+
+        <Separator />
+
+        @* ComboBox *@
+        <Label Text="@($"Selection: {_options[_selectedOption]}")" />
+        <ComboBox Items="@_options" SelectedIndex="@_selectedOption"
+                   OnSelectionChanged="@(i => _selectedOption = i)" />
+
+        @* TextBoxes *@
+        <TextBox Text="@_textValue" Placeholder="Type something..."
+                  OnTextChanged="@(v => _textValue = v)" />
+        <TextBox Text="" Placeholder="Another text field..." />
+
+    </ScrollPanel>
+
+    @* ── Row 1, Col 1: Tab Widget ── *@
+    <TabWidget LayoutData="@(new GridItem { Column = 1, Row = 1 })">
+
+        @* ─── @key Demo (first for testing) ─── *@
+        <Tab Label="@("@key Demo")">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+                <Label Text="@("@key preserves component identity during list mutations")" FontSize="16" />
+                <Panel>
+                    <FlexLayout Gap="6" />
+                    <Button Text="Remove First" OnClick="RemoveFirst"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Remove Middle" OnClick="RemoveMiddle"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Remove Last" OnClick="RemoveLast"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                </Panel>
+                <Panel>
+                    <FlexLayout Gap="6" />
+                    <Button Text="Add to Start" OnClick="AddToStart"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Add to Middle" OnClick="AddToMiddle"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Add to End" OnClick="AddToEnd"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                </Panel>
+                <Panel>
+                    <FlexLayout Gap="6" />
+                    <Button Text="Shuffle" OnClick="ShuffleKeyItems"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Reset List" OnClick="ResetKeyItems"
+                             LayoutData="@(new FlexItem { Grow = 1 })" />
+                </Panel>
+                <Separator />
+                @foreach (var item in _keyItems)
+                {
+                    <Label @key="item.Id"
+                            Text="@($"[{item.Id}] {item.Name}")" />
+                }
+            </ScrollPanel>
+        </Tab>
+
+        @* ─── Tab 2: Scroll Demo ─── *@
+        <Tab Label="Scroll Demo">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+                @for (int i = 0; i < 20; i++)
+                {
+                    var idx = i;
+                    <Label Text="@($"Item {idx + 1}: Scroll to see more content")" />
+                }
+            </ScrollPanel>
+        </Tab>
+
+        @* ─── Tab 2: Controls ─── *@
+        <Tab Label="Controls">
+            <Panel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+                <Label Text="Controls in a tab" />
+                <Button Text="Tab Button" />
+                <Checkbox Text="Tab Checkbox" IsChecked="@true" />
+                <Slider Value="30" Min="0" Max="100" Step="5" />
+            </Panel>
+        </Tab>
+
+        @* ─── Tab 3: About ─── *@
+        <Tab Label="About">
+            <Panel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+                <Label Text="About Winter" />
+                <Label Text="Built on ThorVG + GLFW" />
+                <Label Text="Retained-mode scene graph" />
+                <Label Text="Zero allocations in steady state" />
+                <Label Text="Software rendering, GL blit" />
+            </Panel>
+        </Tab>
+
+        @* ─── Tab 4: Flexbox ─── *@
+        <Tab Label="Flexbox">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+                <Label Text="Flex Row — Grow" />
+                <Panel>
+                    <FlexLayout Gap="6" />
+                    <Button Text="Fixed" />
+                    <Button Text="Grow 1" LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="Grow 2" LayoutData="@(new FlexItem { Grow = 2 })" />
+                </Panel>
+
+                <Label Text="Flex Row — Justify: SpaceBetween" />
+                <Panel>
+                    <FlexLayout Gap="6" JustifyContent="JustifyContent.SpaceBetween" />
+                    <Button Text="Left" />
+                    <Button Text="Center" />
+                    <Button Text="Right" />
+                </Panel>
+
+                <Label Text="Flex Row — Justify: SpaceEvenly" />
+                <Panel>
+                    <FlexLayout Gap="0" JustifyContent="JustifyContent.SpaceEvenly" />
+                    <Button Text="A" />
+                    <Button Text="B" />
+                    <Button Text="C" />
+                    <Button Text="D" />
+                </Panel>
+
+                <Label Text="Flex Row — Align: Center" />
+                <Panel>
+                    <FlexLayout Gap="8" AlignItems="Alignment.Center" />
+                    <Label Text="@("Tall\nItem")" />
+                    <Button Text="Short" />
+                    <Button Text="Medium" />
+                </Panel>
+
+                <Label Text="Flex Column — Grow" />
+                <Panel>
+                    <FlexLayout Direction="Orientation.Vertical" />
+                    <Button Text="No grow" />
+                    <Button Text="Grow = 1" LayoutData="@(new FlexItem { Grow = 1 })" />
+                    <Button Text="No grow" />
+                </Panel>
+
+            </ScrollPanel>
+        </Tab>
+
+        @* ─── Tab 5: Grid ─── *@
+        <Tab Label="Grid">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+                <Label Text="Grid — 3 columns (1fr, 2fr, 1fr)" />
+                <Panel>
+                    <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(2), TrackSize.Fr(1) })"
+                                ColumnGap="6" RowGap="6" />
+                    <Button Text="1:1" />
+                    <Button Text="1:2 (wider)" />
+                    <Button Text="1:3" />
+                    <Button Text="2:1" />
+                    <Button Text="2:2" />
+                    <Button Text="2:3" />
+                </Panel>
+
+                <Label Text="Grid — Mixed: 100px, auto, 1fr" />
+                <Panel>
+                    <GridLayout Columns="@(new[] { TrackSize.Px(100), TrackSize.Auto(), TrackSize.Fr(1) })"
+                                ColumnGap="6" RowGap="6" />
+                    <Button Text="100px" />
+                    <Button Text="Auto" />
+                    <Button Text="Fill" />
+                    <Button Text="100px" />
+                    <Button Text="Auto Wider" />
+                    <Button Text="Fill" />
+                </Panel>
+
+                <Label Text="Grid — Spanning cells" />
+                <Panel>
+                    <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(1), TrackSize.Fr(1) })"
+                                ColumnGap="6" RowGap="6" />
+                    <Button Text="Spans 2 columns"
+                             LayoutData="@(new GridItem { Column = 0, Row = 0, ColumnSpan = 2 })" />
+                    <Button Text="1x1"
+                             LayoutData="@(new GridItem { Column = 2, Row = 0 })" />
+                    <Button Text="Spans 3 columns"
+                             LayoutData="@(new GridItem { Column = 0, Row = 1, ColumnSpan = 3 })" />
+                    <Button Text="Auto R2" />
+                    <Button Text="Auto R2" />
+                    <Button Text="Auto R2" />
+                </Panel>
+
+                <Label Text="Grid — 4 equal columns" />
+                <Panel>
+                    <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(1), TrackSize.Fr(1), TrackSize.Fr(1) })" />
+                    @for (int i = 0; i < 8; i++)
+                    {
+                        var idx = i;
+                        <Button Text="@($"Cell {idx + 1}")" />
+                    }
+                </Panel>
+
+            </ScrollPanel>
+        </Tab>
+
+        @* ─── Tab 6: Tree ─── *@
+        <Tab Label="Tree">
+            <TreeView>
+                <TreeNode Text="Project" Icon="@_folderIcon">
+                    <TreeNode Text="src" Icon="@_folderIcon">
+                        <TreeNode Text="Core" Icon="@_folderIcon">
+                            <TreeNode Text="Element.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Layout.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Style.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Window.cs" Icon="@_csIcon" />
+                        </TreeNode>
+                        <TreeNode Text="Controls" Icon="@_folderIcon">
+                            <TreeNode Text="Button.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Checkbox.cs" Icon="@_csIcon" />
+                            <TreeNode Text="ComboBox.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Label.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Panel.cs" Icon="@_csIcon" />
+                            <TreeNode Text="ScrollPanel.cs" Icon="@_csIcon" />
+                            <TreeNode Text="Slider.cs" Icon="@_csIcon" />
+                            <TreeNode Text="TabWidget.cs" Icon="@_csIcon" />
+                            <TreeNode Text="TextBox.cs" Icon="@_csIcon" />
+                            <TreeNode Text="TreeView.cs" Icon="@_csIcon" />
+                        </TreeNode>
+                    </TreeNode>
+                    <TreeNode Text="docs" Icon="@_folderIcon">
+                        <TreeNode Text="README.md" Icon="@_mdIcon" />
+                        <TreeNode Text="CHANGELOG.md" Icon="@_mdIcon" />
+                    </TreeNode>
+                    <TreeNode Text="LICENSE" Icon="@_fileIcon" />
+                    <TreeNode Text=".gitignore" Icon="@_fileIcon" />
+                </TreeNode>
+            </TreeView>
+        </Tab>
+
+        @* ─── Tab 7: Rich Controls ─── *@
+        <Tab Label="Rich">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+                <Label Text="SvgImage Control" FontSize="18" />
+                <SvgImage Svg="@_starSvg" />
+                <SvgImage Svg="@_circleSvg" />
+
+                <Separator />
+                <Label Text="RichLabel Control" FontSize="18" />
+                <RichLabel Text="This is a RichLabel (text mode)" />
+                <RichLabel Svg="@_badgeSvg" />
+
+                <Separator />
+                <Label Text="Tooltips" FontSize="18" />
+                <Button Text="Hover me — text tooltip"
+                         Tooltip="This is a simple text tooltip!" />
+                <Button Text="Hover me — another tooltip"
+                         Tooltip="Tooltips work on any element" />
+                <Label Text="Labels can have tooltips too"
+                        Tooltip="Yes, any element can have a tooltip." />
+            </ScrollPanel>
+        </Tab>
+
+    </TabWidget>
+
+</Panel>
+
+@code {
+    // ── Tree icons ──
+
+    private const string _folderIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <path d=""M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V5.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/>
+</svg>";
+
+    private const string _csIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <rect x=""1"" y=""0"" width=""14"" height=""16"" rx=""2"" fill=""#6A9F37""/>
+  <text x=""8"" y=""12"" text-anchor=""middle"" fill=""white"" font-size=""10"" font-weight=""bold"">C#</text>
+</svg>";
+
+    private const string _mdIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <rect x=""1"" y=""0"" width=""14"" height=""16"" rx=""2"" fill=""#519ABA""/>
+  <text x=""8"" y=""12"" text-anchor=""middle"" fill=""white"" font-size=""8"" font-weight=""bold"">MD</text>
+</svg>";
+
+    private const string _fileIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <path d=""M2 1.5A1.5 1.5 0 013.5 0h5.59a1.5 1.5 0 011.06.44l3.41 3.41a1.5 1.5 0 01.44 1.06V14.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 14.5z"" fill=""#909090""/>
+</svg>";
+
+    // ── SVG content ──
+
+    private readonly string _starSvg = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 64 64"" width=""64"" height=""64"">
+  <polygon points=""32,4 40,24 62,24 44,38 50,58 32,46 14,58 20,38 2,24 24,24""
+           fill=""#FFD700"" stroke=""#DAA520"" stroke-width=""2""/>
+</svg>";
+
+    private readonly string _circleSvg = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 48 48"" width=""48"" height=""48"">
+  <circle cx=""24"" cy=""24"" r=""20"" fill=""#4488CC"" stroke=""#2266AA"" stroke-width=""2""/>
+  <text x=""24"" y=""30"" text-anchor=""middle"" fill=""white"" font-size=""16"">i</text>
+</svg>";
+
+    private readonly string _badgeSvg = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 120 30"" width=""120"" height=""30"">
+  <rect x=""1"" y=""1"" width=""118"" height=""28"" rx=""6"" fill=""#28A745"" stroke=""#1E7E34"" stroke-width=""1""/>
+  <text x=""60"" y=""20"" text-anchor=""middle"" fill=""white"" font-size=""14"">SVG Badge</text>
+</svg>";
+
+    // ── State ──
+
+    private string _title = "Winter Blazor Playground";
+    private int _clickCount;
+    private bool _sliderEnabled = true;
+    private float _sliderValue = 50;
+    private readonly string[] _options = new[] { "Option A", "Option B", "Option C", "Option D" };
+    private int _selectedOption;
+    private string _textValue = "Hello, World!";
+
+    // ── Menu / button handlers ──
+
+    private void SetTitle(string text) => _title = text;
+
+    private void ToggleTheme()
+    {
+        // TODO: needs window access to toggle theme
+        _title = "Theme toggled (requires Window API)";
+    }
+
+    private void HandleClick()
+    {
+        _clickCount++;
+        _title = $"Button clicked {_clickCount} time(s)!";
+    }
+
+    private void HandleReset()
+    {
+        _clickCount = 0;
+        _title = "Winter Blazor Playground";
+        _sliderValue = 50;
+        _sliderEnabled = true;
+        _selectedOption = 0;
+        _textValue = "Hello, World!";
+    }
+
+    // ── @key demo ──
+
+    private record KeyItem(int Id, string Name);
+
+    private int _nextId = 9;
+
+    private List<KeyItem> _keyItems = new()
+    {
+        new(1, "Alpha"), new(2, "Beta"), new(3, "Gamma"),
+        new(4, "Delta"), new(5, "Epsilon"), new(6, "Zeta"),
+        new(7, "Eta"), new(8, "Theta"),
+    };
+
+    private void RemoveFirst()
+    {
+        if (_keyItems.Count > 0) _keyItems.RemoveAt(0);
+    }
+
+    private void RemoveMiddle()
+    {
+        if (_keyItems.Count > 0) _keyItems.RemoveAt(_keyItems.Count / 2);
+    }
+
+    private void RemoveLast()
+    {
+        if (_keyItems.Count > 0) _keyItems.RemoveAt(_keyItems.Count - 1);
+    }
+
+    private void AddToStart()
+    {
+        _keyItems.Insert(0, new KeyItem(_nextId++, $"Item {_nextId - 1}"));
+    }
+
+    private void AddToMiddle()
+    {
+        _keyItems.Insert(_keyItems.Count / 2, new KeyItem(_nextId++, $"Item {_nextId - 1}"));
+    }
+
+    private void AddToEnd()
+    {
+        _keyItems.Add(new KeyItem(_nextId++, $"Item {_nextId - 1}"));
+    }
+
+    private static readonly Random _rng = new();
+
+    private void ShuffleKeyItems()
+    {
+        for (int i = _keyItems.Count - 1; i > 0; i--)
+        {
+            int j = _rng.Next(i + 1);
+            (_keyItems[i], _keyItems[j]) = (_keyItems[j], _keyItems[i]);
+        }
+    }
+
+    private void ResetKeyItems()
+    {
+        _nextId = 9;
+        _keyItems = new()
+        {
+            new(1, "Alpha"), new(2, "Beta"), new(3, "Gamma"),
+            new(4, "Delta"), new(5, "Epsilon"), new(6, "Zeta"),
+            new(7, "Eta"), new(8, "Theta"),
+        };
+    }
+
+}

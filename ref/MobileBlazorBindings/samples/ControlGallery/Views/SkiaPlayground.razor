@@ -1,0 +1,13 @@
+@page "/skia"
+@inject ShellNavigationManager NavigationManager
+
+<ContentPage>
+    <StackLayout>
+        <Button Text="Skia Canvas Paths" OnClick="NavigateToSkiaCanvas"></Button>
+    </StackLayout>
+</ContentPage>
+
+@code
+{
+    async Task NavigateToSkiaCanvas() => await NavigationManager.NavigateToAsync("/skia/canvas");
+}

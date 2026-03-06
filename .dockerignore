@@ -1,0 +1,9 @@
+.git
+ThorVG
+.idea
+tmp
+verify
+thorvg.example/res
+**/bin
+**/obj
+build/output

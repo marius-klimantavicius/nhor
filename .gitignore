@@ -1,0 +1,27 @@
+## .NET build output
+bin/
+obj/
+
+## NuGet
+*.nupkg
+*.snupkg
+project.assets.json
+*.nuget.props
+*.nuget.targets
+.nuget/
+
+## IDE
+.vs/
+*.user
+*.suo
+*.DotSettings.user
+
+## OS
+.DS_Store
+Thumbs.db
+
+/tmp
+/verify
+.idea
+/ThorVG/install
+/build

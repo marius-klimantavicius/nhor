@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ThorVG.Tools</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ThorVG\ThorVG.csproj" />
+    <ProjectReference Include="..\..\src\Glfw\Glfw.csproj" />
+  </ItemGroup>
+
+</Project>

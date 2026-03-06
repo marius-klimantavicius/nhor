@@ -1,0 +1,88 @@
+<Solution>
+    <Folder Name="/docs/">
+        <File Path="CLAUDE.md" />
+        <File Path="PERF.md" />
+        <File Path="PERF_GL.md" />
+        <File Path="GLFW.md" />
+        <File Path="STYLING.md" />
+        <File Path=".gitignore" />
+    </Folder>
+    <Folder Name="/src/">
+        <Project Path="src/ThorVG/ThorVG.csproj" />
+        <Project Path="src/Glfw/Glfw.csproj" />
+    </Folder>
+    <Folder Name="/test/">
+        <Project Path="test/ThorVG.Tests/ThorVG.Tests.csproj" />
+    </Folder>
+    <Folder Name="/tools/">
+        <Project Path="tools/lottie2gif/Lottie2Gif.csproj" />
+        <Project Path="tools/lottie-gl-viewer/LottieGlViewer.csproj" />
+        <Project Path="tools/svg2png/Svg2Png.csproj" />
+        <Project Path="tools/lottie2gif-gl/Lottie2GifGl.csproj" />
+    </Folder>
+    <Folder Name="/examples/">
+        <Project Path="examples/ExampleFramework/ExampleFramework.csproj" />
+        <Project Path="examples/Shapes/Shapes.csproj" />
+        <Project Path="examples/Path/Path.csproj" />
+        <Project Path="examples/Transform/Transform.csproj" />
+        <Project Path="examples/Viewport/Viewport.csproj" />
+        <Project Path="examples/Stroke/Stroke.csproj" />
+        <Project Path="examples/StrokeLine/StrokeLine.csproj" />
+        <Project Path="examples/StrokeMiterlimit/StrokeMiterlimit.csproj" />
+        <Project Path="examples/FillRule/FillRule.csproj" />
+        <Project Path="examples/FillSpread/FillSpread.csproj" />
+        <Project Path="examples/LinearGradient/LinearGradient.csproj" />
+        <Project Path="examples/RadialGradient/RadialGradient.csproj" />
+        <Project Path="examples/GradientTransform/GradientTransform.csproj" />
+        <Project Path="examples/GradientStroke/GradientStroke.csproj" />
+        <Project Path="examples/Scene/Scene.csproj" />
+        <Project Path="examples/SceneTransform/SceneTransform.csproj" />
+        <Project Path="examples/Opacity/Opacity.csproj" />
+        <Project Path="examples/Duplicate/Duplicate.csproj" />
+        <Project Path="examples/Retaining/Retaining.csproj" />
+        <Project Path="examples/Masking/Masking.csproj" />
+        <Project Path="examples/MaskingMethods/MaskingMethods.csproj" />
+        <Project Path="examples/GradientMasking/GradientMasking.csproj" />
+        <Project Path="examples/Clipping/Clipping.csproj" />
+        <Project Path="examples/Blending/Blending.csproj" />
+        <Project Path="examples/SceneBlending/SceneBlending.csproj" />
+        <Project Path="examples/PicturePng/PicturePng.csproj" />
+        <Project Path="examples/PictureJpg/PictureJpg.csproj" />
+        <Project Path="examples/PictureWebp/PictureWebp.csproj" />
+        <Project Path="examples/PictureSvg/PictureSvg.csproj" />
+        <Project Path="examples/PictureRaw/PictureRaw.csproj" />
+        <Project Path="examples/ImageRotation/ImageRotation.csproj" />
+        <Project Path="examples/ImageScaling/ImageScaling.csproj" />
+        <Project Path="examples/Animation/Animation.csproj" />
+        <Project Path="examples/Lottie/Lottie.csproj" />
+        <Project Path="examples/LottieExpressions/LottieExpressions.csproj" />
+        <Project Path="examples/LottieExtension/LottieExtension.csproj" />
+        <Project Path="examples/LottieInteraction/LottieInteraction.csproj" />
+        <Project Path="examples/LottieTweening/LottieTweening.csproj" />
+        <Project Path="examples/Text/Text.csproj" />
+        <Project Path="examples/TextLayout/TextLayout.csproj" />
+        <Project Path="examples/TextLineWrap/TextLineWrap.csproj" />
+        <Project Path="examples/TextMetrics/TextMetrics.csproj" />
+        <Project Path="examples/TextEffects/TextEffects.csproj" />
+        <Project Path="examples/BoundingBox/BoundingBox.csproj" />
+        <Project Path="examples/Intersects/Intersects.csproj" />
+        <Project Path="examples/Accessor/Accessor.csproj" />
+        <Project Path="examples/DataLoad/DataLoad.csproj" />
+        <Project Path="examples/DirectUpdate/DirectUpdate.csproj" />
+        <Project Path="examples/CustomTransform/CustomTransform.csproj" />
+        <Project Path="examples/TrimPath/TrimPath.csproj" />
+        <Project Path="examples/EffectDropShadow/EffectDropShadow.csproj" />
+        <Project Path="examples/SceneEffects/SceneEffects.csproj" />
+        <Project Path="examples/Particles/Particles.csproj" />
+        <Project Path="examples/Svg/Svg.csproj" />
+        <Project Path="examples/GifSaver/GifSaver.csproj" />
+        <Project Path="examples/Stress/Stress.csproj" />
+    </Folder>
+    <Folder Name="/winter/">
+        <Project Path="winter/Marius.Winter.Taffy.Tests/Marius.Winter.Taffy.Tests.csproj" />
+        <Project Path="winter/Marius.Winter/Marius.Winter.csproj" />
+        <Project Path="winter\Marius.Winter.Blazor.Playground\Marius.Winter.Blazor.Playground.csproj" />
+        <Project Path="winter\Marius.Winter.Blazor\Marius.Winter.Blazor.csproj" />
+        <Project Path="winter/Marius.Winter.Playground/Marius.Winter.Playground.csproj" />
+    </Folder>
+</Solution>

@@ -1,0 +1,130 @@
+cc = meson.get_compiler('cpp')
+thorvg_dep = dependency('thorvg-1', required: true)
+examples_dep = [thorvg_dep, dependency('sdl2', required: true)]
+compiler_flags = ['-DSDL_MAIN_HANDLED']
+
+# GL or GLES
+gl_dep = dependency('gl', required: false)
+gles_dep = dependency('glesv2', required: false)
+
+if gl_dep.found()
+    examples_dep += gl_dep
+elif gles_dep.found()
+    examples_dep += gles_dep
+    compiler_flags += ['-DTVGEXAMPLE_GLES_SUPPORTED']
+else
+    message('Neither OpenGL nor OpenGL ES was found. Skipping GL examples.')
+endif
+
+# WebGPU
+wgpu_dep = dependency('wgpu_native', required: false)
+
+if wgpu_dep.found()
+    examples_dep += wgpu_dep
+    compiler_flags += ['-DTVGEXAMPLE_WGPU_SUPPORTED']
+    if host_machine.system() == 'darwin'
+        add_languages('objcpp', native: false)
+        examples_dep += declare_dependency(link_args: ['-lobjc', '-framework', 'Cocoa', '-framework', 'CoreVideo', '-framework', 'IOKit', '-framework', 'QuartzCore'])
+        compiler_flags += ['-x', 'objective-c++']
+    endif
+else
+    message('wgpu_native not found, skipping WGPU examples.')
+endif
+
+source_file = [
+    'Accessor.cpp',
+    'Animation.cpp',
+    'Blending.cpp',
+    'BoundingBox.cpp',
+    'Clipping.cpp',
+    'CustomTransform.cpp',
+    'DataLoad.cpp',
+    'DirectUpdate.cpp',
+    'Duplicate.cpp',
+    'EffectDropShadow.cpp',
+    'GifSaver.cpp',
+    'SceneEffects.cpp',
+    'FillRule.cpp',
+    'FillSpread.cpp',
+    'GradientMasking.cpp',
+    'GradientStroke.cpp',
+    'GradientTransform.cpp',
+    'ImageRotation.cpp',
+    'ImageScaling.cpp',
+    'Intersects.cpp',
+    'LinearGradient.cpp',
+    'Masking.cpp',
+    'MaskingMethods.cpp',
+    'MultiCanvas.cpp',
+    'Opacity.cpp',
+    'Path.cpp',
+    'Particles.cpp',
+    'PictureJpg.cpp',
+    'PicturePng.cpp',
+    'PictureRaw.cpp',
+    'PictureSvg.cpp',
+    'PictureWebp.cpp',
+    'RadialGradient.cpp',
+    'Retaining.cpp',
+    'Scene.cpp',
+    'SceneBlending.cpp',
+    'SceneTransform.cpp',
+    'Shapes.cpp',
+    'Stress.cpp',
+    'Stroke.cpp',
+    'StrokeLine.cpp',
+    'StrokeMiterlimit.cpp',
+    'Svg.cpp',
+    'Text.cpp',
+    'TextEffects.cpp',
+    'TextLayout.cpp',
+    'TextLineWrap.cpp',
+    'TextMetrics.cpp',
+    'Transform.cpp',
+    'TrimPath.cpp',
+    'Viewport.cpp'
+]
+
+thorvg_inc = include_directories(join_paths(thorvg_dep.get_variable(pkgconfig: 'includedir'), 'thorvg-1'))
+
+# Lottie Examples
+lottie_example = '''
+    #include <thorvg_lottie.h>
+    int main(int argc, char **argv) {
+        return tvg::LottieAnimation::gen() ? 0 : 1;
+    }
+'''
+
+if cc.links(lottie_example, dependencies : thorvg_dep, include_directories : thorvg_inc)
+    source_file += [
+        'Lottie.cpp',
+        'LottieExpressions.cpp',
+        'LottieExtension.cpp',
+        'LottieInteraction.cpp',
+        'LottieTweening.cpp'
+    ]
+    message('ThorVG Lottie found. Enabled Lottie examples.')
+else
+    message('ThorVG Lottie not found. Skipping Lottie examples.')
+endif
+
+# CAPI Examples
+if cc.has_function('tvg_shape_new', prefix: '#include <thorvg_capi.h>', include_directories: thorvg_inc, dependencies: thorvg_dep)
+    source_file += ['Capi.cpp']
+    message('ThorVG CAPI found. Enabled Capi examples.')
+else
+    message('ThorVG CAPI not found. Skipping Capi examples.')
+endif
+
+foreach current_file : source_file
+    name = current_file.split('.')[0]
+    executable(name, current_file,
+        dependencies: examples_dep,
+        cpp_args : compiler_flags)
+endforeach
+
+if cc.get_id() == 'msvc'
+    configure_file(input: 'all.bat', output: 'all.bat', copy: true)
+else
+    configure_file(input: 'all.sh', output: 'all.sh', copy: true)
+endif

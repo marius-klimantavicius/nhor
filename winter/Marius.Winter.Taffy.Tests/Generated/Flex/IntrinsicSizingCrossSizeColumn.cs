@@ -1,0 +1,42 @@
+using System.Collections.Generic;
+using Xunit;
+using Marius.Winter.Taffy;
+using static Marius.Winter.Taffy.Tests.TestHelpers;
+
+namespace Marius.Winter.Taffy.Tests.Generated.Flex;
+
+public class IntrinsicSizingCrossSizeColumn
+{
+    [Fact]
+    public void BorderBox()
+    {
+        var taffy = NewTestTree();
+        var node = taffy.NewLeafWithContext(new Style
+        {
+            FlexDirectionValue = FlexDirection.Column,
+        }, TestNodeContext.AhemText("HH\u200bHH", WritingMode.Horizontal));
+        taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
+        var layout_node = taffy.GetLayout(node);
+        Assert.Equal(40f, layout_node.Size.Width);
+        Assert.Equal(10f, layout_node.Size.Height);
+        Assert.Equal(0f, layout_node.Location.X);
+        Assert.Equal(0f, layout_node.Location.Y);
+    }
+
+    [Fact]
+    public void ContentBox()
+    {
+        var taffy = NewTestTree();
+        var node = taffy.NewLeafWithContext(new Style
+        {
+            BoxSizingValue = BoxSizing.ContentBox,
+            FlexDirectionValue = FlexDirection.Column,
+        }, TestNodeContext.AhemText("HH\u200bHH", WritingMode.Horizontal));
+        taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
+        var layout_node = taffy.GetLayout(node);
+        Assert.Equal(40f, layout_node.Size.Width);
+        Assert.Equal(10f, layout_node.Size.Height);
+        Assert.Equal(0f, layout_node.Location.X);
+        Assert.Equal(0f, layout_node.Location.Y);
+    }
+}
