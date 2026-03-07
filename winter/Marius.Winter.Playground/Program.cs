@@ -390,6 +390,28 @@ richSvg.Svg = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 120 30""
 richPanel.AddChild(richSvg);
 
 richPanel.AddChild(new Separator());
+richPanel.AddChild(new Label("RichTextBox Control") { FontSize = 18 });
+
+var richTextBox = new RichTextBox("Hello World!\nThis supports bold, italic, and underline.\nUse Ctrl+B, Ctrl+I, Ctrl+U to format selected text.", "Type rich text...");
+// Pre-format "bold" as bold, "italic" as italic, "underline" as underlined
+richTextBox.SetFormat(27, 4, TextFormat.Bold);       // "bold"
+richTextBox.SetFormat(33, 6, TextFormat.Italic);     // "italic"
+richTextBox.SetFormat(45, 9, TextFormat.Underline);  // "underline"
+richPanel.AddChild(richTextBox);
+
+var formatLabel = new Label("Format: None");
+richTextBox.FormatChanged = fmt =>
+{
+    var parts = new System.Collections.Generic.List<string>();
+    if ((fmt & TextFormat.Bold) != 0) parts.Add("Bold");
+    if ((fmt & TextFormat.Italic) != 0) parts.Add("Italic");
+    if ((fmt & TextFormat.Underline) != 0) parts.Add("Underline");
+    if ((fmt & TextFormat.Strikethrough) != 0) parts.Add("Strikethrough");
+    formatLabel.Text = "Format: " + (parts.Count > 0 ? string.Join(", ", parts) : "None");
+};
+richPanel.AddChild(formatLabel);
+
+richPanel.AddChild(new Separator());
 richPanel.AddChild(new Label("Tooltips") { FontSize = 18 });
 
 var tipBtn1 = new Button("Hover me — text tooltip");
