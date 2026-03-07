@@ -1,0 +1,311 @@
+@* Installer wizard — MUI2-style multi-page wizard:
+   Page 1: Welcome  (sidebar graphic + welcome text)
+   Page 2: Installing (header bar + progress + log)
+   Page 3: Configure (header bar + API Key + Advanced toggle)
+   Page 4: Finish   (sidebar graphic + summary)
+*@
+
+@if (_page == Page.Welcome)
+{
+    <Panel Background="@White">
+        <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
+
+        @* Welcome body: sidebar graphic + text *@
+        <Panel LayoutData="@(new FlexItem { Grow = 1 })">
+            <FlexLayout Gap="0" AlignItems="Alignment.Stretch" />
+
+            @* Left sidebar — blue gradient banner *@
+            <Panel Background="@HeaderBlue" LayoutData="@(new FlexItem { Basis = 164 })">
+                <FlexLayout Direction="Orientation.Vertical" Gap="12" AlignItems="Alignment.Center"
+                            JustifyContent="JustifyContent.Center" />
+                <SvgImage Svg="@_shieldIcon" />
+                <Label Text="Installer" Bold="true" FontSize="11" Color="@White" />
+            </Panel>
+
+            @* Right content *@
+            <Panel LayoutData="@(new FlexItem { Grow = 1 })" Padding="@(new Thickness(24, 20))">
+                <FlexLayout Direction="Orientation.Vertical" Gap="10" AlignItems="Alignment.Start" />
+
+                <Label Text="@($"Welcome to the Example\nApp v{Version} Setup Wizard")"
+                       FontSize="16" Bold="true" Color="@DarkText" />
+
+                <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
+
+                <Label Text="This wizard will install and configure the application on your computer."
+                       Color="@DarkText" />
+
+                <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
+
+                <Label Text="Click Install to begin the installation." Color="@GrayText" />
+            </Panel>
+        </Panel>
+
+        @* Bottom bar *@
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
+            <Button Text="Install" OnClick="GoToInstall" />
+            <Button Text="Cancel" OnClick="HandleCancel" />
+        </Panel>
+    </Panel>
+}
+else if (_page == Page.Installing)
+{
+    <Panel Background="@White">
+        <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
+
+        @* MUI2 header bar *@
+        <Panel Background="@White" Padding="@(new Thickness(16, 10))">
+            <FlexLayout Gap="8" AlignItems="Alignment.Center" />
+            <Panel LayoutData="@(new FlexItem { Grow = 1 })">
+                <FlexLayout Direction="Orientation.Vertical" Gap="2" AlignItems="Alignment.Start" />
+                <Label Text="Installing" Bold="true" Color="@DarkText" />
+                <Label Text="Please wait while the application is being installed." Color="@GrayText" FontSize="13" />
+            </Panel>
+            <SvgImage Svg="@_headerIcon" />
+        </Panel>
+
+        <Separator />
+
+        @* Install log area *@
+        <ScrollPanel LayoutData="@(new FlexItem { Grow = 1 })" Background="@ContentBg">
+            <FlexLayout Direction="Orientation.Vertical" Gap="1" AlignItems="Alignment.Stretch" />
+            @foreach (var line in _installLog)
+            {
+                <Label Text="@line" Color="@DarkText" FontSize="13" />
+            }
+        </ScrollPanel>
+
+        @* Progress bar *@
+        <Panel Padding="@(new Thickness(12, 6))" Background="@ContentBg">
+            <FlexLayout Direction="Orientation.Vertical" Gap="4" AlignItems="Alignment.Stretch" />
+            <ProgressBar Value="@_installProgress" />
+        </Panel>
+
+        @* Bottom bar *@
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
+            <Button Text="Next >" OnClick="GoToConfigure" Enabled="@_installDone" />
+        </Panel>
+    </Panel>
+}
+else if (_page == Page.Configure)
+{
+    <Panel Background="@White">
+        <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
+
+        @* MUI2 header bar *@
+        <Panel Background="@White" Padding="@(new Thickness(16, 10))">
+            <FlexLayout Gap="8" AlignItems="Alignment.Center" />
+            <Panel LayoutData="@(new FlexItem { Grow = 1 })">
+                <FlexLayout Direction="Orientation.Vertical" Gap="2" AlignItems="Alignment.Start" />
+                <Label Text="Configure Settings" Bold="true" Color="@DarkText" />
+                <Label Text="Set the API key and connection parameters." Color="@GrayText" FontSize="13" />
+            </Panel>
+            <SvgImage Svg="@_headerIcon" />
+        </Panel>
+
+        <Separator />
+
+        @* Configuration form *@
+        <Panel LayoutData="@(new FlexItem { Grow = 1 })" Padding="@(new Thickness(20, 14))" Background="@ContentBg">
+            <FlexLayout Direction="Orientation.Vertical" Gap="8" AlignItems="Alignment.Stretch" />
+
+            <Label Text="API Key:" Color="@DarkText" />
+            <TextBox Text="@_apiKey" Placeholder="Enter API key"
+                     OnTextChanged="@(v => _apiKey = v)" />
+
+            <Panel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="0" />
+            </Panel>
+
+            <Checkbox Text="Advanced" IsChecked="@_showAdvanced"
+                      OnChanged="@(v => _showAdvanced = v)" />
+
+            @if (_showAdvanced)
+            {
+                <Label Text="API Server Address:" Color="@DarkText" />
+                <TextBox Text="@_apiAddress" Placeholder="https://..."
+                         OnTextChanged="@(v => _apiAddress = v)" />
+
+                <Label Text="WebSocket Server Address:" Color="@DarkText" />
+                <TextBox Text="@_webSocketAddress" Placeholder="wss://..."
+                         OnTextChanged="@(v => _webSocketAddress = v)" />
+
+                <Label Text="Configuration UI Port:" Color="@DarkText" />
+                <TextBox Text="@_port" Placeholder="Port number"
+                         OnTextChanged="@(v => _port = v)" />
+            }
+        </Panel>
+
+        @* Bottom bar *@
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
+            <Button Text="< Back" OnClick="GoBackToInstall" />
+            <Button Text="Finish" OnClick="HandleFinish" />
+        </Panel>
+    </Panel>
+}
+else
+{
+    @* Finish page — same sidebar style as Welcome *@
+    <Panel Background="@White">
+        <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
+
+        <Panel LayoutData="@(new FlexItem { Grow = 1 })">
+            <FlexLayout Gap="0" AlignItems="Alignment.Stretch" />
+
+            @* Left sidebar *@
+            <Panel Background="@HeaderBlue" LayoutData="@(new FlexItem { Basis = 164 })">
+                <FlexLayout Direction="Orientation.Vertical" Gap="12" AlignItems="Alignment.Center"
+                            JustifyContent="JustifyContent.Center" />
+                <SvgImage Svg="@_checkIcon" />
+                <Label Text="Complete" Bold="true" FontSize="11" Color="@White" />
+            </Panel>
+
+            @* Right content *@
+            <Panel LayoutData="@(new FlexItem { Grow = 1 })" Padding="@(new Thickness(24, 20))">
+                <FlexLayout Direction="Orientation.Vertical" Gap="8" AlignItems="Alignment.Start" />
+
+                <Label Text="Setup Complete" FontSize="16" Bold="true" Color="@DarkText" />
+
+                <Label Text="The application has been installed and configured successfully."
+                       Color="@DarkText" />
+
+                <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
+
+                <Panel Background="@(new Color4(0.95f, 0.95f, 0.97f, 1f))"
+                       Padding="@(new Thickness(12, 8))"
+                       CornerRadius="@(new CornerRadius(4))">
+                    <FlexLayout Direction="Orientation.Vertical" Gap="3" AlignItems="Alignment.Start" />
+                    <Label Text="@($"API Key:   {_apiKey}")" FontSize="13" Color="@GrayText" />
+                    <Label Text="@($"API:        {_apiAddress}")" FontSize="13" Color="@GrayText" />
+                    <Label Text="@($"WebSocket:  {_webSocketAddress}")" FontSize="13" Color="@GrayText" />
+                    <Label Text="@($"Port:       {_port}")" FontSize="13" Color="@GrayText" />
+                </Panel>
+
+                <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
+
+                <Label Text="The service has been registered and started." Color="@(new Color4(0.15f, 0.55f, 0.15f, 1f))" />
+            </Panel>
+        </Panel>
+
+        @* Bottom bar *@
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
+            <Button Text="Close" OnClick="HandleCancel" />
+        </Panel>
+    </Panel>
+}
+
+@code {
+    private const string Version = "1.0.0";
+
+    // MUI2-style colors
+    private static readonly Color4 White = new(1f, 1f, 1f, 1f);
+    private static readonly Color4 HeaderBlue = new(0.18f, 0.34f, 0.60f, 1f);
+    private static readonly Color4 DarkText = new(0.12f, 0.12f, 0.14f, 1f);
+    private static readonly Color4 GrayText = new(0.40f, 0.40f, 0.42f, 1f);
+    private static readonly Color4 BottomBar = new(0.92f, 0.92f, 0.93f, 1f);
+    private static readonly Color4 ContentBg = new(0.98f, 0.98f, 0.99f, 1f);
+
+    // SVG graphics
+
+    // Shield icon for welcome sidebar (64x80)
+    private const string _shieldIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 64 80"" width=""64"" height=""80"">
+  <defs>
+    <linearGradient id=""sg"" x1=""0"" y1=""0"" x2=""0"" y2=""1"">
+      <stop offset=""0%"" stop-color=""#FFFFFF"" stop-opacity=""0.9""/>
+      <stop offset=""100%"" stop-color=""#C0D8F0"" stop-opacity=""0.9""/>
+    </linearGradient>
+  </defs>
+  <path d=""M32 4 L58 16 V40 C58 58 32 74 32 74 C32 74 6 58 6 40 V16 Z""
+        fill=""url(#sg)"" stroke=""#FFFFFF"" stroke-width=""2""/>
+  <path d=""M22 38 L30 46 L44 30"" fill=""none"" stroke=""#2B5A9E"" stroke-width=""4""
+        stroke-linecap=""round"" stroke-linejoin=""round""/>
+</svg>";
+
+    // Small header icon (32x32)
+    private const string _headerIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 32 32"" width=""32"" height=""32"">
+  <path d=""M16 2 L28 8 V18 C28 27 16 30 16 30 C16 30 4 27 4 18 V8 Z""
+        fill=""#2E5E9E"" stroke=""#1A3D6E"" stroke-width=""1""/>
+  <path d=""M11 16 L15 20 L22 12"" fill=""none"" stroke=""white"" stroke-width=""2.5""
+        stroke-linecap=""round"" stroke-linejoin=""round""/>
+</svg>";
+
+    // Green checkmark for finish sidebar (64x64)
+    private const string _checkIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 64 64"" width=""64"" height=""64"">
+  <circle cx=""32"" cy=""32"" r=""28"" fill=""#FFFFFF"" fill-opacity=""0.9""
+          stroke=""#FFFFFF"" stroke-width=""2""/>
+  <path d=""M18 32 L28 42 L46 22"" fill=""none"" stroke=""#28A745"" stroke-width=""5""
+        stroke-linecap=""round"" stroke-linejoin=""round""/>
+</svg>";
+
+    private enum Page { Welcome, Installing, Configure, Finish }
+    private Page _page = Page.Welcome;
+
+    // Configuration fields
+    private string _apiKey = "";
+    private string _apiAddress = "https://api.example.com";
+    private string _webSocketAddress = "wss://ws.example.com";
+    private string _port = "5000";
+    private bool _showAdvanced;
+
+    // Install progress
+    private readonly List<string> _installLog = new();
+    private float _installProgress;
+    private bool _installDone;
+
+    private async Task GoToInstall()
+    {
+        _page = Page.Installing;
+        _installLog.Clear();
+        _installProgress = 0;
+        _installDone = false;
+        StateHasChanged();
+
+        // Simulate install steps
+        await SimulateStep("Stopping existing service...", 0.1f);
+        await SimulateStep("Extract: App.exe", 0.3f);
+        await SimulateStep("Extract: appsettings.json", 0.4f);
+        await SimulateStep("Output folder: C:\\Program Files\\ExampleApp", 0.5f);
+        await SimulateStep("Registering Windows service...", 0.7f);
+        await SimulateStep("Create shortcut: Example App", 0.8f);
+        await SimulateStep("Writing uninstall information to registry...", 0.9f);
+        await SimulateStep("Completed.", 1.0f);
+
+        _installDone = true;
+        StateHasChanged();
+    }
+
+    private async Task SimulateStep(string message, float progress)
+    {
+        await InvokeAsync(() =>
+        {
+            _installLog.Add(message);
+            _installProgress = progress;
+            StateHasChanged();
+        });
+        await Task.Delay(350);
+    }
+
+    private void GoBackToInstall()
+    {
+        _page = Page.Installing;
+        _installDone = true;
+    }
+
+    private void GoToConfigure()
+    {
+        _page = Page.Configure;
+    }
+
+    private void HandleFinish()
+    {
+        _page = Page.Finish;
+    }
+
+    private void HandleCancel()
+    {
+        // In a real installer this would close the window
+    }
+}

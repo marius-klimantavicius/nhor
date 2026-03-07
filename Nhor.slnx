@@ -83,6 +83,7 @@
         <Project Path="winter/Marius.Winter/Marius.Winter.csproj" />
         <Project Path="winter\Marius.Winter.Blazor.Playground\Marius.Winter.Blazor.Playground.csproj" />
         <Project Path="winter\Marius.Winter.Blazor\Marius.Winter.Blazor.csproj" />
+        <Project Path="examples/BlazorInstaller/BlazorInstaller.csproj" />
         <Project Path="winter/Marius.Winter.Blazor.InstallerExample/Marius.Winter.Blazor.InstallerExample.csproj" />
         <Project Path="winter/Marius.Winter.Playground/Marius.Winter.Playground.csproj" />
     </Folder>
