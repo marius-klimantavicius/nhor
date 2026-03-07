@@ -152,10 +152,11 @@ public class TextBox : Element
         _borderShape?.ResetShape();
         _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, 2.5f, 2.5f);
 
-        // Update text clip to content area
+        // Update text clip to content area (coordinates are in _textScene local space,
+        // which is already translated by (xSpacing, textY), so x starts at 0)
         float xSp = XSpacing;
         _textClipShape?.ResetShape();
-        _textClipShape?.AppendRect(xSp, 0, w - 2 * xSp, h, 0, 0);
+        _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
 
         UpdateVisibleText();
     }
@@ -382,8 +383,10 @@ public class TextBox : Element
         t.SetFont(Style.FontName);
         t.SetFontSize(_effectiveFontSize);
         t.SetText(text);
-        t.Bounds(out _, out _, out float bw, out _);
-        return bw;
+        if (t.GetTextSize(out float w, out _) == ThorVG.Result.Success)
+            return w;
+        t.Bounds(out float bx, out _, out float bw, out _);
+        return bx + bw;
     }
 
     private float GetCursorX()

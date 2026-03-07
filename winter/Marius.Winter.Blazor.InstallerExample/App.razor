@@ -1,0 +1,249 @@
+@* ── Page 1: Configuration ── *@
+@if (_page == Page.Configure && !_browsing)
+{
+    <Panel>
+        <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+        <Label Text="Install MyApp" FontSize="22" />
+        <Separator />
+
+        <Label Text="Installation Directory" />
+        <Panel>
+            <FlexLayout Gap="6" />
+            <TextBox Text="@_installPath" Placeholder="/opt/myapp"
+                     OnTextChanged="@(v => _installPath = v)"
+                     LayoutData="@(new FlexItem { Grow = 1 })" />
+            <Button Text="Browse..." OnClick="OpenBrowser" />
+        </Panel>
+
+        <Separator />
+        <Label Text="Configuration" FontSize="16" />
+
+        <Label Text="Application Name" />
+        <TextBox Text="@_appName" Placeholder="MyApp"
+                 OnTextChanged="@(v => _appName = v)" />
+
+        <Label Text="Environment" />
+        <ComboBox Items="@_environments" SelectedIndex="@_envIndex"
+                  OnSelectionChanged="@(i => _envIndex = i)" />
+
+        <Checkbox Text="Create desktop shortcut" IsChecked="@_createShortcut"
+                  OnChanged="@(v => _createShortcut = v)" />
+        <Checkbox Text="Launch at startup" IsChecked="@_launchAtStartup"
+                  OnChanged="@(v => _launchAtStartup = v)" />
+
+        <Panel>
+            <FlexLayout JustifyContent="JustifyContent.End" Gap="8" />
+            <Button Text="Install" OnClick="StartInstall" />
+        </Panel>
+    </Panel>
+}
+
+@* ── Folder Browser ── *@
+@if (_page == Page.Configure && _browsing)
+{
+    <Panel>
+        <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+
+        <Label Text="Select Installation Directory" FontSize="18" />
+        <Separator />
+
+        <Label Text="@($"Selected: {_browseSelected ?? "(none)"}")" />
+
+        <TreeView OnSelectionChanged="@(path => _browseSelected = path)"
+                  LayoutData="@(new FlexItem { Grow = 1 })">
+            <TreeNode Text="/" Icon="@_driveIcon" Tag="/">
+                <TreeNode Text="etc" Icon="@_folderIcon" Tag="/etc">
+                    <TreeNode Text="myapp" Icon="@_folderIcon" Tag="/etc/myapp" />
+                </TreeNode>
+                <TreeNode Text="home" Icon="@_folderIcon" Tag="/home">
+                    <TreeNode Text="user" Icon="@_folderIcon" Tag="/home/user">
+                        <TreeNode Text="Apps" Icon="@_folderIcon" Tag="/home/user/Apps" />
+                        <TreeNode Text="Documents" Icon="@_folderIcon" Tag="/home/user/Documents" />
+                        <TreeNode Text="Downloads" Icon="@_folderIcon" Tag="/home/user/Downloads" />
+                        <TreeNode Text="Projects" Icon="@_folderIcon" Tag="/home/user/Projects">
+                            <TreeNode Text="myapp" Icon="@_folderIcon" Tag="/home/user/Projects/myapp" />
+                        </TreeNode>
+                    </TreeNode>
+                </TreeNode>
+                <TreeNode Text="opt" Icon="@_folderIcon" Tag="/opt">
+                    <TreeNode Text="myapp" Icon="@_folderOpenIcon" Tag="/opt/myapp" />
+                    <TreeNode Text="tools" Icon="@_folderIcon" Tag="/opt/tools" />
+                </TreeNode>
+                <TreeNode Text="tmp" Icon="@_folderIcon" Tag="/tmp" />
+                <TreeNode Text="usr" Icon="@_folderIcon" Tag="/usr">
+                    <TreeNode Text="local" Icon="@_folderIcon" Tag="/usr/local">
+                        <TreeNode Text="bin" Icon="@_folderIcon" Tag="/usr/local/bin" />
+                        <TreeNode Text="lib" Icon="@_folderIcon" Tag="/usr/local/lib" />
+                        <TreeNode Text="share" Icon="@_folderIcon" Tag="/usr/local/share" />
+                    </TreeNode>
+                    <TreeNode Text="share" Icon="@_folderIcon" Tag="/usr/share" />
+                </TreeNode>
+                <TreeNode Text="var" Icon="@_folderIcon" Tag="/var">
+                    <TreeNode Text="lib" Icon="@_folderIcon" Tag="/var/lib" />
+                    <TreeNode Text="log" Icon="@_folderIcon" Tag="/var/log" />
+                    <TreeNode Text="opt" Icon="@_folderIcon" Tag="/var/opt" />
+                </TreeNode>
+            </TreeNode>
+        </TreeView>
+
+        <Separator />
+        <Panel>
+            <FlexLayout JustifyContent="JustifyContent.End" Gap="8" />
+            <Button Text="Cancel" OnClick="BrowseCancel" />
+            <Button Text="Select" OnClick="BrowseSelect" />
+        </Panel>
+    </Panel>
+}
+
+@* ── Page 2: Progress ── *@
+@if (_page == Page.Progress)
+{
+    <Panel>
+        <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+        <Label Text="Installing..." FontSize="22" />
+        <Separator />
+
+        <Label Text="@($"Progress: {(_progress * 100):F0}%")" />
+        <ProgressBar Value="@_progress" />
+
+        <LogView Text="@_log" LayoutData="@(new FlexItem { Grow = 1 })" />
+    </Panel>
+}
+
+@* ── Page 3: Complete ── *@
+@if (_page == Page.Complete)
+{
+    <Panel>
+        <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+        <Label Text="Installation Complete" FontSize="22" />
+        <Separator />
+
+        <Label Text="@($"{_appName} has been successfully installed to:")" />
+        <Label Text="@_installPath" FontSize="14" />
+
+        <Separator />
+        <Label Text="@($"Environment: {_environments[_envIndex]}")" />
+        @if (_createShortcut)
+        {
+            <Label Text="Desktop shortcut created." />
+        }
+        @if (_launchAtStartup)
+        {
+            <Label Text="Registered to launch at startup." />
+        }
+
+        <Panel>
+            <FlexLayout JustifyContent="JustifyContent.End" Gap="8" />
+            <Button Text="Launch MyApp" OnClick="LaunchApp" />
+        </Panel>
+    </Panel>
+}
+
+@code {
+    enum Page { Configure, Progress, Complete }
+
+    // ── Folder icons ──
+
+    const string _driveIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <rect x=""2"" y=""3"" width=""12"" height=""10"" rx=""1.5"" fill=""#78909C"" stroke=""#546E7A"" stroke-width=""0.5""/>
+  <rect x=""4"" y=""10"" width=""2"" height=""1.5"" rx=""0.5"" fill=""#B0BEC5""/>
+  <rect x=""7"" y=""10"" width=""5"" height=""1.5"" rx=""0.5"" fill=""#B0BEC5""/>
+</svg>";
+
+    const string _folderIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <path d=""M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V5.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/>
+</svg>";
+
+    const string _folderOpenIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
+  <path d=""M1.5 2A1.5 1.5 0 000 3.5V6h16v-.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/>
+  <path d=""M0 6l2 8h12l2-8z"" fill=""#FBC02D""/>
+</svg>";
+
+    // ── State ──
+    Page _page = Page.Configure;
+
+    string _installPath = "/opt/myapp";
+    string _appName = "MyApp";
+    int _envIndex;
+    bool _createShortcut = true;
+    bool _launchAtStartup;
+    readonly string[] _environments = ["Production", "Staging", "Development"];
+
+    float _progress;
+    string _log = "";
+
+    // ── Folder browser ──
+    bool _browsing;
+    string? _browseSelected;
+
+    void OpenBrowser()
+    {
+        _browseSelected = _installPath;
+        _browsing = true;
+    }
+
+    void BrowseSelect()
+    {
+        if (_browseSelected != null)
+            _installPath = _browseSelected;
+        _browsing = false;
+    }
+
+    void BrowseCancel()
+    {
+        _browsing = false;
+    }
+
+    // ── Simulated install steps ──
+    static readonly (string message, int durationMs)[] _steps =
+    [
+        ("Preparing installation directory...", 300),
+        ("Creating bin/", 150),
+        ("Creating lib/", 150),
+        ("Creating config/", 100),
+        ("Creating logs/", 100),
+        ("Copying myapp.dll...", 400),
+        ("Copying myapp.deps.json...", 200),
+        ("Copying myapp.runtimeconfig.json...", 150),
+        ("Copying lib/core.dll...", 350),
+        ("Copying lib/rendering.dll...", 300),
+        ("Copying lib/networking.dll...", 250),
+        ("Copying lib/data.dll...", 200),
+        ("Copying lib/plugins.dll...", 300),
+        ("Writing config/appsettings.json...", 200),
+        ("Writing config/logging.json...", 150),
+        ("Registering environment variables...", 300),
+        ("Running post-install hooks...", 500),
+        ("$ chmod +x bin/myapp", 200),
+        ("$ ln -s bin/myapp /usr/local/bin/myapp", 200),
+        ("Verifying installation integrity...", 400),
+        ("Installation complete.", 100),
+    ];
+
+    async void StartInstall()
+    {
+        _page = Page.Progress;
+        _progress = 0;
+        _log = "";
+
+        for (int i = 0; i < _steps.Length; i++)
+        {
+            var (message, duration) = _steps[i];
+            _log += message + "\n";
+            _progress = (float)(i + 1) / _steps.Length;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(duration);
+        }
+
+        _page = Page.Complete;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    void LaunchApp()
+    {
+        _page = Page.Configure;
+    }
+}

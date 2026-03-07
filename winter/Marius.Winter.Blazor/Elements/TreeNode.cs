@@ -13,6 +13,7 @@ public class TreeNode : WinterComponentBase
 
     [Parameter] public string? Text { get; set; }
     [Parameter] public string? Icon { get; set; }
+    [Parameter] public string? Tag { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -23,6 +24,8 @@ public class TreeNode : WinterComponentBase
             builder.AddAttribute(nameof(Text), Text);
         if (Icon != null)
             builder.AddAttribute(nameof(Icon), Icon);
+        if (Tag != null)
+            builder.AddAttribute(nameof(Tag), Tag);
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
@@ -33,6 +36,7 @@ public class TreeNode : WinterComponentBase
         private Marius.Winter.TreeNode? _treeNode;
         private string _text = "";
         private string? _iconSvg;
+        private string? _tag;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Panel()) { }
@@ -46,6 +50,11 @@ public class TreeNode : WinterComponentBase
                     break;
                 case "Icon":
                     _iconSvg = AttributeHelper.GetString(attributeValue);
+                    break;
+                case "Tag":
+                    _tag = AttributeHelper.GetString(attributeValue);
+                    if (_treeNode != null)
+                        _treeNode.Tag = _tag;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
@@ -61,6 +70,8 @@ public class TreeNode : WinterComponentBase
                 {
                     _treeView = info.TreeView;
                     _treeNode = _treeView.AddNode(_text, info.ParentNode, _iconSvg);
+                    if (_tag != null)
+                        _treeNode.Tag = _tag;
 
                     TreeView.ElementToTreeInfo[ElementControl] = new TreeViewInfo(_treeView, _treeNode);
                 }

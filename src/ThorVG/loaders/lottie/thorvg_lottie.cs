@@ -76,13 +76,24 @@ namespace ThorVG
         /// </summary>
         public string? Marker(uint idx)
         {
+            return Marker(idx, out _, out _);
+        }
+
+        /// <summary>
+        /// Gets the marker name, start frame and end frame by a given index.
+        /// </summary>
+        public string? Marker(uint idx, out float begin, out float end)
+        {
+            begin = 0;
+            end = 0;
+
             var loader = GetPicture().loader;
             if (loader == null) return null;
 
             var lottieLoader = loader as LottieLoader;
             if (lottieLoader == null) return null;
 
-            return lottieLoader.GetMarker(idx);
+            return lottieLoader.GetMarker(idx, out begin, out end);
         }
 
         /// <summary>

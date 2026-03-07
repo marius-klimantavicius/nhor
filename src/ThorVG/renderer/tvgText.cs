@@ -158,6 +158,20 @@ namespace ThorVG
             return 0;
         }
 
+        /// <summary>
+        /// Returns the advance-based width and height of the shaped text.
+        /// Unlike Paint.Bounds(), this returns the total advance width (where the
+        /// cursor would end up after the last character), not the visual bounding box.
+        /// </summary>
+        public Result GetTextSize(out float w, out float h)
+        {
+            w = h = 0;
+            if (!InternalLoad()) return Result.InsufficientCondition;
+            w = fm.size.x / fm.scale;
+            h = fm.size.y / fm.scale;
+            return Result.Success;
+        }
+
         /// <summary>Static font loading from file path. Mirrors C++ Text::load(filename).</summary>
         public static Result LoadFont(string? filename)
         {

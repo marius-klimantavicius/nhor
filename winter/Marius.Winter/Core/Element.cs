@@ -397,6 +397,8 @@ public abstract class Element
     public virtual bool OnMouseDown(int button, float x, float y) => false;
     public virtual bool OnMouseUp(int button, float x, float y) => false;
     public virtual void OnClick() { }
+    public Action? DoubleClicked;
+    public virtual void OnDoubleClick() { DoubleClicked?.Invoke(); }
     public virtual void OnScroll(float dx, float dy) { _parent?.OnScroll(dx, dy); }
     public virtual void OnDragStart(float x, float y) { }
     public virtual void OnDrag(float dx, float dy) { }

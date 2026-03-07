@@ -208,10 +208,15 @@ namespace ThorVG
             return comp != null ? (uint)comp.markers.Count : 0;
         }
 
-        public string? GetMarker(uint index)
+        public string? GetMarker(uint index, out float begin, out float end)
         {
+            begin = 0;
+            end = 0;
             if (comp == null || index >= comp.markers.Count) return null;
-            return comp.markers[(int)index].name;
+            var marker = comp.markers[(int)index];
+            begin = marker.time;
+            end = marker.time + marker.duration;
+            return marker.name;
         }
 
         public bool Segment(string? marker, out float begin, out float end)

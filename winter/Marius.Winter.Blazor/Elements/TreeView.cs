@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
@@ -16,17 +17,50 @@ public class TreeView : WinterComponentBase
     internal static readonly Dictionary<Element, TreeViewInfo> ElementToTreeInfo = new();
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback<string?> OnSelectionChanged { get; set; }
+
+    protected override void RenderAttributes(AttributesBuilder builder)
+    {
+        base.RenderAttributes(builder);
+        builder.AddAttribute("onselectionchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnSelectionChanged.InvokeAsync((string?)value.Value)));
+    }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
 
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
+        ulong _selectionChangedEventHandlerId;
+
         Marius.Winter.TreeView TreeViewControl => (Marius.Winter.TreeView)ElementControl;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.TreeView())
         {
             ElementToTreeInfo[ElementControl] = new TreeViewInfo(TreeViewControl, null);
+
+            TreeViewControl.SelectionChanged = node =>
+            {
+                if (_selectionChangedEventHandlerId != 0)
+                {
+                    var tag = node?.Tag as string;
+                    Renderer.Dispatcher.InvokeAsync(() =>
+                        Renderer.DispatchEventAsync(_selectionChangedEventHandlerId, null, new ChangeEventArgs { Value = tag }));
+                }
+            };
+        }
+
+        public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
+        {
+            switch (attributeName)
+            {
+                case "onselectionchanged":
+                    Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_selectionChangedEventHandlerId == id) _selectionChangedEventHandlerId = 0; });
+                    _selectionChangedEventHandlerId = attributeEventHandlerId;
+                    break;
+                default:
+                    base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
+                    break;
+            }
         }
 
         public void AddChild(Element child, int physicalSiblingIndex)

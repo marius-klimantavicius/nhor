@@ -14,6 +14,7 @@ public abstract class WinterComponentBase : NativeControlComponentBase
     [Parameter] public float? MinHeight { get; set; }
     [Parameter] public float? MaxWidth { get; set; }
     [Parameter] public float? MaxHeight { get; set; }
+    [Parameter] public EventCallback OnDoubleClick { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
@@ -37,5 +38,7 @@ public abstract class WinterComponentBase : NativeControlComponentBase
             builder.AddAttribute("MaxWidth", MaxWidth.Value);
         if (MaxHeight.HasValue)
             builder.AddAttribute("MaxHeight", MaxHeight.Value);
+
+        builder.AddAttribute("ondoubleclick", OnDoubleClick);
     }
 }

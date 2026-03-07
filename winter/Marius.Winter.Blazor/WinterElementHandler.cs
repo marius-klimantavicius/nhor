@@ -6,11 +6,18 @@ namespace Marius.Winter.Blazor;
 public class WinterElementHandler : IWinterElementHandler
 {
     private Element? _parent;
+    private ulong _doubleClickEventHandlerId;
 
     public WinterElementHandler(NativeComponentRenderer renderer, Element elementControl)
     {
         Renderer = renderer;
         ElementControl = elementControl;
+
+        ElementControl.DoubleClicked = () =>
+        {
+            if (_doubleClickEventHandlerId != 0)
+                Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchEventAsync(_doubleClickEventHandlerId, null, EventArgs.Empty));
+        };
     }
 
     public NativeComponentRenderer Renderer { get; }
@@ -47,6 +54,10 @@ public class WinterElementHandler : IWinterElementHandler
                 break;
             case "MaxHeight":
                 ElementControl.MaxHeight = AttributeHelper.GetNullableFloat(attributeValue);
+                break;
+            case "ondoubleclick":
+                Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_doubleClickEventHandlerId == id) _doubleClickEventHandlerId = 0; });
+                _doubleClickEventHandlerId = attributeEventHandlerId;
                 break;
             default:
                 throw new ArgumentException($"Attribute '{attributeName}' is not supported by {GetType().Name}.");

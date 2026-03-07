@@ -28,6 +28,7 @@ public class Checkbox : WinterComponentBase
     class Handler : WinterElementHandler
     {
         ulong OnChangedEventHandlerId;
+        bool _pendingUserChange;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Checkbox())
@@ -35,7 +36,10 @@ public class Checkbox : WinterComponentBase
             CheckboxControl.Changed = value =>
             {
                 if (OnChangedEventHandlerId != 0)
+                {
+                    _pendingUserChange = true;
                     Renderer.DispatchEventAsync(OnChangedEventHandlerId, null, new ChangeEventArgs { Value = value });
+                }
             };
         }
 
@@ -49,7 +53,19 @@ public class Checkbox : WinterComponentBase
                     CheckboxControl.Text = AttributeHelper.GetString(attributeValue) ?? "";
                     break;
                 case "IsChecked":
-                    CheckboxControl.IsChecked = AttributeHelper.GetBool(attributeValue);
+                    var val = AttributeHelper.GetBool(attributeValue);
+                    if (_pendingUserChange)
+                    {
+                        // Blazor re-rendered before async event processed —
+                        // accept only if it matches native state (confirms the change),
+                        // otherwise skip stale value
+                        if (val == CheckboxControl.IsChecked)
+                            _pendingUserChange = false;
+                    }
+                    else
+                    {
+                        CheckboxControl.IsChecked = val;
+                    }
                     break;
                 case "onchanged":
                     Renderer.RegisterEvent(attributeEventHandlerId, id =>

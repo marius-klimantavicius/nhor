@@ -43,6 +43,7 @@ public class TreeView : Element
     private float _dragStartScroll;
     private float _dragStartY;
 
+
     private const float RowHeight = 24f;
     private const float IndentWidth = 20f;
     private const float ArrowAreaWidth = 16f;
@@ -519,11 +520,30 @@ public class TreeView : Element
         }
         else
         {
-            // Select row
             SelectRow(rowIndex);
         }
 
         return true;
+    }
+
+    public override void OnDoubleClick()
+    {
+        if (_selectedIndex >= 0 && _selectedIndex < _visibleRows.Count)
+        {
+            var node = _visibleRows[_selectedIndex].Node;
+            if (node.HasChildren)
+            {
+                node.IsExpanded = !node.IsExpanded;
+                if (node.IsExpanded)
+                    NodeExpanded?.Invoke(node);
+                else
+                    NodeCollapsed?.Invoke(node);
+
+                RebuildVisibleRows();
+            }
+        }
+
+        base.OnDoubleClick();
     }
 
     public override bool OnMouseUp(int button, float x, float y)

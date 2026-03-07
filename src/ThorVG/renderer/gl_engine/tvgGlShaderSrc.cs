@@ -567,14 +567,14 @@ void getFragData() {
     vec2 uv = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
     vec4 colorSrc = uSolidInfo.solidColor;
     vec4 colorDst = texture(uDstTexture, uv);
-    d.Sc = colorSrc.rgb;
+    d.Sc = colorSrc.rgb * colorSrc.a;
     d.Sa = colorSrc.a;
     d.So = 1.0;
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
 }
 
-vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+vec4 postProcess(vec4 R) { return R; }
 ";
 
         public static readonly string BLEND_SHAPE_LINEAR_FRAG_HEADER = @"
@@ -601,9 +601,12 @@ void getFragData() {
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
     if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    float srcOpacity = d.Sa * d.So;
+    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sa = mix(d.Da, 1.0, srcOpacity);
 }
 
-vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+vec4 postProcess(vec4 R) { return R; }
 ";
 
         public static readonly string BLEND_SHAPE_RADIAL_FRAG_HEADER = @"
@@ -630,9 +633,12 @@ void getFragData() {
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
     if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    float srcOpacity = d.Sa * d.So;
+    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sa = mix(d.Da, 1.0, srcOpacity);
 }
 
-vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+vec4 postProcess(vec4 R) { return R; }
 ";
 
         public static readonly string BLEND_IMAGE_FRAG_HEADER = @"

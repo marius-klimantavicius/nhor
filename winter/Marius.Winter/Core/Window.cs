@@ -37,6 +37,12 @@ public unsafe class Window : Element
     private Element? _capturedElement;
     private float _mouseX, _mouseY;
 
+    // Double-click detection
+    private long _lastClickTimestamp;
+    private Element? _lastClickElement;
+    private int _lastClickButton = -1;
+    private static readonly long DoubleClickInterval = Stopwatch.Frequency * 400 / 1000; // 400ms
+
     // Overlay layer — rendered on top of all children, hit-tested first
     private Scene? _overlayScene;
     private readonly List<Element> _overlays = new();
@@ -512,7 +518,27 @@ public unsafe class Window : Element
                     // or any descendant of it (e.g. Label inside Button)
                     var hitNow = HitTestOverlays(_mouseX, _mouseY) ?? HitTest(_mouseX, _mouseY);
                     if (hitNow == target || IsDescendantOf(hitNow, target))
+                    {
+                        long now = Stopwatch.GetTimestamp();
+                        bool isDoubleClick = target == _lastClickElement
+                            && button == _lastClickButton
+                            && (now - _lastClickTimestamp) < DoubleClickInterval;
+
                         target.OnClick();
+
+                        if (isDoubleClick)
+                        {
+                            target.OnDoubleClick();
+                            _lastClickElement = null;
+                            _lastClickTimestamp = 0;
+                        }
+                        else
+                        {
+                            _lastClickElement = target;
+                            _lastClickButton = button;
+                            _lastClickTimestamp = now;
+                        }
+                    }
 
                     _capturedElement = null;
                     _dirty = true;
