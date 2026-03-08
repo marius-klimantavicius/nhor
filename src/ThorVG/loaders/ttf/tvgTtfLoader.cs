@@ -17,9 +17,21 @@ namespace ThorVG
     /// </summary>
     public class TtfLoader : FontLoader
     {
-        private const uint SPACE_GLYPH_IDX = 1;
-        private const uint LINE_FEED_GLYPH_IDX = 10;
-        private const uint DOT_GLYPH_IDX = 46;
+        private const uint LINE_FEED_CODEPOINT = 0x0A;
+        private const uint DOT_CODEPOINT = 0x2E;
+
+        private static bool IsWordBreak(uint code) => code switch
+        {
+            0x20   => true,  // space
+            0x09   => true,  // tab
+            0xA0   => true,  // no-break space
+            0x1680 => true,  // ogham space mark
+            >= 0x2000 and <= 0x200A => true,  // en/em/thin/hair spaces etc.
+            0x202F => true,  // narrow no-break space
+            0x205F => true,  // medium mathematical space
+            0x3000 => true,  // ideographic space
+            _ => false,
+        };
 
         public TtfReader reader = new TtfReader();
         public Dictionary<uint, TtfGlyphMetrics> glyphs = new Dictionary<uint, TtfGlyphMetrics>();
@@ -156,7 +168,7 @@ namespace ThorVG
             while (idx < utf8.Length)
             {
                 var code = DecodeCodepoint(utf8, ref idx);
-                if (code == LINE_FEED_GLYPH_IDX)
+                if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
                     continue;
@@ -192,7 +204,7 @@ namespace ThorVG
             while (idx < utf8.Length)
             {
                 var code = DecodeCodepoint(utf8, ref idx);
-                if (code == LINE_FEED_GLYPH_IDX)
+                if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
                     continue;
@@ -246,7 +258,7 @@ namespace ThorVG
             while (idx < utf8.Length)
             {
                 var code = DecodeCodepoint(utf8, ref idx);
-                if (code == LINE_FEED_GLYPH_IDX)
+                if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
                     continue;
@@ -288,7 +300,7 @@ namespace ThorVG
                 cursor.x += xadv;
 
                 // capture the word start
-                if (rtgm.idx == SPACE_GLYPH_IDX)
+                if (IsWordBreak(code))
                 {
                     word = output.pts.count;
                     wadv = cursor.x;
@@ -319,7 +331,7 @@ namespace ThorVG
             while (idx < utf8.Length)
             {
                 var code = DecodeCodepoint(utf8, ref idx);
-                if (code == LINE_FEED_GLYPH_IDX)
+                if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
                     continue;
@@ -344,7 +356,7 @@ namespace ThorVG
                 // ellipsis
                 else
                 {
-                    rtgm = Request(DOT_GLYPH_IDX);
+                    rtgm = Request(DOT_CODEPOINT);
                     if (rtgm == null) return;
 
                     kerning = new Point(0, 0);

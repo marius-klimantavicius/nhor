@@ -14,6 +14,7 @@ public class Label : Element
     private bool _colorSet;
     private bool _italic;
     private bool _bold;
+    private TextWrap _textWrapping = TextWrap.None;
     private bool _shapesCreated;
 
     public Label(string text = "")
@@ -92,6 +93,22 @@ public class Label : Element
         }
     }
 
+    public TextWrap TextWrapping
+    {
+        get => _textWrapping;
+        set
+        {
+            if (_textWrapping == value) return;
+            _textWrapping = value;
+            if (_textPaint != null)
+            {
+                _textPaint.SetWrapping(value);
+                InvalidateMeasure();
+                MarkDirty();
+            }
+        }
+    }
+
     protected override void OnAttached()
     {
         if (!_shapesCreated)
@@ -114,6 +131,8 @@ public class Label : Element
             _textPaint.SetFill(_color.R8, _color.G8, _color.B8);
             if (_italic)
                 _textPaint.SetItalic(0.18f);
+            if (_textWrapping != TextWrap.None)
+                _textPaint.SetWrapping(_textWrapping);
             _textScene = Scene.Gen()!;
             _textScene.Add(_textPaint);
             AddPaint(_textScene);
@@ -130,6 +149,14 @@ public class Label : Element
         if (m == null) return new Vector2(0, _fontSize);
         m.SetFont(_bold ? "default-bold" : Style.FontName);
         m.SetFontSize(EffectiveFontSize(_fontSize));
+        if (_textWrapping != TextWrap.None && availableWidth > 0 && !float.IsInfinity(availableWidth))
+        {
+            m.SetWrapping(_textWrapping);
+            m.SetLayout(availableWidth, 0);
+            m.SetText(_text);
+            m.GetTextSize(out _, out float wh);
+            return new Vector2(availableWidth, wh > 0 ? wh : _fontSize);
+        }
         m.SetText(_text);
         m.Bounds(out _, out _, out float bw, out float bh);
         return new Vector2(bw > 0 ? bw : 0, bh > 0 ? bh : _fontSize);
@@ -139,12 +166,24 @@ public class Label : Element
     {
         if (_textPaint == null || string.IsNullOrEmpty(_text)) return;
 
+        if (_textWrapping != TextWrap.None)
+        {
+            _textPaint.SetLayout(Bounds.W, Bounds.H);
+            // Re-set text to trigger reshaping with the new layout box
+            _textPaint.SetText(_text);
+        }
+
         // Use a temporary Text to measure local bounds (not affected by scene transforms).
         // The (bx, by) offset is the gap between the text origin and the visual glyph box.
         var m = ThorVG.Text.Gen();
         if (m == null) return;
         m.SetFont(_bold ? "default-bold" : Style.FontName);
         m.SetFontSize(EffectiveFontSize(_fontSize));
+        if (_textWrapping != TextWrap.None)
+        {
+            m.SetWrapping(_textWrapping);
+            m.SetLayout(Bounds.W, Bounds.H);
+        }
         m.SetText(_text);
         m.Bounds(out float bx, out float by, out _, out _);
         _textScene?.Translate(-bx, -by);

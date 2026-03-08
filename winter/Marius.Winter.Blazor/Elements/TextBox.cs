@@ -13,6 +13,7 @@ public class TextBox : WinterComponentBase
 
     [Parameter] public string? Text { get; set; }
     [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public bool Required { get; set; }
     [Parameter] public EventCallback<string> OnTextChanged { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -23,6 +24,8 @@ public class TextBox : WinterComponentBase
             builder.AddAttribute("Text", Text);
         if (Placeholder != null)
             builder.AddAttribute("Placeholder", Placeholder);
+        if (Required)
+            builder.AddAttribute("Required", true);
 
         builder.AddAttribute("ontextchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnTextChanged.InvokeAsync((string)value.Value!)));
     }
@@ -52,6 +55,9 @@ public class TextBox : WinterComponentBase
                     break;
                 case "Placeholder":
                     TextBoxControl.Placeholder = AttributeHelper.GetString(attributeValue) ?? "";
+                    break;
+                case "Required":
+                    TextBoxControl.Required = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "ontextchanged":
                     Renderer.RegisterEvent(attributeEventHandlerId, id =>

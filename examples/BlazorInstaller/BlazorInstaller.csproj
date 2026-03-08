@@ -10,4 +10,8 @@
     <ProjectReference Include="..\..\winter\Marius.Winter.Blazor\Marius.Winter.Blazor.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <TrimmerRootAssembly Include="ThorVG" />
+  </ItemGroup>
+
 </Project>

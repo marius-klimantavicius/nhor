@@ -22,8 +22,7 @@ public abstract class WinterComponentBase : NativeControlComponentBase
 
         if (!Visible)
             builder.AddAttribute("Visible", false);
-        if (!Enabled)
-            builder.AddAttribute("Enabled", false);
+        builder.AddAttribute("Enabled", Enabled);
         if (Opacity < 1f)
             builder.AddAttribute("Opacity", Opacity);
         if (Tooltip != null)

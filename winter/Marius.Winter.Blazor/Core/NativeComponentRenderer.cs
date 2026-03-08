@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -40,7 +41,7 @@ namespace Marius.Winter.Blazor.Core
         /// <param name="parent"></param>
         /// <param name="parameters"></param>
         /// <returns></returns>
-        public async Task<TComponent> AddComponent<TComponent>(IElementHandler parent, Dictionary<string, object>? parameters = null) where TComponent : IComponent
+        public async Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(IElementHandler parent, Dictionary<string, object>? parameters = null) where TComponent : IComponent
         {
             return (TComponent)await AddComponent(typeof(TComponent), parent, parameters).ConfigureAwait(false);
         }
@@ -52,7 +53,7 @@ namespace Marius.Winter.Blazor.Core
         /// <param name="parent"></param>
         /// <param name="parameters"></param>
         /// <returns></returns>
-        public async Task<IComponent> AddComponent(Type componentType, IElementHandler parent, Dictionary<string, object>? parameters = null)
+        public async Task<IComponent> AddComponent([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type componentType, IElementHandler parent, Dictionary<string, object>? parameters = null)
         {
             try
             {
@@ -154,6 +155,7 @@ namespace Marius.Winter.Blazor.Core
             return result;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Component types are preserved via [DynamicallyAccessedMembers] on AddComponent")]
         internal static void SetParameterArguments(IComponent component, Dictionary<string, object>? arguments)
         {
             if (component == null)

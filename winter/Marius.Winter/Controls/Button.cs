@@ -278,15 +278,19 @@ public class Button : Element
     {
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
+        // Apply opacity reduction for disabled state
+        bool wasDisabled = (oldState & ElementState.Disabled) != 0;
+        bool isDisabled = (newState & ElementState.Disabled) != 0;
+        if (isDisabled && !wasDisabled)
+            Opacity = 0.4f;
+        else if (!isDisabled && wasDisabled)
+            Opacity = 1f;
+
         Color4 gradTop, gradBot;
         if (_customBackground.HasValue)
         {
             var bg = _customBackground.Value;
-            if ((newState & ElementState.Disabled) != 0)
-            {
-                gradTop = gradBot = Color4.Lerp(bg, new Color4(0.5f, 1f), 0.5f);
-            }
-            else if ((newState & ElementState.Pressed) != 0)
+            if ((newState & ElementState.Pressed) != 0)
             {
                 gradTop = gradBot = Color4.Lerp(bg, Color4.Black, 0.2f);
             }
@@ -298,11 +302,6 @@ public class Button : Element
             {
                 gradTop = gradBot = bg;
             }
-        }
-        else if ((newState & ElementState.Disabled) != 0)
-        {
-            gradTop = Color4.Lerp(theme.ButtonGradientTopUnfocused, new Color4(0.5f, 1f), 0.5f);
-            gradBot = Color4.Lerp(theme.ButtonGradientBotUnfocused, new Color4(0.5f, 1f), 0.5f);
         }
         else if ((newState & ElementState.Pressed) != 0)
         {
@@ -362,8 +361,7 @@ public class Button : Element
         }
         else
         {
-            var textColor = (newState & ElementState.Disabled) != 0 ? theme.DisabledTextColor : theme.TextColor;
-            _labelText?.SetFill(textColor.R8, textColor.G8, textColor.B8);
+            _labelText?.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
         }
 
         // Focus border highlight (skip for custom-colored buttons)

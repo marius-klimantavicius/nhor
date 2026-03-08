@@ -32,7 +32,7 @@
                 <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
 
                 <Label Text="This wizard will install and configure the application on your computer."
-                       Color="@DarkText" />
+                       Color="@DarkText" TextWrapping="TextWrap.Word" />
 
                 <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
 
@@ -54,7 +54,8 @@ else if (_page == Page.Installing)
         <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
 
         @* MUI2 header bar *@
-        <Panel Background="@White" Padding="@(new Thickness(16, 10))">
+        <Panel Background="@White" Padding="@(new Thickness(16, 10))"
+               LayoutData="@(new FlexItem { Shrink = 0 })">
             <FlexLayout Gap="8" AlignItems="Alignment.Center" />
             <Panel LayoutData="@(new FlexItem { Grow = 1 })">
                 <FlexLayout Direction="Orientation.Vertical" Gap="2" AlignItems="Alignment.Start" />
@@ -64,7 +65,7 @@ else if (_page == Page.Installing)
             <SvgImage Svg="@_headerIcon" />
         </Panel>
 
-        <Separator />
+        <Separator LayoutData="@(new FlexItem { Shrink = 0 })" />
 
         @* Install log area *@
         <ScrollPanel LayoutData="@(new FlexItem { Grow = 1 })" Background="@ContentBg">
@@ -82,7 +83,8 @@ else if (_page == Page.Installing)
         </Panel>
 
         @* Bottom bar *@
-        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))"
+               LayoutData="@(new FlexItem { Shrink = 0 })">
             <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
             <Button Text="Next >" OnClick="GoToConfigure" Enabled="@_installDone" />
         </Panel>
@@ -94,7 +96,8 @@ else if (_page == Page.Configure)
         <FlexLayout Direction="Orientation.Vertical" Gap="0" AlignItems="Alignment.Stretch" />
 
         @* MUI2 header bar *@
-        <Panel Background="@White" Padding="@(new Thickness(16, 10))">
+        <Panel Background="@White" Padding="@(new Thickness(16, 10))"
+               LayoutData="@(new FlexItem { Shrink = 0 })">
             <FlexLayout Gap="8" AlignItems="Alignment.Center" />
             <Panel LayoutData="@(new FlexItem { Grow = 1 })">
                 <FlexLayout Direction="Orientation.Vertical" Gap="2" AlignItems="Alignment.Start" />
@@ -104,14 +107,14 @@ else if (_page == Page.Configure)
             <SvgImage Svg="@_headerIcon" />
         </Panel>
 
-        <Separator />
+        <Separator LayoutData="@(new FlexItem { Shrink = 0 })" />
 
         @* Configuration form *@
         <Panel LayoutData="@(new FlexItem { Grow = 1 })" Padding="@(new Thickness(20, 14))" Background="@ContentBg">
             <FlexLayout Direction="Orientation.Vertical" Gap="8" AlignItems="Alignment.Stretch" />
 
             <Label Text="API Key:" Color="@DarkText" />
-            <TextBox Text="@_apiKey" Placeholder="Enter API key"
+            <TextBox Text="@_apiKey" Placeholder="Enter API key" Required="true"
                      OnTextChanged="@(v => _apiKey = v)" />
 
             <Panel>
@@ -124,24 +127,25 @@ else if (_page == Page.Configure)
             @if (_showAdvanced)
             {
                 <Label Text="API Server Address:" Color="@DarkText" />
-                <TextBox Text="@_apiAddress" Placeholder="https://..."
+                <TextBox Text="@_apiAddress" Placeholder="https://..." Required="true"
                          OnTextChanged="@(v => _apiAddress = v)" />
 
                 <Label Text="WebSocket Server Address:" Color="@DarkText" />
-                <TextBox Text="@_webSocketAddress" Placeholder="wss://..."
+                <TextBox Text="@_webSocketAddress" Placeholder="wss://..." Required="true"
                          OnTextChanged="@(v => _webSocketAddress = v)" />
 
                 <Label Text="Configuration UI Port:" Color="@DarkText" />
-                <TextBox Text="@_port" Placeholder="Port number"
+                <TextBox Text="@_port" Placeholder="Port number" Required="true"
                          OnTextChanged="@(v => _port = v)" />
             }
         </Panel>
 
         @* Bottom bar *@
-        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
+        <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))"
+               LayoutData="@(new FlexItem { Shrink = 0 })">
             <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
             <Button Text="< Back" OnClick="GoBackToInstall" />
-            <Button Text="Finish" OnClick="HandleFinish" />
+            <Button Text="Finish" OnClick="HandleFinish" Enabled="@ConfigValid" />
         </Panel>
     </Panel>
 }
@@ -250,6 +254,12 @@ else
     private string _port = "5000";
     private bool _showAdvanced;
 
+    private bool ConfigValid =>
+        !string.IsNullOrWhiteSpace(_apiKey) &&
+        !string.IsNullOrWhiteSpace(_apiAddress) &&
+        !string.IsNullOrWhiteSpace(_webSocketAddress) &&
+        !string.IsNullOrWhiteSpace(_port);
+
     // Install progress
     private readonly List<string> _installLog = new();
     private float _installProgress;
@@ -273,8 +283,11 @@ else
         await SimulateStep("Writing uninstall information to registry...", 0.9f);
         await SimulateStep("Completed.", 1.0f);
 
-        _installDone = true;
-        StateHasChanged();
+        await InvokeAsync(() =>
+        {
+            _installDone = true;
+            StateHasChanged();
+        });
     }
 
     private async Task SimulateStep(string message, float progress)

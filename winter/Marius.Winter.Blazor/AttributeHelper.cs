@@ -13,6 +13,8 @@ public static class AttributeHelper
             null => defaultValue,
             bool b => b,
             int i => i != 0,
+            string s when s == "0" => false,
+            string s when s == "1" => true,
             string s => bool.TryParse(s, out var r) ? r : defaultValue,
             _ => defaultValue
         };

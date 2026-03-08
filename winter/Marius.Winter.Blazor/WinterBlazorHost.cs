@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,12 +24,12 @@ public class WinterBlazorHost
 
     public WinterRenderer Renderer => _renderer;
 
-    public Task<TComponent> AddComponent<TComponent>() where TComponent : IComponent
+    public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>() where TComponent : IComponent
     {
         return _renderer.AddComponent<TComponent>(_rootContainer);
     }
 
-    public Task<TComponent> AddComponent<TComponent>(Dictionary<string, object> parameters) where TComponent : IComponent
+    public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(Dictionary<string, object> parameters) where TComponent : IComponent
     {
         return _renderer.AddComponent<TComponent>(_rootContainer, parameters);
     }

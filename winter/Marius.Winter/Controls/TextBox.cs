@@ -29,6 +29,9 @@ public class TextBox : Element
     // Visible text tracking
     private int _visibleStart;
     private int _visibleEnd;
+    private bool _required;
+
+    private static readonly Color4 ErrorBorder = new(0.85f, 0.20f, 0.20f, 1f);
 
     public Action<string>? TextChanged;
 
@@ -51,6 +54,7 @@ public class TextBox : Element
             _cursorPos = Math.Clamp(_cursorPos, 0, value.Length);
             _selectionStart = -1;
             UpdateVisibleText();
+            if (_required) UpdateBorderColor();
             MarkDirty();
             TextChanged?.Invoke(value);
         }
@@ -64,6 +68,18 @@ public class TextBox : Element
             _placeholder = value;
             _placeholderPaint?.SetText(value);
             _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
+            MarkDirty();
+        }
+    }
+
+    public bool Required
+    {
+        get => _required;
+        set
+        {
+            if (_required == value) return;
+            _required = value;
+            UpdateBorderColor();
             MarkDirty();
         }
     }
@@ -163,14 +179,21 @@ public class TextBox : Element
 
     protected override void OnStateChanged(ElementState oldState, ElementState newState)
     {
+        UpdateBorderColor();
+        MarkDirty();
+    }
+
+    private void UpdateBorderColor()
+    {
+        if (_borderShape == null) return;
         var style = Style;
 
-        if ((newState & ElementState.Focused) != 0)
-            _borderShape?.StrokeFill(style.BorderFocused.R8, style.BorderFocused.G8, style.BorderFocused.B8, style.BorderFocused.A8);
+        if (_required && string.IsNullOrEmpty(_text))
+            _borderShape.StrokeFill(ErrorBorder.R8, ErrorBorder.G8, ErrorBorder.B8, ErrorBorder.A8);
+        else if ((State & ElementState.Focused) != 0)
+            _borderShape.StrokeFill(style.BorderFocused.R8, style.BorderFocused.G8, style.BorderFocused.B8, style.BorderFocused.A8);
         else
-            _borderShape?.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
-
-        MarkDirty();
+            _borderShape.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
     }
 
     public override void OnFocus()
@@ -416,6 +439,7 @@ public class TextBox : Element
         if (_textPaint == null) return;
 
         _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
+        if (_required) UpdateBorderColor();
 
         if (string.IsNullOrEmpty(_text) || Bounds.W <= 0)
         {

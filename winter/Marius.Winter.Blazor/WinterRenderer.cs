@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.RenderTree;
@@ -54,13 +55,13 @@ public class WinterRenderer : NativeComponentRenderer
         return result;
     }
 
-    public Task<TComponent> AddComponent<TComponent>(Element parent) where TComponent : IComponent
+    public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(Element parent) where TComponent : IComponent
     {
         var handler = new RootContainerHandler(this, parent);
         return AddComponent<TComponent>(handler);
     }
 
-    public Task<TComponent> AddComponent<TComponent>(Element parent, Dictionary<string, object> parameters) where TComponent : IComponent
+    public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(Element parent, Dictionary<string, object> parameters) where TComponent : IComponent
     {
         var handler = new RootContainerHandler(this, parent);
         return AddComponent<TComponent>(handler, parameters);

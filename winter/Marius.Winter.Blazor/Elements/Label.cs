@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
+using TextWrap = ThorVG.TextWrap;
 
 namespace Marius.Winter.Blazor.Elements;
 
@@ -16,6 +17,7 @@ public class Label : WinterComponentBase
     [Parameter] public Color4? Color { get; set; }
     [Parameter] public bool Italic { get; set; }
     [Parameter] public bool Bold { get; set; }
+    [Parameter] public TextWrap TextWrapping { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -32,6 +34,8 @@ public class Label : WinterComponentBase
             builder.AddAttribute("Italic", true);
         if (Bold)
             builder.AddAttribute("Bold", true);
+        if (TextWrapping != TextWrap.None)
+            builder.AddAttribute("TextWrapping", TextWrapping);
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
@@ -61,6 +65,11 @@ public class Label : WinterComponentBase
                     break;
                 case "Bold":
                     LabelControl.Bold = AttributeHelper.GetBool(attributeValue);
+                    break;
+                case "TextWrapping":
+                    LabelControl.TextWrapping = attributeValue is TextWrap tw
+                        ? tw
+                        : System.Enum.Parse<TextWrap>(AttributeHelper.GetString(attributeValue) ?? "None");
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
