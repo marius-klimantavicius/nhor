@@ -2,7 +2,6 @@
 // Alignment of tracks and final positioning of items
 
 using System;
-using System.Collections.Generic;
 
 namespace Marius.Winter.Taffy
 {
@@ -20,7 +19,7 @@ namespace Marius.Winter.Taffy
             float gridContainerContentBoxSize,
             Line<float> padding,
             Line<float> border,
-            List<GridTrack> tracks,
+            ref ValueList<GridTrack> tracks,
             AlignContent trackAlignmentStyle)
         {
             float usedSize = 0f;

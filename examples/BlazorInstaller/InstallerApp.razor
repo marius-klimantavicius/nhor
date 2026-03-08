@@ -5,6 +5,8 @@
    Page 4: Finish   (sidebar graphic + summary)
 *@
 
+@inject Marius.Winter.Window _window
+
 @if (_page == Page.Welcome)
 {
     <Panel Background="@White">
@@ -42,7 +44,10 @@
 
         @* Bottom bar *@
         <Panel Background="@BottomBar" Padding="@(new Thickness(12, 8))">
-            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
+            <FlexLayout Gap="8" AlignItems="Alignment.Center" />
+            <Checkbox Text="Dark theme" IsChecked="@_darkTheme"
+                      OnChanged="@ToggleTheme" />
+            <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
             <Button Text="Install" OnClick="GoToInstall" />
             <Button Text="Cancel" OnClick="HandleCancel" />
         </Panel>
@@ -177,14 +182,17 @@ else
 
                 <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
 
-                <Panel Background="@(new Color4(0.95f, 0.95f, 0.97f, 1f))"
-                       Padding="@(new Thickness(12, 8))"
-                       CornerRadius="@(new CornerRadius(4))">
-                    <FlexLayout Direction="Orientation.Vertical" Gap="3" AlignItems="Alignment.Start" />
-                    <Label Text="@($"API Key:   {_apiKey}")" FontSize="13" Color="@GrayText" />
-                    <Label Text="@($"API:        {_apiAddress}")" FontSize="13" Color="@GrayText" />
-                    <Label Text="@($"WebSocket:  {_webSocketAddress}")" FontSize="13" Color="@GrayText" />
-                    <Label Text="@($"Port:       {_port}")" FontSize="13" Color="@GrayText" />
+                <Panel Padding="@(new Thickness(12, 8))">
+                    <GridLayout Columns="@(new[] { TrackSize.Auto(), TrackSize.Fr() })"
+                                ColumnGap="12" RowGap="4" />
+                    <Label Text="API Key:" FontSize="13" Bold="true" Color="@GrayText" />
+                    <Label Text="@_apiKey" FontSize="13" Color="@DarkText" />
+                    <Label Text="API:" FontSize="13" Bold="true" Color="@GrayText" />
+                    <Label Text="@_apiAddress" FontSize="13" Color="@DarkText" />
+                    <Label Text="WebSocket:" FontSize="13" Bold="true" Color="@GrayText" />
+                    <Label Text="@_webSocketAddress" FontSize="13" Color="@DarkText" />
+                    <Label Text="Port:" FontSize="13" Bold="true" Color="@GrayText" />
+                    <Label Text="@_port" FontSize="13" Color="@DarkText" />
                 </Panel>
 
                 <Panel LayoutData="@(new FlexItem { Grow = 1 })" />
@@ -204,13 +212,30 @@ else
 @code {
     private const string Version = "1.0.0";
 
-    // MUI2-style colors
-    private static readonly Color4 White = new(1f, 1f, 1f, 1f);
+    // MUI2-style colors — light theme
+    private static readonly Color4 LightWhite = new(1f, 1f, 1f, 1f);
+    private static readonly Color4 LightDarkText = new(0.12f, 0.12f, 0.14f, 1f);
+    private static readonly Color4 LightGrayText = new(0.40f, 0.40f, 0.42f, 1f);
+    private static readonly Color4 LightBottomBar = new(0.92f, 0.92f, 0.93f, 1f);
+    private static readonly Color4 LightContentBg = new(0.98f, 0.98f, 0.99f, 1f);
+
+    // MUI2-style colors — dark theme
+    private static readonly Color4 DarkWhite = new(0.18f, 0.18f, 0.20f, 1f);
+    private static readonly Color4 DarkDarkText = new(0.90f, 0.90f, 0.92f, 1f);
+    private static readonly Color4 DarkGrayText = new(0.60f, 0.60f, 0.64f, 1f);
+    private static readonly Color4 DarkBottomBar = new(0.14f, 0.14f, 0.16f, 1f);
+    private static readonly Color4 DarkContentBg = new(0.16f, 0.16f, 0.18f, 1f);
+
     private static readonly Color4 HeaderBlue = new(0.18f, 0.34f, 0.60f, 1f);
-    private static readonly Color4 DarkText = new(0.12f, 0.12f, 0.14f, 1f);
-    private static readonly Color4 GrayText = new(0.40f, 0.40f, 0.42f, 1f);
-    private static readonly Color4 BottomBar = new(0.92f, 0.92f, 0.93f, 1f);
-    private static readonly Color4 ContentBg = new(0.98f, 0.98f, 0.99f, 1f);
+
+    // Theme-dependent accessors
+    private Color4 White => _darkTheme ? DarkWhite : LightWhite;
+    private Color4 DarkText => _darkTheme ? DarkDarkText : LightDarkText;
+    private Color4 GrayText => _darkTheme ? DarkGrayText : LightGrayText;
+    private Color4 BottomBar => _darkTheme ? DarkBottomBar : LightBottomBar;
+    private Color4 ContentBg => _darkTheme ? DarkContentBg : LightContentBg;
+
+    private bool _darkTheme;
 
     // SVG graphics
 
@@ -315,6 +340,12 @@ else
     private void HandleFinish()
     {
         _page = Page.Finish;
+    }
+
+    private void ToggleTheme(bool dark)
+    {
+        _darkTheme = dark;
+        _window.Theme = dark ? Theme.Dark : Theme.Light;
     }
 
     private void HandleCancel()

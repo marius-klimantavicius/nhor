@@ -811,7 +811,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         public float? SpannedTrackLimit(
             AbstractAxis axis,
-            List<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks,
             float? axisParentSize,
             Func<IntPtr, float, float> calcResolver)
         {
@@ -834,7 +834,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         public float? SpannedFixedTrackLimit(
             AbstractAxis axis,
-            List<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks,
             float? axisParentSize,
             Func<IntPtr, float, float> calcResolver)
         {
@@ -908,7 +908,7 @@ namespace Marius.Winter.Taffy
         /// <summary>Compute the available_space to be passed to the child sizing functions</summary>
         public Size<float?> ComputeAvailableSpace(
             AbstractAxis axis,
-            List<GridTrack> otherAxisTracks,
+            ref ValueList<GridTrack> otherAxisTracks,
             float? otherAxisAvailableSpace,
             Func<GridTrack, float?, float?> getTrackSizeEstimate)
         {
@@ -936,13 +936,13 @@ namespace Marius.Winter.Taffy
         /// <summary>Retrieve the available_space from the cache or compute them</summary>
         public Size<float?> AvailableSpaceCached(
             AbstractAxis axis,
-            List<GridTrack> otherAxisTracks,
+            ref ValueList<GridTrack> otherAxisTracks,
             float? otherAxisAvailableSpace,
             Func<GridTrack, float?, float?> getTrackSizeEstimate)
         {
             if (AvailableSpaceCache.HasValue)
                 return AvailableSpaceCache.Value;
-            var availableSpaces = ComputeAvailableSpace(axis, otherAxisTracks, otherAxisAvailableSpace, getTrackSizeEstimate);
+            var availableSpaces = ComputeAvailableSpace(axis, ref otherAxisTracks, otherAxisAvailableSpace, getTrackSizeEstimate);
             AvailableSpaceCache = availableSpaces;
             return availableSpaces;
         }
@@ -1034,7 +1034,7 @@ namespace Marius.Winter.Taffy
         public float MinimumContribution(
             ILayoutPartialTree tree,
             AbstractAxis axis,
-            List<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks,
             Size<float?> knownDimensions,
             Size<float?> innerNodeSize)
         {
@@ -1059,10 +1059,10 @@ namespace Marius.Winter.Taffy
             var size = resolvedSize
                 ?? resolvedMinSize
                 ?? overflowMinSize
-                ?? ComputeAutoMinimumSize(tree, axis, axisTracks, knownDimensions, innerNodeSize);
+                ?? ComputeAutoMinimumSize(tree, axis, ref axisTracks, knownDimensions, innerNodeSize);
 
             // Clamp by spanned fixed track limit
-            var limit = SpannedFixedTrackLimit(axis, axisTracks, innerNodeSize.Get(axis),
+            var limit = SpannedFixedTrackLimit(axis, ref axisTracks, innerNodeSize.Get(axis),
                 (val, basis) => tree.ResolveCalcValue(val, basis));
             return limit.HasValue ? MathF.Min(size, limit.Value) : size;
         }
@@ -1070,13 +1070,13 @@ namespace Marius.Winter.Taffy
         private float ComputeAutoMinimumSize(
             ILayoutPartialTree tree,
             AbstractAxis axis,
-            List<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks,
             Size<float?> knownDimensions,
             Size<float?> innerNodeSize)
         {
             // Automatic minimum size. See https://www.w3.org/TR/css-grid-1/#min-size-auto
             var range = TrackRangeExcludingLines(axis);
-            var itemAxisTracks = new List<GridTrack>();
+            var itemAxisTracks = new ValueList<GridTrack>();
             for (int i = range.Start; i < range.End; i += 2)
                 itemAxisTracks.Add(axisTracks[i]);
 
@@ -1124,14 +1124,14 @@ namespace Marius.Winter.Taffy
         public float MinimumContributionCached(
             ILayoutPartialTree tree,
             AbstractAxis axis,
-            List<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks,
             Size<float?> knownDimensions,
             Size<float?> innerNodeSize)
         {
             var cached = MinimumContributionCache.Get(axis);
             if (cached.HasValue)
                 return cached.Value;
-            var size = MinimumContribution(tree, axis, axisTracks, knownDimensions, innerNodeSize);
+            var size = MinimumContribution(tree, axis, ref axisTracks, knownDimensions, innerNodeSize);
             MinimumContributionCache.Set(axis, size);
             return size;
         }

@@ -3,7 +3,6 @@
 // This mainly consists of evaluating GridAutoTracks
 
 using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 
 namespace Marius.Winter.Taffy
@@ -244,7 +243,7 @@ namespace Marius.Winter.Taffy
         /// given a set of track counts and all of the relevant styles
         /// </summary>
         public static void InitializeGridTracks(
-            List<GridTrack> tracks,
+            ref ValueList<GridTrack> tracks,
             TrackCounts counts,
             Style style,
             AbsoluteAxis axis,
@@ -276,7 +275,6 @@ namespace Marius.Winter.Taffy
             // Clear vector (in case this is a re-layout), reserve space for all tracks ahead of time to reduce allocations,
             // and push the initial gutter
             tracks.Clear();
-            tracks.Capacity = Math.Max(tracks.Capacity, (counts.Len() * 2) + 1);
             tracks.Add(GridTrack.Gutter(gap));
 
             int autoTrackCount = autoTracks.Count;
@@ -286,12 +284,12 @@ namespace Marius.Winter.Taffy
             {
                 if (autoTrackCount == 0)
                 {
-                    CreateImplicitTracksAuto(tracks, counts.NegativeImplicit, gap);
+                    CreateImplicitTracksAuto(ref tracks, counts.NegativeImplicit, gap);
                 }
                 else
                 {
                     int offset = autoTrackCount - (counts.NegativeImplicit % autoTrackCount);
-                    CreateImplicitTracksFromList(tracks, counts.NegativeImplicit, autoTracks, offset, gap);
+                    CreateImplicitTracksFromList(ref tracks, counts.NegativeImplicit, autoTracks, offset, gap);
                 }
             }
 
@@ -363,11 +361,11 @@ namespace Marius.Winter.Taffy
             ushort positiveCount = (ushort)(counts.PositiveImplicit + gridAreaTracks);
             if (autoTrackCount == 0)
             {
-                CreateImplicitTracksAuto(tracks, positiveCount, gap);
+                CreateImplicitTracksAuto(ref tracks, positiveCount, gap);
             }
             else
             {
-                CreateImplicitTracksFromList(tracks, positiveCount, autoTracks, 0, gap);
+                CreateImplicitTracksFromList(ref tracks, positiveCount, autoTracks, 0, gap);
             }
 
             // Mark first and last grid lines as collapsed
@@ -379,7 +377,7 @@ namespace Marius.Winter.Taffy
         }
 
         /// <summary>Utility function for creating implicit tracks with AUTO sizing</summary>
-        private static void CreateImplicitTracksAuto(List<GridTrack> tracks, int count, LengthPercentage gap)
+        private static void CreateImplicitTracksAuto(ref ValueList<GridTrack> tracks, int count, LengthPercentage gap)
         {
             for (int i = 0; i < count; i++)
             {
@@ -390,7 +388,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Utility function for creating implicit tracks from a list of track sizing functions</summary>
         private static void CreateImplicitTracksFromList(
-            List<GridTrack> tracks,
+            ref ValueList<GridTrack> tracks,
             int count,
             ImmutableList<MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>> autoTracks,
             int offset,

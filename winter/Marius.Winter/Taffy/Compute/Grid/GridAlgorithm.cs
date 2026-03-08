@@ -152,7 +152,7 @@ namespace Marius.Winter.Taffy
             var (estColCounts, estRowCounts) = ImplicitGridUtils.ComputeGridSizeEstimate(explicitColCount, explicitRowCount, ChildStylesIter());
 
             // 4. Grid Item Placement
-            var items = new List<GridItem>(tree.ChildCount(node));
+            var items = new ValueList<GridItem>();
             var cellOccupancyMatrix = CellOccupancyMatrix.WithTrackCounts(estColCounts, estRowCounts);
 
             IEnumerable<(int index, NodeId node, Style style)> InFlowChildrenIter()
@@ -172,7 +172,7 @@ namespace Marius.Winter.Taffy
 
             PlacementUtils.PlaceGridItems(
                 cellOccupancyMatrix,
-                items,
+                ref items,
                 () => InFlowChildrenIter(),
                 gridStyle.GridAutoFlow(),
                 alignItems ?? AlignItems.Stretch,
@@ -184,20 +184,20 @@ namespace Marius.Winter.Taffy
             var finalRowCounts = cellOccupancyMatrix.GetTrackCounts(AbsoluteAxis.Vertical);
 
             // 5. Initialize Tracks
-            var columns = new List<GridTrack>();
-            var rows = new List<GridTrack>();
-            ExplicitGridUtils.InitializeGridTracks(columns, finalColCounts, style, AbsoluteAxis.Horizontal,
+            var columns = new ValueList<GridTrack>();
+            var rows = new ValueList<GridTrack>();
+            ExplicitGridUtils.InitializeGridTracks(ref columns, finalColCounts, style, AbsoluteAxis.Horizontal,
                 columnIndex => cellOccupancyMatrix.ColumnIsOccupied(columnIndex));
-            ExplicitGridUtils.InitializeGridTracks(rows, finalRowCounts, style, AbsoluteAxis.Vertical,
+            ExplicitGridUtils.InitializeGridTracks(ref rows, finalRowCounts, style, AbsoluteAxis.Vertical,
                 rowIndex => cellOccupancyMatrix.RowIsOccupied(rowIndex));
 
             // 6. Track Sizing
 
             // Convert grid placements in origin-zero coordinates to indexes into the GridTrack (rows and columns) vectors
-            TrackSizingUtils.ResolveItemTrackIndexes(items, finalColCounts, finalRowCounts);
+            TrackSizingUtils.ResolveItemTrackIndexes(ref items, finalColCounts, finalRowCounts);
 
             // For each item, and in each axis, determine whether the item crosses any flexible (fr) tracks
-            TrackSizingUtils.DetermineIfItemCrossesFlexibleOrIntrinsicTracks(items, columns, rows);
+            TrackSizingUtils.DetermineIfItemCrossesFlexibleOrIntrinsicTracks(ref items, ref columns, ref rows);
 
             // Determine if the grid has any baseline aligned items
             bool hasBaselineAlignedItem = false;
@@ -216,9 +216,9 @@ namespace Marius.Winter.Taffy
                 alignContent,
                 availableGridSpace,
                 innerNodeSize,
-                columns,
-                rows,
-                items,
+                ref columns,
+                ref rows,
+                ref items,
                 (GridTrack track, float? pSize, TTree t) =>
                     track.MaxTrackSizingFunction.DefiniteValue(pSize, (val, basis) => t.Calc(val, basis)),
                 hasBaselineAlignedItem);
@@ -245,9 +245,9 @@ namespace Marius.Winter.Taffy
                 justifyContent,
                 availableGridSpace,
                 innerNodeSize,
-                rows,
-                columns,
-                items,
+                ref rows,
+                ref columns,
+                ref items,
                 (GridTrack track, float? _, TTree _2) => (float?)track.BaseSize,
                 false); // TODO: Support baseline alignment in the vertical axis
 
@@ -319,7 +319,7 @@ namespace Marius.Winter.Taffy
                     if (!item.CrossesIntrinsicColumn) continue;
 
                     var avail = item.AvailableSpaceCached(
-                        AbstractAxis.Inline, rows, innerNodeSize.Height,
+                        AbstractAxis.Inline, ref rows, innerNodeSize.Height,
                         (GridTrack t, float? _) => (float?)t.BaseSize);
                     var newMinContentContribution = item.MinContentContributionCached(AbstractAxis.Inline, tree, avail, innerNodeSize);
 
@@ -362,9 +362,9 @@ namespace Marius.Winter.Taffy
                     alignContent,
                     availableGridSpace,
                     innerNodeSize,
-                    columns,
-                    rows,
-                    items,
+                    ref columns,
+                    ref rows,
+                    ref items,
                     (GridTrack track, float? _, TTree _2) => (float?)track.BaseSize,
                     hasBaselineAlignedItem);
 
@@ -384,7 +384,7 @@ namespace Marius.Winter.Taffy
                         if (!item.CrossesIntrinsicColumn) continue;
 
                         var avail = item.AvailableSpaceCached(
-                            AbstractAxis.Block, columns, innerNodeSize.Width,
+                            AbstractAxis.Block, ref columns, innerNodeSize.Width,
                             (GridTrack t, float? _) => (float?)t.BaseSize);
                         var newMinContentContribution = item.MinContentContributionCached(AbstractAxis.Block, tree, avail, innerNodeSize);
 
@@ -426,9 +426,9 @@ namespace Marius.Winter.Taffy
                         justifyContent,
                         availableGridSpace,
                         innerNodeSize,
-                        rows,
-                        columns,
-                        items,
+                        ref rows,
+                        ref columns,
+                        ref items,
                         (GridTrack track, float? _, TTree _2) => (float?)track.BaseSize,
                         false);
                 }
@@ -441,14 +441,14 @@ namespace Marius.Winter.Taffy
                 containerContentBox.Get(AbstractAxis.Inline),
                 new Line<float> { Start = padding.Left, End = padding.Right },
                 new Line<float> { Start = border.Left, End = border.Right },
-                columns,
+                ref columns,
                 justifyContent);
             // Align rows
             GridAlignmentUtils.AlignTracks(
                 containerContentBox.Get(AbstractAxis.Block),
                 new Line<float> { Start = padding.Top, End = padding.Bottom },
                 new Line<float> { Start = border.Top, End = border.Bottom },
-                rows,
+                ref rows,
                 alignContent);
 
             // 9. Size, Align, and Position Grid Items

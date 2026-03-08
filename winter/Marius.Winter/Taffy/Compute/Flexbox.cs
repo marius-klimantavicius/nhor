@@ -311,7 +311,7 @@ namespace Marius.Winter.Taffy
             else
             {
                 // Sets constants.container_size and constants.outer_container_size
-                DetermineContainerMainSize(tree, availableSpace, flexLines, ref constants);
+                DetermineContainerMainSize(tree, availableSpace, ref flexLines, ref constants);
                 constants.NodeInnerSize.SetMain(constants.Dir, constants.InnerContainerSize.Main(constants.Dir));
                 constants.NodeOuterSize.SetMain(constants.Dir, constants.ContainerSize.Main(constants.Dir));
 
@@ -342,32 +342,32 @@ namespace Marius.Winter.Taffy
 
             // Calculate child baselines. This function is internally smart and only computes child baselines
             // if they are necessary.
-            CalculateChildrenBaseLines(tree, knownDimensions, availableSpace, flexLines, ref constants);
+            CalculateChildrenBaseLines(tree, knownDimensions, availableSpace, ref flexLines, ref constants);
 
             // 8. Calculate the cross size of each flex line.
-            CalculateCrossSize(flexLines, knownDimensions, ref constants);
+            CalculateCrossSize(ref flexLines, knownDimensions, ref constants);
 
             // 9. Handle 'align-content: stretch'.
-            HandleAlignContentStretch(flexLines, knownDimensions, ref constants);
+            HandleAlignContentStretch(ref flexLines, knownDimensions, ref constants);
 
             // 10. Collapse visibility:collapse items. If any flex items have visibility: collapse, ...
             // TODO implement once (if ever) we support visibility:collapse
 
             // 11. Determine the used cross size of each flex item.
-            DetermineUsedCrossSize(tree, flexLines, ref constants);
+            DetermineUsedCrossSize(tree, ref flexLines, ref constants);
 
             // 9.5. Main-Axis Alignment
 
             // 12. Distribute any remaining free space.
-            DistributeRemainingFreeSpace(flexLines, ref constants);
+            DistributeRemainingFreeSpace(ref flexLines, ref constants);
 
             // 9.6. Cross-Axis Alignment
 
             // 13. Resolve cross-axis auto margins (also includes 14).
-            ResolveCrossAxisAutoMargins(flexLines, ref constants);
+            ResolveCrossAxisAutoMargins(ref flexLines, ref constants);
 
             // 15. Determine the flex container's used cross size.
-            var totalLineCrossSize = DetermineContainerCrossSize(flexLines, knownDimensions, ref constants);
+            var totalLineCrossSize = DetermineContainerCrossSize(ref flexLines, knownDimensions, ref constants);
 
             // We have the container size.
             // If our caller does not care about performing layout we are done now.
@@ -377,10 +377,10 @@ namespace Marius.Winter.Taffy
             }
 
             // 16. Align all flex lines per align-content.
-            AlignFlexLinesPerAlignContent(flexLines, ref constants, totalLineCrossSize);
+            AlignFlexLinesPerAlignContent(ref flexLines, ref constants, totalLineCrossSize);
 
             // Do a final layout pass and gather the resulting layouts
-            var inflowContentSize = FinalLayoutPass(tree, flexLines, ref constants);
+            var inflowContentSize = FinalLayoutPass(tree, ref flexLines, ref constants);
 
             // Before returning we perform absolute layout on all absolutely positioned children
             var absoluteContentSize = PerformAbsoluteLayoutOnAbsoluteChildren(tree, node, ref constants);
@@ -824,7 +824,7 @@ namespace Marius.Winter.Taffy
         /// # [9.3. Main Size Determination](https://www.w3.org/TR/css-flexbox-1/#main-sizing)
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static List<FlexLine> CollectFlexLines(
+        private static ValueList<FlexLine> CollectFlexLines(
             ref AlgoConstants constants,
             Size<AvailableSpace> availableSpace,
             FlexItem[] flexItems)
@@ -833,7 +833,7 @@ namespace Marius.Winter.Taffy
 
             if (!constants.IsWrap)
             {
-                var lines = new List<FlexLine>(1);
+                var lines = new ValueList<FlexLine>();
                 lines.Add(new FlexLine(memory, 0, 0f, 0f));
                 return lines;
             }
@@ -847,7 +847,7 @@ namespace Marius.Winter.Taffy
             if (mainAxisAvailableSpace == AvailableSpace.MaxContent)
             {
                 // If we're sizing under a max-content constraint then the flex items will never wrap
-                var lines = new List<FlexLine>(1);
+                var lines = new ValueList<FlexLine>();
                 lines.Add(new FlexLine(memory, 0, 0f, 0f));
                 return lines;
             }
@@ -856,7 +856,7 @@ namespace Marius.Winter.Taffy
             {
                 // If flex-wrap is Wrap and we're sizing under a min-content constraint, then we take every
                 // possible wrapping opportunity and place each item in its own line
-                var lines = new List<FlexLine>(flexItems.Length);
+                var lines = new ValueList<FlexLine>();
                 for (int i = 0; i < flexItems.Length; i++)
                 {
                     lines.Add(new FlexLine(memory.Slice(i, 1), i, 0f, 0f));
@@ -867,7 +867,7 @@ namespace Marius.Winter.Taffy
             // Definite case
             {
                 var mainAxisSpace = mainAxisAvailableSpace.UnwrapOr(0f);
-                var lines = new List<FlexLine>(1);
+                var lines = new ValueList<FlexLine>();
                 var mainAxisGap = constants.Gap.Main(constants.Dir);
                 int startIdx = 0;
 
@@ -902,7 +902,7 @@ namespace Marius.Winter.Taffy
         private static void DetermineContainerMainSize(
             ILayoutFlexboxContainer tree,
             Size<AvailableSpace> availableSpace,
-            List<FlexLine> lines,
+            ref ValueList<FlexLine> lines,
             ref AlgoConstants constants)
         {
             var dir = constants.Dir;
@@ -1378,7 +1378,7 @@ namespace Marius.Winter.Taffy
             ILayoutFlexboxContainer tree,
             Size<float?> nodeSize,
             Size<AvailableSpace> availableSpace,
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
             // Only compute baselines for flex rows
@@ -1435,7 +1435,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void CalculateCrossSize(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             Size<float?> nodeSize,
             ref AlgoConstants constants)
         {
@@ -1501,7 +1501,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HandleAlignContentStretch(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             Size<float?> nodeSize,
             ref AlgoConstants constants)
         {
@@ -1541,7 +1541,7 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void DetermineUsedCrossSize(
             ILayoutFlexboxContainer tree,
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
             foreach (var line in flexLines)
@@ -1596,7 +1596,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void DistributeRemainingFreeSpace(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
             foreach (var line in flexLines)
@@ -1677,7 +1677,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ResolveCrossAxisAutoMargins(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
             foreach (var line in flexLines)
@@ -1758,7 +1758,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float DetermineContainerCrossSize(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             Size<float?> nodeSize,
             ref AlgoConstants constants)
         {
@@ -1791,7 +1791,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void AlignFlexLinesPerAlignContent(
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants,
             float totalCrossSize)
         {
@@ -1966,7 +1966,7 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Size<float> FinalLayoutPass(
             ILayoutFlexboxContainer tree,
-            List<FlexLine> flexLines,
+            ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
             float totalOffsetCross = constants.ContentBoxInset.CrossStart(constants.Dir);

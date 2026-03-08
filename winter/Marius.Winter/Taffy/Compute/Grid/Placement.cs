@@ -20,7 +20,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         public static void PlaceGridItems(
             CellOccupancyMatrix cellOccupancyMatrix,
-            List<GridItem> items,
+            ref ValueList<GridItem> items,
             Func<IEnumerable<(int index, NodeId node, Style style)>> childrenIter,
             GridAutoFlow gridAutoFlow,
             AlignItems alignItems,
@@ -54,7 +54,7 @@ namespace Marius.Winter.Taffy
                     var (rowSpan, colSpan) = PlaceDefiniteGridItem(placement, primaryAxis);
                     RecordGridPlacement(
                         cellOccupancyMatrix,
-                        items,
+                        ref items,
                         childNode,
                         index,
                         style,
@@ -78,7 +78,7 @@ namespace Marius.Winter.Taffy
 
                     RecordGridPlacement(
                         cellOccupancyMatrix,
-                        items,
+                        ref items,
                         childNode,
                         index,
                         style,
@@ -116,7 +116,7 @@ namespace Marius.Winter.Taffy
                     // Record item
                     RecordGridPlacement(
                         cellOccupancyMatrix,
-                        items,
+                        ref items,
                         childNode,
                         index,
                         style,
@@ -292,7 +292,7 @@ namespace Marius.Winter.Taffy
         /// </summary>
         private static void RecordGridPlacement(
             CellOccupancyMatrix cellOccupancyMatrix,
-            List<GridItem> items,
+            ref ValueList<GridItem> items,
             NodeId node,
             int index,
             Style style,

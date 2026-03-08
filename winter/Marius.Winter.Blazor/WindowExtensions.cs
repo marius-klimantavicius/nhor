@@ -8,6 +8,7 @@ public static class WindowExtensions
     public static WinterBlazorHost UseBlazor(this Window window, Action<IServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
+        services.AddSingleton(window);
         configureServices?.Invoke(services);
         var serviceProvider = services.BuildServiceProvider();
 
