@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Xunit;
 
@@ -5,7 +6,7 @@ namespace ThorVG.Tests
 {
     public class TtfReaderTests
     {
-        private const string FontPath = "/home/marius/p/nhor/ref/ThorVG/test/resources/PublicSans-Regular.ttf";
+        private static readonly string FontPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources", "PublicSans-Regular.ttf"));
 
         private TtfReader LoadReader()
         {

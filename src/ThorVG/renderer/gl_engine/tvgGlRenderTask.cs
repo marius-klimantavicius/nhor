@@ -420,13 +420,11 @@ namespace ThorVG
             var height = mSrcFbo.height;
             if (width <= 0 || height <= 0) return;
 
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mSrcFbo.fbo);
+            // Desktop GL path: read from target FBO (parent), not src FBO
+            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, GetTargetFbo());
             GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
-
-            // Desktop GL path
-            var srcVp = mSrcFbo.viewport;
-            GL.glViewport(0, 0, srcVp.Sw(), srcVp.Sh());
-            GL.glScissor(0, 0, srcVp.Sw(), srcVp.Sh());
+            GL.glViewport(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
+            GL.glScissor(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
             GL.glBlitFramebuffer(vp.min.x, vp.min.y, vp.max.x, vp.max.y, 0, 0, vp.Sw(), vp.Sh(), GL.GL_COLOR_BUFFER_BIT, GL.GL_LINEAR);
 
             GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());

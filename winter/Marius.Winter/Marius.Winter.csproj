@@ -1,17 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <RootNamespace>Marius.Winter</RootNamespace>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
+    <PropertyGroup>
+        <RootNamespace>Marius.Winter</RootNamespace>
+        <IsAotCompatible>True</IsAotCompatible>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\ThorVG\ThorVG.csproj" />
-    <ProjectReference Include="..\..\src\Glfw\Glfw.csproj" />
-  </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\ThorVG\ThorVG.csproj" />
+        <ProjectReference Include="..\..\src\Glfw\Glfw.csproj" />
+    </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Resources\*.ttf" />
-  </ItemGroup>
+    <ItemGroup>
+        <TrimmerRootAssembly Include="ThorVG" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <EmbeddedResource Include="Resources\*.ttf" />
+    </ItemGroup>
 
 </Project>

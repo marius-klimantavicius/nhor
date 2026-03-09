@@ -15,7 +15,7 @@ namespace ThorVG
             SwRenderer.Term();
         }
 
-        public static SwCanvas? Gen(EngineOption op = EngineOption.Default)
+        public static SwCanvas Gen(EngineOption op = EngineOption.Default)
         {
             var r = new SwRenderer(TaskScheduler.Threads(), op);
             r.Ref();

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Jint;
 using Jint.Native;
+using Jint.Runtime.Interop;
 
 namespace ThorVG
 {
@@ -566,64 +567,64 @@ namespace ThorVG
         private void BuildMath(Engine engine)
         {
             // $bm_mul, $bm_sum, $bm_add, $bm_sub, $bm_div
-            engine.SetValue("$bm_mul", new Func<JsValue, JsValue, JsValue>((a, b) => DoMulDiv(engine, a, JsToNumber(b))));
-            engine.SetValue("$bm_sum", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, 1.0f)));
-            engine.SetValue("$bm_add", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, 1.0f)));
-            engine.SetValue("$bm_sub", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, -1.0f)));
-            engine.SetValue("$bm_div", new Func<JsValue, JsValue, JsValue>((a, b) => DoMulDiv(engine, a, 1.0f / JsToNumber(b))));
+            engine.SetValue("$bm_mul", new ClrFunction(engine, "$bm_mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
+            engine.SetValue("$bm_sum", new ClrFunction(engine, "$bm_sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("$bm_add", new ClrFunction(engine, "$bm_add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("$bm_sub", new ClrFunction(engine, "$bm_sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
+            engine.SetValue("$bm_div", new ClrFunction(engine, "$bm_div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
 
             // Non-prefixed versions
-            engine.SetValue("mul", new Func<JsValue, JsValue, JsValue>((a, b) => DoMulDiv(engine, a, JsToNumber(b))));
-            engine.SetValue("sum", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, 1.0f)));
-            engine.SetValue("add", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, 1.0f)));
-            engine.SetValue("sub", new Func<JsValue, JsValue, JsValue>((a, b) => DoAddSub(engine, a, b, -1.0f)));
-            engine.SetValue("div", new Func<JsValue, JsValue, JsValue>((a, b) => DoMulDiv(engine, a, 1.0f / JsToNumber(b))));
+            engine.SetValue("mul", new ClrFunction(engine, "mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
+            engine.SetValue("sum", new ClrFunction(engine, "sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("add", new ClrFunction(engine, "add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("sub", new ClrFunction(engine, "sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
+            engine.SetValue("div", new ClrFunction(engine, "div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
 
             // $bm_mod, mod
-            engine.SetValue("$bm_mod", new Func<JsValue, JsValue, JsValue>((a, b) => new JsNumber(JsToNumber(a) % JsToNumber(b))));
-            engine.SetValue("mod", new Func<JsValue, JsValue, JsValue>((a, b) => new JsNumber(JsToNumber(a) % JsToNumber(b))));
+            engine.SetValue("$bm_mod", new ClrFunction(engine, "$bm_mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
+            engine.SetValue("mod", new ClrFunction(engine, "mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
 
             // clamp
-            engine.SetValue("clamp", new Func<JsValue, JsValue, JsValue, JsValue>((num, limit1, limit2) =>
+            engine.SetValue("clamp", new ClrFunction(engine, "clamp", (_, args) =>
             {
-                var n = JsToNumber(num);
-                var l1 = JsToNumber(limit1);
-                var l2 = JsToNumber(limit2);
+                var n = JsToNumber(args[0]);
+                var l1 = JsToNumber(args[1]);
+                var l2 = JsToNumber(args[2]);
                 if (n < l1) n = l1;
                 if (n > l2) n = l2;
                 return new JsNumber(n);
             }));
 
             // dot, cross, normalize, length
-            engine.SetValue("dot", new Func<JsValue, JsValue, JsValue>((a, b) =>
+            engine.SetValue("dot", new ClrFunction(engine, "dot", (_, args) =>
             {
-                var pa = JsToPoint(a); var pb = JsToPoint(b);
+                var pa = JsToPoint(args[0]); var pb = JsToPoint(args[1]);
                 return new JsNumber(TvgMath.Dot(pa, pb));
             }));
-            engine.SetValue("cross", new Func<JsValue, JsValue, JsValue>((a, b) =>
+            engine.SetValue("cross", new ClrFunction(engine, "cross", (_, args) =>
             {
-                var pa = JsToPoint(a); var pb = JsToPoint(b);
+                var pa = JsToPoint(args[0]); var pb = JsToPoint(args[1]);
                 return new JsNumber(TvgMath.Cross(pa, pb));
             }));
-            engine.SetValue("normalize", new Func<JsValue, JsValue>(a =>
+            engine.SetValue("normalize", new ClrFunction(engine, "normalize", (_, args) =>
             {
-                var pt = JsToPoint(a);
+                var pt = JsToPoint(args[0]);
                 var len = TvgMath.PointLength(pt);
                 if (len > 0) pt = TvgMath.PointDiv(pt, len);
                 return MakePoint2d(engine, pt);
             }));
-            engine.SetValue("length", new Func<JsValue, JsValue>(a =>
+            engine.SetValue("length", new ClrFunction(engine, "length", (_, args) =>
             {
-                if (a.IsNumber()) return new JsNumber(MathF.Abs(JsToNumber(a)));
-                return new JsNumber(TvgMath.PointLength(JsToPoint(a)));
+                if (args[0].IsNumber()) return new JsNumber(MathF.Abs(JsToNumber(args[0])));
+                return new JsNumber(TvgMath.PointLength(JsToPoint(args[0])));
             }));
 
             // random
-            engine.SetValue("random", new Func<JsValue>(() => new JsNumber(Rand())));
+            engine.SetValue("random", new ClrFunction(engine, "random", (_, args) => new JsNumber(Rand())));
 
             // degreesToRadians, radiansToDegrees
-            engine.SetValue("degreesToRadians", new Func<JsValue, JsValue>(a => new JsNumber(TvgMath.Deg2Rad(JsToNumber(a)))));
-            engine.SetValue("radiansToDegrees", new Func<JsValue, JsValue>(a => new JsNumber(TvgMath.Rad2Deg(JsToNumber(a)))));
+            engine.SetValue("degreesToRadians", new ClrFunction(engine, "degreesToRadians", (_, args) => new JsNumber(TvgMath.Deg2Rad(JsToNumber(args[0])))));
+            engine.SetValue("radiansToDegrees", new ClrFunction(engine, "radiansToDegrees", (_, args) => new JsNumber(TvgMath.Rad2Deg(JsToNumber(args[0])))));
 
             // linear, ease, easeIn, easeOut
             engine.SetValue("linear", MakeVariadicFunc(engine, "linear", args => DoLinear(engine, args)));
@@ -768,9 +769,9 @@ namespace ThorVG
             engine.SetValue(EXP_INDEX, (double)exp.layer!.ix);
 
             // comp(name) function
-            engine.SetValue("comp", new Func<JsValue, JsValue>(nameArg =>
+            engine.SetValue("comp", new ClrFunction(engine, "comp", (_, args) =>
             {
-                var name = nameArg.AsString();
+                var name = args[0].AsString();
                 var id = TvgCompressor.Djb2Encode(name);
                 var layer = exp.comp?.root?.LayerById(id);
                 if (layer == null) return JsValue.Undefined;
@@ -785,14 +786,14 @@ namespace ThorVG
             if (comp?.root == null) return;
 
             // layer(index/name) function on comp -- also set layer and numLayers as properties on it
-            var compFunc = new Func<JsValue, JsValue>(nameArg =>
+            var compFunc = new ClrFunction(engine, "comp", (_, args) =>
             {
                 var root = comp.root;
                 LottieLayer? layer;
-                if (nameArg.IsNumber())
-                    layer = root.LayerByIdx((short)nameArg.AsNumber());
+                if (args[0].IsNumber())
+                    layer = root.LayerByIdx((short)args[0].AsNumber());
                 else
-                    layer = root.LayerById(TvgCompressor.Djb2Encode(nameArg.AsString()));
+                    layer = root.LayerById(TvgCompressor.Djb2Encode(args[0].AsString()));
                 if (layer == null) return JsValue.Undefined;
                 var obj = new Jint.Native.JsObject(engine);
                 SetLayerProps(engine, obj, frameNo, layer, root, exp);
@@ -804,7 +805,7 @@ namespace ThorVG
             var compJsObj = engine.GetValue("comp");
             if (compJsObj.IsObject())
             {
-                compJsObj.AsObject().Set("layer", JsValue.FromObject(engine, compFunc));
+                compJsObj.AsObject().Set("layer", compFunc);
                 compJsObj.AsObject().Set("numLayers", new JsNumber(comp.root.children.Count));
             }
         }
@@ -817,16 +818,16 @@ namespace ThorVG
             var layerComp = exp.layer?.comp ?? exp.comp?.root;
             if (layerComp != null)
             {
-                thisCompObj.Set("layer", JsValue.FromObject(engine, new Func<JsValue, JsValue>(nameArg =>
+                thisCompObj.Set("layer", new ClrFunction(engine, "layer", (_, args) =>
                 {
                     LottieLayer? layer;
-                    if (nameArg.IsNumber())
-                        layer = layerComp.LayerByIdx((short)nameArg.AsNumber());
+                    if (args[0].IsNumber())
+                        layer = layerComp.LayerByIdx((short)args[0].AsNumber());
                     else
-                        layer = layerComp.LayerById(TvgCompressor.Djb2Encode(nameArg.AsString()));
+                        layer = layerComp.LayerById(TvgCompressor.Djb2Encode(args[0].AsString()));
                     if (layer == null) return JsValue.Undefined;
                     return MakeLayerChildObj(engine, frameNo, layer, exp);
-                })));
+                }));
                 thisCompObj.Set("numLayers", new JsNumber(layerComp.children.Count));
             }
 
@@ -897,9 +898,9 @@ namespace ThorVG
             engine.SetValue(EXP_VALUE, value);
 
             // valueAtTime
-            engine.SetValue("valueAtTime", new Func<JsValue, JsValue>(timeArg =>
+            engine.SetValue("valueAtTime", new ClrFunction(engine, "valueAtTime", (_, args) =>
             {
-                var time = (float)timeArg.AsNumber();
+                var time = (float)args[0].AsNumber();
                 var fn = exp.comp!.FrameAtTime(time);
                 return BuildValue(engine, fn, exp.property);
             }));
@@ -908,15 +909,15 @@ namespace ThorVG
             engine.SetValue("velocity", new JsNumber(0));
 
             // velocityAtTime
-            engine.SetValue("velocityAtTime", new Func<JsValue, JsValue>(timeArg =>
-                DoVelocityAtTime(engine, exp, (float)timeArg.AsNumber())));
+            engine.SetValue("velocityAtTime", new ClrFunction(engine, "velocityAtTime", (_, args) =>
+                DoVelocityAtTime(engine, exp, (float)args[0].AsNumber())));
 
             // speed (static 0)
             engine.SetValue("speed", new JsNumber(0));
 
             // speedAtTime
-            engine.SetValue("speedAtTime", new Func<JsValue, JsValue>(timeArg =>
-                DoSpeedAtTime(engine, exp, (float)timeArg.AsNumber())));
+            engine.SetValue("speedAtTime", new ClrFunction(engine, "speedAtTime", (_, args) =>
+                DoSpeedAtTime(engine, exp, (float)args[0].AsNumber())));
 
             // propertyIndex
             engine.SetValue("propertyIndex", new JsNumber(exp.property.ix));
@@ -930,8 +931,8 @@ namespace ThorVG
                 DoTemporalWiggle(engine, frameNo, exp, args)));
 
             // propertyGroup
-            engine.SetValue("propertyGroup", new Func<JsValue, JsValue>(levelArg =>
-                DoPropertyGroup(engine, frameNo, exp, (int)levelArg.AsNumber())));
+            engine.SetValue("propertyGroup", new ClrFunction(engine, "propertyGroup", (_, args) =>
+                DoPropertyGroup(engine, frameNo, exp, (int)args[0].AsNumber())));
 
             // loopIn, loopOut, loopInDuration, loopOutDuration
             engine.SetValue("loopIn", MakeVariadicFunc(engine, "loopIn", args =>
@@ -944,13 +945,13 @@ namespace ThorVG
                 DoLoopOutDuration(engine, frameNo, exp, args)));
 
             // key(index)
-            engine.SetValue("key", new Func<JsValue, JsValue>(indexArg =>
-                DoKey(engine, exp, (int)indexArg.AsNumber())));
+            engine.SetValue("key", new ClrFunction(engine, "key", (_, args) =>
+                DoKey(engine, exp, (int)args[0].AsNumber())));
 
             // nearestKey(time)
-            engine.SetValue("nearestKey", new Func<JsValue, JsValue>(timeArg =>
+            engine.SetValue("nearestKey", new ClrFunction(engine, "nearestKey", (_, args) =>
             {
-                var time = (float)timeArg.AsNumber();
+                var time = (float)args[0].AsNumber();
                 var fn = exp.comp!.FrameAtTime(time);
                 var idx = exp.property.Nearest(fn);
                 var obj = new Jint.Native.JsObject(engine);
@@ -964,10 +965,10 @@ namespace ThorVG
             // content(name) -- look for named property from layer
             if (exp.layer != null)
             {
-                engine.SetValue(EXP_CONTENT, new Func<JsValue, JsValue>(nameArg =>
-                    DoContent(engine, frameNo, exp.layer, nameArg)));
-                engine.SetValue(EXP_EFFECT, new Func<JsValue, JsValue>(nameArg =>
-                    DoEffect(engine, frameNo, exp, exp.layer, nameArg)));
+                engine.SetValue(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
+                    DoContent(engine, frameNo, exp.layer, args[0])));
+                engine.SetValue(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
+                    DoEffect(engine, frameNo, exp, exp.layer, args[0])));
             }
 
             // Path expansions
@@ -982,18 +983,18 @@ namespace ThorVG
             if (exp.property == null) return;
 
             ctx.Set(EXP_VALUE, BuildValue(engine, frameNo, exp.property));
-            ctx.Set("valueAtTime", JsValue.FromObject(engine, new Func<JsValue, JsValue>(timeArg =>
+            ctx.Set("valueAtTime", new ClrFunction(engine, "valueAtTime", (_, args) =>
             {
-                var time = (float)timeArg.AsNumber();
+                var time = (float)args[0].AsNumber();
                 var fn = exp.comp!.FrameAtTime(time);
                 return BuildValue(engine, fn, exp.property);
-            })));
+            }));
             ctx.Set("velocity", new JsNumber(0));
-            ctx.Set("velocityAtTime", JsValue.FromObject(engine, new Func<JsValue, JsValue>(timeArg =>
-                DoVelocityAtTime(engine, exp, (float)timeArg.AsNumber()))));
+            ctx.Set("velocityAtTime", new ClrFunction(engine, "velocityAtTime", (_, args) =>
+                DoVelocityAtTime(engine, exp, (float)args[0].AsNumber())));
             ctx.Set("speed", new JsNumber(0));
-            ctx.Set("speedAtTime", JsValue.FromObject(engine, new Func<JsValue, JsValue>(timeArg =>
-                DoSpeedAtTime(engine, exp, (float)timeArg.AsNumber()))));
+            ctx.Set("speedAtTime", new ClrFunction(engine, "speedAtTime", (_, args) =>
+                DoSpeedAtTime(engine, exp, (float)args[0].AsNumber())));
             ctx.Set("propertyIndex", new JsNumber(exp.property.ix));
             ctx.Set("numKeys", new JsNumber(exp.property.FrameCnt()));
 
@@ -1009,29 +1010,29 @@ namespace ThorVG
                 DoLoopInDuration(engine, frameNo, exp, args)));
             ctx.Set("loopOutDuration", MakeVariadicFunc(engine, "loopOutDuration", args =>
                 DoLoopOutDuration(engine, frameNo, exp, args)));
-            ctx.Set("key", JsValue.FromObject(engine, new Func<JsValue, JsValue>(indexArg =>
-                DoKey(engine, exp, (int)indexArg.AsNumber()))));
-            ctx.Set("nearestKey", JsValue.FromObject(engine, new Func<JsValue, JsValue>(timeArg =>
+            ctx.Set("key", new ClrFunction(engine, "key", (_, args) =>
+                DoKey(engine, exp, (int)args[0].AsNumber())));
+            ctx.Set("nearestKey", new ClrFunction(engine, "nearestKey", (_, args) =>
             {
-                var time = (float)timeArg.AsNumber();
+                var time = (float)args[0].AsNumber();
                 var fn = exp.comp!.FrameAtTime(time);
                 var idx = exp.property.Nearest(fn);
                 var obj = new Jint.Native.JsObject(engine);
                 obj.Set(EXP_INDEX, new JsNumber(idx));
                 return obj;
-            })));
+            }));
 
             // propertyGroup
-            ctx.Set("propertyGroup", JsValue.FromObject(engine, new Func<JsValue, JsValue>(levelArg =>
-                DoPropertyGroup(engine, frameNo, exp, (int)levelArg.AsNumber()))));
+            ctx.Set("propertyGroup", new ClrFunction(engine, "propertyGroup", (_, args) =>
+                DoPropertyGroup(engine, frameNo, exp, (int)args[0].AsNumber())));
 
             // content(name) -- look for named property from layer
             if (exp.layer != null)
             {
-                ctx.Set(EXP_CONTENT, JsValue.FromObject(engine, new Func<JsValue, JsValue>(nameArg =>
-                    DoContent(engine, frameNo, exp.layer, nameArg))));
-                ctx.Set(EXP_EFFECT, JsValue.FromObject(engine, new Func<JsValue, JsValue>(nameArg =>
-                    DoEffect(engine, frameNo, exp, exp.layer, nameArg))));
+                ctx.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
+                    DoContent(engine, frameNo, exp.layer, args[0])));
+                ctx.Set(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
+                    DoEffect(engine, frameNo, exp, exp.layer, args[0])));
             }
 
             if (exp.property.type == LottieProperty.PropertyType.PathSet)
@@ -1068,12 +1069,12 @@ namespace ThorVG
             }
 
             // toComp(point) -- transform point to composition space
-            ctx.Set("toComp", JsValue.FromObject(engine, new Func<JsValue, JsValue>(arg =>
+            ctx.Set("toComp", new ClrFunction(engine, "toComp", (_, args) =>
             {
-                var pt = JsToPoint(arg);
+                var pt = JsToPoint(args[0]);
                 pt = TvgMath.Transform(pt, layer.cacheMatrix);
                 return MakePoint2d(engine, pt);
-            })));
+            }));
 
             // transform
             if (layer.transform != null)
@@ -1093,12 +1094,12 @@ namespace ThorVG
             ctx.Set("timeRemap", timeRemapObj);
 
             // content(name)
-            ctx.Set(EXP_CONTENT, JsValue.FromObject(engine, new Func<JsValue, JsValue>(nameArg =>
-                DoContent(engine, frameNo, layer, nameArg))));
+            ctx.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
+                DoContent(engine, frameNo, layer, args[0])));
 
             // effect(name/index)
-            ctx.Set(EXP_EFFECT, JsValue.FromObject(engine, new Func<JsValue, JsValue>(nameArg =>
-                DoEffect(engine, frameNo, exp, layer, nameArg))));
+            ctx.Set(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
+                DoEffect(engine, frameNo, exp, layer, args[0])));
         }
 
         // ================================================================
@@ -1134,8 +1135,8 @@ namespace ThorVG
                             break;
                         }
                     }
-                    obj.Set(EXP_CONTENT, JsValue.FromObject(engine, new Func<JsValue, JsValue>(innerName =>
-                        DoContent(engine, frameNo, grp, innerName))));
+                    obj.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
+                        DoContent(engine, frameNo, grp, args[0])));
                     return obj;
                 }
                 case LottieObject.ObjectType.Path:
@@ -1195,17 +1196,17 @@ namespace ThorVG
             if (effect == null) return JsValue.Undefined;
 
             // Return a function that looks up effect properties by name
-            return JsValue.FromObject(engine, new Func<JsValue, JsValue>(propNameArg =>
+            return new ClrFunction(engine, "effect", (_, args) =>
             {
                 if (effect is LottieFxCustom custom)
                 {
-                    var propName = propNameArg.AsString();
+                    var propName = args[0].AsString();
                     var property = custom.FindProperty(propName);
                     if (property == null) return JsValue.Undefined;
                     return BuildValue(engine, frameNo, property);
                 }
                 return JsValue.Undefined;
-            }));
+            });
         }
 
         // ================================================================
@@ -1215,18 +1216,18 @@ namespace ThorVG
         private void BuildPathExpansion(Engine engine, float frameNo, LottieProperty pathset)
         {
             // points() -- returns native ref to the pathset property
-            engine.SetValue("points", new Func<JsValue>(() => MakeNativeRef(engine, pathset)));
+            engine.SetValue("points", new ClrFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
 
             // pointOnPath(progress) -- evaluate path at progress and return point
-            engine.SetValue("pointOnPath", new Func<JsValue, JsValue>(progressArg =>
-                DoPointOnPath(engine, frameNo, pathset, progressArg)));
+            engine.SetValue("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
+                DoPointOnPath(engine, frameNo, pathset, args[0])));
         }
 
         private void BuildPathExpansionOnObj(Engine engine, Jint.Native.JsObject ctx, float frameNo, LottieProperty pathset)
         {
-            ctx.Set("points", JsValue.FromObject(engine, new Func<JsValue>(() => MakeNativeRef(engine, pathset))));
-            ctx.Set("pointOnPath", JsValue.FromObject(engine, new Func<JsValue, JsValue>(progressArg =>
-                DoPointOnPath(engine, frameNo, pathset, progressArg))));
+            ctx.Set("points", new ClrFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
+            ctx.Set("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
+                DoPointOnPath(engine, frameNo, pathset, args[0])));
         }
 
         private JsValue DoPointOnPath(Engine engine, float frameNo, LottieProperty pathset, JsValue progressArg)
@@ -1609,12 +1610,12 @@ namespace ThorVG
             if (level == 1 && exp.obj != null)
             {
                 // Return a function that looks up properties by index
-                return JsValue.FromObject(engine, new Func<JsValue, JsValue>(indexArg =>
+                return new ClrFunction(engine, "propertyGroup", (_, args) =>
                 {
-                    var property = exp.obj.FindProperty((ushort)indexArg.AsNumber());
+                    var property = exp.obj.FindProperty((ushort)args[0].AsNumber());
                     if (property == null) return JsValue.Undefined;
                     return BuildValue(engine, frameNo, property);
-                }));
+                });
             }
 
             TvgCommon.TVGLOG("LOTTIE", "propertyGroup({0})?", level);

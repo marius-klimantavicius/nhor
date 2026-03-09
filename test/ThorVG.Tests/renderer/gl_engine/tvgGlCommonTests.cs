@@ -218,7 +218,6 @@ namespace ThorVG.Tests
             Assert.Equal(0u, shape.texFlipY);
             Assert.Equal(ColorSpace.ABGR8888, shape.texColorSpace);
             Assert.NotNull(shape.geometry);
-            Assert.NotNull(shape.clips);
             Assert.True(shape.clips.IsEmpty);
             Assert.False(shape.validFill);
             Assert.False(shape.validStroke);

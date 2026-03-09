@@ -345,19 +345,6 @@ namespace ThorVG
 
             if (blendShape && dstCopyFbo != null)
             {
-                // Desktop GL path
-                var region = stackalloc float[4];
-                region[0] = viewRegion.Sx(); region[1] = viewRegion.Sy();
-                region[2] = dstCopyFbo.width; region[3] = dstCopyFbo.height;
-                var regionOffset = mGpuBuffer.Push(region, 4 * sizeof(float), true);
-
-                task.AddBindResource(new GlBindingResource(
-                    2,
-                    task.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
-                    mGpuBuffer.GetBufferId(),
-                    regionOffset,
-                    4 * sizeof(float)));
-
                 task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
             }
 
@@ -544,18 +531,6 @@ namespace ThorVG
 
             if (blendShape && dstCopyFbo != null)
             {
-                // Desktop GL path
-                var region = stackalloc float[4];
-                region[0] = viewRegion.Sx(); region[1] = viewRegion.Sy();
-                region[2] = dstCopyFbo.width; region[3] = dstCopyFbo.height;
-                var regionOffset = mGpuBuffer.Push(region, 4 * sizeof(float), true);
-
-                task.AddBindResource(new GlBindingResource(
-                    3,
-                    task.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
-                    mGpuBuffer.GetBufferId(),
-                    regionOffset,
-                    4 * sizeof(float)));
                 task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
             }
 
@@ -666,19 +641,6 @@ namespace ThorVG
             var blendTask = new GlComplexBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, stencilTask, composeTask);
             PrepareCmpTask(blendTask, blendVp, blendPass.GetFboWidth(), blendPass.GetFboHeight());
             blendTask.SetDrawDepth(CurrentPass()!.NextDrawDepth());
-
-            // Desktop GL path
-            ref var taskVp = ref blendTask.GetViewport();
-            var region = stackalloc float[4];
-            region[0] = taskVp.Sx(); region[1] = taskVp.Sy();
-            region[2] = dstCopyFbo.width; region[3] = dstCopyFbo.height;
-            var regionOffset = mGpuBuffer.Push(region, 4 * sizeof(float), true);
-            blendTask.AddBindResource(new GlBindingResource(
-                0,
-                blendTask.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
-                mGpuBuffer.GetBufferId(),
-                regionOffset,
-                4 * sizeof(float)));
 
             // src and dst texture
             blendTask.AddBindResource(new GlBindingResource(1, blendPass.GetFbo()!.colorTex, blendTask.GetProgram()!.GetUniformLocation("uSrcTexture\0"u8)));
@@ -936,17 +898,6 @@ namespace ThorVG
                     PrepareCmpTask(blendTask, glCmp.bbox, renderPass.GetFboWidth(), renderPass.GetFboHeight());
                     blendTask.SetDrawDepth(CurrentPass()!.NextDrawDepth());
 
-                    // Desktop GL path
-                    ref var taskVp = ref blendTask.GetViewport();
-                    var region = stackalloc float[4];
-                    region[0] = taskVp.Sx(); region[1] = taskVp.Sy(); region[2] = dstCopyFbo.width; region[3] = dstCopyFbo.height;
-                    var regionOffset = mGpuBuffer.Push(region, 4 * sizeof(float), true);
-                    blendTask.AddBindResource(new GlBindingResource(
-                        1,
-                        blendTask.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
-                        mGpuBuffer.GetBufferId(),
-                        regionOffset,
-                        4 * sizeof(float)));
                     // info
                     var infoOffset = mGpuBuffer.Push(info, (uint)(4 * sizeof(uint)), true);
                     blendTask.AddBindResource(new GlBindingResource(0, blendTask.GetProgram()!.GetUniformBlockIndex("ColorInfo\0"u8), mGpuBuffer.GetBufferId(), infoOffset, (uint)(4 * sizeof(uint))));
