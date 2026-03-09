@@ -247,26 +247,24 @@ public abstract class Element
     /// </summary>
     public void ReorderChildren(IReadOnlyList<Element> newOrder)
     {
-        // Build a mapping from child scene to desired position in newOrder.
-        var sceneToNewIndex = new Dictionary<Paint, int>(newOrder.Count);
+        // Build a set of child scenes for fast lookup.
+        var childScenes = new HashSet<Paint>(newOrder.Count);
         for (int i = 0; i < newOrder.Count; i++)
-            sceneToNewIndex[newOrder[i]._scene] = i;
+            childScenes.Add(newOrder[i]._scene);
 
-        // Find which positions in the scene's paints list hold child scenes,
-        // then place them in the new order at those same positions.
+        // Find which positions in the scene's paints list hold child scenes.
         var paintPositions = new List<int>();
         for (int i = 0; i < _scene.paints.Count; i++)
         {
-            if (sceneToNewIndex.ContainsKey(_scene.paints[i]))
+            if (childScenes.Contains(_scene.paints[i]))
                 paintPositions.Add(i);
         }
 
-        var reordered = new Paint[paintPositions.Count];
-        foreach (var kvp in sceneToNewIndex)
-            reordered[kvp.Value] = kvp.Key;
-
-        for (int i = 0; i < paintPositions.Count; i++)
-            _scene.paints[paintPositions[i]] = reordered[i];
+        // Place newOrder scenes at those positions, preserving the relative
+        // slot assignments for any non-child paints (background, scrollbars, etc.).
+        int count = Math.Min(paintPositions.Count, newOrder.Count);
+        for (int i = 0; i < count; i++)
+            _scene.paints[paintPositions[i]] = newOrder[i]._scene;
 
         // Reorder the children list.
         _children.Clear();

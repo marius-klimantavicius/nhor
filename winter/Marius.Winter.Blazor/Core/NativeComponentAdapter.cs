@@ -188,7 +188,7 @@ namespace Marius.Winter.Blazor.Core
         {
             foreach (var child in adapter.Children)
             {
-                if (child._targetElement != null && child._targetElement is not INonChildContainerElement)
+                if (child._targetElement != null && child._targetElement is not INonPhysicalChild)
                 {
                     result.Add(child._targetElement);
                 }
@@ -472,7 +472,7 @@ namespace Marius.Winter.Blazor.Core
             for (var i = indexOfParentsChildAdapter - 1; i >= 0; i--)
             {
                 var sibling = parentAdapter.Children[i];
-                if (sibling._targetElement is INonChildContainerElement)
+                if (sibling._targetElement is INonPhysicalChild)
                 {
                     continue;
                 }
@@ -491,7 +491,7 @@ namespace Marius.Winter.Blazor.Core
 
         private NativeComponentAdapter? GetLastDescendantWithPhysicalElement()
         {
-            if (_targetElement is INonChildContainerElement)
+            if (_targetElement is INonPhysicalChild)
             {
                 return null;
             }
