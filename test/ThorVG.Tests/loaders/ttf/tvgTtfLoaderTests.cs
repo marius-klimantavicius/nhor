@@ -5,7 +5,7 @@ namespace ThorVG.Tests
 {
     public class TtfLoaderTests
     {
-        private const string FontPath = "/home/marius/p/NHorvg3/ThorVG/test/resources/PublicSans-Regular.ttf";
+        private const string FontPath = "/home/marius/p/nhor/ref/ThorVG/test/resources/PublicSans-Regular.ttf";
 
         private TtfLoader CreateLoader()
         {

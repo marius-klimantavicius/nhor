@@ -5,7 +5,7 @@ namespace ThorVG.Tests
 {
     public class TtfReaderTests
     {
-        private const string FontPath = "/home/marius/p/NHorvg3/ThorVG/test/resources/PublicSans-Regular.ttf";
+        private const string FontPath = "/home/marius/p/nhor/ref/ThorVG/test/resources/PublicSans-Regular.ttf";
 
         private TtfReader LoadReader()
         {

@@ -366,11 +366,11 @@ namespace ThorVG.Tests
             rshape.path.Close();
             rshape.color = new RGBA(255, 0, 0, 255);
 
-            var clips = new List<object?>();
+            var clips = new ValueList<object?>();
             var transform = TvgMath.Identity();
 
             renderer.PreUpdate();
-            var rd = renderer.Prepare(rshape, null, transform, clips, 255, RenderUpdateFlag.All, false);
+            var rd = renderer.Prepare(rshape, null, transform, ref clips, 255, RenderUpdateFlag.All, false);
             renderer.PostUpdate();
 
             Assert.NotNull(rd);
