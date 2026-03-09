@@ -223,7 +223,7 @@ namespace ThorVG
             return false;
         }
 
-        internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
+        internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
         {
             if (!InternalLoad()) return true;
 
@@ -254,7 +254,7 @@ namespace ThorVG
                 shape.StrokeWidth(outlineWidth * scale);
             }
 
-            shape.pImpl.Update(renderer, transform, clips, opacity, flag, false);
+            shape.pImpl.Update(renderer, transform, ref clips, opacity, flag, false);
             return true;
         }
 
@@ -324,7 +324,7 @@ namespace ThorVG
         internal override Paint DuplicatePaintVirt(Paint? ret) => DuplicateText(ret);
         internal override Iterator? GetIteratorVirt() => GetTextIterator();
         internal override bool PaintSkipVirt(RenderUpdateFlag flag) => PaintSkip(flag);
-        internal override bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => PaintUpdate(renderer, transform, clips, opacity, flag, clipper);
+        internal override bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => PaintUpdate(renderer, transform, ref clips, opacity, flag, clipper);
         internal override bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => PaintRender(renderer, flag);
         internal override RenderRegion PaintBoundsVirt() => TextBounds();
         internal override bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => GeometricBounds(pt4, m, obb);

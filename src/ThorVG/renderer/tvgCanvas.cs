@@ -76,7 +76,7 @@ namespace ThorVG
             if (status == CanvasStatus.Updating) return Result.Success;
             if (status == CanvasStatus.Drawing) return Result.InsufficientCondition;
 
-            var clips = new List<object?>();
+            var clips = new ValueList<object?>();
             var flag = RenderUpdateFlag.None;
 
             // TODO: All is too harsh, can be optimized.
@@ -85,7 +85,7 @@ namespace ThorVG
             if (renderer == null || !renderer.PreUpdate()) return Result.InsufficientCondition;
 
             var m = TvgMath.Identity();
-            scene.pImpl.Update(renderer, m, clips, 255, flag);
+            scene.pImpl.Update(renderer, m, ref clips, 255, flag);
 
             if (!renderer.PostUpdate()) return Result.InsufficientCondition;
 

@@ -38,8 +38,8 @@ namespace ThorVG
 
         // --- Main features (abstract) ---
         public abstract bool PreUpdate();
-        public abstract object? Prepare(RenderShape rshape, object? data, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper);
-        public abstract object? Prepare(RenderSurface surface, object? data, in Matrix transform, List<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags);
+        public abstract object? Prepare(RenderShape rshape, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper);
+        public abstract object? Prepare(RenderSurface surface, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags);
         public abstract bool PostUpdate();
         public abstract bool PreRender();
         public abstract bool RenderShape(object? data);

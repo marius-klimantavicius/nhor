@@ -135,7 +135,7 @@ namespace ThorVG
         internal virtual Paint DuplicatePaintVirt(Paint? ret) => ret ?? Shape.Gen();
         internal virtual Iterator? GetIteratorVirt() => null;
         internal virtual bool PaintSkipVirt(RenderUpdateFlag flag) => false;
-        internal virtual bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => false;
+        internal virtual bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => false;
         internal virtual bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => false;
         internal virtual RenderRegion PaintBoundsVirt() => default;
         internal virtual bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => false;
@@ -436,8 +436,8 @@ namespace ThorVG
 
         private bool PaintSkip(RenderUpdateFlag flag) => paint.PaintSkipVirt(flag);
 
-        private bool PaintUpdate(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
-            => paint.PaintUpdateVirt(renderer, transform, clips, opacity, flag, clipper);
+        private bool PaintUpdate(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
+            => paint.PaintUpdateVirt(renderer, transform, ref clips, opacity, flag, clipper);
 
         private bool PaintRender(RenderMethod renderer, CompositionFlag flag) => paint.PaintRenderVirt(renderer, flag);
 
@@ -585,7 +585,7 @@ namespace ThorVG
         //  Mirrors C++ Paint::Impl::update()
         // =====================================================================
 
-        internal unsafe object? Update(RenderMethod renderer, in Matrix pm, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper = false)
+        internal unsafe object? Update(RenderMethod renderer, in Matrix pm, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper = false)
         {
             if (PaintSkip(flag | renderFlag)) return rd;
 
@@ -631,7 +631,7 @@ namespace ThorVG
                 }
                 if (!compFastTrack)
                 {
-                    trd = target.pImpl.Update(renderer, pm, clips, 255, flag, false);
+                    trd = target.pImpl.Update(renderer, pm, ref clips, 255, flag, false);
                 }
             }
 
@@ -650,7 +650,7 @@ namespace ThorVG
                 else
                 {
                     Mark(RenderUpdateFlag.Clip);
-                    trd = pclip.Update(renderer, pm, clips, 255, flag, true);
+                    trd = pclip.Update(renderer, pm, ref clips, 255, flag, true);
                     clips.Add(trd);
                 }
             }
@@ -658,7 +658,7 @@ namespace ThorVG
             // 3. Main Update
             var combinedOpacity = RenderHelper.Multiply(opacity, this.opacity);
             var m = TvgMath.Multiply(pm, tr.m);
-            PaintUpdate(renderer, m, clips, combinedOpacity, flag | renderFlag, clipper);
+            PaintUpdate(renderer, m, ref clips, combinedOpacity, flag | renderFlag, clipper);
 
             // 4. Composition Post Processing
             if (compFastTrack) renderer.Viewport(viewport);

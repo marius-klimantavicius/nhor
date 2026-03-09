@@ -569,7 +569,7 @@ namespace ThorVG
             }
         }
 
-        private void DrawClip(List<object?> clips)
+        private void DrawClip(ref ValueList<object?> clips)
         {
             var identityVertex = stackalloc float[] { -1f, 1f, -1f, -1f, 1f, 1f, 1f, -1f };
             var identityIndex = stackalloc uint[] { 0, 1, 2, 2, 1, 3 };
@@ -1240,7 +1240,7 @@ namespace ThorVG
             var y = bbox.Sy() - vp.Sy();
             var drawDepth = CurrentPass()!.NextDrawDepth();
 
-            if (sdata.clips.Count > 0) DrawClip(sdata.clips);
+            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips);
 
             var task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Image]);
             task.SetDrawDepth(drawDepth);
@@ -1301,7 +1301,7 @@ namespace ThorVG
             if (sdata.validFill) drawDepth1 = CurrentPass()!.NextDrawDepth();
             if (sdata.validStroke) drawDepth2 = CurrentPass()!.NextDrawDepth();
 
-            if (sdata.clips.Count > 0) DrawClip(sdata.clips);
+            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips);
 
             if (sdata.rshape != null && sdata.rshape.StrokeFirst())
             {
@@ -1358,7 +1358,7 @@ namespace ThorVG
             }
         }
 
-        public override object? Prepare(RenderSurface image, object? data, in Matrix transform, List<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
+        public override object? Prepare(RenderSurface image, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
         {
             // TODO: redefine GlImage.
             var sdata = data as GlShape;
@@ -1400,14 +1400,13 @@ namespace ThorVG
 
             if ((flags & RenderUpdateFlag.Clip) != 0)
             {
-                sdata.clips.Clear();
-                sdata.clips.AddRange(clips);
+                sdata.clips.CopyFrom(ref clips);
             }
 
             return sdata;
         }
 
-        public override object? Prepare(RenderShape rshape, object? data, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper)
+        public override object? Prepare(RenderShape rshape, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper)
         {
             var sdata = data as GlShape;
             if (sdata == null)
@@ -1450,8 +1449,7 @@ namespace ThorVG
 
             if ((flags & RenderUpdateFlag.Clip) != 0)
             {
-                sdata.clips.Clear();
-                sdata.clips.AddRange(clips);
+                sdata.clips.CopyFrom(ref clips);
             }
 
             return sdata;

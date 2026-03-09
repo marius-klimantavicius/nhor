@@ -326,7 +326,7 @@ namespace ThorVG
         public uint texFlipY;
         public ColorSpace texColorSpace = ColorSpace.ABGR8888;
         public GlGeometry geometry = new GlGeometry();
-        public List<object?> clips = new List<object?>();
+        public ValueList<object?> clips;
         public bool validFill;
         public bool validStroke;
     }
@@ -392,7 +392,7 @@ namespace ThorVG
             return (crossings % 2) == 1;
         }
 
-        public bool IntersectClips(Point pt, List<object?> clips)
+        public bool IntersectClips(Point pt, ref ValueList<object?> clips)
         {
             for (int i = 0; i < clips.Count; i++)
             {
@@ -417,7 +417,7 @@ namespace ThorVG
                 {
                     var pt = new Point((float)x + region.min.x, (float)y + region.min.y);
                     if (y % 2 == 1) pt.y = (float)sizeY - y - sizeY % 2 + region.min.y;
-                    if (IntersectClips(pt, shape.clips))
+                    if (IntersectClips(pt, ref shape.clips))
                     {
                         if (shape.validFill && IsPointInMesh(pt, shape.geometry.fill, shape.geometry.fillWorld ? id : shape.geometry.matrix)) return true;
                         if (shape.validStroke && IsPointInTris(pt, shape.geometry.stroke, id)) return true;
@@ -440,7 +440,7 @@ namespace ThorVG
                     {
                         var pt = new Point((float)x + region.min.x, (float)y + region.min.y);
                         if (y % 2 == 1) pt.y = (float)sizeY - y - sizeY % 2 + region.min.y;
-                        if (IntersectClips(pt, image.clips) && IsPointInImage(pt, image.geometry.fill, image.geometry.fillWorld ? id : image.geometry.matrix)) return true;
+                        if (IntersectClips(pt, ref image.clips) && IsPointInImage(pt, image.geometry.fill, image.geometry.fillWorld ? id : image.geometry.matrix)) return true;
                     }
                 }
             }

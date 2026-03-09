@@ -190,7 +190,7 @@ namespace ThorVG
             return false;
         }
 
-        internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
+        internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
         {
             InternalLoad();
 
@@ -203,7 +203,7 @@ namespace ThorVG
                 var sy = h / loader.h;
                 var scale = sx < sy ? sx : sy;
                 var m = TvgMath.Multiply(transform, new Matrix(scale, 0, pivot.x, 0, scale, pivot.y, 0, 0, 1));
-                pImpl.rd = renderer.Prepare(bitmap, pImpl.rd, m, clips, opacity, filter, flag);
+                pImpl.rd = renderer.Prepare(bitmap, pImpl.rd, m, ref clips, opacity, filter, flag);
             }
             else if (vector != null)
             {
@@ -216,7 +216,7 @@ namespace ThorVG
                 vector.pImpl.SetBlend(pImpl.blendMethod); // propagate blend method to nested vector scene
                 var tm = transform;
                 TvgMath.TranslateR(ref tm, pivot);
-                return vector.pImpl.Update(renderer, tm, clips, opacity, flag, false) != null;
+                return vector.pImpl.Update(renderer, tm, ref clips, opacity, flag, false) != null;
             }
             return true;
         }
@@ -325,7 +325,7 @@ namespace ThorVG
         internal override Paint DuplicatePaintVirt(Paint? ret) => DuplicatePicture(ret);
         internal override Iterator? GetIteratorVirt() => GetPictureIterator();
         internal override bool PaintSkipVirt(RenderUpdateFlag flag) => PaintSkip(flag);
-        internal override bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => PaintUpdate(renderer, transform, clips, opacity, flag, clipper);
+        internal override bool PaintUpdateVirt(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper) => PaintUpdate(renderer, transform, ref clips, opacity, flag, clipper);
         internal override bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => PaintRender(renderer, flag);
         internal override RenderRegion PaintBoundsVirt() => PaintBounds();
         internal override bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => GeometricBounds(pt4, m, obb);

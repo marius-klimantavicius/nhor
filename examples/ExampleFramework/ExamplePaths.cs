@@ -36,9 +36,9 @@ public static class ExamplePaths
         var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         while (dir != null)
         {
-            if (File.Exists(Path.Combine(dir, "ThorVG.slnx")))
+            if (File.Exists(Path.Combine(dir, "Nhor.slnx")))
             {
-                var resDir = Path.Combine(dir, "thorvg.example", "res");
+                var resDir = Path.Combine(dir, "ref", "thorvg.example", "res");
                 if (Directory.Exists(resDir))
                     return resDir;
             }
@@ -50,9 +50,9 @@ public static class ExamplePaths
         var dir2 = cwd;
         while (dir2 != null)
         {
-            if (File.Exists(Path.Combine(dir2, "ThorVG.slnx")))
+            if (File.Exists(Path.Combine(dir2, "Nhor.slnx")))
             {
-                var resDir = Path.Combine(dir2, "thorvg.example", "res");
+                var resDir = Path.Combine(dir2, "ref", "thorvg.example", "res");
                 if (Directory.Exists(resDir))
                     return resDir;
             }
@@ -60,6 +60,6 @@ public static class ExamplePaths
         }
 
         Console.WriteLine("Warning: Could not find thorvg.example/res/ directory.");
-        return Path.Combine(cwd, "thorvg.example", "res");
+        return Path.Combine(cwd, "ref", "thorvg.example", "res");
     }
 }

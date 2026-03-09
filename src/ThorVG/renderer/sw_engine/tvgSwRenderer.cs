@@ -21,7 +21,7 @@ namespace ThorVG
         public RenderRegion curBox;
         public RenderRegion prvBox;
         public Matrix transform;
-        public List<object?> clips = new List<object?>();
+        public ValueList<object?> clips;
         public RenderDirtyRegion? dirtyRegion;
         public RenderUpdateFlag[] flags = new RenderUpdateFlag[2];
         public byte opacity;
@@ -888,7 +888,7 @@ namespace ThorVG
 
         // --- Prepare ---
 
-        private object PrepareCommon(SwTask task, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flags)
+        private object PrepareCommon(SwTask task, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags)
         {
             if (task.disposed) return task;
 
@@ -921,7 +921,7 @@ namespace ThorVG
             return task;
         }
 
-        public override object? Prepare(RenderSurface surfaceData, object? data, in Matrix transform, List<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
+        public override object? Prepare(RenderSurface surfaceData, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
         {
             var task = data as SwImageTask;
             task?.Done();
@@ -931,10 +931,10 @@ namespace ThorVG
                 task.source = surfaceData;
             }
             task.image.filter = filter;
-            return PrepareCommon(task, transform, clips, opacity, flags);
+            return PrepareCommon(task, transform, ref clips, opacity, flags);
         }
 
-        public override object? Prepare(RenderShape rshape, object? data, in Matrix transform, List<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper)
+        public override object? Prepare(RenderShape rshape, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper)
         {
             var task = data as SwShapeTask;
             task?.Done();
@@ -946,7 +946,7 @@ namespace ThorVG
 
             task.clipper = clipper;
 
-            return PrepareCommon(task, transform, clips, opacity, flags);
+            return PrepareCommon(task, transform, ref clips, opacity, flags);
         }
 
         // --- Static management ---
