@@ -143,6 +143,7 @@ public abstract class Element
         get => _layoutData;
         set
         {
+            if (Equals(_layoutData, value)) return;
             _layoutData = value;
             _taffyStyleDirty = true;
             _parent?.InvalidateMeasure();
@@ -295,6 +296,9 @@ public abstract class Element
     }
 
     // --- Layout ---
+
+    /// <summary>Whether this element's measure cache is dirty and needs re-measurement.</summary>
+    public bool IsMeasureDirty => _measureDirty;
 
     public void InvalidateMeasure()
     {

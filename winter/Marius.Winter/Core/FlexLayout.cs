@@ -10,7 +10,7 @@ public enum FlexWrap { NoWrap, Wrap }
 /// <summary>
 /// Per-child layout hints for FlexLayout. Set on Element.LayoutData.
 /// </summary>
-public class FlexItem
+public class FlexItem : IEquatable<FlexItem>
 {
     /// <summary>How much this child grows to fill remaining space (0 = don't grow).</summary>
     public float Grow { get; set; }
@@ -23,6 +23,14 @@ public class FlexItem
 
     /// <summary>Override the container's AlignItems for this child. null = inherit.</summary>
     public Alignment? AlignSelf { get; set; }
+
+    public bool Equals(FlexItem? other) =>
+        other != null && Grow == other.Grow && Shrink == other.Shrink &&
+        Basis.Equals(other.Basis) && AlignSelf == other.AlignSelf;
+
+    public override bool Equals(object? obj) => Equals(obj as FlexItem);
+
+    public override int GetHashCode() => HashCode.Combine(Grow, Shrink, Basis, AlignSelf);
 }
 
 /// <summary>

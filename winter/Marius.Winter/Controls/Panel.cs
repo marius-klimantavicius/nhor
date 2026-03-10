@@ -61,6 +61,11 @@ public class Panel : Element, ILayoutContainer
         get => _padding;
         set
         {
+            if (_padding.HasValue == value.HasValue &&
+                (!value.HasValue || (_padding!.Value.Left == value!.Value.Left &&
+                 _padding.Value.Top == value.Value.Top &&
+                 _padding.Value.Right == value.Value.Right &&
+                 _padding.Value.Bottom == value.Value.Bottom))) return;
             _padding = value;
             _taffyStyleDirty = true;
             InvalidateMeasure();

@@ -41,13 +41,28 @@ public class WinterRenderer : NativeComponentRenderer
         // Re-layout window children after Blazor updates to fix stale measurements.
         // Without this, incremental child additions during page switches leave
         // panels with stale content heights (e.g. ScrollPanel shows phantom scrollbar).
+        // Only re-layout when something actually changed (IsMeasureDirty), to avoid
+        // measurement instability from content-less spacer panels that return
+        // available space as their desired size.
         var b = _window.Bounds;
         if (b.W > 0 && b.H > 0)
         {
+            bool anyDirty = false;
             foreach (var child in _window.Children)
             {
-                child.Measure(b.W, b.H);
-                child.Arrange(new RectF(0, 0, b.W, b.H));
+                if (child.IsMeasureDirty)
+                {
+                    anyDirty = true;
+                    break;
+                }
+            }
+            if (anyDirty)
+            {
+                foreach (var child in _window.Children)
+                {
+                    child.Measure(b.W, b.H);
+                    child.Arrange(new RectF(0, 0, b.W, b.H));
+                }
             }
             _window.Dirty = true;
         }
