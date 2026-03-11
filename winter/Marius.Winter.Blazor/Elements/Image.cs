@@ -32,6 +32,10 @@ public class Image : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
+        // Shadow state — always holds the latest Blazor-declared values.
+        byte[]? _source;
+        string _mimeType = "png";
+
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Image()) { }
 
@@ -42,12 +46,12 @@ public class Image : WinterComponentBase
             switch (attributeName)
             {
                 case "Source":
-                    var bytes = AttributeHelper.GetByteArray(attributeValue);
-                    if (bytes != null)
-                        ImageControl.Source = bytes;
+                    _source = AttributeHelper.GetByteArray(attributeValue);
+                    ImageControl.SetSource(_source, _mimeType);
                     break;
                 case "MimeType":
-                    ImageControl.MimeType = AttributeHelper.GetString(attributeValue) ?? "png";
+                    _mimeType = AttributeHelper.GetString(attributeValue) ?? "png";
+                    ImageControl.SetSource(_source, _mimeType);
                     break;
                 case "RequestedWidth":
                     ImageControl.RequestedWidth = AttributeHelper.GetFloat(attributeValue);

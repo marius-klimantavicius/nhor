@@ -32,6 +32,10 @@ public class Slider : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
+        // Shadow state — always holds the latest Blazor-declared values.
+        // On any attribute change we call SetRange with all current values,
+        // making attribute application order irrelevant.
+        float _min, _max = 1f, _value, _step;
         ulong OnValueChangedEventHandlerId;
 
         public Handler(NativeComponentRenderer renderer)
@@ -51,16 +55,22 @@ public class Slider : WinterComponentBase
             switch (attributeName)
             {
                 case "Value":
-                    SliderControl.Value = AttributeHelper.GetFloat(attributeValue);
+                    _value = AttributeHelper.GetFloat(attributeValue);
+                    SliderControl.SetRange(_min, _max, _value);
                     break;
                 case "Min":
-                    SliderControl.Min = AttributeHelper.GetFloat(attributeValue);
+                    _min = AttributeHelper.GetFloat(attributeValue);
+                    SliderControl.SetRange(_min, _max, _value);
                     break;
                 case "Max":
-                    SliderControl.Max = AttributeHelper.GetFloat(attributeValue, 1f);
+                    _max = AttributeHelper.GetFloat(attributeValue, 1f);
+                    SliderControl.SetRange(_min, _max, _value);
                     break;
                 case "Step":
-                    SliderControl.Step = AttributeHelper.GetFloat(attributeValue);
+                    _step = AttributeHelper.GetFloat(attributeValue);
+                    SliderControl.Step = _step;
+                    // Re-apply range in case step quantization changes effective value
+                    SliderControl.SetRange(_min, _max, _value);
                     break;
                 case "ShowValue":
                     SliderControl.ShowValue = AttributeHelper.GetBool(attributeValue);

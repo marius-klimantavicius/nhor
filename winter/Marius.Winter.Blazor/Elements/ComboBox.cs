@@ -1,3 +1,4 @@
+using System;
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
 
@@ -28,6 +29,9 @@ public class ComboBox : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
+        // Shadow state — always holds the latest Blazor-declared values.
+        string[] _items = Array.Empty<string>();
+        int _selectedIndex = -1;
         ulong OnSelectionChangedEventHandlerId;
 
         public Handler(NativeComponentRenderer renderer)
@@ -47,12 +51,12 @@ public class ComboBox : WinterComponentBase
             switch (attributeName)
             {
                 case "Items":
-                    var items = AttributeHelper.GetStringArray(attributeValue);
-                    if (items != null)
-                        ComboBoxControl.SetItems(items);
+                    _items = AttributeHelper.GetStringArray(attributeValue) ?? Array.Empty<string>();
+                    ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
                     break;
                 case "SelectedIndex":
-                    ComboBoxControl.SelectedIndex = AttributeHelper.GetInt(attributeValue, -1);
+                    _selectedIndex = AttributeHelper.GetInt(attributeValue, -1);
+                    ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
                     break;
                 case "onselectionchanged":
                     Renderer.RegisterEvent(attributeEventHandlerId, id =>

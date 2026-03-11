@@ -73,6 +73,18 @@ public class Image : Element
         }
     }
 
+    /// <summary>
+    /// Atomically set source bytes and MIME type, then reload the image once.
+    /// Used by Blazor handler to avoid attribute-ordering bugs.
+    /// </summary>
+    public void SetSource(byte[]? source, string mimeType)
+    {
+        _source = source;
+        _mimeType = mimeType;
+        if (_shapesCreated)
+            ReloadImage();
+    }
+
     protected override void OnAttached()
     {
         if (!_shapesCreated)

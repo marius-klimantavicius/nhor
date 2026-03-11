@@ -65,6 +65,26 @@ public class ComboBox : Element
         MarkDirty();
     }
 
+    /// <summary>
+    /// Atomically set items and selected index. Applies items first, then clamps
+    /// index, then fires SelectionChanged once if the index changed.
+    /// Used by Blazor handler to avoid attribute-ordering bugs.
+    /// </summary>
+    public void SetItemsAndIndex(string[] items, int selectedIndex)
+    {
+        _items.Clear();
+        _items.AddRange(items);
+        int clamped = _items.Count > 0
+            ? Math.Clamp(selectedIndex, -1, _items.Count - 1)
+            : -1;
+        bool changed = _selectedIndex != clamped;
+        _selectedIndex = clamped;
+        UpdateLabel();
+        InvalidateMeasure();
+        MarkDirty();
+        if (changed) SelectionChanged?.Invoke(_selectedIndex);
+    }
+
     protected override void OnAttached()
     {
         if (!_shapesCreated)

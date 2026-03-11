@@ -50,6 +50,24 @@ public class Slider : Element
     public float Max { get => _max; set { _max = value; Value = _value; } }
     public float Step { get => _step; set => _step = value; }
 
+    /// <summary>
+    /// Atomically set min, max, and value. Applies min/max first, then clamps
+    /// value, then fires ValueChanged once if the effective value changed.
+    /// Used by Blazor handler to avoid attribute-ordering bugs.
+    /// </summary>
+    public void SetRange(float min, float max, float value)
+    {
+        _min = min;
+        _max = max;
+        float clamped = Math.Clamp(value, _min, _max);
+        if (_step > 0) clamped = MathF.Round(clamped / _step) * _step;
+        bool changed = _value != clamped;
+        _value = clamped;
+        UpdateShapes();
+        MarkDirty();
+        if (changed) ValueChanged?.Invoke(_value);
+    }
+
     public bool ShowValue
     {
         get => _showValue;
