@@ -47,7 +47,7 @@ public class Button : WinterComponentBase
             ButtonControl.Clicked = () =>
             {
                 if (_clickEventHandlerId != 0)
-                    Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty));
+                    Renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
             };
         }
 

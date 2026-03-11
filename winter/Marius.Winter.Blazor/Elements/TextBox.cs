@@ -32,16 +32,13 @@ public class TextBox : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        ulong OnTextChangedEventHandlerId;
+        readonly CoalescedEvent _textChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.TextBox())
         {
-            TextBoxControl.TextChanged = value =>
-            {
-                if (OnTextChangedEventHandlerId != 0)
-                    Renderer.DispatchEventAsync(OnTextChangedEventHandlerId, null, new ChangeEventArgs { Value = value });
-            };
+            _textChangedEvent = new CoalescedEvent(this);
+            TextBoxControl.TextChanged = value => _textChangedEvent.Fire(value);
         }
 
         Marius.Winter.TextBox TextBoxControl => (Marius.Winter.TextBox)ElementControl;
@@ -60,12 +57,8 @@ public class TextBox : WinterComponentBase
                     TextBoxControl.Required = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "ontextchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id =>
-                    {
-                        if (OnTextChangedEventHandlerId == id)
-                            OnTextChangedEventHandlerId = 0;
-                    });
-                    OnTextChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
+                    _textChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

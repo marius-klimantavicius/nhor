@@ -1,4 +1,5 @@
 using System;
+using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor;
@@ -16,7 +17,7 @@ public class WinterElementHandler : IWinterElementHandler
         ElementControl.DoubleClicked = () =>
         {
             if (_doubleClickEventHandlerId != 0)
-                Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchEventAsync(_doubleClickEventHandlerId, null, EventArgs.Empty));
+                Renderer.DispatchEventAsync(_doubleClickEventHandlerId, null, EventArgs.Empty);
         };
     }
 
@@ -68,6 +69,51 @@ public class WinterElementHandler : IWinterElementHandler
     {
         if (parentElement is ILayoutContainer container)
             container.Layout = layout;
+    }
+
+    /// <summary>
+    /// Coalesces rapid-fire native events so that at most one Blazor
+    /// DispatchEventAsync call happens per frame (per event slot).
+    /// Safe for both high-frequency (mouse drag, key repeat) and
+    /// low-frequency (click) events — low-frequency events pass through
+    /// without coalescing since no second fire arrives before the queue drains.
+    /// </summary>
+    protected class CoalescedEvent
+    {
+        private readonly WinterElementHandler _handler;
+        private bool _pending;
+        private readonly ChangeEventArgs _args = new();
+
+        public ulong HandlerId;
+
+        public CoalescedEvent(WinterElementHandler handler) => _handler = handler;
+
+        public void Fire(object? value)
+        {
+            if (HandlerId == 0) return;
+            _args.Value = value;
+            if (_pending) return;
+
+            var window = _handler.ElementControl.OwnerWindow;
+            if (window == null)
+            {
+                _handler.Renderer.DispatchEventAsync(HandlerId, null, _args);
+                return;
+            }
+
+            _pending = true;
+            window.DispatcherQueue.Enqueue(() =>
+            {
+                _pending = false;
+                if (HandlerId != 0)
+                    _handler.Renderer.DispatchEventAsync(HandlerId, null, _args);
+            });
+        }
+
+        public void Unregister(ulong id)
+        {
+            if (HandlerId == id) HandlerId = 0;
+        }
     }
 
     public virtual bool IsParented() => _parent != null;

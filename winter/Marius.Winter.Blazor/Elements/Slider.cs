@@ -36,16 +36,13 @@ public class Slider : WinterComponentBase
         // On any attribute change we call SetRange with all current values,
         // making attribute application order irrelevant.
         float _min, _max = 1f, _value, _step;
-        ulong OnValueChangedEventHandlerId;
+        readonly CoalescedEvent _valueChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Slider())
         {
-            SliderControl.ValueChanged = value =>
-            {
-                if (OnValueChangedEventHandlerId != 0)
-                    Renderer.DispatchEventAsync(OnValueChangedEventHandlerId, null, new ChangeEventArgs { Value = value });
-            };
+            _valueChangedEvent = new CoalescedEvent(this);
+            SliderControl.ValueChanged = value => _valueChangedEvent.Fire(value);
         }
 
         Marius.Winter.Slider SliderControl => (Marius.Winter.Slider)ElementControl;
@@ -76,12 +73,8 @@ public class Slider : WinterComponentBase
                     SliderControl.ShowValue = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "onvaluechanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id =>
-                    {
-                        if (OnValueChangedEventHandlerId == id)
-                            OnValueChangedEventHandlerId = 0;
-                    });
-                    OnValueChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _valueChangedEvent.Unregister);
+                    _valueChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

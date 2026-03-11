@@ -32,16 +32,13 @@ public class ComboBox : WinterComponentBase
         // Shadow state — always holds the latest Blazor-declared values.
         string[] _items = Array.Empty<string>();
         int _selectedIndex = -1;
-        ulong OnSelectionChangedEventHandlerId;
+        readonly CoalescedEvent _selectionChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.ComboBox())
         {
-            ComboBoxControl.SelectionChanged = index =>
-            {
-                if (OnSelectionChangedEventHandlerId != 0)
-                    Renderer.DispatchEventAsync(OnSelectionChangedEventHandlerId, null, new ChangeEventArgs { Value = index });
-            };
+            _selectionChangedEvent = new CoalescedEvent(this);
+            ComboBoxControl.SelectionChanged = index => _selectionChangedEvent.Fire(index);
         }
 
         Marius.Winter.ComboBox ComboBoxControl => (Marius.Winter.ComboBox)ElementControl;
@@ -59,12 +56,8 @@ public class ComboBox : WinterComponentBase
                     ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
                     break;
                 case "onselectionchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id =>
-                    {
-                        if (OnSelectionChangedEventHandlerId == id)
-                            OnSelectionChangedEventHandlerId = 0;
-                    });
-                    OnSelectionChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
+                    _selectionChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

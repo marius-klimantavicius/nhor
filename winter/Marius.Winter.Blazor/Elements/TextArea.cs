@@ -29,16 +29,13 @@ public class TextArea : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        ulong OnTextChangedEventHandlerId;
+        readonly CoalescedEvent _textChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.TextArea())
         {
-            TextAreaControl.TextChanged = value =>
-            {
-                if (OnTextChangedEventHandlerId != 0)
-                    Renderer.DispatchEventAsync(OnTextChangedEventHandlerId, null, new ChangeEventArgs { Value = value });
-            };
+            _textChangedEvent = new CoalescedEvent(this);
+            TextAreaControl.TextChanged = value => _textChangedEvent.Fire(value);
         }
 
         Marius.Winter.TextArea TextAreaControl => (Marius.Winter.TextArea)ElementControl;
@@ -54,12 +51,8 @@ public class TextArea : WinterComponentBase
                     TextAreaControl.Placeholder = AttributeHelper.GetString(attributeValue) ?? "";
                     break;
                 case "ontextchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id =>
-                    {
-                        if (OnTextChangedEventHandlerId == id)
-                            OnTextChangedEventHandlerId = 0;
-                    });
-                    OnTextChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
+                    _textChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

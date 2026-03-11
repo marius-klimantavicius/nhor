@@ -27,19 +27,17 @@ public class Checkbox : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        ulong OnChangedEventHandlerId;
+        readonly CoalescedEvent _changedEvent;
         bool _pendingUserChange;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Checkbox())
         {
+            _changedEvent = new CoalescedEvent(this);
             CheckboxControl.Changed = value =>
             {
-                if (OnChangedEventHandlerId != 0)
-                {
-                    _pendingUserChange = true;
-                    Renderer.DispatchEventAsync(OnChangedEventHandlerId, null, new ChangeEventArgs { Value = value });
-                }
+                _pendingUserChange = true;
+                _changedEvent.Fire(value);
             };
         }
 
@@ -68,12 +66,8 @@ public class Checkbox : WinterComponentBase
                     }
                     break;
                 case "onchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id =>
-                    {
-                        if (OnChangedEventHandlerId == id)
-                            OnChangedEventHandlerId = 0;
-                    });
-                    OnChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _changedEvent.Unregister);
+                    _changedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

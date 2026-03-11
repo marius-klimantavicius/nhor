@@ -29,7 +29,7 @@ public class TreeView : WinterComponentBase
 
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
-        ulong _selectionChangedEventHandlerId;
+        readonly CoalescedEvent _selectionChangedEvent;
 
         Marius.Winter.TreeView TreeViewControl => (Marius.Winter.TreeView)ElementControl;
 
@@ -38,15 +38,8 @@ public class TreeView : WinterComponentBase
         {
             ElementToTreeInfo[ElementControl] = new TreeViewInfo(TreeViewControl, null);
 
-            TreeViewControl.SelectionChanged = node =>
-            {
-                if (_selectionChangedEventHandlerId != 0)
-                {
-                    var tag = node?.Tag as string;
-                    Renderer.Dispatcher.InvokeAsync(() =>
-                        Renderer.DispatchEventAsync(_selectionChangedEventHandlerId, null, new ChangeEventArgs { Value = tag }));
-                }
-            };
+            _selectionChangedEvent = new CoalescedEvent(this);
+            TreeViewControl.SelectionChanged = node => _selectionChangedEvent.Fire(node?.Tag as string);
         }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
@@ -54,8 +47,8 @@ public class TreeView : WinterComponentBase
             switch (attributeName)
             {
                 case "onselectionchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_selectionChangedEventHandlerId == id) _selectionChangedEventHandlerId = 0; });
-                    _selectionChangedEventHandlerId = attributeEventHandlerId;
+                    Renderer.RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
+                    _selectionChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

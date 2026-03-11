@@ -57,7 +57,7 @@ public class MenuItem : WinterComponentBase
                 menu.AddItem(_label, () =>
                 {
                     if (_clickEventHandlerId != 0)
-                        renderer.Dispatcher.InvokeAsync(() => renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty));
+                        renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
                 });
             }
         }
