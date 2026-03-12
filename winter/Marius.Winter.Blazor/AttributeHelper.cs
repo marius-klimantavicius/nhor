@@ -84,14 +84,15 @@ public static class AttributeHelper
     public static T? GetObject<T>(object? value) where T : class
     {
         if (value is T direct) return direct;
+
         return WeakObjectStore.Get<T>(value);
     }
-
 
     public static Color4 GetColor4(object? value, Color4 defaultValue = default)
     {
         if (value is Color4 c) return c;
         if (value is string s && TryParseColor4(s, out var parsed)) return parsed;
+
         return defaultValue;
     }
 
@@ -99,6 +100,7 @@ public static class AttributeHelper
     {
         if (value is Thickness t) return t;
         if (value is string s && TryParseThickness(s, out var parsed)) return parsed;
+
         return defaultValue;
     }
 
@@ -116,6 +118,7 @@ public static class AttributeHelper
     {
         if (value is CornerRadius cr) return cr;
         if (value is string s && TryParseCornerRadius(s, out var parsed)) return parsed;
+
         return defaultValue;
     }
 
@@ -133,6 +136,7 @@ public static class AttributeHelper
         if (!float.TryParse(parts[1], CultureInfo.InvariantCulture, out var g)) return false;
         if (!float.TryParse(parts[2], CultureInfo.InvariantCulture, out var b)) return false;
         if (!float.TryParse(parts[3], CultureInfo.InvariantCulture, out var a)) return false;
+
         result = new Color4(r, g, b, a);
         return true;
     }
@@ -146,6 +150,7 @@ public static class AttributeHelper
         if (!float.TryParse(parts[1], CultureInfo.InvariantCulture, out var t)) return false;
         if (!float.TryParse(parts[2], CultureInfo.InvariantCulture, out var r)) return false;
         if (!float.TryParse(parts[3], CultureInfo.InvariantCulture, out var b)) return false;
+
         result = new Thickness(l, t, r, b);
         return true;
     }
@@ -154,12 +159,14 @@ public static class AttributeHelper
     {
         result = default;
         if (!s.StartsWith("cr:")) return false;
+
         var parts = s.AsSpan(3).ToString().Split(',');
         if (parts.Length != 4) return false;
         if (!float.TryParse(parts[0], CultureInfo.InvariantCulture, out var tl)) return false;
         if (!float.TryParse(parts[1], CultureInfo.InvariantCulture, out var tr)) return false;
         if (!float.TryParse(parts[2], CultureInfo.InvariantCulture, out var br)) return false;
         if (!float.TryParse(parts[3], CultureInfo.InvariantCulture, out var bl)) return false;
+
         result = new CornerRadius(tl, tr, br, bl);
         return true;
     }
@@ -178,6 +185,7 @@ public static class AttributeHelper
         if (value is byte[] direct) return direct;
         if (value is string s && s.StartsWith(Base64Prefix))
             return Convert.FromBase64String(s.Substring(Base64Prefix.Length));
+
         return null;
     }
 
@@ -196,6 +204,7 @@ public static class AttributeHelper
                 _ => "auto"
             };
         }
+
         return string.Join(",", parts);
     }
 
@@ -203,6 +212,7 @@ public static class AttributeHelper
     {
         if (value is TrackSize[] direct) return direct;
         if (value is not string s || s.Length == 0) return null;
+
         var parts = s.Split(',');
         var result = new TrackSize[parts.Length];
         for (int i = 0; i < parts.Length; i++)
@@ -217,6 +227,7 @@ public static class AttributeHelper
             else
                 result[i] = TrackSize.Auto();
         }
+
         return result;
     }
 
@@ -234,6 +245,7 @@ public static class AttributeHelper
         if (value is string[] direct) return direct;
         if (value is string s)
             return s.Split(StringArraySep);
+
         return null;
     }
 }
