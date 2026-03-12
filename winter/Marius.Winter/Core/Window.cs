@@ -47,6 +47,9 @@ public unsafe class Window : Element
     private Scene? _overlayScene;
     private readonly List<Element> _overlays = new();
 
+    // Context menu state
+    private MenuPopup? _contextMenuPopup;
+
     // Tooltip state
     private const float TooltipDelay = 0.5f; // seconds before tooltip appears
     private float _tooltipTimer;
@@ -352,7 +355,59 @@ public unsafe class Window : Element
             overlay.OnBlur();
         }
         _overlays.Clear();
+        _contextMenuPopup = null;
         _dirty = true;
+    }
+
+    // --- Context menu ---
+
+    private void ShowContextMenu(Element target, float x, float y)
+    {
+        var menu = new Menu();
+        target.OnBuildContextMenu(menu);
+        if (menu.Items.Count == 0) return;
+
+        DismissContextMenu();
+
+        _contextMenuPopup = new MenuPopup(this, menu.Items,
+            onItemSelected: item => { DismissContextMenu(); item.Action?.Invoke(); },
+            onDismiss: DismissContextMenu);
+
+        var popupSize = _contextMenuPopup.MeasurePopup();
+
+        // Position at cursor, clamped to window bounds
+        float px = x, py = y;
+        if (px + popupSize.X > Bounds.W - 4)
+            px = Bounds.W - 4 - popupSize.X;
+        if (py + popupSize.Y > Bounds.H - 4)
+            py = Bounds.H - 4 - popupSize.Y;
+        if (px < 4) px = 4;
+        if (py < 4) py = 4;
+
+        _contextMenuPopup.Arrange(new RectF(px, py, popupSize.X, popupSize.Y));
+        ShowOverlay(_contextMenuPopup);
+
+        // Fade-in animation
+        _contextMenuPopup.Opacity = 0;
+        Animator.Cancel("context_menu");
+        Animator.Start(new Animation
+        {
+            Duration = 0.10f,
+            Easing = Easings.EaseOutCubic,
+            Tag = "context_menu",
+            Apply = t => { if (_contextMenuPopup != null) _contextMenuPopup.Opacity = t; }
+        });
+    }
+
+    private void DismissContextMenu()
+    {
+        if (_contextMenuPopup != null)
+        {
+            _contextMenuPopup.CloseSubPopup();
+            Animator.Cancel("context_menu");
+            RemoveOverlay(_contextMenuPopup);
+            _contextMenuPopup = null;
+        }
     }
 
     private Element? HitTestOverlays(float x, float y)
@@ -492,13 +547,26 @@ public unsafe class Window : Element
                     _dirty = true;
                 }
 
-                var target = _capturedElement ?? HitTest(_mouseX, _mouseY);
-                if (target != null && target != this)
+                // Right-click: show context menu instead of normal capture
+                if (button == 1)
+                {
+                    var target = HitTest(_mouseX, _mouseY);
+                    if (target != null && target != this)
+                    {
+                        SetFocus(target);
+                        ShowContextMenu(target, _mouseX, _mouseY);
+                    }
+                    _dirty = true;
+                    return;
+                }
+
+                var target2 = _capturedElement ?? HitTest(_mouseX, _mouseY);
+                if (target2 != null && target2 != this)
                 {
                     // Bubble OnMouseDown up from hit target through ancestors
                     // until one handles it (returns true)
-                    var handler = BubbleMouseDown(target, button, _mouseX, _mouseY);
-                    _capturedElement = handler ?? target;
+                    var handler = BubbleMouseDown(target2, button, _mouseX, _mouseY);
+                    _capturedElement = handler ?? target2;
                     SetFocus(_capturedElement);
                     _dirty = true;
                 }

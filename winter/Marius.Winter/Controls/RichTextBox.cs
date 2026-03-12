@@ -1795,6 +1795,37 @@ public class RichTextBox : Element
 
         _placeholderPaint?.SetFill(theme.DisabledTextColor.R8, theme.DisabledTextColor.G8, theme.DisabledTextColor.B8);
 
+        UpdateContent();
         MarkDirty();
+    }
+
+    public override void OnBuildContextMenu(Menu menu)
+    {
+        if (HasSelection())
+        {
+            menu.AddItem("Cut", () =>
+            {
+                CopyToClipboard();
+                DeleteSelection();
+                SplitLines();
+                EnsureCursorVisible();
+                MarkDirty();
+                TextChanged?.Invoke(_text);
+            });
+            menu.AddItem("Copy", CopyToClipboard);
+        }
+        menu.AddItem("Paste", PasteFromClipboard);
+        if (_text.Length > 0)
+        {
+            menu.AddSeparator();
+            menu.AddItem("Select All", () =>
+            {
+                _selectionStart = 0;
+                _cursorPos = _text.Length;
+                UpdateCursorPosition();
+                UpdateSelection();
+                MarkDirty();
+            });
+        }
     }
 }

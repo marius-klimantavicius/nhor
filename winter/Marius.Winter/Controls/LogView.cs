@@ -678,4 +678,21 @@ public class LogView : Element
 
         MarkDirty();
     }
+
+    public override void OnBuildContextMenu(Menu menu)
+    {
+        if (HasSelection())
+            menu.AddItem("Copy", CopyToClipboard);
+        if (_text.Length > 0)
+        {
+            if (menu.Items.Count > 0) menu.AddSeparator();
+            menu.AddItem("Select All", () =>
+            {
+                _selAnchor = 0;
+                _selEnd = _text.Length;
+                UpdateSelection();
+                MarkDirty();
+            });
+        }
+    }
 }

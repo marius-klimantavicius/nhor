@@ -1145,4 +1145,34 @@ public class TextArea : Element
 
         MarkDirty();
     }
+
+    public override void OnBuildContextMenu(Menu menu)
+    {
+        if (HasSelection())
+        {
+            menu.AddItem("Cut", () =>
+            {
+                CopyToClipboard();
+                DeleteSelection();
+                SplitLines();
+                EnsureCursorVisible();
+                MarkDirty();
+                TextChanged?.Invoke(_text);
+            });
+            menu.AddItem("Copy", CopyToClipboard);
+        }
+        menu.AddItem("Paste", PasteFromClipboard);
+        if (_text.Length > 0)
+        {
+            menu.AddSeparator();
+            menu.AddItem("Select All", () =>
+            {
+                _selectionStart = 0;
+                _cursorPos = _text.Length;
+                UpdateCursorPosition();
+                UpdateSelection();
+                MarkDirty();
+            });
+        }
+    }
 }

@@ -11,15 +11,16 @@ namespace Marius.Winter;
 internal record MenuItemDef(string Label, Action? Action, bool IsSeparator, Menu? SubMenu);
 
 /// <summary>
-/// A top-level menu returned from <see cref="MenuBar.AddMenu"/>. Use <see cref="AddItem"/>
-/// and <see cref="AddSeparator"/> to populate the dropdown.
+/// A menu definition. Created via <see cref="MenuBar.AddMenu"/> for menu bars,
+/// or directly for context menus (see <see cref="Element.ContextMenu"/>).
 /// </summary>
 public class Menu
 {
     internal readonly string Title;
     internal readonly List<MenuItemDef> Items = new();
 
-    internal Menu(string title) => Title = title;
+    public Menu() : this("") { }
+    public Menu(string title) => Title = title;
 
     public Menu AddItem(string label, Action? action = null)
     {
@@ -337,7 +338,9 @@ public class MenuBar : Element
         popupX += _titleX[index];
         popupY += Bounds.H;
 
-        _popup = new MenuPopup(this, menu.Items);
+        _popup = new MenuPopup(win, menu.Items,
+            onItemSelected: item => { CloseMenu(); item.Action?.Invoke(); },
+            onDismiss: () => CloseMenu());
         var popupSize = _popup.MeasurePopup();
 
         float popupW = MathF.Max(popupSize.X, _titleW[index]);
@@ -378,12 +381,6 @@ public class MenuBar : Element
         MarkDirty();
     }
 
-    internal void ItemSelected(MenuItemDef item)
-    {
-        CloseMenu();
-        item.Action?.Invoke();
-    }
-
     private void UpdateHighlight()
     {
         if (_highlightShape == null) return;
@@ -404,11 +401,14 @@ public class MenuBar : Element
 
 /// <summary>
 /// Dropdown popup for a menu. Rendered as an overlay. Supports nested submenus.
+/// Used by both <see cref="MenuBar"/> and the context menu system.
 /// </summary>
 internal class MenuPopup : Element
 {
-    private readonly MenuBar _owner;
+    private readonly Window _window;
     private readonly List<MenuItemDef> _items;
+    private readonly Action<MenuItemDef>? _onItemSelected;
+    private readonly Action? _onDismiss;
     private int _hoveredIndex = -1;
     private Shape? _backgroundShape;
     private Shape? _borderShape;
@@ -429,18 +429,23 @@ internal class MenuPopup : Element
 
     private const float ArrowAreaW = 16; // space reserved for submenu arrow on the right
 
-    public MenuPopup(MenuBar owner, List<MenuItemDef> items)
+    public MenuPopup(Window window, List<MenuItemDef> items,
+        Action<MenuItemDef>? onItemSelected = null, Action? onDismiss = null)
     {
-        _owner = owner;
+        _window = window;
         _items = items;
+        _onItemSelected = onItemSelected;
+        _onDismiss = onDismiss;
     }
+
+    private Theme GetTheme() => (OwnerWindow ?? _window)?.Theme ?? Theme.Dark;
 
     /// <summary>
     /// Measures the popup size without creating shapes.
     /// </summary>
     public Vector2 MeasurePopup()
     {
-        var style = (_owner.OwnerWindow?.Theme ?? Theme.Dark).MenuBar;
+        var style = GetTheme().MenuBar;
         float itemH = style.FontSize + 8;
         float sepH = 9;
         float popupH = 4; // top/bottom padding
@@ -479,7 +484,7 @@ internal class MenuPopup : Element
         if (_shapesCreated) return;
         _shapesCreated = true;
 
-        var theme = _owner.OwnerWindow?.Theme ?? Theme.Dark;
+        var theme = GetTheme();
         var style = theme.MenuBar;
         _itemHeight = style.FontSize + 8;
 
@@ -575,7 +580,7 @@ internal class MenuPopup : Element
         _itemY.Clear();
         _itemH.Clear();
 
-        var style = (_owner.OwnerWindow?.Theme ?? Theme.Dark).MenuBar;
+        var style = GetTheme().MenuBar;
         float fontSize = EffectiveFontSize(style.FontSize);
         float y = 2; // top padding
 
@@ -717,14 +722,14 @@ internal class MenuPopup : Element
     {
         CloseSubPopup();
 
-        var win = _owner.OwnerWindow;
+        var win = OwnerWindow ?? _window;
         if (win == null) return;
 
         var subMenu = _items[index].SubMenu;
         if (subMenu == null || subMenu.Items.Count == 0) return;
 
         _subMenuIndex = index;
-        _subPopup = new MenuPopup(_owner, subMenu.Items);
+        _subPopup = new MenuPopup(win, subMenu.Items, _onItemSelected, _onDismiss);
         var subSize = _subPopup.MeasurePopup();
 
         // Position to the right of this popup, aligned with the item
@@ -762,7 +767,7 @@ internal class MenuPopup : Element
         if (_subPopup != null)
         {
             _subPopup.CloseSubPopup(); // recursive
-            _owner.OwnerWindow?.RemoveOverlay(_subPopup);
+            (OwnerWindow ?? _window)?.RemoveOverlay(_subPopup);
             _subPopup = null;
             _subMenuIndex = -1;
         }
@@ -781,11 +786,11 @@ internal class MenuPopup : Element
                 OpenSubMenu(_hoveredIndex);
                 return;
             }
-            _owner.ItemSelected(_items[_hoveredIndex]);
+            _onItemSelected?.Invoke(_items[_hoveredIndex]);
         }
         else
         {
-            _owner.CloseMenu();
+            _onDismiss?.Invoke();
         }
     }
 
@@ -849,7 +854,7 @@ internal class MenuPopup : Element
                 }
                 else
                 {
-                    _owner.ItemSelected(_items[_hoveredIndex]);
+                    _onItemSelected?.Invoke(_items[_hoveredIndex]);
                 }
             }
             return;

@@ -411,6 +411,29 @@ public abstract class Element
     public virtual void OnFocus() { }
     public virtual void OnBlur() { }
 
+    // --- Context menu ---
+
+    /// <summary>
+    /// Static context menu for this element. Set to a <see cref="Menu"/> instance
+    /// to show it on right-click. For dynamic menus, override
+    /// <see cref="OnBuildContextMenu"/> instead.
+    /// </summary>
+    public Menu? ContextMenu { get; set; }
+
+    /// <summary>
+    /// Called when a context menu is about to be shown. Override to populate
+    /// items dynamically. The base implementation copies items from
+    /// <see cref="ContextMenu"/> if set.
+    /// </summary>
+    public virtual void OnBuildContextMenu(Menu menu)
+    {
+        if (ContextMenu != null)
+        {
+            foreach (var item in ContextMenu.Items)
+                menu.Items.Add(item);
+        }
+    }
+
     protected void OnKeyDownBubble(int key, int mods, bool repeat) => _parent?.OnKeyDown(key, mods, repeat);
 
     // --- Hit testing ---
