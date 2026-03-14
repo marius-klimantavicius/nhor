@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Marius.Winter.Blazor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Marius.Winter\Marius.Winter.csproj" />
   </ItemGroup>
 

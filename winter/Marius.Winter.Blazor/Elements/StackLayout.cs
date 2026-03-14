@@ -27,6 +27,7 @@ public class StackLayout : WinterComponentBase
     class Handler : WinterElementHandler, INonPhysicalChild
     {
         private readonly Marius.Winter.StackLayout _layout = new();
+        private ILayoutContainer? _parentContainer;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Panel()) { }
@@ -52,9 +53,17 @@ public class StackLayout : WinterComponentBase
 
         public void SetParent(object parentElement)
         {
+            _parentContainer = parentElement as ILayoutContainer;
             SetLayoutOn(parentElement, _layout);
         }
 
-        public void Remove() { }
+        public void Remove()
+        {
+            if (_parentContainer != null)
+            {
+                _parentContainer.Layout = null;
+                _parentContainer = null;
+            }
+        }
     }
 }
