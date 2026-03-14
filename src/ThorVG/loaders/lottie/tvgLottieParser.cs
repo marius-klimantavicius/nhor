@@ -1338,7 +1338,7 @@ namespace ThorVG
 
         private void ParseImage(LottieImage image, string? data, string? subPath, bool embedded, float width, float height)
         {
-            if (data == null) return;
+            if (data == null || data.Length == 0) return;
 
             if (embedded && data.StartsWith("data:"))
             {

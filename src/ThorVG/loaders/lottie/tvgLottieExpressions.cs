@@ -1221,6 +1221,10 @@ namespace ThorVG
             // pointOnPath(progress) -- evaluate path at progress and return point
             engine.SetValue("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
                 DoPointOnPath(engine, frameNo, pathset, args[0])));
+
+            // tangentOnPath(progress) -- evaluate tangent at progress and return normalized direction
+            engine.SetValue("tangentOnPath", new ClrFunction(engine, "tangentOnPath", (_, args) =>
+                DoTangentOnPath(engine, frameNo, pathset, args[0])));
         }
 
         private void BuildPathExpansionOnObj(Engine engine, Jint.Native.JsObject ctx, float frameNo, LottieProperty pathset)
@@ -1228,6 +1232,8 @@ namespace ThorVG
             ctx.Set("points", new ClrFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
             ctx.Set("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
                 DoPointOnPath(engine, frameNo, pathset, args[0])));
+            ctx.Set("tangentOnPath", new ClrFunction(engine, "tangentOnPath", (_, args) =>
+                DoTangentOnPath(engine, frameNo, pathset, args[0])));
         }
 
         private JsValue DoPointOnPath(Engine engine, float frameNo, LottieProperty pathset, JsValue progressArg)
@@ -1239,6 +1245,23 @@ namespace ThorVG
                 unsafe { ps.DefaultPath(frameNo, renderPath, null); }
                 var pt = RenderPathPoint(renderPath, progress);
                 return MakePoint2d(engine, pt);
+            }
+            return JsValue.Undefined;
+        }
+
+        private JsValue DoTangentOnPath(Engine engine, float frameNo, LottieProperty pathset, JsValue progressArg)
+        {
+            if (pathset is LottiePathSet ps)
+            {
+                var progress = JsToNumber(progressArg);
+                var renderPath = new RenderPath();
+                unsafe { ps.DefaultPath(frameNo, renderPath, null); }
+                var a = RenderPathPoint(renderPath, Math.Max(0.0f, progress - 0.001f));
+                var b = RenderPathPoint(renderPath, Math.Min(1.0f, progress + 0.001f));
+                var t = new Point(b.x - a.x, b.y - a.y);
+                var len = TvgMath.PointLength(t);
+                if (len > 0.0f) { t.x /= len; t.y /= len; }
+                return MakePoint2d(engine, t);
             }
             return JsValue.Undefined;
         }
@@ -1383,10 +1406,10 @@ namespace ThorVG
                 var u = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
 
                 // Deterministic random generator using glibc's LCG algorithm
-                static float Gradient1D(int seed)
+                static float Gradient1D(long seed)
                 {
                     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-                    return ((float)seed / 2147483647.0f) < 0.5f ? -1.0f : 1.0f;
+                    return (float)((double)seed / 2147483647) < 0.5f ? -1.0f : 1.0f;
                 }
 
                 // Calculate dot products (in 1D, just multiplication with distance)

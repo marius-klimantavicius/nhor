@@ -150,6 +150,7 @@ namespace ThorVG
         #endregion
 
         #region GL_VERSION_1_5
+        public const uint GL_ARRAY_BUFFER_BINDING           = 0x8894;
         public const uint GL_ARRAY_BUFFER                   = 0x8892;
         public const uint GL_ELEMENT_ARRAY_BUFFER           = 0x8893;
         public const uint GL_STREAM_DRAW                    = 0x88E0;
@@ -287,6 +288,7 @@ namespace ThorVG
         public static delegate* unmanaged[Cdecl]<int, int, int*, void> glUniform4iv;
         public static delegate* unmanaged[Cdecl]<int, int, byte, float*, void> glUniformMatrix3fv;
         public static delegate* unmanaged[Cdecl]<uint, int, uint, byte, int, void*, void> glVertexAttribPointer;
+        public static delegate* unmanaged[Cdecl]<uint, float, float, float, float, void> glVertexAttrib4f;
 
         // GL_VERSION_3_0
         public static delegate* unmanaged[Cdecl]<uint, uint, uint, nint, nint, void> glBindBufferRange;
@@ -568,6 +570,8 @@ namespace ThorVG
             glUniformMatrix3fv = (delegate* unmanaged[Cdecl]<int, int, byte, float*, void>)p;
             if (!RequireFunction("glVertexAttribPointer", out p)) return false;
             glVertexAttribPointer = (delegate* unmanaged[Cdecl]<uint, int, uint, byte, int, void*, void>)p;
+            if (!RequireFunction("glVertexAttrib4f", out p)) return false;
+            glVertexAttrib4f = (delegate* unmanaged[Cdecl]<uint, float, float, float, float, void>)p;
 
             // GL_VERSION_3_0
             if (!RequireFunction("glBindBufferRange", out p)) return false;

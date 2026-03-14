@@ -296,7 +296,7 @@ namespace ThorVG
                 }
             }
 
-            var outline = SwMemPool.mpoolReqOutline(mpool, tid);
+            var outline = mpool.Outline(tid);
 
             // must begin with moveTo
             if (cmds[0] == PathCommand.MoveTo)
@@ -386,7 +386,7 @@ namespace ThorVG
 
             if (cmdCnt == 0 || ptsCnt == 0) return null;
 
-            var outline = SwMemPool.mpoolReqOutline(mpool, tid);
+            var outline = mpool.Outline(tid);
             var closed = false;
 
             var remaining = (int)cmdCnt;
@@ -518,7 +518,7 @@ namespace ThorVG
                 // Copy the outline value into the mpool slot to get a stable pointer
                 if (shape.hasOutline)
                 {
-                    shapeOutline = SwMemPool.mpoolReqOutline(mpool, tid);
+                    shapeOutline = mpool.Outline(tid);
                     *shapeOutline = shape.outline;
                 }
                 else

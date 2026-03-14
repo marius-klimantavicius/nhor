@@ -14,7 +14,7 @@ namespace ThorVG
 
         private static bool _genOutline(SwImage image, in Matrix transform, SwMpool mpool, uint tid)
         {
-            var outline = SwMemPool.mpoolReqOutline(mpool, tid);
+            var outline = mpool.Outline(tid);
 
             outline->pts.Reserve(5);
             outline->types.Reserve(5);

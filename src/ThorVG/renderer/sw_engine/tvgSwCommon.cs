@@ -824,11 +824,58 @@ namespace ThorVG
 
     public class SwMpool
     {
-        public SwOutline[]? outline;
-        public SwStrokeBorder[]? leftBorder;
-        public SwStrokeBorder[]? rightBorder;
-        public SwCellPool[]? cellPool;
-        public uint allocSize;
+        public SwOutline[] outlines;
+        public SwStrokeBorder[] lBorders;
+        public SwStrokeBorder[] rBorders;
+        public SwCellPool[] cellPools;
+
+        public SwMpool(uint threads)
+        {
+            var allocSize = threads + 1;
+            outlines = new SwOutline[allocSize];
+            lBorders = new SwStrokeBorder[allocSize];
+            rBorders = new SwStrokeBorder[allocSize];
+            cellPools = new SwCellPool[allocSize];
+
+            for (uint i = 0; i < allocSize; i++)
+            {
+                lBorders[i] = new SwStrokeBorder();
+                rBorders[i] = new SwStrokeBorder();
+                cellPools[i] = new SwCellPool();
+            }
+        }
+
+        public SwCellPool Cell(uint idx)
+        {
+            return cellPools[idx];
+        }
+
+        public unsafe SwOutline* Outline(uint idx)
+        {
+            outlines[idx].pts.Clear();
+            outlines[idx].cntrs.Clear();
+            outlines[idx].types.Clear();
+            outlines[idx].closed.Clear();
+
+            fixed (SwOutline* ptr = &outlines[idx])
+            {
+                return ptr;
+            }
+        }
+
+        public SwStrokeBorder StrokeLBorder(uint idx)
+        {
+            lBorders[idx].pts.Clear();
+            lBorders[idx].start = -1;
+            return lBorders[idx];
+        }
+
+        public SwStrokeBorder StrokeRBorder(uint idx)
+        {
+            rBorders[idx].pts.Clear();
+            rBorders[idx].start = -1;
+            return rBorders[idx];
+        }
     }
 
     // =====================================================================

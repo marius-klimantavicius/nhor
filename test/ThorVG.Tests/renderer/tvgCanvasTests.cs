@@ -120,13 +120,6 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void SwCanvas_Mempool()
-        {
-            var canvas = SwCanvas.Gen();
-            Assert.Equal(Result.Success, canvas.Mempool(SwCanvas.MempoolPolicy.Default));
-        }
-
-        [Fact]
         public void GlCanvas_Target_RequiresGlContext()
         {
             // Without a real OpenGL context, GlCanvas.Gen() returns null

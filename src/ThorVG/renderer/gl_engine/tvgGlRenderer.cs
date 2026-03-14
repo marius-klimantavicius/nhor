@@ -148,15 +148,16 @@ namespace ThorVG
 
         private RenderSurface surface = new RenderSurface();
         private int mTargetFboId;
-        private GlStageBuffer mGpuBuffer = new GlStageBuffer();
+        internal GlStageBuffer mGpuBuffer = new GlStageBuffer();
         private GlRenderTarget mRootTarget = new GlRenderTarget();
         private GlEffect mEffect;
-        private List<GlProgram?> mPrograms = new List<GlProgram?>();
+        internal List<GlProgram?> mPrograms = new List<GlProgram?>();
 
         private List<GlRenderTargetPool> mComposePool = new List<GlRenderTargetPool>();
         private List<GlRenderTargetPool> mBlendPool = new List<GlRenderTargetPool>();
         private List<GlRenderPass> mRenderPassStack = new List<GlRenderPass>();
         private List<GlCompositor> mComposeStack = new List<GlCompositor>();
+        private GlSolidBatch mSolidBatch = new GlSolidBatch();
 
         // Disposed resources. They should be released on synced call.
         private List<uint> mDisposedTextures = new List<uint>();
@@ -198,6 +199,7 @@ namespace ThorVG
             }
 
             mRenderPassStack.Clear();
+            mSolidBatch.Clear();
         }
 
         private void Flush()
@@ -267,6 +269,60 @@ namespace ThorVG
             }
         }
 
+        private static RenderRegion ViewportRegion(in RenderRegion vp, in RenderRegion bbox)
+        {
+            var x = bbox.Sx() - vp.Sx();
+            var y = bbox.Sy() - vp.Sy();
+            var w = bbox.Sw();
+            var h = bbox.Sh();
+            var yGl = vp.Sh() - y - h;
+
+            return new RenderRegion(x, yGl, x + w, yGl + h);
+        }
+
+        private GlRenderTask CreatePrimitiveTask(RenderTypes type, BlendSource source, in RenderRegion viewRegion, out GlRenderTarget? dstCopyFbo)
+        {
+            dstCopyFbo = null;
+
+            if (mBlendMethod == BlendMethod.Normal) return new GlRenderTask(mPrograms[(int)type]);
+
+            if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
+            // Desktop GL path
+            dstCopyFbo = mBlendPool[0].GetRenderTarget(viewRegion);
+            var program = GetBlendProgram(mBlendMethod, source);
+            return new GlDirectBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, viewRegion);
+        }
+
+        private GlRenderTask? CreateStencilTask(GlRenderTask task, GlStencilMode stencilMode, int depth)
+        {
+            if (stencilMode == GlStencilMode.None) return null;
+
+            var stencilTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil], task);
+            stencilTask.SetDrawDepth(depth);
+
+            return stencilTask;
+        }
+
+        private void BindBlendTarget(GlRenderTask task, GlRenderTarget? dstCopyFbo, in RenderRegion viewRegion, uint binding)
+        {
+            if (dstCopyFbo == null) return;
+
+            // Desktop GL path
+            var region = stackalloc float[4];
+            region[0] = viewRegion.Sx();
+            region[1] = viewRegion.Sy();
+            region[2] = dstCopyFbo.width;
+            region[3] = dstCopyFbo.height;
+
+            task.AddBindResource(new GlBindingResource(
+                binding,
+                task.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
+                mGpuBuffer.GetBufferId(),
+                mGpuBuffer.Push(region, 4 * sizeof(float), true),
+                4 * sizeof(float)));
+            task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
+        }
+
         private void DrawPrimitive(GlShape sdata, in RGBA c, RenderUpdateFlag flag, int depth)
         {
             var blendShape = (mBlendMethod != BlendMethod.Normal);
@@ -276,28 +332,19 @@ namespace ThorVG
             bbox.IntersectWith(vp);
             if (bbox.Invalid()) return;
 
-            var x = bbox.Sx() - vp.Sx();
-            var y = bbox.Sy() - vp.Sy();
-            var w = bbox.Sw();
-            var h = bbox.Sh();
-            var yGl = vp.Sh() - y - h;
-            var viewRegion = new RenderRegion(x, yGl, x + w, yGl + h);
+            var viewRegion = ViewportRegion(vp, bbox);
+            var stencilMode = sdata.geometry.GetStencilMode(flag);
 
-            GlRenderTask? task = null;
-            GlRenderTarget? dstCopyFbo = null;
+            if (!blendShape && stencilMode == GlStencilMode.None && sdata.clips.Count == 0)
+            {
+                mSolidBatch.Draw(this, sdata, c, depth, viewRegion);
+                return;
+            }
 
-            if (blendShape)
-            {
-                if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-                // Desktop GL path
-                dstCopyFbo = mBlendPool[0].GetRenderTarget(viewRegion);
-                var program = GetBlendProgram(mBlendMethod, BlendSource.Solid);
-                task = new GlDirectBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, viewRegion);
-            }
-            else
-            {
-                task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Color]);
-            }
+            if (sdata.clips.Count > 0) mSolidBatch.Clear();
+
+            GlRenderTarget? dstCopyFbo;
+            var task = CreatePrimitiveTask(RenderTypes.RT_Color, BlendSource.Solid, viewRegion, out dstCopyFbo);
 
             task.SetViewMatrix(CurrentPass()!.GetViewMatrix());
             task.SetDrawDepth(depth);
@@ -307,18 +354,6 @@ namespace ThorVG
                 return;
             }
 
-            task.SetViewport(viewRegion);
-
-            GlRenderTask? stencilTask = null;
-            var stencilMode = sdata.geometry.GetStencilMode(flag);
-            if (stencilMode != GlStencilMode.None)
-            {
-                stencilTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil], task);
-                stencilTask.SetDrawDepth(depth);
-            }
-
-            // solid uniforms
-            var solidInfo = stackalloc float[4];
             var a = RenderHelper.Multiply(c.a, (byte)sdata.opacity);
             if ((flag & RenderUpdateFlag.Stroke) != 0)
             {
@@ -329,24 +364,12 @@ namespace ThorVG
                     a = RenderHelper.Multiply(a, (byte)(alpha * 255));
                 }
             }
-            solidInfo[0] = c.r / 255f;
-            solidInfo[1] = c.g / 255f;
-            solidInfo[2] = c.b / 255f;
-            solidInfo[3] = a / 255f;
+            task.SetVertexColor(c.r / 255f, c.g / 255f, c.b / 255f, a / 255f);
+            task.SetViewport(viewRegion);
 
-            var solidOffset = mGpuBuffer.Push(solidInfo, (uint)sizeof(float) * 4, true);
-
-            task.AddBindResource(new GlBindingResource(
-                0,
-                task.GetProgram()!.GetUniformBlockIndex("SolidInfo\0"u8),
-                mGpuBuffer.GetBufferId(),
-                solidOffset,
-                (uint)sizeof(float) * 4));
-
-            if (blendShape && dstCopyFbo != null)
-            {
-                task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
-            }
+            var stencilTask = CreateStencilTask(task, stencilMode, depth);
+            // Keep BlendRegion on the existing solid-shape blend UBO slot.
+            BindBlendTarget(task, dstCopyFbo, viewRegion, 2);
 
             if (stencilTask != null) CurrentPass()!.AddRenderTask(new GlStencilCoverTask(stencilTask, task, stencilMode));
             else CurrentPass()!.AddRenderTask(task);
@@ -364,34 +387,25 @@ namespace ThorVG
             var stopCnt = Math.Min(fill.GetColorStops(out stops), (uint)GlConstants.MAX_GRADIENT_STOPS);
             if (stopCnt < 2) return;
 
-            GlRenderTask? task = null;
-            GlRenderTarget? dstCopyFbo = null;
+            GlRenderTarget? dstCopyFbo;
             var radial = fill.GetFillType() == Type.RadialGradient;
+            var viewRegion = ViewportRegion(vp, bbox);
 
-            var x = bbox.Sx() - vp.Sx();
-            var y = bbox.Sy() - vp.Sy();
-            var w = bbox.Sw();
-            var h = bbox.Sh();
-            var yGl = vp.Sh() - y - h;
-            var viewRegion = new RenderRegion(x, yGl, x + w, yGl + h);
+            RenderTypes taskType = RenderTypes.RT_None;
+            var blendSource = BlendSource.LinearGradient;
 
-            if (blendShape)
+            if (fill.GetFillType() == Type.LinearGradient)
             {
-                if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-                // Desktop GL path
-                dstCopyFbo = mBlendPool[0].GetRenderTarget(viewRegion);
-                var program = GetBlendProgram(mBlendMethod, radial ? BlendSource.RadialGradient : BlendSource.LinearGradient);
-                task = new GlDirectBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, viewRegion);
+                taskType = RenderTypes.RT_LinGradient;
             }
-            else if (fill.GetFillType() == Type.LinearGradient)
+            else if (radial)
             {
-                task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_LinGradient]);
-            }
-            else if (fill.GetFillType() == Type.RadialGradient)
-            {
-                task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_RadGradient]);
+                taskType = RenderTypes.RT_RadGradient;
+                blendSource = BlendSource.RadialGradient;
             }
             else return;
+
+            var task = CreatePrimitiveTask(taskType, blendSource, viewRegion, out dstCopyFbo);
 
             task.SetViewMatrix(CurrentPass()!.GetViewMatrix());
             task.SetDrawDepth(depth);
@@ -403,13 +417,8 @@ namespace ThorVG
 
             task.SetViewport(viewRegion);
 
-            GlRenderTask? stencilTask = null;
             var stencilMode = sdata.geometry.GetStencilMode(flag);
-            if (stencilMode != GlStencilMode.None)
-            {
-                stencilTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil], task);
-                stencilTask.SetDrawDepth(depth);
-            }
+            var stencilTask = CreateStencilTask(task, stencilMode, depth);
 
             // transform buffer (inverse fill-space transform)
             var invMat3 = stackalloc float[(int)GlConstants.GL_MAT3_STD140_SIZE];
@@ -529,10 +538,8 @@ namespace ThorVG
 
             task.AddBindResource(gradientBinding);
 
-            if (blendShape && dstCopyFbo != null)
-            {
-                task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
-            }
+            // TransformInfo uses slot 0 and GradientInfo uses slot 2, so BlendRegion moves to 3.
+            BindBlendTarget(task, dstCopyFbo, viewRegion, 3);
 
             if (stencilTask != null)
             {
@@ -592,7 +599,7 @@ namespace ThorVG
             }
         }
 
-        private GlRenderPass? CurrentPass()
+        internal GlRenderPass? CurrentPass()
         {
             if (mRenderPassStack.Count == 0) return null;
             return mRenderPassStack[mRenderPassStack.Count - 1];

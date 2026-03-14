@@ -1109,6 +1109,7 @@ namespace ThorVG
 
             foreach (var child in node.child)
             {
+                if (child.type == SvgNodeType.ClipPath || child.type == SvgNodeType.Filter) continue;
                 if (_isGroupType(child.type))
                 {
                     if (child.type == SvgNodeType.Use)

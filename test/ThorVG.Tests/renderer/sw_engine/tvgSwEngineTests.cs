@@ -200,17 +200,19 @@ namespace ThorVG.Tests
         [Fact]
         public void SwMemPool_InitAndTerm()
         {
-            var mpool = SwMemPool.mpoolInit(1);
+            SwMemPool.mpoolInit(1);
+            var mpool = SwMemPool.mpoolReq();
             Assert.NotNull(mpool);
-            SwMemPool.mpoolTerm(mpool);
+            SwMemPool.mpoolTerm();
         }
 
         [Fact]
         public void SwMemPool_InitMultipleThreads()
         {
-            var mpool = SwMemPool.mpoolInit(4);
+            SwMemPool.mpoolInit(4);
+            var mpool = SwMemPool.mpoolReq();
             Assert.NotNull(mpool);
-            SwMemPool.mpoolTerm(mpool);
+            SwMemPool.mpoolTerm();
         }
 
         // =====================================================================
@@ -483,15 +485,6 @@ namespace ThorVG.Tests
             var canvas = SwCanvas.Gen();
             var buffer = new uint[100 * 100];
             Assert.Equal(Result.InvalidArguments, canvas.Target(buffer, 100, 100, 100, ColorSpace.Unknown));
-        }
-
-        [Fact]
-        public void SwCanvas_Mempool_AllPolicies()
-        {
-            var canvas = SwCanvas.Gen();
-            Assert.Equal(Result.Success, canvas.Mempool(SwCanvas.MempoolPolicy.Default));
-            Assert.Equal(Result.Success, canvas.Mempool(SwCanvas.MempoolPolicy.Individual));
-            Assert.Equal(Result.Success, canvas.Mempool(SwCanvas.MempoolPolicy.Shareable));
         }
 
         // =====================================================================

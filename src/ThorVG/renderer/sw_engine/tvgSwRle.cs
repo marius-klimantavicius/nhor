@@ -536,7 +536,7 @@ namespace ThorVG
         {
             if (outline == null) return false;
 
-            var cellPool = SwMemPool.mpoolReqCellPool(mpool, tid);
+            var cellPool = mpool.Cell(tid);
             var reqSize = (uint)(Math.Max(bbox.W(), bbox.H()) * 0.75f) * (uint)sizeof(SwCell);
 
             if (reqSize > cellPool.size)

@@ -11,6 +11,18 @@ namespace ThorVG
         public uint size;
         public uint stride;
         public uint offset;
+        public uint type;
+        public byte normalized;
+        // Optional VBO for this attribute. 0 means use the GL_ARRAY_BUFFER binding
+        // captured at the start of GlRenderTask.Run().
+        public uint arrayBufferId;
+
+        public GlVertexLayout()
+        {
+            type = GL.GL_FLOAT;
+            normalized = GL.GL_FALSE;
+            arrayBufferId = 0;
+        }
     }
 
     public enum GlBindingType
@@ -24,28 +36,29 @@ namespace ThorVG
         public GlBindingType type;
         public uint bindPoint;
         public int location;
-        public uint gBufferId;
+        // GL object id used by this binding: texture id for kTexture, UBO id for kUniformBuffer.
+        public uint resourceId;
         public uint bufferOffset;
         public uint bufferRange;
 
         // Uniform buffer constructor
-        public GlBindingResource(uint index, int location, uint bufferId, uint offset, uint range)
+        public GlBindingResource(uint index, int location, uint uniformBufferId, uint offset, uint range)
         {
             type = GlBindingType.kUniformBuffer;
             bindPoint = index;
             this.location = location;
-            gBufferId = bufferId;
+            resourceId = uniformBufferId;
             bufferOffset = offset;
             bufferRange = range;
         }
 
         // Texture constructor
-        public GlBindingResource(uint bindPoint, uint texId, int location)
+        public GlBindingResource(uint bindPoint, uint textureId, int location)
         {
             type = GlBindingType.kTexture;
             this.bindPoint = bindPoint;
             this.location = location;
-            gBufferId = texId;
+            resourceId = textureId;
             bufferOffset = 0;
             bufferRange = 0;
         }
@@ -66,6 +79,8 @@ namespace ThorVG
         private float mDrawDepth;
         private Matrix mViewMatrix;
         private bool mUseViewMatrix;
+        private bool mUseVertexColor;
+        private float mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3;
 
         public GlRenderTask(GlProgram? program)
         {
@@ -115,13 +130,24 @@ namespace ThorVG
             // setup scissor rect
             GL.glScissor(mViewport.Sx(), mViewport.Sy(), mViewport.Sw(), mViewport.Sh());
 
+            if (mUseVertexColor)
+            {
+                GL.glDisableVertexAttribArray(1);
+                GL.glVertexAttrib4f(1, mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3);
+            }
+
+            int defaultArrayBuffer = 0;
+            GL.glGetIntegerv(GL.GL_ARRAY_BUFFER_BINDING, &defaultArrayBuffer);
+
             // setup attribute layout
             for (uint i = 0; i < mVertexLayout.count; i++)
             {
                 ref var layout = ref mVertexLayout[i];
+                var sourceBuffer = layout.arrayBufferId != 0 ? layout.arrayBufferId : (uint)defaultArrayBuffer;
+                GL.glBindBuffer(GL.GL_ARRAY_BUFFER, sourceBuffer);
                 GL.glEnableVertexAttribArray(layout.index);
-                GL.glVertexAttribPointer(layout.index, (int)layout.size, GL.GL_FLOAT,
-                    (byte)GL.GL_FALSE, (int)layout.stride,
+                GL.glVertexAttribPointer(layout.index, (int)layout.size, layout.type,
+                    layout.normalized, (int)layout.stride,
                     (void*)(nuint)layout.offset);
             }
 
@@ -132,7 +158,7 @@ namespace ThorVG
                 if (binding.type == GlBindingType.kTexture)
                 {
                     GL.glActiveTexture(GL.GL_TEXTURE0 + binding.bindPoint);
-                    GL.glBindTexture(GL.GL_TEXTURE_2D, binding.gBufferId);
+                    GL.glBindTexture(GL.GL_TEXTURE_2D, binding.resourceId);
 
                     var bp = (int)binding.bindPoint;
                     mProgram.SetUniform1Value(binding.location, 1, &bp);
@@ -140,7 +166,7 @@ namespace ThorVG
                 else if (binding.type == GlBindingType.kUniformBuffer)
                 {
                     GL.glUniformBlockBinding(mProgram.GetProgramId(), (uint)binding.location, binding.bindPoint);
-                    GL.glBindBufferRange(GL.GL_UNIFORM_BUFFER, binding.bindPoint, binding.gBufferId,
+                    GL.glBindBufferRange(GL.GL_UNIFORM_BUFFER, binding.bindPoint, binding.resourceId,
                         (int)binding.bufferOffset, (int)binding.bufferRange);
                 }
             }
@@ -153,11 +179,22 @@ namespace ThorVG
                 ref var layout = ref mVertexLayout[i];
                 GL.glDisableVertexAttribArray(layout.index);
             }
+
+            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, (uint)defaultArrayBuffer);
         }
 
         public void AddVertexLayout(in GlVertexLayout layout)
         {
             mVertexLayout.Push(layout);
+        }
+
+        public void SetVertexColor(float r, float g, float b, float a)
+        {
+            mUseVertexColor = true;
+            mVertexColor0 = r;
+            mVertexColor1 = g;
+            mVertexColor2 = b;
+            mVertexColor3 = a;
         }
 
         public void AddBindResource(in GlBindingResource binding)
@@ -185,6 +222,9 @@ namespace ThorVG
         public GlProgram? GetProgram() { return mProgram; }
         public ref RenderRegion GetViewport() => ref mViewport;
         public float GetDrawDepth() { return mDrawDepth; }
+        public ref Array<GlVertexLayout> GetVertexLayout() => ref mVertexLayout;
+        public uint GetIndexOffset() { return mIndexOffset; }
+        public uint GetIndexCount() { return mIndexCount; }
     }
 
     /************************************************************************/

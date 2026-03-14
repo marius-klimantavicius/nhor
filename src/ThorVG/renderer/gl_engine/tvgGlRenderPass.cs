@@ -35,6 +35,19 @@ namespace ThorVG
             mTasks.Add(task);
         }
 
+        public GlRenderTask? LastTask()
+        {
+            return mTasks.Count == 0 ? null : mTasks[mTasks.Count - 1];
+        }
+
+        public GlRenderTask? TakeLastTask()
+        {
+            if (mTasks.Count == 0) return null;
+            var task = mTasks[mTasks.Count - 1];
+            mTasks.RemoveAt(mTasks.Count - 1);
+            return task;
+        }
+
         public uint GetFboId() => mFbo!.fbo;
         public uint GetTextureId() => mFbo!.colorTex;
         public ref RenderRegion GetViewport() => ref mFbo!.viewport;

@@ -993,10 +993,15 @@ namespace ThorVG
             var r = roundedCorner.radius.Evaluate(frameNo, tween, exps);
             if (r < LottieRoundnessModifier.ROUNDNESS_EPSILON) return;
 
-            if (ctx.roundness == null) ctx.roundness = new LottieRoundnessModifier(buffer, r);
-            else if (ctx.roundness.r < r) ctx.roundness.r = r;
-
-            ctx.Update(ctx.roundness);
+            if (ctx.roundness != null)
+            {
+                if (ctx.roundness.r < r) ctx.roundness.r = r;
+            }
+            else
+            {
+                ctx.roundness = new LottieRoundnessModifier(buffer, r);
+                ctx.Update(ctx.roundness);
+            }
         }
 
         private void UpdateOffsetPath(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
@@ -1156,16 +1161,15 @@ namespace ThorVG
 
             var image = (LottieImage)layer.children[0];
             var picture = image.bitmap.picture;
+            if (picture == null) return;
 
             // resolve an image asset if needed
             if (resolver != null && !image.resolved)
             {
-                resolver.func?.Invoke(picture!, image.bitmap.path ?? "", resolver.data);
-                picture?.SetSize(image.bitmap.width, image.bitmap.height);
+                resolver.func?.Invoke(picture, image.bitmap.path ?? "", resolver.data);
+                picture.SetSize(image.bitmap.width, image.bitmap.height);
                 image.resolved = true;
             }
-
-            if (picture == null) return;
 
             // LottieImage can be shared among other layers
             layer.scene!.Add(picture.RefCnt() == 1 ? picture : (Picture)picture.Duplicate());

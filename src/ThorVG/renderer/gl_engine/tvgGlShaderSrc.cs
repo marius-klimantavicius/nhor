@@ -9,27 +9,24 @@ namespace ThorVG
     uniform float uDepth;
     uniform mat3 uViewMatrix;
     layout(location = 0) in vec2 aLocation;
-    layout(std140) uniform SolidInfo {
-        vec4 solidColor;
-    } uSolidInfo;
+    layout(location = 1) in vec4 aColor;
+    out vec4 vColor;
 
     void main()
     {
+        vColor = aColor;
         vec3 pos = uViewMatrix * vec3(aLocation, 1.0);
         gl_Position = vec4(pos.xy, uDepth, 1.0);
     }
 ";
 
         public static readonly string COLOR_FRAG_SHADER = @"
-    layout(std140) uniform SolidInfo {
-        vec4 solidColor;
-    } uSolidInfo;
+    in vec4 vColor;
     out vec4 FragColor;
 
     void main()
     {
-       vec4 uColor = uSolidInfo.solidColor;
-       FragColor =  vec4(uColor.rgb * uColor.a, uColor.a);
+       FragColor = vec4(vColor.rgb * vColor.a, vColor.a);
     }
 ";
 
@@ -547,9 +544,7 @@ namespace ThorVG
     }";
 
         public static readonly string BLEND_SHAPE_SOLID_FRAG_HEADER = @"
-layout(std140) uniform SolidInfo {
-    vec4 solidColor;
-} uSolidInfo;
+in vec4 vColor;
 
 layout(std140) uniform BlendRegion {
     vec4 region;
@@ -565,7 +560,7 @@ FragData d;
 
 void getFragData() {
     vec2 uv = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
-    vec4 colorSrc = uSolidInfo.solidColor;
+    vec4 colorSrc = vColor;
     vec4 colorDst = texture(uDstTexture, uv);
     d.Sc = colorSrc.rgb * colorSrc.a;
     d.Sa = colorSrc.a;

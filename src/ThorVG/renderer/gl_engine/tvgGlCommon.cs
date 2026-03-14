@@ -47,6 +47,88 @@ namespace ThorVG
         Stroke,
     }
 
+    internal enum PathKind : byte
+    {
+        None,
+        Rect,
+        Circle,
+        RoundRectCW,
+        RoundRectCCW,
+    }
+
+    internal static unsafe class PathKindHelper
+    {
+        private static readonly PathCommand[] RECT_CMDS = { PathCommand.MoveTo, PathCommand.LineTo, PathCommand.LineTo, PathCommand.LineTo, PathCommand.Close };
+        private static readonly PathCommand[] CIRCLE_CMDS = { PathCommand.MoveTo, PathCommand.CubicTo, PathCommand.CubicTo, PathCommand.CubicTo, PathCommand.CubicTo, PathCommand.Close };
+        private static readonly PathCommand[] ROUND_RECT_CW_CMDS = { PathCommand.MoveTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.Close };
+        private static readonly PathCommand[] ROUND_RECT_CCW_CMDS = { PathCommand.MoveTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.CubicTo, PathCommand.LineTo, PathCommand.Close };
+
+        private static bool MatchCommandPattern(in Array<PathCommand> cmds, PathCommand[] pattern)
+        {
+            if (cmds.count != (uint)pattern.Length) return false;
+            for (uint i = 0; i < cmds.count; i++)
+                if (cmds[i] != pattern[i]) return false;
+            return true;
+        }
+
+        private static bool MatchPrimitivePattern(RenderPath path, PathCommand[] pattern, uint pointCount)
+        {
+            if (path.pts.count != pointCount) return false;
+            return MatchCommandPattern(path.cmds, pattern);
+        }
+
+        public static PathKind Detect(RenderPath path)
+        {
+            const uint RECT_POINT_COUNT = 4;
+            const uint RECT_CMD_COUNT = 5;
+            const uint CIRCLE_POINT_COUNT = 13;
+            const uint CIRCLE_CMD_COUNT = 6;
+            const uint ROUND_RECT_POINT_COUNT = 17;
+            const uint ROUND_RECT_CMD_COUNT = 10;
+
+            switch (path.cmds.count)
+            {
+                case RECT_CMD_COUNT:
+                    return MatchPrimitivePattern(path, RECT_CMDS, RECT_POINT_COUNT) ? PathKind.Rect : PathKind.None;
+                case CIRCLE_CMD_COUNT:
+                    return MatchPrimitivePattern(path, CIRCLE_CMDS, CIRCLE_POINT_COUNT) ? PathKind.Circle : PathKind.None;
+                case ROUND_RECT_CMD_COUNT:
+                {
+                    if (path.pts.count != ROUND_RECT_POINT_COUNT) return PathKind.None;
+                    if (MatchCommandPattern(path.cmds, ROUND_RECT_CW_CMDS)) return PathKind.RoundRectCW;
+                    if (MatchCommandPattern(path.cmds, ROUND_RECT_CCW_CMDS)) return PathKind.RoundRectCCW;
+                    return PathKind.None;
+                }
+                default: break;
+            }
+            return PathKind.None;
+        }
+
+        public static sbyte Orient(Point a, Point b, Point c)
+        {
+            var value = TvgMath.Cross(TvgMath.PointSub(b, a), TvgMath.PointSub(c, a));
+            if (TvgMath.Zero(value)) return 0;
+            return (sbyte)(value > 0.0f ? 1 : -1);
+        }
+
+        // If control polygon edges P0-P1 and P2-P3 cross, the cubic can loop.
+        public static bool EdgesCross(Point p0, Point p1, Point p2, Point p3)
+        {
+            bool StraddlesLine(Point a, Point b, Point c, Point d) => Orient(a, b, c) * Orient(a, b, d) < 0;
+            return StraddlesLine(p0, p1, p2, p3) && StraddlesLine(p2, p3, p0, p1);
+        }
+
+        // Round-rect corners are cubic segments. A crossing control polygon can make a loop.
+        public static bool RRCubicLoop(RenderPath path, PathKind kind)
+        {
+            if (kind != PathKind.RoundRectCW && kind != PathKind.RoundRectCCW) return false;
+            var pts = path.pts.data;
+            if (kind == PathKind.RoundRectCW)
+                return EdgesCross(pts[1], pts[2], pts[3], pts[4]) || EdgesCross(pts[5], pts[6], pts[7], pts[8]) || EdgesCross(pts[9], pts[10], pts[11], pts[12]) || EdgesCross(pts[13], pts[14], pts[15], pts[16]);
+            return EdgesCross(pts[0], pts[1], pts[2], pts[3]) || EdgesCross(pts[4], pts[5], pts[6], pts[7]) || EdgesCross(pts[8], pts[9], pts[10], pts[11]) || EdgesCross(pts[12], pts[13], pts[14], pts[15]);
+        }
+    }
+
     public class GlGeometryBuffer
     {
         public Array<float> vertex;
@@ -115,11 +197,15 @@ namespace ThorVG
                 return false;
             }
 
+            var kind = PathKindHelper.Detect(optPath);
+            var defaultWinding = (sbyte)(kind != PathKind.None ? 0 : -1);
+
             var bwTess = new BWTessellator(fill);
-            bwTess.Tessellate(optPath);
+            bwTess.Tessellate(optPath, defaultWinding);
             fillRule = rshape.rule;
             fillBounds = bwTess.Bounds();
             convex = bwTess.convex;
+            if (defaultWinding == 0 && convex && PathKindHelper.RRCubicLoop(optPath, kind)) convex = false;
             opacityMultiplier = 1.0f;
             return true;
         }

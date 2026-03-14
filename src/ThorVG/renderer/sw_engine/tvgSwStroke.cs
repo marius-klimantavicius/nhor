@@ -645,8 +645,8 @@ namespace ThorVG
             stroke.miterlimit = (long)(rshape.StrokeMiterlimit() * 65536.0f);
             stroke.joinSaved = stroke.join = rshape.StrokeJoin();
 
-            stroke.borders[0] = SwMemPool.mpoolReqStrokeLBorder(mpool, tid);
-            stroke.borders[1] = SwMemPool.mpoolReqStrokeRBorder(mpool, tid);
+            stroke.borders[0] = mpool.StrokeLBorder(tid);
+            stroke.borders[1] = mpool.StrokeRBorder(tid);
         }
 
         public static bool strokeParseOutline(SwStroke stroke, in SwOutline outline, SwMpool mpool, uint tid)
@@ -701,7 +701,7 @@ namespace ThorVG
         public static SwOutline* strokeExportOutline(SwStroke stroke, SwMpool mpool, uint tid)
         {
             var reserve = stroke.borders[0].pts.count + stroke.borders[1].pts.count;
-            var outline = SwMemPool.mpoolReqOutline(mpool, tid);
+            var outline = mpool.Outline(tid);
             outline->pts.Reserve(reserve);
             outline->types.Reserve(reserve);
             outline->fillRule = FillRule.NonZero;

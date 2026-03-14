@@ -6,8 +6,6 @@ namespace ThorVG
     /// <summary>Software-rendered canvas using SwRenderer.</summary>
     public class SwCanvas : Canvas
     {
-        public enum MempoolPolicy { Default, Shareable, Individual }
-
         private SwCanvas() { }
 
         ~SwCanvas()
@@ -70,24 +68,6 @@ namespace ThorVG
             return Result.Success;
         }
 
-        public Result Mempool(MempoolPolicy policy)
-        {
-            if (renderer == null) return Result.InsufficientCondition;
-            var swRenderer = (SwRenderer)renderer;
-            switch (policy)
-            {
-                case MempoolPolicy.Individual:
-                    swRenderer.SetMempoolIndividual();
-                    break;
-                case MempoolPolicy.Shareable:
-                    swRenderer.SetMempoolShared();
-                    break;
-                case MempoolPolicy.Default:
-                default:
-                    break;
-            }
-            return Result.Success;
-        }
     }
 
     /// <summary>GL-rendered canvas using GlRenderer.</summary>

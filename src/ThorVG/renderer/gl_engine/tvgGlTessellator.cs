@@ -450,8 +450,9 @@ namespace ThorVG
             mBuffer = buffer;
         }
 
-        public void Tessellate(RenderPath path)
+        public void Tessellate(RenderPath path, sbyte defaultWinding = -1)
         {
+            winding = defaultWinding;
             var cmds = path.cmds.data;
             var cmdCnt = path.cmds.count;
             var pts = path.pts.data;

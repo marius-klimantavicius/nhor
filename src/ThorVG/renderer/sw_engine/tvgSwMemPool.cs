@@ -1,77 +1,47 @@
 // Ported from ThorVG/src/renderer/sw_engine/tvgSwMemPool.cpp
 
+using System.Collections.Generic;
+
 namespace ThorVG
 {
     public static class SwMemPool
     {
-        public static unsafe SwOutline* mpoolReqOutline(SwMpool mpool, uint idx)
-        {
-            mpool.outline![idx].pts.Clear();
-            mpool.outline[idx].cntrs.Clear();
-            mpool.outline[idx].types.Clear();
-            mpool.outline[idx].closed.Clear();
+        [System.ThreadStatic]
+        private static SwMpool? _pool;
 
-            fixed (SwOutline* ptr = &mpool.outline[idx])
+        private static readonly List<SwMpool> _pools = new List<SwMpool>();
+        private static readonly object _lock = new object();
+        private static uint _threads;
+
+        public static SwMpool mpoolReq()
+        {
+            if (_pool == null)
             {
-                return ptr;
+                _pool = new SwMpool(_threads);
+                lock (_lock)
+                {
+                    _pools.Add(_pool);
+                }
             }
+            return _pool;
         }
 
-        public static unsafe SwOutline* mpoolReqDashOutline(SwMpool mpool, uint idx)
+        public static void mpoolInit(uint threads)
         {
-            // Dash outline uses same pool slot — in the C++ code this is
-            // the same as mpoolReqOutline (allocated in same array).
-            return mpoolReqOutline(mpool, idx);
+            _threads = threads;
         }
 
-        public static SwStrokeBorder mpoolReqStrokeLBorder(SwMpool mpool, uint idx)
+        public static void mpoolTerm()
         {
-            mpool.leftBorder![idx].pts.Clear();
-            mpool.leftBorder[idx].start = -1;
-            return mpool.leftBorder[idx];
-        }
-
-        public static SwStrokeBorder mpoolReqStrokeRBorder(SwMpool mpool, uint idx)
-        {
-            mpool.rightBorder![idx].pts.Clear();
-            mpool.rightBorder[idx].start = -1;
-            return mpool.rightBorder[idx];
-        }
-
-        public static SwCellPool mpoolReqCellPool(SwMpool mpool, uint idx)
-        {
-            return mpool.cellPool![idx];
-        }
-
-        public static SwMpool mpoolInit(uint threads)
-        {
-            var allocSize = threads + 1;
-
-            var mpool = new SwMpool();
-            mpool.outline = new SwOutline[allocSize];
-            mpool.leftBorder = new SwStrokeBorder[allocSize];
-            mpool.rightBorder = new SwStrokeBorder[allocSize];
-            mpool.cellPool = new SwCellPool[allocSize];
-
-            for (uint i = 0; i < allocSize; i++)
+            lock (_lock)
             {
-                mpool.leftBorder[i] = new SwStrokeBorder();
-                mpool.rightBorder[i] = new SwStrokeBorder();
-                mpool.cellPool[i] = new SwCellPool();
+                foreach (var p in _pools)
+                {
+                    // Allow GC to collect
+                }
+                _pool = null;
+                _pools.Clear();
             }
-
-            mpool.allocSize = allocSize;
-            return mpool;
-        }
-
-        public static void mpoolTerm(SwMpool? mpool)
-        {
-            if (mpool == null) return;
-
-            mpool.outline = null;
-            mpool.leftBorder = null;
-            mpool.rightBorder = null;
-            mpool.cellPool = null;
         }
     }
 }

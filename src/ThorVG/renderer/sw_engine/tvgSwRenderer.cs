@@ -96,8 +96,6 @@ namespace ThorVG
 
         public override void Run(uint tid)
         {
-            if (Ready(opacity == 0 && !clipper)) return;
-
             var strokeWidth = ValidStrokeWidth(clipper);
             var updateShape = (flags[0] & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform | RenderUpdateFlag.Clip)) != 0;
             var updateFill = (flags[0] & (RenderUpdateFlag.Color | RenderUpdateFlag.Gradient)) != 0;
@@ -199,8 +197,6 @@ namespace ThorVG
 
         public override void Run(uint tid)
         {
-            if (Ready(opacity == 0)) return;
-
             rasterConvertCS(source!, surface!.cs);
             rasterPremultiply(source!);
 
@@ -264,28 +260,23 @@ namespace ThorVG
     {
         private SwSurface? surface;
         private SwMpool? mpool;
-        private bool sharedMpool;
         private RenderDirtyRegion dirtyRegion = new RenderDirtyRegion();
         private bool fulldraw;
         private List<SwTask> tasks = new List<SwTask>();
         private List<SwSurface> compositors = new List<SwSurface>();
 
         private static int rendererCnt = -1;
-        private static SwMpool? globalMpool;
-        private static uint threadsCnt;
 
         // Constructor
         public SwRenderer(uint threads = 1, EngineOption op = EngineOption.Default)
         {
             if (rendererCnt == -1)
             {
-                globalMpool = SwMemPool.mpoolInit(threads);
-                threadsCnt = threads;
+                SwMemPool.mpoolInit(threads);
                 rendererCnt = 0;
             }
 
-            mpool = globalMpool;
-            sharedMpool = true;
+            mpool = SwMemPool.mpoolReq();
 
             if (op == EngineOption.None) dirtyRegion.support = false;
 
@@ -295,7 +286,6 @@ namespace ThorVG
         ~SwRenderer()
         {
             ClearCompositors();
-            if (!sharedMpool && mpool != null) SwMemPool.mpoolTerm(mpool);
             --rendererCnt;
         }
 
@@ -888,7 +878,7 @@ namespace ThorVG
 
         // --- Prepare ---
 
-        private object PrepareCommon(SwTask task, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags)
+        private object PrepareCommon(SwTask task, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags, bool ready)
         {
             if (task.disposed) return task;
 
@@ -915,6 +905,8 @@ namespace ThorVG
                 (p as SwTask)?.Done();
             }
 
+            if (task.Ready(ready)) return task;
+
             // Execute synchronously (no task scheduler)
             if (flags != 0) task.Run(0);
 
@@ -931,7 +923,7 @@ namespace ThorVG
                 task.source = surfaceData;
             }
             task.image.filter = filter;
-            return PrepareCommon(task, transform, ref clips, opacity, flags);
+            return PrepareCommon(task, transform, ref clips, opacity, flags, opacity == 0);
         }
 
         public override object? Prepare(RenderShape rshape, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flags, bool clipper)
@@ -946,7 +938,7 @@ namespace ThorVG
 
             task.clipper = clipper;
 
-            return PrepareCommon(task, transform, ref clips, opacity, flags);
+            return PrepareCommon(task, transform, ref clips, opacity, flags, opacity == 0 && !clipper);
         }
 
         // --- Static management ---
@@ -954,8 +946,7 @@ namespace ThorVG
         {
             if (rendererCnt > 0) return false;
 
-            if (globalMpool != null) SwMemPool.mpoolTerm(globalMpool);
-            globalMpool = null;
+            SwMemPool.mpoolTerm();
             rendererCnt = -1;
 
             return true;
@@ -966,18 +957,6 @@ namespace ThorVG
             return new SwRenderer(threads, op);
         }
 
-        // --- Mempool policy ---
-        public void SetMempoolIndividual()
-        {
-            if (sharedMpool) { mpool = SwMemPool.mpoolInit(threadsCnt); sharedMpool = false; }
-        }
-
-        public void SetMempoolShared()
-        {
-            if (!sharedMpool && mpool != null) SwMemPool.mpoolTerm(mpool);
-            mpool = globalMpool;
-            sharedMpool = true;
-        }
     }
 }
 

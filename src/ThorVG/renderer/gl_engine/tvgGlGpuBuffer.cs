@@ -91,13 +91,16 @@ namespace ThorVG
     {
         private uint mVao;
         private GlGpuBuffer mGpuBuffer;
+        private GlGpuBuffer mGpuAuxBuffer;
         private GlGpuBuffer mGpuIndexBuffer;
         private Array<byte> mStageBuffer;
+        private Array<byte> mAuxBuffer;
         private Array<byte> mIndexBuffer;
 
         public GlStageBuffer()
         {
             mGpuBuffer = new GlGpuBuffer();
+            mGpuAuxBuffer = new GlGpuBuffer();
             mGpuIndexBuffer = new GlGpuBuffer();
 
             uint vao;
@@ -115,9 +118,12 @@ namespace ThorVG
             }
             mGpuBuffer?.Dispose();
             mGpuBuffer = null!;
+            mGpuAuxBuffer?.Dispose();
+            mGpuAuxBuffer = null!;
             mGpuIndexBuffer?.Dispose();
             mGpuIndexBuffer = null!;
             mStageBuffer.Dispose();
+            mAuxBuffer.Dispose();
             mIndexBuffer.Dispose();
             GC.SuppressFinalize(this);
         }
@@ -129,6 +135,30 @@ namespace ThorVG
 
         public uint Push(void* data, uint size, bool alignGpuOffset = false)
         {
+            void* dst;
+            var offset = Reserve(size, &dst, alignGpuOffset);
+            if (size > 0) Unsafe.CopyBlock(dst, data, size);
+            return offset;
+        }
+
+        public uint PushAux(void* data, uint size)
+        {
+            void* dst;
+            var offset = ReserveAux(size, &dst);
+            if (size > 0) Unsafe.CopyBlock(dst, data, size);
+            return offset;
+        }
+
+        public uint PushIndex(void* data, uint size)
+        {
+            void* dst;
+            var offset = ReserveIndex(size, &dst);
+            if (size > 0) Unsafe.CopyBlock(dst, data, size);
+            return offset;
+        }
+
+        public uint Reserve(uint size, void** dst, bool alignGpuOffset = false)
+        {
             if (alignGpuOffset) AlignOffset(size);
 
             uint offset = mStageBuffer.count;
@@ -138,14 +168,28 @@ namespace ThorVG
                 mStageBuffer.Grow(Math.Max(size, mStageBuffer.reserved));
             }
 
-            Unsafe.CopyBlock(mStageBuffer.data + offset, data, size);
-
+            *dst = mStageBuffer.data + offset;
             mStageBuffer.count += size;
 
             return offset;
         }
 
-        public uint PushIndex(void* data, uint size)
+        public uint ReserveAux(uint size, void** dst)
+        {
+            uint offset = mAuxBuffer.count;
+
+            if (mAuxBuffer.reserved - mAuxBuffer.count < size)
+            {
+                mAuxBuffer.Grow(Math.Max(size, mAuxBuffer.reserved));
+            }
+
+            *dst = mAuxBuffer.data + offset;
+            mAuxBuffer.count += size;
+
+            return offset;
+        }
+
+        public uint ReserveIndex(uint size, void** dst)
         {
             uint offset = mIndexBuffer.count;
 
@@ -154,8 +198,7 @@ namespace ThorVG
                 mIndexBuffer.Grow(Math.Max(size, mIndexBuffer.reserved));
             }
 
-            Unsafe.CopyBlock(mIndexBuffer.data + offset, data, size);
-
+            *dst = mIndexBuffer.data + offset;
             mIndexBuffer.count += size;
 
             return offset;
@@ -163,22 +206,34 @@ namespace ThorVG
 
         public bool FlushToGPU()
         {
-            if (mStageBuffer.Empty() || mIndexBuffer.Empty())
+            if ((mStageBuffer.Empty() && mAuxBuffer.Empty()) || mIndexBuffer.Empty())
             {
                 mStageBuffer.Clear();
+                mAuxBuffer.Clear();
                 mIndexBuffer.Clear();
                 return false;
             }
 
-            mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
-            mGpuBuffer.UpdateBufferData(GlGpuBuffer.Target.ARRAY_BUFFER, mStageBuffer.count, mStageBuffer.data);
-            mGpuBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
+            if (!mStageBuffer.Empty())
+            {
+                mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
+                mGpuBuffer.UpdateBufferData(GlGpuBuffer.Target.ARRAY_BUFFER, mStageBuffer.count, mStageBuffer.data);
+                mGpuBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
+            }
+
+            if (!mAuxBuffer.Empty())
+            {
+                mGpuAuxBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
+                mGpuAuxBuffer.UpdateBufferData(GlGpuBuffer.Target.ARRAY_BUFFER, mAuxBuffer.count, mAuxBuffer.data);
+                mGpuAuxBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
+            }
 
             mGpuIndexBuffer.Bind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
             mGpuIndexBuffer.UpdateBufferData(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER, mIndexBuffer.count, mIndexBuffer.data);
             mGpuIndexBuffer.Unbind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
 
             mStageBuffer.Clear();
+            mAuxBuffer.Clear();
             mIndexBuffer.Clear();
 
             return true;
@@ -203,6 +258,11 @@ namespace ThorVG
         public uint GetBufferId()
         {
             return mGpuBuffer.GetBufferId();
+        }
+
+        public uint GetAuxBufferId()
+        {
+            return mGpuAuxBuffer.GetBufferId();
         }
 
         private void AlignOffset(uint size)
