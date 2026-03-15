@@ -18,14 +18,8 @@ namespace ThorVG
         internal bool _hintingEnabled;
 
         // Cache keyed on (codepoint, pixelSize) so multiple sizes coexist.
-        private System.Collections.Generic.Dictionary<ulong, TtfGlyphMetrics> _hintedGlyphs = new();
-
-        private static ulong HintCacheKey(uint code, float pixelSize)
-        {
-            // Pack codepoint (low 32) and pixel-size bits (high 32) into one ulong.
-            uint sizeBits = BitConverter.SingleToUInt32Bits(pixelSize);
-            return ((ulong)sizeBits << 32) | code;
-        }
+        private readonly record struct HintCacheKey(uint Code, float PixelSize);
+        private System.Collections.Generic.Dictionary<HintCacheKey, TtfGlyphMetrics> _hintedGlyphs = new();
 
         /// <summary>
         /// Initialize hinting for this font. Called lazily on first hinted glyph request.
@@ -60,7 +54,7 @@ namespace ThorVG
             if (!EnsureHinting())
                 return Request(code); // fall back to unhinted
 
-            var key = HintCacheKey(code, pixelSize);
+            var key = new HintCacheKey(code, pixelSize);
             if (_hintedGlyphs.TryGetValue(key, out var cached))
                 return cached;
 
