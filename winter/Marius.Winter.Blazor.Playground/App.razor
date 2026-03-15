@@ -287,7 +287,55 @@
             </TreeView>
         </Tab>
 
-        @* ─── Tab 7: Rich Controls ─── *@
+        @* ─── Tab 7: Subpixel Comparison ─── *@
+        <Tab Label="Subpixel">
+            <ScrollPanel>
+                <FlexLayout Direction="Orientation.Vertical" Gap="12" />
+
+                <Label Text="LCD Subpixel Rendering Comparison" FontSize="18" Bold="true" />
+                <Separator />
+
+                <Label Text="Normal (grayscale anti-aliasing):" FontSize="13" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="14" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="12" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="10" />
+                <Label Text="ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789" FontSize="14" />
+                <Label Text="abcdefghijklmnopqrstuvwxyz 0123456789" FontSize="11" />
+
+                <Separator />
+
+                <Label Text="LCD Subpixel (per-channel RGB blending):" FontSize="13" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="14" Subpixel="true" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="12" Subpixel="true" />
+                <Label Text="The quick brown fox jumps over the lazy dog" FontSize="10" Subpixel="true" />
+                <Label Text="ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789" FontSize="14" Subpixel="true" />
+                <Label Text="abcdefghijklmnopqrstuvwxyz 0123456789" FontSize="11" Subpixel="true" />
+
+                <Separator />
+
+                <Label Text="Side-by-side at small sizes:" FontSize="13" />
+                <Panel>
+                    <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(1) })" ColumnGap="16" RowGap="4" />
+                    <Label Text="Normal 9px" FontSize="9" />
+                    <Label Text="Subpixel 9px" FontSize="9" Subpixel="true" />
+                    <Label Text="Normal 10px" FontSize="10" />
+                    <Label Text="Subpixel 10px" FontSize="10" Subpixel="true" />
+                    <Label Text="Normal 11px" FontSize="11" />
+                    <Label Text="Subpixel 11px" FontSize="11" Subpixel="true" />
+                    <Label Text="Normal 12px" FontSize="12" />
+                    <Label Text="Subpixel 12px" FontSize="12" Subpixel="true" />
+                    <Label Text="Normal 14px" FontSize="14" />
+                    <Label Text="Subpixel 14px" FontSize="14" Subpixel="true" />
+                    <Label Text="Normal 16px" FontSize="16" />
+                    <Label Text="Subpixel 16px" FontSize="16" Subpixel="true" />
+                    <Label Text="Normal 20px" FontSize="20" />
+                    <Label Text="Subpixel 20px" FontSize="20" Subpixel="true" />
+                </Panel>
+
+            </ScrollPanel>
+        </Tab>
+
+        @* ─── Tab 8: Rich Controls ─── *@
         <Tab Label="Rich">
             <ScrollPanel>
                 <FlexLayout Direction="Orientation.Vertical" Gap="8" />

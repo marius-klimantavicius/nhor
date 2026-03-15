@@ -17,6 +17,7 @@ namespace ThorVG
         internal float outlineWidth;
         internal float italicShear;
         internal bool updated;
+        internal bool lcdSubpixel;     // [LCD Subpixel] per-text opt-in
 
         protected Text()
         {
@@ -131,6 +132,21 @@ namespace ThorVG
             fm.spacing = new Point(letter, line);
             updated = true;
 
+            return Result.Success;
+        }
+
+        /// <summary>
+        /// [LCD Subpixel] Enable or disable LCD subpixel rendering for this text.
+        /// When enabled (or when <see cref="SwLcdSubpixel.Enabled"/> is true globally),
+        /// text is rasterized at 3x horizontal resolution and blended per-channel
+        /// for sharper perceived quality on LCD displays.
+        /// </summary>
+        public Result SetSubpixelRendering(bool enabled)
+        {
+            if (lcdSubpixel == enabled) return Result.Success;
+            lcdSubpixel = enabled;
+            updated = true;
+            pImpl.Mark(RenderUpdateFlag.Path);
             return Result.Success;
         }
 
@@ -254,7 +270,10 @@ namespace ThorVG
                 shape.StrokeWidth(outlineWidth * scale);
             }
 
+            // [LCD Subpixel] Signal to the SW rasterizer that this is a text shape
+            SwLcdSubpixel._textContext = SwLcdSubpixel.Enabled || lcdSubpixel;
             shape.pImpl.Update(renderer, transform, ref clips, opacity, flag, false);
+            SwLcdSubpixel._textContext = false;
             return true;
         }
 
@@ -310,6 +329,7 @@ namespace ThorVG
             text.utf8 = utf8 != null ? TvgStr.Duplicate(utf8) : null;
             text.italicShear = italicShear;
             text.outlineWidth = outlineWidth;
+            text.lcdSubpixel = lcdSubpixel; // [LCD Subpixel]
             text.updated = true;
 
             return text;

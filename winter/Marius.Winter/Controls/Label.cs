@@ -15,6 +15,7 @@ public class Label : Element
     private bool _italic;
     private bool _bold;
     private TextWrap _textWrapping = TextWrap.None;
+    private bool _subpixel;
     private bool _shapesCreated;
 
     public Label(string text = "")
@@ -109,6 +110,18 @@ public class Label : Element
         }
     }
 
+    public bool Subpixel
+    {
+        get => _subpixel;
+        set
+        {
+            if (_subpixel == value) return;
+            _subpixel = value;
+            _textPaint?.SetSubpixelRendering(value);
+            MarkDirty();
+        }
+    }
+
     protected override void OnAttached()
     {
         if (!_shapesCreated)
@@ -133,6 +146,8 @@ public class Label : Element
                 _textPaint.SetItalic(0.18f);
             if (_textWrapping != TextWrap.None)
                 _textPaint.SetWrapping(_textWrapping);
+            if (_subpixel)
+                _textPaint.SetSubpixelRendering(true);
             _textScene = Scene.Gen()!;
             _textScene.Add(_textPaint);
             AddPaint(_textScene);

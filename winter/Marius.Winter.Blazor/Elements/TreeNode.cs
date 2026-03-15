@@ -27,8 +27,7 @@ public class TreeViewNode : WinterComponentBase
             builder.AddAttribute(nameof(Icon), Icon);
         if (Tag != null)
             builder.AddAttribute(nameof(Tag), Tag);
-        if (MayHaveChildren)
-            builder.AddAttribute(nameof(MayHaveChildren), true);
+        builder.AddAttribute(nameof(MayHaveChildren), MayHaveChildren);
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;

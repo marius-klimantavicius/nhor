@@ -600,6 +600,8 @@ namespace ThorVG
         public bool hasRle;
         public SwRle strokeRle;
         public bool hasStrokeRle;
+        public SwRle lcdRle;        // [LCD Subpixel] 3x-horizontal-resolution RLE for LCD text rendering
+        public bool hasLcdRle;      // [LCD Subpixel]
         public RenderRegion bbox;
         public bool fastTrack;
     }

@@ -17,6 +17,7 @@ public class Label : WinterComponentBase
     [Parameter] public Color4? Color { get; set; }
     [Parameter] public bool Italic { get; set; }
     [Parameter] public bool Bold { get; set; }
+    [Parameter] public bool Subpixel { get; set; }
     [Parameter] public TextWrap TextWrapping { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
@@ -30,10 +31,9 @@ public class Label : WinterComponentBase
             builder.AddAttribute("FontSize", FontSize.Value);
         if (Color.HasValue)
             builder.AddAttribute("Color", Color.Value);
-        if (Italic)
-            builder.AddAttribute("Italic", true);
-        if (Bold)
-            builder.AddAttribute("Bold", true);
+        builder.AddAttribute("Italic", Italic);
+        builder.AddAttribute("Bold", Bold);
+        builder.AddAttribute("Subpixel", Subpixel);
         if (TextWrapping != TextWrap.None)
             builder.AddAttribute("TextWrapping", TextWrapping);
     }
@@ -65,6 +65,9 @@ public class Label : WinterComponentBase
                     break;
                 case "Bold":
                     LabelControl.Bold = AttributeHelper.GetBool(attributeValue);
+                    break;
+                case "Subpixel":
+                    LabelControl.Subpixel = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "TextWrapping":
                     LabelControl.TextWrapping = attributeValue is TextWrap tw

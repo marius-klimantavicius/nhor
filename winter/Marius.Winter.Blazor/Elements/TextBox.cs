@@ -24,8 +24,7 @@ public class TextBox : WinterComponentBase
             builder.AddAttribute("Text", Text);
         if (Placeholder != null)
             builder.AddAttribute("Placeholder", Placeholder);
-        if (Required)
-            builder.AddAttribute("Required", true);
+        builder.AddAttribute("Required", Required);
 
         builder.AddAttribute("ontextchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnTextChanged.InvokeAsync((string)value.Value!)));
     }

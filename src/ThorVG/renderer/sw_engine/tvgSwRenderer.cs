@@ -109,11 +109,15 @@ namespace ThorVG
             if (updateShape)
             {
                 SwShapeOps.shapeReset(shape);
+                SwLcdSubpixel.ResetLcdRle(shape); // [LCD Subpixel]
                 if (rshape!.fill != null || rshape.color.a > 0 || clipper)
                 {
                     if (SwShapeOps.shapePrepare(shape, rshape, transform, clipBox, ref curBox, mpool!, tid, clips.Count > 0))
                     {
                         if (!SwShapeOps.shapeGenRle(shape, curBox, mpool!, tid, Antialiasing(strokeWidth))) goto err;
+                        // [LCD Subpixel] Generate 3x-resolution RLE for LCD text rendering
+                        if (SwLcdSubpixel.IsActive())
+                            SwLcdSubpixel.GenerateLcdRle(shape, curBox, mpool!, tid);
                     }
                     else
                     {
@@ -173,6 +177,7 @@ namespace ThorVG
 
         err:
             SwShapeOps.shapeReset(shape);
+            SwLcdSubpixel.ResetLcdRle(shape); // [LCD Subpixel]
             if (shape.hasStrokeRle) { SwRleOps.rleReset(ref shape.strokeRle); }
             SwShapeOps.shapeDelOutline(shape, mpool!, tid);
             Invisible();
@@ -503,7 +508,11 @@ namespace ThorVG
                         if (a > 0)
                         {
                             var c = new RenderColor(r, g, b, a);
-                            rasterShape(sfc, t.shape, bbox, c);
+                            // [LCD Subpixel] Use per-channel LCD blending for text shapes
+                            if (t.shape.hasLcdRle)
+                                SwLcdSubpixel.RasterLcdShape(sfc, t.shape, bbox, c);
+                            else
+                                rasterShape(sfc, t.shape, bbox, c);
                         }
                     }
                 }
