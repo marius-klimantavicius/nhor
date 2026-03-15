@@ -46,6 +46,7 @@ public class TreeView : Element
 
     private int _selectedIndex = -1;
     private int _hoveredIndex = -1;
+    private TreeNode? _pendingSelectedNode;
     private float _scroll;
     private float _scrollH;
     private float _contentHeight;
@@ -84,6 +85,7 @@ public class TreeView : Element
     public Action<TreeNode?>? SelectionChanged;
     public Action<TreeNode>? NodeExpanded;
     public Action<TreeNode>? NodeCollapsed;
+    public Action<TreeNode>? NodeDoubleClicked;
 
     // --- Public API ---
 
@@ -132,11 +134,14 @@ public class TreeView : Element
             ? _visibleRows[_selectedIndex].Node : null;
         set
         {
+            _pendingSelectedNode = null;
             if (value == null) { SelectRow(-1); return; }
             for (int i = 0; i < _visibleRows.Count; i++)
             {
                 if (_visibleRows[i].Node == value) { SelectRow(i); return; }
             }
+            // Rows not built yet — defer until next rebuild
+            _pendingSelectedNode = value;
         }
     }
 
@@ -271,11 +276,33 @@ public class TreeView : Element
 
         RebuildVisibleRowsCore();
 
+        // Apply pending selection from before rows existed
+        bool wasPending = false;
+        if (_pendingSelectedNode != null)
+        {
+            selectedNode = _pendingSelectedNode;
+            _pendingSelectedNode = null;
+            wasPending = true;
+        }
+
         // Restore selection
         if (selectedNode != null)
         {
+            _selectedIndex = -1;
             for (int i = 0; i < _visibleRows.Count; i++)
                 if (_visibleRows[i].Node == selectedNode) { _selectedIndex = i; break; }
+        }
+
+        // Pre-scroll to pending selection (Bounds not available yet, set ratio directly)
+        if (wasPending && _selectedIndex >= 0 && _contentHeight > 0)
+        {
+            _scroll = Math.Clamp(_selectedIndex * RowHeight / _contentHeight, 0f, 1f);
+
+            // Also pre-scroll horizontally so the selected row's text is visible
+            var row = _visibleRows[_selectedIndex];
+            float indent = row.Depth * IndentWidth + 4 + ArrowAreaWidth;
+            if (_contentWidth > 0)
+                _scrollH = Math.Clamp(indent / _contentWidth, 0f, 1f);
         }
 
         // Restore scroll so anchor node stays at the same screen position
@@ -414,11 +441,12 @@ public class TreeView : Element
         textObj.SetText(node.Text);
         textObj.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
 
+        // Measure bounds before adding to scene — Bounds() includes parent transforms
+        textObj.Bounds(out float tbx, out float tby, out float tbw, out float tbh);
+
         var textScene = Scene.Gen()!;
         textScene.Add(textObj);
         AddPaint(textScene);
-
-        textObj.Bounds(out float tbx, out float tby, out float tbw, out float tbh);
 
         _visibleRows.Add(new VisibleRow
         {
@@ -680,6 +708,24 @@ public class TreeView : Element
         int rowIndex = (int)((ly + scrollOffset) / RowHeight);
         if (rowIndex < 0 || rowIndex >= _visibleRows.Count) return true;
 
+        // Check if click is on the arrow area
+        var row = _visibleRows[rowIndex];
+        if (row.Node.HasChildren)
+        {
+            float indent = row.Depth * IndentWidth + 4 - GetScrollOffsetH();
+            if (lx >= indent && lx < indent + ArrowAreaWidth)
+            {
+                SelectRow(rowIndex);
+                row.Node.IsExpanded = !row.Node.IsExpanded;
+                if (row.Node.IsExpanded)
+                    NodeExpanded?.Invoke(row.Node);
+                else
+                    NodeCollapsed?.Invoke(row.Node);
+                RebuildVisibleRows(row.Node);
+                return true;
+            }
+        }
+
         SelectRow(rowIndex);
 
         return true;
@@ -690,6 +736,7 @@ public class TreeView : Element
         if (_selectedIndex >= 0 && _selectedIndex < _visibleRows.Count)
         {
             var node = _visibleRows[_selectedIndex].Node;
+            NodeDoubleClicked?.Invoke(node);
             if (node.HasChildren)
             {
                 node.IsExpanded = !node.IsExpanded;

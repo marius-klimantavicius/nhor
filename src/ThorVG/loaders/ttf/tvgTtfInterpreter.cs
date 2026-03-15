@@ -75,9 +75,9 @@ namespace ThorVG
         ExecutionStack _stack;
         InstructionStream[] _functions;
         InstructionStream[] _instructionDefs;
-        float[] _controlValueTable;
+        float[] _controlValueTable = Array.Empty<float>();
         int[] _storage;
-        ushort[] _contours;
+        ushort[] _contours = Array.Empty<ushort>();
         float _scale;
         int _ppem;
         int _callStackSize;
@@ -104,12 +104,12 @@ namespace ThorVG
             Execute(new InstructionStream(instructions), false, true);
         }
 
-        public void SetControlValueTable(int[] cvt, float scale, float ppem, byte[] cvProgram)
+        public void SetControlValueTable(int[]? cvt, float scale, float ppem, byte[]? cvProgram)
         {
             if (_scale == scale || cvt == null)
                 return;
 
-            if (_controlValueTable == null)
+            if (_controlValueTable.Length == 0)
                 _controlValueTable = new float[cvt.Length];
             //copy cvt and apply scale
             for (int i = cvt.Length - 1; i >= 0; --i)

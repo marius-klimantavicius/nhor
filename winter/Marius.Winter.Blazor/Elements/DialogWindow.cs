@@ -15,6 +15,7 @@ public class DialogWindow : WinterComponentBase
     [Parameter] public ILayout? Layout { get; set; }
     [Parameter] public float Width { get; set; }
     [Parameter] public float Height { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -29,6 +30,7 @@ public class DialogWindow : WinterComponentBase
             builder.AddAttribute(nameof(Width), Width);
         if (Height > 0)
             builder.AddAttribute(nameof(Height), Height);
+        builder.AddAttribute("onclose", EventCallback.Factory.Create(this, () => OnClose.InvokeAsync()));
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
@@ -36,10 +38,15 @@ public class DialogWindow : WinterComponentBase
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
         bool _sizeInitialized;
+        readonly CoalescedEvent _closeEvent;
         Marius.Winter.DialogWindow DialogWindowControl => (Marius.Winter.DialogWindow)ElementControl;
 
         public Handler(NativeComponentRenderer renderer)
-            : base(renderer, new Marius.Winter.DialogWindow()) { }
+            : base(renderer, new Marius.Winter.DialogWindow())
+        {
+            _closeEvent = new CoalescedEvent(this);
+            DialogWindowControl.CloseClicked = () => _closeEvent.Fire(null);
+        }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
@@ -72,6 +79,10 @@ public class DialogWindow : WinterComponentBase
                     }
                     break;
                 }
+                case "onclose":
+                    Renderer.RegisterEvent(attributeEventHandlerId, _closeEvent.Unregister);
+                    _closeEvent.HandlerId = attributeEventHandlerId;
+                    break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;

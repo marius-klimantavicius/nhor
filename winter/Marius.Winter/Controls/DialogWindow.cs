@@ -17,6 +17,7 @@ public class DialogWindow : Element, ILayoutContainer
     private Shape? _headerBorder;
     private Scene? _titleScene;
     private Text? _titleText;
+    private Shape? _closeShape;
     private ILayout? _layout;
     private bool _shapesCreated;
     private string _title;
@@ -25,12 +26,16 @@ public class DialogWindow : Element, ILayoutContainer
     private bool _resizing;
     private int _resizeEdge; // bitmask: 1=right, 2=bottom, 4=left, 8=top
     private const float ResizeGrip = 8f;
+    private const float CloseButtonSize = 14f;
+    private const float CloseButtonMargin = 8f;
     private const float MinDialogW = 200f;
     private const float MinDialogH = 100f;
 
     internal override bool ManagesOwnChildLayout => true;
 
     public const float HeaderHeight = 30f;
+
+    public Action? CloseClicked;
 
     public DialogWindow(string title = "Window")
     {
@@ -109,6 +114,14 @@ public class DialogWindow : Element, ILayoutContainer
             _titleScene = Scene.Gen()!;
             _titleScene.Add(_titleText);
             AddPaint(_titleScene);
+
+            // Close button "x"
+            _closeShape = Shape.Gen();
+            _closeShape!.StrokeWidth(1.5f);
+            _closeShape.StrokeFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, theme.TextColor.A8);
+            _closeShape.StrokeCap(StrokeCap.Round);
+            _closeShape.SetFill(0, 0, 0, 0);
+            AddPaint(_closeShape);
         }
     }
 
@@ -178,6 +191,7 @@ public class DialogWindow : Element, ILayoutContainer
         _headerBorder?.LineTo(w, HeaderHeight);
 
         CenterTitle();
+        UpdateCloseButton();
 
         // Arrange content
         if (_layout != null)
@@ -204,6 +218,27 @@ public class DialogWindow : Element, ILayoutContainer
         float x = (Bounds.W - bw) / 2f - bx;
         float y = (HeaderHeight - bh) / 2f - by;
         _titleScene.Translate(x, y);
+    }
+
+    private void UpdateCloseButton()
+    {
+        if (_closeShape == null) return;
+        _closeShape.ResetShape();
+        float cx = Bounds.W - CloseButtonMargin - CloseButtonSize / 2f;
+        float cy = HeaderHeight / 2f;
+        float half = CloseButtonSize / 2f - 2f;
+        _closeShape.MoveTo(cx - half, cy - half);
+        _closeShape.LineTo(cx + half, cy + half);
+        _closeShape.MoveTo(cx + half, cy - half);
+        _closeShape.LineTo(cx - half, cy + half);
+    }
+
+    private bool HitCloseButton(float lx, float ly)
+    {
+        float cx = Bounds.W - CloseButtonMargin - CloseButtonSize / 2f;
+        float cy = HeaderHeight / 2f;
+        return MathF.Abs(lx - cx) <= CloseButtonSize / 2f + 2f
+            && MathF.Abs(ly - cy) <= CloseButtonSize / 2f + 2f;
     }
 
     // --- Dragging ---
@@ -268,6 +303,11 @@ public class DialogWindow : Element, ILayoutContainer
 
         if (ly < HeaderHeight)
         {
+            if (HitCloseButton(lx, ly))
+            {
+                CloseClicked?.Invoke();
+                return true;
+            }
             _dragging = true;
             _dragOffsetX = lx;
             _dragOffsetY = ly;
@@ -342,10 +382,15 @@ public class DialogWindow : Element, ILayoutContainer
             return;
         }
 
-        // Update resize cursor based on hover position
+        // Update cursor based on hover position
         WindowToLocal(x, y, out float lx, out float ly);
         var edge = DetectResizeEdge(lx, ly);
-        Cursor = edge != 0 ? CursorForEdge(edge) : CursorType.Arrow;
+        if (edge != 0)
+            Cursor = CursorForEdge(edge);
+        else if (ly < HeaderHeight && HitCloseButton(lx, ly))
+            Cursor = CursorType.Hand;
+        else
+            Cursor = CursorType.Arrow;
     }
 
     protected override Style GetDefaultStyle()
@@ -364,6 +409,7 @@ public class DialogWindow : Element, ILayoutContainer
         ApplyHeaderGradient(theme);
         _headerBorder?.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
         _titleText?.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
+        _closeShape?.StrokeFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, theme.TextColor.A8);
         MarkDirty();
     }
 }

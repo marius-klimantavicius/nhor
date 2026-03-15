@@ -85,10 +85,12 @@
 @if (_showOpenDialog)
 {
     <DialogWindow Title="Open File" Width="550" Height="450"
+                  OnClose="@(() => _showOpenDialog = false)"
                   Layout="@(new Marius.Winter.GridLayout { Columns = new[] { TrackSize.Fr(1) }, Rows = new[] { TrackSize.Fr(1), TrackSize.Px(36) } })">
         <TreeView LayoutData="@(new GridItem { Column = 0, Row = 0 })"
                   OnSelectionChanged="OnOpenTreeSelection"
                   OnNodeExpanded="@OnOpenExpanded"
+                  OnNodeDoubleClicked="@OnOpenDoubleClicked"
                   OnNativeTreeView="@InitOpenTree" />
         <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
             <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
@@ -102,6 +104,7 @@
 @if (_showSaveDialog)
 {
     <DialogWindow Title="Save As" Width="550" Height="450"
+                  OnClose="@(() => _showSaveDialog = false)"
                   Layout="@(new Marius.Winter.GridLayout { Columns = new[] { TrackSize.Fr(1) }, Rows = new[] { TrackSize.Fr(1), TrackSize.Px(32), TrackSize.Px(36) } })">
         <TreeView LayoutData="@(new GridItem { Column = 0, Row = 0 })"
                   OnSelectionChanged="OnSaveTreeSelection"
@@ -198,11 +201,12 @@
             }
         }
         catch { /* permission errors */ }
-        tv.EndUpdate();
 
-        // If no children were added, remove the arrow
+        // Clear arrow before EndUpdate triggers rebuild if no children were added
         if (parent != null && parent.Children.Count == 0)
             parent.MayHaveChildren = false;
+
+        tv.EndUpdate();
     }
 
     void HandleExpand(Marius.Winter.TreeView? tv, string? tag, bool withFiles)
@@ -373,6 +377,8 @@
 
     // ── Open file dialog ──
 
+    string? _openCurrentDir;
+
     void OpenFileDialog()
     {
         _openSelectedFile = null;
@@ -385,11 +391,37 @@
         _openTree = tv;
         var startDir = System.IO.Path.GetDirectoryName(_selectedPath);
         if (string.IsNullOrEmpty(startDir))
+            startDir = LoadLastFolder();
+        if (string.IsNullOrEmpty(startDir) || !Directory.Exists(startDir))
             startDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        PopulateChildren(tv, null, startDir, withFiles: true);
+        PopulateOpenDir(tv, startDir!);
+    }
+
+    void PopulateOpenDir(Marius.Winter.TreeView tv, string dir)
+    {
+        _openCurrentDir = dir;
+        tv.BeginUpdate();
+        // Remove existing nodes
+        while (tv.Nodes.Count > 0)
+            tv.RemoveNode(tv.Nodes[tv.Nodes.Count - 1]);
+        // Add ".." if not at root
+        var parentDir = System.IO.Path.GetDirectoryName(dir);
+        if (parentDir != null)
+        {
+            var upNode = tv.AddNode("..", null, FolderIcon);
+            upNode.Tag = "up:" + parentDir;
+        }
+        tv.EndUpdate();
+        PopulateChildren(tv, null, dir, withFiles: true);
     }
 
     void OnOpenExpanded(string? tag) => HandleExpand(_openTree, tag, withFiles: true);
+
+    void OnOpenDoubleClicked(string? tag)
+    {
+        if (tag != null && tag.StartsWith("up:") && _openTree != null)
+            PopulateOpenDir(_openTree, tag.Substring(3));
+    }
 
     void OnOpenTreeSelection(string? tag)
     {
