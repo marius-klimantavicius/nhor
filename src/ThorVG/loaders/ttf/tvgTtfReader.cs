@@ -40,7 +40,7 @@ namespace ThorVG
     /// <summary>
     /// Low-level TTF binary parser. Mirrors C++ TtfReader.
     /// </summary>
-    public class TtfReader
+    public partial class TtfReader
     {
         public const uint INVALID_GLYPH = unchecked((uint)-1);
 

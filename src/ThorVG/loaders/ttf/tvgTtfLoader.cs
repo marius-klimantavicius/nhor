@@ -15,7 +15,7 @@ namespace ThorVG
     /// <summary>
     /// TTF font loader. Mirrors C++ TtfLoader.
     /// </summary>
-    public class TtfLoader : FontLoader
+    public partial class TtfLoader : FontLoader
     {
         private const uint LINE_FEED_CODEPOINT = 0x0A;
         private const uint DOT_CODEPOINT = 0x2E;
