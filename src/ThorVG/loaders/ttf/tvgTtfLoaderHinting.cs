@@ -17,6 +17,11 @@ namespace ThorVG
         private bool _hintingInitialized;
         internal bool _hintingEnabled;
 
+        // Cache: hinted glyphs are size-dependent. Track the pixel size the cache
+        // was built for — if it changes, the cache is invalidated.
+        private float _cachedHintSize;
+        private System.Collections.Generic.Dictionary<uint, TtfGlyphMetrics> _hintedGlyphs = new();
+
         /// <summary>
         /// Initialize hinting for this font. Called lazily on first hinted glyph request.
         /// </summary>
@@ -41,21 +46,25 @@ namespace ThorVG
 
         /// <summary>
         /// Load a glyph with TrueType hinting applied at the given pixel size.
-        /// Falls back to unhinted outline if hinting fails.
+        /// Caches results per (codepoint, pixelSize). Falls back to unhinted if hinting fails.
         /// </summary>
         private TtfGlyphMetrics? RequestHinted(uint code, float pixelSize)
         {
             if (code == 0) return null;
 
-            // For hinted glyphs we cache per (code, pixelSize) since hinting is size-dependent.
-            // For simplicity in this initial implementation, we skip caching of hinted glyphs
-            // and always re-hint. The unhinted cache in the base Request() still works for
-            // non-hinted paths.
-            //
-            // TODO: Add a size-aware cache if profiling shows this is a bottleneck.
-
             if (!EnsureHinting())
                 return Request(code); // fall back to unhinted
+
+            // Invalidate cache if pixel size changed
+            if (_cachedHintSize != pixelSize)
+            {
+                _hintedGlyphs.Clear();
+                _cachedHintSize = pixelSize;
+            }
+
+            // Return cached hinted glyph
+            if (_hintedGlyphs.TryGetValue(code, out var cached))
+                return cached;
 
             // Look up glyph index and metrics
             var tgm = new TtfGlyphMetrics();
@@ -70,9 +79,8 @@ namespace ThorVG
             {
                 // Composite or empty glyph — use normal path
                 if (glyphOffset != 0)
-                {
                     reader.Convert(tgm.path, tgm, glyphOffset, new Point(0, 0), 1);
-                }
+                _hintedGlyphs[code] = tgm;
                 return tgm;
             }
 
@@ -89,17 +97,16 @@ namespace ThorVG
                 // Hinting failed — fall back to unhinted
                 if (glyphOffset != 0)
                     reader.Convert(tgm.path, tgm, glyphOffset, new Point(0, 0), 1);
+                _hintedGlyphs[code] = tgm;
                 return tgm;
             }
 
             // Convert hinted points to RenderPath commands.
-            // The hinted points are already in pixel space (scaled by pxScale),
-            // so we need to scale them BACK to font units for the normal rendering pipeline.
+            // The hinted points are in pixel space (Y-up). Scale back to font units
+            // and negate Y to match ThorVG's Y-down coordinate system.
             float pxScale = pixelSize / reader.metrics.unitsPerEm;
             float invScale = pxScale > 0 ? 1.0f / pxScale : 1.0f;
 
-            // Convert hinted points back to font-unit space.
-            // Negate Y to go from interpreter's Y-up back to ThorVG's Y-down.
             int ptCount = points.Length; // original point count (without phantom points)
             var fontPts = new Point[ptCount];
             for (int i = 0; i < ptCount; i++)
@@ -115,6 +122,7 @@ namespace ThorVG
             // Build path from hinted points (same algorithm as TtfReader.Convert)
             ConvertPointsToPath(tgm.path, fontPts, endPts, points);
 
+            _hintedGlyphs[code] = tgm;
             return tgm;
         }
 
