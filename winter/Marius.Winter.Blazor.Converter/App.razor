@@ -128,6 +128,24 @@
     const string FolderIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16""><path d=""M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V5.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/></svg>";
     const string FileIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16""><path d=""M2 1.5A1.5 1.5 0 013.5 0h5.672a.5.5 0 01.354.146l4.328 4.329a.5.5 0 01.146.354V14.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 14.5z"" fill=""#90CAF9""/></svg>";
 
+    // ── Settings persistence ──
+    static readonly string SettingsDir = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Marius.Winter.Blazor.Converter");
+    static readonly string SettingsFile = System.IO.Path.Combine(SettingsDir, "sidebar.txt");
+
+    static string? LoadLastFolder()
+    {
+        try { return File.Exists(SettingsFile) ? File.ReadAllText(SettingsFile).Trim() : null; }
+        catch { return null; }
+    }
+
+    static void SaveLastFolder(string path)
+    {
+        try { Directory.CreateDirectory(SettingsDir); File.WriteAllText(SettingsFile, path); }
+        catch { }
+    }
+
     // ── State ──
     string _selectedPath = "";
     FileKind _fileKind = FileKind.Unknown;
@@ -219,17 +237,45 @@
     {
         if (_sidebarTree != null) return; // already initialized
         _sidebarTree = tv;
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(home)) home = "/";
-        PopulateChildren(tv, null, home, withFiles: true);
+        PopulateChildren(tv, null, "/", withFiles: true);
+
+        // Pre-expand to the last selected folder, falling back to ~/
+        var expandTo = LoadLastFolder();
+        if (expandTo == null || !Directory.Exists(expandTo))
+            expandTo = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(expandTo))
+        {
+            var segments = expandTo.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            Marius.Winter.TreeNode? current = null;
+            var pathSoFar = "";
+            foreach (var seg in segments)
+            {
+                pathSoFar += "/" + seg;
+                var node = FindNodeByTag(tv, "dir:" + pathSoFar);
+                if (node == null) break;
+                node.IsExpanded = true;
+                PopulateChildren(tv, node, pathSoFar, withFiles: true);
+                current = node;
+            }
+            if (current != null)
+                tv.SelectedNode = current;
+        }
     }
 
     void OnSidebarExpanded(string? tag) => HandleExpand(_sidebarTree, tag, withFiles: true);
 
     void OnTreeSelection(string? tag)
     {
-        if (tag == null || !tag.StartsWith("file:")) return;
+        if (tag == null) return;
+        if (tag.StartsWith("dir:"))
+        {
+            SaveLastFolder(tag.Substring(4));
+            return;
+        }
+        if (!tag.StartsWith("file:")) return;
         var filePath = tag.Substring(5);
+        var dir = System.IO.Path.GetDirectoryName(filePath);
+        if (dir != null) SaveLastFolder(dir);
         _selectedPath = filePath;
         LoadFile(filePath);
     }

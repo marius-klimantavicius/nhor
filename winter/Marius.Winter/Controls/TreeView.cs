@@ -76,6 +76,7 @@ public class TreeView : Element
         public Picture? IconPaint;
         public Scene TextScene;
         public Text TextObj;
+        public float TextBoundsX, TextBoundsY, TextBoundsW, TextBoundsH;
     }
 
     // --- Events ---
@@ -323,7 +324,7 @@ public class TreeView : Element
 
         _contentHeight = _visibleRows.Count * RowHeight;
 
-        // Calculate content width
+        // Calculate content width from cached text bounds
         float maxW = 0;
         for (int i = 0; i < _visibleRows.Count; i++)
         {
@@ -333,18 +334,7 @@ public class TreeView : Element
             float textX = afterArrow;
             if (row.IconScene != null) textX = afterArrow + IconSize + IconGap;
 
-            var tm = ThorVG.Text.Gen();
-            float textW = 0;
-            if (tm != null)
-            {
-                tm.SetFont(style.FontName);
-                tm.SetFontSize(fontSize);
-                tm.SetText(row.Node.Text);
-                tm.Bounds(out float bx, out float by, out float bw, out float bh);
-                textW = bw;
-            }
-
-            float rowW = textX + textW + 8;
+            float rowW = textX + row.TextBoundsW + 8;
             if (rowW > maxW) maxW = rowW;
         }
         _contentWidth = maxW;
@@ -428,6 +418,8 @@ public class TreeView : Element
         textScene.Add(textObj);
         AddPaint(textScene);
 
+        textObj.Bounds(out float tbx, out float tby, out float tbw, out float tbh);
+
         _visibleRows.Add(new VisibleRow
         {
             Node = node,
@@ -437,6 +429,8 @@ public class TreeView : Element
             IconPaint = iconPaint,
             TextScene = textScene,
             TextObj = textObj,
+            TextBoundsX = tbx, TextBoundsY = tby,
+            TextBoundsW = tbw, TextBoundsH = tbh,
         });
 
         if (node.IsExpanded)
@@ -451,8 +445,6 @@ public class TreeView : Element
         float w = Bounds.W;
         float scrollOffset = GetScrollOffset();
         float scrollOffsetH = GetScrollOffsetH();
-        var style = Style;
-        float fontSize = EffectiveFontSize(style.FontSize);
 
         for (int i = 0; i < _visibleRows.Count; i++)
         {
@@ -499,22 +491,14 @@ public class TreeView : Element
                 textX = afterArrow + IconSize + IconGap;
             }
 
-            // Text positioning — reset to identity then translate (avoids accumulation)
-            var tm = ThorVG.Text.Gen();
-            if (tm != null)
+            // Text positioning — use cached bounds, reset to identity then translate
+            if (row.TextBoundsH > 0)
             {
-                tm.SetFont(style.FontName);
-                tm.SetFontSize(fontSize);
-                tm.SetText(row.Node.Text);
-                tm.Bounds(out float bx, out float by, out float bw, out float bh);
-                if (bh > 0)
-                {
-                    float tx = textX - bx;
-                    float ty = rowY + (RowHeight - bh) / 2f - by;
-                    ref var mat = ref row.TextScene.Transform();
-                    mat = new Matrix(1, 0, 0, 0, 1, 0, 0, 0, 1);
-                    row.TextScene.Translate(tx, ty);
-                }
+                float tx = textX - row.TextBoundsX;
+                float ty = rowY + (RowHeight - row.TextBoundsH) / 2f - row.TextBoundsY;
+                ref var mat = ref row.TextScene.Transform();
+                mat = new Matrix(1, 0, 0, 0, 1, 0, 0, 0, 1);
+                row.TextScene.Translate(tx, ty);
             }
         }
     }
