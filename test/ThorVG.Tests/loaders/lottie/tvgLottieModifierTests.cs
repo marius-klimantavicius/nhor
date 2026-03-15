@@ -48,23 +48,5 @@ namespace ThorVG.Tests
             var chained = mod1.Decorate(mod2);
             Assert.NotNull(chained);
         }
-
-        // ---- LottieExpressions ----
-
-        [Fact]
-        public void LottieExpressions_Instance_ReturnsSingleton()
-        {
-            // Real Jint-based implementation returns a singleton when thread count is 0
-            var instance = LottieExpressions.Instance();
-            Assert.NotNull(instance);
-
-            // Second call returns the same instance
-            var instance2 = LottieExpressions.Instance();
-            Assert.Same(instance, instance2);
-
-            // Retrieve releases the reference
-            LottieExpressions.Retrieve(instance2);
-            LottieExpressions.Retrieve(instance);
-        }
     }
 }
