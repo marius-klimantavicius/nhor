@@ -98,12 +98,13 @@ namespace ThorVG
             float pxScale = pixelSize / reader.metrics.unitsPerEm;
             float invScale = pxScale > 0 ? 1.0f / pxScale : 1.0f;
 
-            // Convert hinted points back to font-unit space
+            // Convert hinted points back to font-unit space.
+            // Negate Y to go from interpreter's Y-up back to ThorVG's Y-down.
             int ptCount = points.Length; // original point count (without phantom points)
             var fontPts = new Point[ptCount];
             for (int i = 0; i < ptCount; i++)
             {
-                fontPts[i] = new Point(hintedPts[i].X * invScale, hintedPts[i].Y * invScale);
+                fontPts[i] = new Point(hintedPts[i].X * invScale, -hintedPts[i].Y * invScale);
             }
 
             // Convert contour endpoints from ushort[] to uint[]

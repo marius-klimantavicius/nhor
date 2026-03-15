@@ -192,12 +192,14 @@ namespace ThorVG
             var zeroOffset = new Point(0, 0);
             if (!ReadPoints(outline, flagsArr, rawPts, ptsCnt, zeroOffset)) return false;
 
-            // Convert to GlyphPointF
+            // Convert to GlyphPointF.
+            // ReadPoints produces Y-down coords (negated), but the TrueType interpreter
+            // expects original font coordinates (Y-up). Negate Y back to font space.
             const byte ON_CURVE = 0x01;
             points = new GlyphPointF[ptsCnt];
             for (uint i = 0; i < ptsCnt; i++)
             {
-                points[i] = new GlyphPointF(rawPts[i].x, rawPts[i].y, (flagsArr[i] & ON_CURVE) != 0);
+                points[i] = new GlyphPointF(rawPts[i].x, -rawPts[i].y, (flagsArr[i] & ON_CURVE) != 0);
             }
 
             return true;
