@@ -17,10 +17,15 @@ namespace ThorVG
         private bool _hintingInitialized;
         internal bool _hintingEnabled;
 
-        // Cache: hinted glyphs are size-dependent. Track the pixel size the cache
-        // was built for — if it changes, the cache is invalidated.
-        private float _cachedHintSize;
-        private System.Collections.Generic.Dictionary<uint, TtfGlyphMetrics> _hintedGlyphs = new();
+        // Cache keyed on (codepoint, pixelSize) so multiple sizes coexist.
+        private System.Collections.Generic.Dictionary<ulong, TtfGlyphMetrics> _hintedGlyphs = new();
+
+        private static ulong HintCacheKey(uint code, float pixelSize)
+        {
+            // Pack codepoint (low 32) and pixel-size bits (high 32) into one ulong.
+            uint sizeBits = BitConverter.SingleToUInt32Bits(pixelSize);
+            return ((ulong)sizeBits << 32) | code;
+        }
 
         /// <summary>
         /// Initialize hinting for this font. Called lazily on first hinted glyph request.
@@ -55,15 +60,8 @@ namespace ThorVG
             if (!EnsureHinting())
                 return Request(code); // fall back to unhinted
 
-            // Invalidate cache if pixel size changed
-            if (_cachedHintSize != pixelSize)
-            {
-                _hintedGlyphs.Clear();
-                _cachedHintSize = pixelSize;
-            }
-
-            // Return cached hinted glyph
-            if (_hintedGlyphs.TryGetValue(code, out var cached))
+            var key = HintCacheKey(code, pixelSize);
+            if (_hintedGlyphs.TryGetValue(key, out var cached))
                 return cached;
 
             // Look up glyph index and metrics
@@ -80,7 +78,7 @@ namespace ThorVG
                 // Composite or empty glyph — use normal path
                 if (glyphOffset != 0)
                     reader.Convert(tgm.path, tgm, glyphOffset, new Point(0, 0), 1);
-                _hintedGlyphs[code] = tgm;
+                _hintedGlyphs[key] = tgm;
                 return tgm;
             }
 
@@ -97,7 +95,7 @@ namespace ThorVG
                 // Hinting failed — fall back to unhinted
                 if (glyphOffset != 0)
                     reader.Convert(tgm.path, tgm, glyphOffset, new Point(0, 0), 1);
-                _hintedGlyphs[code] = tgm;
+                _hintedGlyphs[key] = tgm;
                 return tgm;
             }
 
@@ -122,7 +120,7 @@ namespace ThorVG
             // Build path from hinted points (same algorithm as TtfReader.Convert)
             ConvertPointsToPath(tgm.path, fontPts, endPts, points);
 
-            _hintedGlyphs[code] = tgm;
+            _hintedGlyphs[key] = tgm;
             return tgm;
         }
 
