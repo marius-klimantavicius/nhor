@@ -357,7 +357,7 @@ namespace Marius.Winter.Blazor.Core
             _targetElement = elementHandler;
 
             // Phase 1: Apply all attributes before adding the element as a child.
-            // This ensures INonPhysicalChild handlers (Tab, Menu, TreeNode) have their
+            // This ensures INonPhysicalChild handlers (Tab, Menu, TreeViewNode) have their
             // properties (Label, Text, Title) set before SetParent creates native objects.
             var endIndexExcl = frameIndex + frames[frameIndex].ElementSubtreeLength;
             var firstChildFrameIndex = endIndexExcl; // assume no children
@@ -377,7 +377,7 @@ namespace Marius.Winter.Blazor.Core
 
             // Phase 2: Add element to tree (triggers SetParent for INonPhysicalChild).
             // Must happen before child frames so nested INonPhysicalChild handlers
-            // (e.g. TreeNode children) can look up their parent's registration.
+            // (e.g. TreeViewNode children) can look up their parent's registration.
             AddElementAsChildElement();
 
             // Phase 3: Process child frames.

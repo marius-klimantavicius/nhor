@@ -321,6 +321,12 @@ public abstract class Element
 
     public void Arrange(RectF finalBounds)
     {
+        if (IgnoresParentArrange)
+        {
+            // Keep our own bounds; only re-arrange internal content.
+            ArrangeCore(Bounds);
+            return;
+        }
         float w = ClampWidth(finalBounds.W);
         float h = ClampHeight(finalBounds.H);
         var clamped = new RectF(finalBounds.X, finalBounds.Y, w, h);
@@ -353,6 +359,12 @@ public abstract class Element
     /// Children will NOT be added to the Taffy tree.
     /// </summary>
     internal virtual bool ManagesOwnChildLayout => false;
+
+    /// <summary>
+    /// If true, Arrange() preserves the element's current Bounds instead of applying the parent's
+    /// finalBounds. Used by DialogWindow which manages its own position via dragging/resizing.
+    /// </summary>
+    internal virtual bool IgnoresParentArrange => false;
 
     protected virtual Vector2 MeasureCore(float availableWidth, float availableHeight)
     {

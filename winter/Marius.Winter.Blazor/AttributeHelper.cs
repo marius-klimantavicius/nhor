@@ -173,20 +173,9 @@ public static class AttributeHelper
 
     // --- byte[] ---
 
-    private const string Base64Prefix = "b64:";
-
-    public static string ByteArrayToString(byte[] bytes)
-    {
-        return Base64Prefix + Convert.ToBase64String(bytes);
-    }
-
     public static byte[]? GetByteArray(object? value)
     {
-        if (value is byte[] direct) return direct;
-        if (value is string s && s.StartsWith(Base64Prefix))
-            return Convert.FromBase64String(s.Substring(Base64Prefix.Length));
-
-        return null;
+        return WeakObjectStore.Get<byte[]>(value);
     }
 
     // --- TrackSize[] ---

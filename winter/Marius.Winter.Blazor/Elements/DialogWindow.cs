@@ -13,6 +13,8 @@ public class DialogWindow : WinterComponentBase
 
     [Parameter] public string? Title { get; set; }
     [Parameter] public ILayout? Layout { get; set; }
+    [Parameter] public float Width { get; set; }
+    [Parameter] public float Height { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -23,12 +25,17 @@ public class DialogWindow : WinterComponentBase
             builder.AddAttribute(nameof(Title), Title);
         if (Layout != null)
             builder.AddAttribute(nameof(Layout), Layout);
+        if (Width > 0)
+            builder.AddAttribute(nameof(Width), Width);
+        if (Height > 0)
+            builder.AddAttribute(nameof(Height), Height);
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
 
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
+        bool _sizeInitialized;
         Marius.Winter.DialogWindow DialogWindowControl => (Marius.Winter.DialogWindow)ElementControl;
 
         public Handler(NativeComponentRenderer renderer)
@@ -44,6 +51,27 @@ public class DialogWindow : WinterComponentBase
                 case "Layout":
                     DialogWindowControl.Layout = WeakObjectStore.Get<ILayout>(attributeValue);
                     break;
+                case "Width":
+                {
+                    if (!_sizeInitialized)
+                    {
+                        var w = AttributeHelper.GetFloat(attributeValue);
+                        if (w > 0)
+                            DialogWindowControl.Bounds = new RectF(DialogWindowControl.Bounds.X, DialogWindowControl.Bounds.Y, w, DialogWindowControl.Bounds.H);
+                    }
+                    break;
+                }
+                case "Height":
+                {
+                    if (!_sizeInitialized)
+                    {
+                        var h = AttributeHelper.GetFloat(attributeValue);
+                        if (h > 0)
+                            DialogWindowControl.Bounds = new RectF(DialogWindowControl.Bounds.X, DialogWindowControl.Bounds.Y, DialogWindowControl.Bounds.W, h);
+                        _sizeInitialized = true;
+                    }
+                    break;
+                }
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;

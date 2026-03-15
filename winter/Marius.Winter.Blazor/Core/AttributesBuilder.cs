@@ -75,7 +75,7 @@ namespace Marius.Winter.Blazor.Core
 
         public void AddAttribute(string name, byte[] value)
         {
-            _underlyingBuilder.AddAttribute(0, name, AttributeHelper.ByteArrayToString(value));
+            _underlyingBuilder.AddAttribute(0, name, WeakObjectStore.Add(value));
         }
 
         public void AddAttribute(string name, TrackSize[] value)

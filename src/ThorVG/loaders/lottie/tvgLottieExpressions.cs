@@ -31,9 +31,10 @@ namespace ThorVG
 
         private const int LOOP_OUT_OFFSET = 4;
 
-        // Singleton state
+        // Kept for API compat with Retrieve(); no longer used.
+        #pragma warning disable CS0169
         private static LottieExpressions? _instance;
-        private static uint _engineRefCnt;
+        #pragma warning restore CS0169
 
         // Per-instance random
         private readonly Random _random = new();
@@ -154,23 +155,16 @@ namespace ThorVG
 
         public static LottieExpressions? Instance()
         {
-            if (TaskScheduler.Threads() > 0)
-            {
-                TvgCommon.TVGLOG("LOTTIE", "Lottie Expressions are not supported with tvg threads");
-                return null;
-            }
-            if (_instance == null) _instance = new LottieExpressions();
-            ++_engineRefCnt;
-            return _instance;
+            // Each caller gets its own instance with its own Jint engine.
+            // Unlike the C++ upstream (which uses a singleton JerryScript context),
+            // Jint's engine accumulates global state across evaluations, so sharing
+            // a single instance causes cross-animation pollution.
+            return new LottieExpressions();
         }
 
         public static void Retrieve(LottieExpressions? instance)
         {
-            if (instance == null) return;
-            if (--_engineRefCnt == 0)
-            {
-                _instance = null;
-            }
+            // No-op: each instance is independently owned by its LottieBuilder.
         }
 
         public void Update(float curTime)

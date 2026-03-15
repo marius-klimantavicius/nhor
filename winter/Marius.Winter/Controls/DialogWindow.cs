@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using ThorVG;
 
@@ -21,6 +22,11 @@ public class DialogWindow : Element, ILayoutContainer
     private string _title;
     private bool _dragging;
     private float _dragOffsetX, _dragOffsetY;
+    private bool _resizing;
+    private int _resizeEdge; // bitmask: 1=right, 2=bottom, 4=left, 8=top
+    private const float ResizeGrip = 8f;
+    private const float MinDialogW = 200f;
+    private const float MinDialogH = 100f;
 
     internal override bool ManagesOwnChildLayout => true;
 
@@ -29,6 +35,7 @@ public class DialogWindow : Element, ILayoutContainer
     public DialogWindow(string title = "Window")
     {
         _title = title;
+        Bounds = new RectF(100, 60, 500, 400);
     }
 
     public string Title
@@ -125,13 +132,22 @@ public class DialogWindow : Element, ILayoutContainer
         return new Vector2(Bounds.W, Bounds.H);
     }
 
+    /// <summary>
+    /// DialogWindow manages its own position and size. Ignore the parent layout's
+    /// final bounds — only re-arrange internal content using our current Bounds.
+    /// </summary>
+    internal override bool IgnoresParentArrange => true;
+
+    private const float ContentPadding = 8f;
+
     protected override void ArrangeCore(RectF finalBounds)
     {
         if (_layout != null)
         {
-            float contentH = finalBounds.H - HeaderHeight;
-            _layout.Measure(this, finalBounds.W, contentH);
-            _layout.Arrange(this, new RectF(0, HeaderHeight, finalBounds.W, contentH));
+            float contentW = finalBounds.W - ContentPadding * 2;
+            float contentH = finalBounds.H - HeaderHeight - ContentPadding * 2;
+            _layout.Measure(this, contentW, contentH);
+            _layout.Arrange(this, new RectF(ContentPadding, HeaderHeight + ContentPadding, contentW, contentH));
         }
     }
 
@@ -166,9 +182,10 @@ public class DialogWindow : Element, ILayoutContainer
         // Arrange content
         if (_layout != null)
         {
-            float contentH = h - HeaderHeight;
-            _layout.Measure(this, w, contentH);
-            _layout.Arrange(this, new RectF(0, HeaderHeight, w, contentH));
+            float contentW = w - ContentPadding * 2;
+            float contentH = h - HeaderHeight - ContentPadding * 2;
+            _layout.Measure(this, contentW, contentH);
+            _layout.Arrange(this, new RectF(ContentPadding, HeaderHeight + ContentPadding, contentW, contentH));
         }
     }
 
@@ -191,6 +208,16 @@ public class DialogWindow : Element, ILayoutContainer
 
     // --- Dragging ---
 
+    private int DetectResizeEdge(float lx, float ly)
+    {
+        int edge = 0;
+        if (lx >= Bounds.W - ResizeGrip) edge |= 1; // right
+        if (ly >= Bounds.H - ResizeGrip) edge |= 2; // bottom
+        if (lx <= ResizeGrip) edge |= 4;             // left
+        if (ly <= ResizeGrip && ly >= 0) edge |= 8;  // top (but not in header)
+        return edge;
+    }
+
     public override Element? HitTest(float x, float y)
     {
         if (!Visible || !Enabled) return null;
@@ -198,8 +225,16 @@ public class DialogWindow : Element, ILayoutContainer
         float localX = x - Bounds.X;
         float localY = y - Bounds.Y;
 
-        if (!new RectF(0, 0, Bounds.W, Bounds.H).Contains(localX, localY))
+        // Expand hit area slightly for resize grips on edges
+        var hitRect = new RectF(-ResizeGrip, -ResizeGrip, Bounds.W + ResizeGrip * 2, Bounds.H + ResizeGrip * 2);
+        if (!hitRect.Contains(localX, localY))
             return null;
+
+        // Resize edges take priority
+        var clampedX = MathF.Max(0, MathF.Min(localX, Bounds.W));
+        var clampedY = MathF.Max(0, MathF.Min(localY, Bounds.H));
+        if (DetectResizeEdge(clampedX, clampedY) != 0)
+            return this;
 
         // If in header area, we handle it (for dragging)
         if (localY < HeaderHeight)
@@ -221,6 +256,16 @@ public class DialogWindow : Element, ILayoutContainer
 
         WindowToLocal(x, y, out float lx, out float ly);
 
+        // Check resize edges first
+        _resizeEdge = DetectResizeEdge(lx, ly);
+        if (_resizeEdge != 0)
+        {
+            _resizing = true;
+            _dragOffsetX = x;
+            _dragOffsetY = y;
+            return true;
+        }
+
         if (ly < HeaderHeight)
         {
             _dragging = true;
@@ -236,11 +281,45 @@ public class DialogWindow : Element, ILayoutContainer
     {
         if (button != 0) return false;
         _dragging = false;
+        _resizing = false;
+        _resizeEdge = 0;
         return true;
+    }
+
+    private static CursorType CursorForEdge(int edge)
+    {
+        return edge switch
+        {
+            1 or 4 => CursorType.HResize,       // right or left
+            2 or 8 => CursorType.VResize,        // bottom or top
+            3 or 12 => CursorType.ResizeNWSE,    // bottom-right (3) or top-left (12)
+            9 or 6 => CursorType.ResizeNESW,     // top-right (9) or bottom-left (6)
+            5 => CursorType.ResizeNWSE,           // left+right (unusual but handle)
+            10 => CursorType.VResize,             // top+bottom (unusual)
+            _ => CursorType.Arrow,
+        };
     }
 
     public override void OnMouseMove(float x, float y)
     {
+        if (_resizing)
+        {
+            float dx = x - _dragOffsetX;
+            float dy = y - _dragOffsetY;
+            _dragOffsetX = x;
+            _dragOffsetY = y;
+
+            float bx = Bounds.X, by = Bounds.Y, bw = Bounds.W, bh = Bounds.H;
+
+            if ((_resizeEdge & 1) != 0) bw = MathF.Max(MinDialogW, bw + dx);    // right
+            if ((_resizeEdge & 2) != 0) bh = MathF.Max(MinDialogH, bh + dy);    // bottom
+            if ((_resizeEdge & 4) != 0) { var nw = MathF.Max(MinDialogW, bw - dx); bx += bw - nw; bw = nw; } // left
+            if ((_resizeEdge & 8) != 0) { var nh = MathF.Max(MinDialogH, bh - dy); by += bh - nh; bh = nh; } // top
+
+            Bounds = new RectF(bx, by, bw, bh);
+            return;
+        }
+
         if (_dragging)
         {
             float newX = x - _dragOffsetX;
@@ -253,8 +332,20 @@ public class DialogWindow : Element, ILayoutContainer
                 newY = py - _dragOffsetY;
             }
 
+            // Clamp so the title bar stays inside the client area
+            var parentW = Parent?.Bounds.W ?? 10000f;
+            var parentH = Parent?.Bounds.H ?? 10000f;
+            newX = MathF.Max(0, MathF.Min(newX, parentW - Bounds.W));
+            newY = MathF.Max(0, MathF.Min(newY, parentH - HeaderHeight));
+
             Bounds = new RectF(newX, newY, Bounds.W, Bounds.H);
+            return;
         }
+
+        // Update resize cursor based on hover position
+        WindowToLocal(x, y, out float lx, out float ly);
+        var edge = DetectResizeEdge(lx, ly);
+        Cursor = edge != 0 ? CursorForEdge(edge) : CursorType.Arrow;
     }
 
     protected override Style GetDefaultStyle()

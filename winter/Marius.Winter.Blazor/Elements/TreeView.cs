@@ -18,11 +18,23 @@ public class TreeView : WinterComponentBase
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public EventCallback<string?> OnSelectionChanged { get; set; }
+    [Parameter] public EventCallback<string?> OnNodeExpanded { get; set; }
+    [Parameter] public EventCallback<string?> OnNodeCollapsed { get; set; }
+
+    /// <summary>
+    /// Callback invoked once after the native TreeView is created.
+    /// Use to get a reference for imperative node manipulation.
+    /// </summary>
+    [Parameter] public Action<Marius.Winter.TreeView>? OnNativeTreeView { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
         builder.AddAttribute("onselectionchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnSelectionChanged.InvokeAsync((string?)value.Value)));
+        builder.AddAttribute("onnodeexpanded", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnNodeExpanded.InvokeAsync((string?)value.Value)));
+        builder.AddAttribute("onnodecollapsed", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnNodeCollapsed.InvokeAsync((string?)value.Value)));
+        if (OnNativeTreeView != null)
+            builder.AddAttribute("onnativetreeview", OnNativeTreeView);
     }
 
     protected override RenderFragment? GetChildContent() => ChildContent;
@@ -30,6 +42,8 @@ public class TreeView : WinterComponentBase
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
         readonly CoalescedEvent _selectionChangedEvent;
+        readonly CoalescedEvent _nodeExpandedEvent;
+        readonly CoalescedEvent _nodeCollapsedEvent;
 
         Marius.Winter.TreeView TreeViewControl => (Marius.Winter.TreeView)ElementControl;
 
@@ -40,6 +54,18 @@ public class TreeView : WinterComponentBase
 
             _selectionChangedEvent = new CoalescedEvent(this);
             TreeViewControl.SelectionChanged = node => _selectionChangedEvent.Fire(node?.Tag as string);
+
+            _nodeExpandedEvent = new CoalescedEvent(this);
+            TreeViewControl.NodeExpanded = node =>
+            {
+                _nodeExpandedEvent.Fire(node.Tag as string);
+            };
+
+            _nodeCollapsedEvent = new CoalescedEvent(this);
+            TreeViewControl.NodeCollapsed = node =>
+            {
+                _nodeCollapsedEvent.Fire(node.Tag as string);
+            };
         }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
@@ -49,6 +75,17 @@ public class TreeView : WinterComponentBase
                 case "onselectionchanged":
                     Renderer.RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
                     _selectionChangedEvent.HandlerId = attributeEventHandlerId;
+                    break;
+                case "onnodeexpanded":
+                    Renderer.RegisterEvent(attributeEventHandlerId, _nodeExpandedEvent.Unregister);
+                    _nodeExpandedEvent.HandlerId = attributeEventHandlerId;
+                    break;
+                case "onnodecollapsed":
+                    Renderer.RegisterEvent(attributeEventHandlerId, _nodeCollapsedEvent.Unregister);
+                    _nodeCollapsedEvent.HandlerId = attributeEventHandlerId;
+                    break;
+                case "onnativetreeview":
+                    WeakObjectStore.Get<Action<Marius.Winter.TreeView>>(attributeValue)?.Invoke(TreeViewControl);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);

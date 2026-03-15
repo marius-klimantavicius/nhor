@@ -52,39 +52,39 @@
 
         <TreeView OnSelectionChanged="@(path => _browseSelected = path)"
                   LayoutData="@(new FlexItem { Grow = 1 })">
-            <TreeNode Text="/" Icon="@_driveIcon" Tag="/">
-                <TreeNode Text="etc" Icon="@_folderIcon" Tag="/etc">
-                    <TreeNode Text="myapp" Icon="@_folderIcon" Tag="/etc/myapp" />
-                </TreeNode>
-                <TreeNode Text="home" Icon="@_folderIcon" Tag="/home">
-                    <TreeNode Text="user" Icon="@_folderIcon" Tag="/home/user">
-                        <TreeNode Text="Apps" Icon="@_folderIcon" Tag="/home/user/Apps" />
-                        <TreeNode Text="Documents" Icon="@_folderIcon" Tag="/home/user/Documents" />
-                        <TreeNode Text="Downloads" Icon="@_folderIcon" Tag="/home/user/Downloads" />
-                        <TreeNode Text="Projects" Icon="@_folderIcon" Tag="/home/user/Projects">
-                            <TreeNode Text="myapp" Icon="@_folderIcon" Tag="/home/user/Projects/myapp" />
-                        </TreeNode>
-                    </TreeNode>
-                </TreeNode>
-                <TreeNode Text="opt" Icon="@_folderIcon" Tag="/opt">
-                    <TreeNode Text="myapp" Icon="@_folderOpenIcon" Tag="/opt/myapp" />
-                    <TreeNode Text="tools" Icon="@_folderIcon" Tag="/opt/tools" />
-                </TreeNode>
-                <TreeNode Text="tmp" Icon="@_folderIcon" Tag="/tmp" />
-                <TreeNode Text="usr" Icon="@_folderIcon" Tag="/usr">
-                    <TreeNode Text="local" Icon="@_folderIcon" Tag="/usr/local">
-                        <TreeNode Text="bin" Icon="@_folderIcon" Tag="/usr/local/bin" />
-                        <TreeNode Text="lib" Icon="@_folderIcon" Tag="/usr/local/lib" />
-                        <TreeNode Text="share" Icon="@_folderIcon" Tag="/usr/local/share" />
-                    </TreeNode>
-                    <TreeNode Text="share" Icon="@_folderIcon" Tag="/usr/share" />
-                </TreeNode>
-                <TreeNode Text="var" Icon="@_folderIcon" Tag="/var">
-                    <TreeNode Text="lib" Icon="@_folderIcon" Tag="/var/lib" />
-                    <TreeNode Text="log" Icon="@_folderIcon" Tag="/var/log" />
-                    <TreeNode Text="opt" Icon="@_folderIcon" Tag="/var/opt" />
-                </TreeNode>
-            </TreeNode>
+            <TreeViewNode Text="/" Icon="@_driveIcon" Tag="/">
+                <TreeViewNode Text="etc" Icon="@_folderIcon" Tag="/etc">
+                    <TreeViewNode Text="myapp" Icon="@_folderIcon" Tag="/etc/myapp" />
+                </TreeViewNode>
+                <TreeViewNode Text="home" Icon="@_folderIcon" Tag="/home">
+                    <TreeViewNode Text="user" Icon="@_folderIcon" Tag="/home/user">
+                        <TreeViewNode Text="Apps" Icon="@_folderIcon" Tag="/home/user/Apps" />
+                        <TreeViewNode Text="Documents" Icon="@_folderIcon" Tag="/home/user/Documents" />
+                        <TreeViewNode Text="Downloads" Icon="@_folderIcon" Tag="/home/user/Downloads" />
+                        <TreeViewNode Text="Projects" Icon="@_folderIcon" Tag="/home/user/Projects">
+                            <TreeViewNode Text="myapp" Icon="@_folderIcon" Tag="/home/user/Projects/myapp" />
+                        </TreeViewNode>
+                    </TreeViewNode>
+                </TreeViewNode>
+                <TreeViewNode Text="opt" Icon="@_folderIcon" Tag="/opt">
+                    <TreeViewNode Text="myapp" Icon="@_folderOpenIcon" Tag="/opt/myapp" />
+                    <TreeViewNode Text="tools" Icon="@_folderIcon" Tag="/opt/tools" />
+                </TreeViewNode>
+                <TreeViewNode Text="tmp" Icon="@_folderIcon" Tag="/tmp" />
+                <TreeViewNode Text="usr" Icon="@_folderIcon" Tag="/usr">
+                    <TreeViewNode Text="local" Icon="@_folderIcon" Tag="/usr/local">
+                        <TreeViewNode Text="bin" Icon="@_folderIcon" Tag="/usr/local/bin" />
+                        <TreeViewNode Text="lib" Icon="@_folderIcon" Tag="/usr/local/lib" />
+                        <TreeViewNode Text="share" Icon="@_folderIcon" Tag="/usr/local/share" />
+                    </TreeViewNode>
+                    <TreeViewNode Text="share" Icon="@_folderIcon" Tag="/usr/share" />
+                </TreeViewNode>
+                <TreeViewNode Text="var" Icon="@_folderIcon" Tag="/var">
+                    <TreeViewNode Text="lib" Icon="@_folderIcon" Tag="/var/lib" />
+                    <TreeViewNode Text="log" Icon="@_folderIcon" Tag="/var/log" />
+                    <TreeViewNode Text="opt" Icon="@_folderIcon" Tag="/var/opt" />
+                </TreeViewNode>
+            </TreeViewNode>
         </TreeView>
 
         <Separator />

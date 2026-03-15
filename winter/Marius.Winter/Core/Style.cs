@@ -56,6 +56,8 @@ public enum CursorType
     HResize,
     VResize,
     Crosshair,
+    ResizeNWSE,
+    ResizeNESW,
 }
 
 [Flags]

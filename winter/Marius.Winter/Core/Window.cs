@@ -103,7 +103,7 @@ public unsafe class Window : Element
     private bool _glReady;
 
     // GLFW cursors
-    private GlfwCursor?[] _cursors = new GlfwCursor?[6];
+    private GlfwCursor?[] _cursors = new GlfwCursor?[8];
 
     // --- Public API ---
 
@@ -491,6 +491,8 @@ public unsafe class Window : Element
         _cursors[(int)CursorType.HResize] = Glfw.Glfw.glfwCreateStandardCursor(GLFW_RESIZE_EW_CURSOR);
         _cursors[(int)CursorType.VResize] = Glfw.Glfw.glfwCreateStandardCursor(GLFW_RESIZE_NS_CURSOR);
         _cursors[(int)CursorType.Crosshair] = Glfw.Glfw.glfwCreateStandardCursor(GLFW_CROSSHAIR_CURSOR);
+        _cursors[(int)CursorType.ResizeNWSE] = Glfw.Glfw.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NWSE_CURSOR);
+        _cursors[(int)CursorType.ResizeNESW] = Glfw.Glfw.glfwCreateStandardCursor(GLFW.GLFW_RESIZE_NESW_CURSOR);
     }
 
     private void SetupCallbacks()
