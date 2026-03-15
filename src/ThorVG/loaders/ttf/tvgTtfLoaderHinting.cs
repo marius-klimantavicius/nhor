@@ -15,6 +15,7 @@ namespace ThorVG
     {
         private TtfHinter? _hinter;
         private bool _hintingInitialized;
+        internal bool _hintingEnabled;
 
         /// <summary>
         /// Initialize hinting for this font. Called lazily on first hinted glyph request.

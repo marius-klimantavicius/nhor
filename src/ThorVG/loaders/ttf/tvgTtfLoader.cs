@@ -134,8 +134,14 @@ namespace ThorVG
             return output.pts.count;
         }
 
+        private float _hintPixelSize; // [Hinting] Set by Get() for the current render pass
+
         private TtfGlyphMetrics? Request(uint code)
         {
+            // [Hinting] Route through hinted path when pixel size is set
+            if (_hintPixelSize > 0)
+                return RequestHinted(code, _hintPixelSize);
+
             if (code == 0) return null;
 
             if (glyphs.TryGetValue(code, out var existing))
@@ -451,6 +457,7 @@ namespace ThorVG
             if (string.IsNullOrEmpty(text) || fm.fontSize == 0.0f) return false;
 
             fm.scale = reader.metrics.unitsPerEm / (fm.fontSize * DPI);
+            _hintPixelSize = _hintingEnabled ? fm.fontSize * DPI : 0; // [Hinting]
             fm.size = new Point(0, 0);
             fm.lines = 1;
             if (fm.engine == null) fm.engine = new TtfMetrics();
