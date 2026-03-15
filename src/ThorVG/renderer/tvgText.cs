@@ -357,9 +357,9 @@ namespace ThorVG
             if (loader == null) return false;
             if (updated)
             {
-                // [Hinting] Enable TrueType hinting when subpixel rendering is active
+                // [Hinting] Always enable TrueType hinting for TTF fonts
                 if (loader is TtfLoader ttf)
-                    ttf._hintingEnabled = lcdSubpixel || SwLcdSubpixel.Enabled;
+                    ttf._hintingEnabled = true;
 
                 if (loader.Get(fm, utf8, shape.rs.path))
                 {

@@ -246,9 +246,9 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, text.Bounds(out x, out y, out w, out h));
 
                 AssertApprox(100.981331f, x);
-                AssertApprox(120.301323f, y);
+                AssertApprox(119.533325f, y);
                 AssertApprox(103.722679f, w);
-                AssertApprox(31.658669f, h, 0.001f);
+                AssertApprox(32.000000f, h, 0.001f);
 
                 Assert.Equal(Result.Success, canvas.Update());
 
@@ -257,10 +257,10 @@ namespace ThorVG.Tests
                 AssertApprox(204.704010f, pts[1].x);
                 AssertApprox(204.704010f, pts[2].x);
                 AssertApprox(100.981331f, pts[3].x);
-                AssertApprox(120.301323f, pts[0].y);
-                AssertApprox(120.301323f, pts[1].y);
-                AssertApprox(151.959991f, pts[2].y);
-                AssertApprox(151.959991f, pts[3].y);
+                AssertApprox(119.533325f, pts[0].y);
+                AssertApprox(119.533325f, pts[1].y);
+                AssertApprox(151.533325f, pts[2].y);
+                AssertApprox(151.533325f, pts[3].y);
 
                 // Case 2
                 Assert.Equal(Result.Success, text.SetText("BOUNDS"));
@@ -269,9 +269,9 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, text.Bounds(out x, out y, out w, out h));
 
                 AssertApprox(4.074667f, x);
-                AssertApprox(9.258667f, y);
+                AssertApprox(8.533333f, y);
                 AssertApprox(173.503998f, w);
-                AssertApprox(31.701332f, h);
+                AssertApprox(32.000000f, h);
 
                 Assert.Equal(Result.Success, canvas.Update());
                 Assert.Equal(Result.Success, text.Bounds(pts));
@@ -279,10 +279,10 @@ namespace ThorVG.Tests
                 AssertApprox(177.578659f, pts[1].x);
                 AssertApprox(177.578659f, pts[2].x);
                 AssertApprox(4.074667f, pts[3].x);
-                AssertApprox(9.258667f, pts[0].y);
-                AssertApprox(9.258667f, pts[1].y);
-                AssertApprox(40.959999f, pts[2].y);
-                AssertApprox(40.959999f, pts[3].y);
+                AssertApprox(8.533333f, pts[0].y);
+                AssertApprox(8.533333f, pts[1].y);
+                AssertApprox(40.533333f, pts[2].y);
+                AssertApprox(40.533333f, pts[3].y);
             }
             Assert.Equal(Result.Success, Initializer.Term());
         }
