@@ -1,0 +1,3 @@
+[submodule "ref/taffy"]
+	path = ref/taffy
+	url = https://github.com/DioxusLabs/taffy.git
