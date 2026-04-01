@@ -111,6 +111,8 @@ public static partial class Glfw
     internal static void _glfwInputScroll(GlfwWindow window, double xoffset, double yoffset)
     {
         Debug.Assert(window != null);
+        Debug.Assert(double.IsFinite(xoffset));
+        Debug.Assert(double.IsFinite(yoffset));
 
         window.Callbacks.Scroll?.Invoke(window, xoffset, yoffset);
     }
@@ -151,6 +153,8 @@ public static partial class Glfw
     internal static void _glfwInputCursorPos(GlfwWindow window, double xpos, double ypos)
     {
         Debug.Assert(window != null);
+        Debug.Assert(double.IsFinite(xpos));
+        Debug.Assert(double.IsFinite(ypos));
 
         if (window.VirtualCursorPosX == xpos && window.VirtualCursorPosY == ypos)
             return;
@@ -522,8 +526,7 @@ public static partial class Glfw
 
         Debug.Assert(window != null);
 
-        if (double.IsNaN(xpos) || double.IsInfinity(xpos) ||
-            double.IsNaN(ypos) || double.IsInfinity(ypos))
+        if (!double.IsFinite(xpos) || !double.IsFinite(ypos))
         {
             _glfwInputError(GLFW.GLFW_INVALID_VALUE,
                             "Invalid cursor position {0} {1}", xpos, ypos);
@@ -897,7 +900,7 @@ public static partial class Glfw
             return;
         }
 
-        if (double.IsNaN(time) || time < 0.0 || time > 18446744073.0)
+        if (!double.IsFinite(time) || time < 0.0 || time > 18446744073.0)
         {
             _glfwInputError(GLFW.GLFW_INVALID_VALUE, "Invalid time {0}", time);
             return;

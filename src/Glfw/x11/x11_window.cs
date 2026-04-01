@@ -1286,7 +1286,7 @@ public static partial class Glfw
 
                     _glfwInputKey(window, key, keycode, GLFW_PRESS, mods);
 
-                    uint cp = XkbUnicode._glfwKeySym2Unicode((uint)keysym);
+                    uint cp = XkbUnicode._glfwKeySym2UnicodeX11((uint)keysym);
                     if (cp != XkbUnicode.GLFW_INVALID_CODEPOINT)
                         _glfwInputChar(window, cp, mods, plain);
                 }
@@ -2649,7 +2649,7 @@ public static partial class Glfw
         if (keysym == NoSymbol)
             return null;
 
-        uint codepoint = XkbUnicode._glfwKeySym2Unicode((uint)keysym);
+        uint codepoint = XkbUnicode._glfwKeySym2UnicodeX11((uint)keysym);
         if (codepoint == XkbUnicode.GLFW_INVALID_CODEPOINT)
             return null;
 

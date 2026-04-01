@@ -113,9 +113,7 @@ public static unsafe partial class Glfw
             u.AccumAlphaBits = getGLXFBConfigAttrib(n, GLX.GLX_ACCUM_ALPHA_SIZE);
 
             u.AuxBuffers = getGLXFBConfigAttrib(n, GLX.GLX_AUX_BUFFERS);
-
-            if (getGLXFBConfigAttrib(n, GLX.GLX_STEREO) != 0)
-                u.Stereo = true;
+            u.Stereo = getGLXFBConfigAttrib(n, GLX.GLX_STEREO) != 0;
 
             if (_glfw.glx.ARB_multisample)
                 u.Samples = getGLXFBConfigAttrib(n, GLX.GLX_SAMPLES);

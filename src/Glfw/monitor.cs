@@ -528,7 +528,7 @@ public static partial class Glfw
     public static void glfwSetGamma(GlfwMonitor monitor, float gamma)
     {
         Debug.Assert(gamma > 0f);
-        Debug.Assert(gamma <= float.MaxValue);
+        Debug.Assert(float.IsFinite(gamma));
 
         if (!_glfw.initialized)
         {
@@ -538,7 +538,7 @@ public static partial class Glfw
 
         Debug.Assert(monitor != null);
 
-        if (float.IsNaN(gamma) || gamma <= 0f || gamma > float.MaxValue)
+        if (!float.IsFinite(gamma) || gamma <= 0f)
         {
             _glfwInputError(GLFW.GLFW_INVALID_VALUE, "Invalid gamma value {0}", gamma);
             return;

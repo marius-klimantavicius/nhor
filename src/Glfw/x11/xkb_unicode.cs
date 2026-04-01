@@ -34,7 +34,7 @@ namespace Glfw
     //
     // The array keysymtab[] contains pairs of X11 keysym values for graphical
     // characters and the corresponding Unicode value. The function
-    // _glfwKeySym2Unicode() maps a keysym onto a Unicode value using a binary
+    // _glfwKeySym2UnicodeX11() maps a keysym onto a Unicode value using a binary
     // search, therefore keysymtab[] must remain SORTED by keysym value.
     //
     // We allow to represent any UCS character in the range U-00000000 to
@@ -907,7 +907,7 @@ namespace Glfw
         /// <summary>
         /// Convert XKB KeySym to Unicode codepoint.
         /// </summary>
-        internal static uint _glfwKeySym2Unicode(uint keysym)
+        internal static uint _glfwKeySym2UnicodeX11(uint keysym)
         {
             int min = 0;
             int max = keysymtab.Length - 1;

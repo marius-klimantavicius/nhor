@@ -56,6 +56,8 @@ public unsafe partial class GlfwContext
     internal delegate* unmanaged[Cdecl]<uint, int*, void> GetIntegerv;
     // glGetStringi(GLenum, GLuint) -> const GLubyte*
     internal delegate* unmanaged[Cdecl]<uint, uint, nint> GetStringi;
+    // glFlush(void)
+    internal delegate* unmanaged[Cdecl]<void> Flush;
 
     // Context operation delegates (set by platform backend)
     public Action<GlfwWindow?>? makeCurrent;
@@ -409,13 +411,17 @@ public static unsafe partial class Glfw
         if (_glfw.contextSlot != window)
             return false;
 
-        // Load GetIntegerv and GetString via getProcAddress
+        // Load GetIntegerv, GetString and Flush via getProcAddress
         window.context.GetIntegerv = (delegate* unmanaged[Cdecl]<uint, int*, void>)
             window.context.getProcAddress!("glGetIntegerv");
         window.context.GetString = (delegate* unmanaged[Cdecl]<uint, nint>)
             window.context.getProcAddress!("glGetString");
+        window.context.Flush = (delegate* unmanaged[Cdecl]<void>)
+            window.context.getProcAddress!("glFlush");
 
-        if (window.context.GetIntegerv == null || window.context.GetString == null)
+        if (window.context.GetIntegerv == null ||
+            window.context.GetString == null ||
+            window.context.Flush == null)
         {
             _glfwInputError(GLFW.GLFW_PLATFORM_ERROR,
                 "Entry point retrieval is broken");

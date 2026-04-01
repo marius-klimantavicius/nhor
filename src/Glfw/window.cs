@@ -124,9 +124,9 @@ public static partial class Glfw
     {
         Debug.Assert(window != null);
         Debug.Assert(xscale > 0f);
-        Debug.Assert(xscale < float.MaxValue);
+        Debug.Assert(float.IsFinite(xscale));
         Debug.Assert(yscale > 0f);
-        Debug.Assert(yscale < float.MaxValue);
+        Debug.Assert(float.IsFinite(yscale));
 
         window.Callbacks.Scale?.Invoke(window, xscale, yscale);
     }
@@ -821,7 +821,7 @@ public static partial class Glfw
 
     public static void glfwSetWindowOpacity(GlfwWindow window, float opacity)
     {
-        Debug.Assert(!float.IsNaN(opacity));
+        Debug.Assert(float.IsFinite(opacity));
         Debug.Assert(opacity >= 0f);
         Debug.Assert(opacity <= 1f);
 
@@ -833,7 +833,7 @@ public static partial class Glfw
 
         Debug.Assert(window != null);
 
-        if (float.IsNaN(opacity) || opacity < 0f || opacity > 1f)
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
         {
             _glfwInputError(GLFW.GLFW_INVALID_VALUE, "Invalid window opacity {0}", opacity);
             return;
@@ -1315,11 +1315,10 @@ public static partial class Glfw
             return;
         }
 
-        Debug.Assert(!double.IsNaN(timeout));
+        Debug.Assert(double.IsFinite(timeout));
         Debug.Assert(timeout >= 0.0);
-        Debug.Assert(timeout <= double.MaxValue);
 
-        if (double.IsNaN(timeout) || timeout < 0.0 || timeout > double.MaxValue)
+        if (!double.IsFinite(timeout) || timeout < 0.0)
         {
             _glfwInputError(GLFW.GLFW_INVALID_VALUE, "Invalid time {0}", timeout);
             return;

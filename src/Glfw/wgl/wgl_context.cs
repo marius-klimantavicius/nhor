@@ -238,9 +238,8 @@ public static unsafe partial class Glfw
                 u.AuxBuffers = findPixelFormatAttribValueWGL(attribs, attribCount, values,
                     WGL.WGL_AUX_BUFFERS_ARB);
 
-                if (findPixelFormatAttribValueWGL(attribs, attribCount, values,
-                        WGL.WGL_STEREO_ARB) != 0)
-                    u.Stereo = true;
+                u.Stereo = findPixelFormatAttribValueWGL(attribs, attribCount, values,
+                    WGL.WGL_STEREO_ARB) != 0;
 
                 if (_glfw.wgl.ARB_multisample)
                     u.Samples = findPixelFormatAttribValueWGL(attribs, attribCount, values,
@@ -248,13 +247,9 @@ public static unsafe partial class Glfw
 
                 if (ctxconfig.Client == GLFW.GLFW_OPENGL_API)
                 {
-                    if (_glfw.wgl.ARB_framebuffer_sRGB ||
-                        _glfw.wgl.EXT_framebuffer_sRGB)
-                    {
-                        if (findPixelFormatAttribValueWGL(attribs, attribCount, values,
-                                WGL.WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB) != 0)
-                            u.SRGB = true;
-                    }
+                    if (_glfw.wgl.ARB_framebuffer_sRGB || _glfw.wgl.EXT_framebuffer_sRGB)
+                        u.SRGB = findPixelFormatAttribValueWGL(attribs, attribCount, values,
+                            WGL.WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB) != 0;
                 }
                 else
                 {
@@ -314,9 +309,7 @@ public static unsafe partial class Glfw
                 u.AccumAlphaBits = pfd.cAccumAlphaBits;
 
                 u.AuxBuffers = pfd.cAuxBuffers;
-
-                if ((pfd.dwFlags & PFD_STEREO) != 0)
-                    u.Stereo = true;
+                u.Stereo = (pfd.dwFlags & PFD_STEREO) != 0;
             }
 
             u.Handle = (nuint)pixelFormat;

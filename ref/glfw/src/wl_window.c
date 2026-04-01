@@ -55,10 +55,11 @@
 #define GLFW_BORDER_SIZE    4
 #define GLFW_CAPTION_HEIGHT 24
 
-#define GLFW_PENDING_SURFACE 1
-#define GLFW_PENDING_BUTTON  2
-#define GLFW_PENDING_MOTION  4
-#define GLFW_PENDING_SCROLL  8
+#define GLFW_PENDING_SURFACE    1
+#define GLFW_PENDING_BUTTON     2
+#define GLFW_PENDING_MOTION     4
+#define GLFW_PENDING_SCROLL     8
+#define GLFW_PENDING_DISCRETE   16
 
 static int createTmpfileCloexec(char* tmpname)
 {
@@ -197,6 +198,16 @@ static struct wl_buffer* createShmBuffer(const GLFWimage* image)
 
     return buffer;
 }
+
+static void callbackHandleDone(void* userData, struct wl_callback* callback, uint32_t data)
+{
+    wl_callback_destroy(callback);
+}
+
+static const struct wl_callback_listener noopCallbackListener =
+{
+    callbackHandleDone
+};
 
 static void createFallbackEdge(_GLFWwindow* window,
                                _GLFWfallbackEdgeWayland* edge,
@@ -1740,7 +1751,9 @@ static void pointerHandleFrame(void* userData, struct wl_pointer* pointer)
     if (_glfw.wl.pending.events & GLFW_PENDING_BUTTON)
         processPointerButton(_glfw.wl.pending.button, _glfw.wl.pending.action);
 
-    if (_glfw.wl.pending.events & GLFW_PENDING_SCROLL)
+    if (_glfw.wl.pending.events & GLFW_PENDING_DISCRETE)
+        processPointerScroll(_glfw.wl.pending.discreteX, _glfw.wl.pending.discreteY);
+    else if (_glfw.wl.pending.events & GLFW_PENDING_SCROLL)
         processPointerScroll(_glfw.wl.pending.scrollX, _glfw.wl.pending.scrollY);
 
     memset(&_glfw.wl.pending, 0, sizeof(_glfw.wl.pending));
@@ -1766,6 +1779,21 @@ static void pointerHandleAxisDiscrete(void* userData,
 {
 }
 
+static void pointerHandleAxisValue120(void* data,
+                                      struct wl_pointer* pointer,
+                                      uint32_t axis,
+                                      int32_t value120)
+{
+    if (!_glfw.wl.pointerSurface)
+        return;
+
+    _glfw.wl.pending.events |= GLFW_PENDING_DISCRETE;
+    if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+        _glfw.wl.pending.discreteX = -(value120 / 120.0);
+    else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+        _glfw.wl.pending.discreteY = -(value120 / 120.0);
+}
+
 static const struct wl_pointer_listener pointerListener =
 {
     pointerHandleEnter,
@@ -1776,7 +1804,8 @@ static const struct wl_pointer_listener pointerListener =
     pointerHandleFrame,
     pointerHandleAxisSource,
     pointerHandleAxisStop,
-    pointerHandleAxisDiscrete
+    pointerHandleAxisDiscrete,
+    pointerHandleAxisValue120
 };
 
 static void keyboardHandleKeymap(void* userData,
@@ -1799,7 +1828,7 @@ static void keyboardHandleKeymap(void* userData,
         return;
     }
 
-    mapStr = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+    mapStr = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (mapStr == MAP_FAILED)
     {
         close(fd);
@@ -2277,6 +2306,18 @@ static const struct xdg_activation_token_v1_listener xdgActivationListener =
     xdgActivationHandleDone
 };
 
+static void callbackHandleFrame(void* userData, struct wl_callback* callback, uint32_t data)
+{
+    _GLFWwindow* window = userData;
+    wl_callback_destroy(callback);
+    window->wl.egl.callback = NULL;
+}
+
+static const struct wl_callback_listener frameCallbackListener =
+{
+    callbackHandleFrame
+};
+
 void _glfwAddSeatListenerWayland(struct wl_seat* seat)
 {
     wl_seat_add_listener(seat, &seatListener, NULL);
@@ -2287,6 +2328,42 @@ void _glfwAddDataDeviceListenerWayland(struct wl_data_device* device)
     wl_data_device_add_listener(device, &dataDeviceListener, NULL);
 }
 
+GLFWbool _glfwWaitForEGLFrameWayland(_GLFWwindow* window)
+{
+    double timeout = 0.02;
+
+    while (window->wl.egl.callback)
+    {
+        if (wl_display_prepare_read_queue(_glfw.wl.display, window->wl.egl.queue) != 0)
+        {
+            wl_display_dispatch_queue_pending(_glfw.wl.display, window->wl.egl.queue);
+            continue;
+        }
+
+        if (!flushDisplay())
+        {
+            wl_display_cancel_read(_glfw.wl.display);
+            return GLFW_FALSE;
+        }
+
+        struct pollfd fd = { wl_display_get_fd(_glfw.wl.display), POLLIN };
+
+        if (!_glfwPollPOSIX(&fd, 1, &timeout))
+        {
+            wl_display_cancel_read(_glfw.wl.display);
+            return GLFW_FALSE;
+        }
+
+        wl_display_read_events(_glfw.wl.display);
+        wl_display_dispatch_queue_pending(_glfw.wl.display, window->wl.egl.queue);
+    }
+
+    window->wl.egl.callback = wl_surface_frame(window->wl.egl.wrapper);
+    wl_callback_add_listener(window->wl.egl.callback, &frameCallbackListener, window);
+
+    // If the window is hidden when the wait is over then don't swap
+    return window->wl.visible;
+}
 
 //////////////////////////////////////////////////////////////////////////
 //////                       GLFW platform API                      //////
@@ -2314,6 +2391,27 @@ GLFWbool _glfwCreateWindowWayland(_GLFWwindow* window,
                                 "Wayland: Failed to create EGL window");
                 return GLFW_FALSE;
             }
+
+            window->wl.egl.queue = wl_display_create_queue(_glfw.wl.display);
+            if (!window->wl.egl.queue)
+            {
+                _glfwInputError(GLFW_PLATFORM_ERROR,
+                                "Wayland: Failed to create EGL frame queue");
+                return GLFW_FALSE;
+            }
+
+            window->wl.egl.wrapper = wl_proxy_create_wrapper(window->wl.surface);
+            if (!window->wl.egl.wrapper)
+            {
+                _glfwInputError(GLFW_PLATFORM_ERROR,
+                                "Wayland: Failed to create surface wrapper");
+                return GLFW_FALSE;
+            }
+
+            wl_proxy_set_queue((struct wl_proxy*) window->wl.egl.wrapper,
+                               window->wl.egl.queue);
+
+            window->wl.egl.interval = 1;
 
             if (!_glfwInitEGL())
                 return GLFW_FALSE;
@@ -2385,6 +2483,15 @@ void _glfwDestroyWindowWayland(_GLFWwindow* window)
 
     if (window->wl.fallback.buffer)
         wl_buffer_destroy(window->wl.fallback.buffer);
+
+    if (window->wl.egl.callback)
+        wl_callback_destroy(window->wl.egl.callback);
+
+    if (window->wl.egl.wrapper)
+        wl_proxy_wrapper_destroy(window->wl.egl.wrapper);
+
+    if (window->wl.egl.queue)
+        wl_event_queue_destroy(window->wl.egl.queue);
 
     if (window->wl.egl.window)
         wl_egl_window_destroy(window->wl.egl.window);
@@ -2619,6 +2726,8 @@ void _glfwHideWindowWayland(_GLFWwindow* window)
 
         wl_surface_attach(window->wl.surface, NULL, 0, 0);
         wl_surface_commit(window->wl.surface);
+
+        flushDisplay();
     }
 }
 
@@ -2833,7 +2942,9 @@ void _glfwWaitEventsTimeoutWayland(double timeout)
 
 void _glfwPostEmptyEventWayland(void)
 {
-    wl_display_sync(_glfw.wl.display);
+    struct wl_callback* callback = wl_display_sync(_glfw.wl.display);
+    wl_callback_add_listener(callback, &noopCallbackListener, NULL);
+
     flushDisplay();
 }
 
