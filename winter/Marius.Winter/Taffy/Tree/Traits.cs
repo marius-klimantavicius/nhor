@@ -59,19 +59,10 @@ namespace Marius.Winter.Taffy
     public interface ICacheTree
     {
         /// <summary>Try to retrieve a cached result from the cache</summary>
-        LayoutOutput? CacheGet(
-            NodeId nodeId,
-            Size<float?> knownDimensions,
-            Size<AvailableSpace> availableSpace,
-            RunMode runMode);
+        LayoutOutput? CacheGet(NodeId nodeId, in LayoutInput input);
 
         /// <summary>Store a computed size in the cache</summary>
-        void CacheStore(
-            NodeId nodeId,
-            Size<float?> knownDimensions,
-            Size<AvailableSpace> availableSpace,
-            RunMode runMode,
-            LayoutOutput layoutOutput);
+        void CacheStore(NodeId nodeId, in LayoutInput input, LayoutOutput layoutOutput);
 
         /// <summary>Clear all cache entries for the node</summary>
         void CacheClear(NodeId nodeId);

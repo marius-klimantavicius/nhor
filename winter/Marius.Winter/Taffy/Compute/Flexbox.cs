@@ -136,6 +136,8 @@ namespace Marius.Winter.Taffy
     {
         /// The direction of the current segment being laid out
         public FlexDirection Dir;
+        /// The layout direction of the current segment being laid out
+        public Direction LayoutDirection;
         /// Is this segment a row
         public bool IsRow;
         /// Is this segment a column
@@ -474,6 +476,7 @@ namespace Marius.Winter.Taffy
             var alignItems = style.AlignItems() ?? AlignItems.Stretch;
             var alignContent = style.AlignContent() ?? AlignContent.Stretch;
             var justifyContent = style.JustifyContent();
+            var layoutDirection = style.Direction();
 
             // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
             // However, the axes are switched (transposed) because a node that scrolls vertically needs
@@ -482,10 +485,18 @@ namespace Marius.Winter.Taffy
             var scrollbarGutter = new Point<float>(
                 overflow.X == Overflow.Scroll ? style.ScrollbarWidth() : 0f,
                 overflow.Y == Overflow.Scroll ? style.ScrollbarWidth() : 0f);
-            // TODO: make side configurable based on the `direction` property
             var contentBoxInset = padding.Add(border);
-            contentBoxInset.Right += scrollbarGutter.X;
             contentBoxInset.Bottom += scrollbarGutter.Y;
+
+            switch (layoutDirection)
+            {
+                case Direction.Ltr:
+                    contentBoxInset.Right += scrollbarGutter.X;
+                    break;
+                case Direction.Rtl:
+                    contentBoxInset.Left += scrollbarGutter.X;
+                    break;
+            }
 
             var nodeOuterSize = knownDimensions;
             var nodeInnerSize = nodeOuterSize.MaybeSub(contentBoxInset.SumAxes().Map(v => (float?)v));
@@ -497,6 +508,7 @@ namespace Marius.Winter.Taffy
             return new AlgoConstants
             {
                 Dir = dir,
+                LayoutDirection = layoutDirection,
                 IsRow = isRow,
                 IsColumn = isColumn,
                 IsWrap = isWrap,
@@ -1638,33 +1650,31 @@ namespace Marius.Winter.Taffy
                         }
                     }
                 }
+
+                var numItems = line.Items.Length;
+                var layoutReverse = constants.Dir.IsReverse();
+                var gap = constants.Gap.Main(constants.Dir);
+                var isSafe = false; // TODO: Implement safe alignment
+                var rawJustifyContentMode = constants.JustifyContentStyle ?? AlignContent.FlexStart;
+                var justifyContentMode =
+                    AlignmentUtils.ApplyAlignmentFallback(freeSpace, numItems, rawJustifyContentMode, isSafe);
+
+                if (layoutReverse)
+                {
+                    int enumIdx = 0;
+                    for (int i = line.Items.Length - 1; i >= 0; i--)
+                    {
+                        line.Items[i].OffsetMain = AlignmentUtils.ComputeAlignmentOffset(
+                            freeSpace, numItems, gap, justifyContentMode, layoutReverse, enumIdx == 0);
+                        enumIdx++;
+                    }
+                }
                 else
                 {
-                    var numItems = line.Items.Length;
-                    var layoutReverse = constants.Dir.IsReverse();
-                    var gap = constants.Gap.Main(constants.Dir);
-                    var isSafe = false; // TODO: Implement safe alignment
-                    var rawJustifyContentMode = constants.JustifyContentStyle ?? AlignContent.FlexStart;
-                    var justifyContentMode =
-                        AlignmentUtils.ApplyAlignmentFallback(freeSpace, numItems, rawJustifyContentMode, isSafe);
-
-                    if (layoutReverse)
+                    for (int i = 0; i < line.Items.Length; i++)
                     {
-                        int enumIdx = 0;
-                        for (int i = line.Items.Length - 1; i >= 0; i--)
-                        {
-                            line.Items[i].OffsetMain = AlignmentUtils.ComputeAlignmentOffset(
-                                freeSpace, numItems, gap, justifyContentMode, layoutReverse, enumIdx == 0);
-                            enumIdx++;
-                        }
-                    }
-                    else
-                    {
-                        for (int i = 0; i < line.Items.Length; i++)
-                        {
-                            line.Items[i].OffsetMain = AlignmentUtils.ComputeAlignmentOffset(
-                                freeSpace, numItems, gap, justifyContentMode, layoutReverse, i == 0);
-                        }
+                        line.Items[i].OffsetMain = AlignmentUtils.ComputeAlignmentOffset(
+                            freeSpace, numItems, gap, justifyContentMode, layoutReverse, i == 0);
                     }
                 }
             }
@@ -1736,19 +1746,37 @@ namespace Marius.Winter.Taffy
             float maxBaseline,
             ref AlgoConstants constants)
         {
-            return child.AlignSelf switch
+            var crossAxisShouldReverse = constants.IsColumn && constants.LayoutDirection.IsRtl();
+
+            switch (child.AlignSelf)
             {
-                AlignItems.Start => 0f,
-                AlignItems.FlexStart => constants.IsWrapReverse ? freeSpace : 0f,
-                AlignItems.End => freeSpace,
-                AlignItems.FlexEnd => constants.IsWrapReverse ? 0f : freeSpace,
-                AlignItems.Center => freeSpace / 2f,
-                AlignItems.Baseline => constants.IsRow
-                    ? maxBaseline - child.Baseline
-                    : (constants.IsWrapReverse ? freeSpace : 0f),
-                AlignItems.Stretch => constants.IsWrapReverse ? freeSpace : 0f,
-                _ => 0f,
-            };
+                case AlignItems.Start:
+                    return crossAxisShouldReverse ? freeSpace : 0f;
+                case AlignItems.FlexStart:
+                    return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? freeSpace : 0f;
+                case AlignItems.End:
+                    return crossAxisShouldReverse ? 0f : freeSpace;
+                case AlignItems.FlexEnd:
+                    return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? 0f : freeSpace;
+                case AlignItems.Center:
+                    return freeSpace / 2f;
+                case AlignItems.Baseline:
+                    if (constants.IsRow)
+                    {
+                        return maxBaseline - child.Baseline;
+                    }
+                    else
+                    {
+                        // Until we support vertical writing modes, baseline alignment only makes sense if
+                        // the direction is row, so we treat it as flex-start alignment in columns.
+                        var baselineColumnShouldReverse = crossAxisShouldReverse && !constants.IsWrap;
+                        return (constants.IsWrapReverse ^ baselineColumnShouldReverse) ? freeSpace : 0f;
+                    }
+                case AlignItems.Stretch:
+                    return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? freeSpace : 0f;
+                default:
+                    return 0f;
+            }
         }
 
         /// <summary>
@@ -1835,7 +1863,8 @@ namespace Marius.Winter.Taffy
             ref Size<float> totalContentSize,
             Size<float> containerSize,
             Size<float?> nodeInnerSize,
-            FlexDirection direction)
+            FlexDirection direction,
+            Direction layoutDirection)
         {
             var layoutOutput = tree.PerformChildLayout(
                 item.Node,
@@ -1848,28 +1877,57 @@ namespace Marius.Winter.Taffy
             var size = layoutOutput.Size;
             var contentSize = layoutOutput.ContentSize;
 
+            var isRtlRow = direction.IsRow() && layoutDirection.IsRtl();
+            var isRtlColumn = direction.IsColumn() && layoutDirection.IsRtl();
+
             var insetMainStart = item.Inset.MainStart(direction);
             var insetMainEnd = item.Inset.MainEnd(direction);
-            var mainInsetOffset = insetMainStart ?? (insetMainEnd.HasValue ? -insetMainEnd.Value : 0f);
-
-            var offsetMain = totalOffsetMain
-                + item.OffsetMain
-                + item.Margin.MainStart(direction)
-                + mainInsetOffset;
-
             var insetCrossStart = item.Inset.CrossStart(direction);
             var insetCrossEnd = item.Inset.CrossEnd(direction);
-            var crossInsetOffset = insetCrossStart ?? (insetCrossEnd.HasValue ? -insetCrossEnd.Value : 0f);
+
+            float mainRelativeInset;
+            if (isRtlRow)
+            {
+                mainRelativeInset = insetMainEnd ?? (insetMainStart.HasValue ? -insetMainStart.GetValueOrDefault() : 0f);
+            }
+            else
+            {
+                mainRelativeInset = insetMainStart ?? (insetMainEnd.HasValue ? -insetMainEnd.GetValueOrDefault() : 0f);
+            }
+
+            float crossRelativeInset;
+            if (isRtlColumn)
+            {
+                crossRelativeInset = insetCrossEnd.HasValue
+                    ? -insetCrossEnd.GetValueOrDefault()
+                    : (insetCrossStart ?? 0f);
+            }
+            else
+            {
+                crossRelativeInset = insetCrossStart ?? (insetCrossEnd.HasValue ? -insetCrossEnd.GetValueOrDefault() : 0f);
+            }
+
+            var effectiveLineOffsetCross = isRtlColumn ? 0f : lineOffsetCross;
+
+            float offsetMain;
+            if (isRtlRow)
+            {
+                offsetMain = totalOffsetMain - item.OffsetMain - item.Margin.MainEnd(direction) - mainRelativeInset - size.Width;
+            }
+            else
+            {
+                offsetMain = totalOffsetMain + item.OffsetMain + item.Margin.MainStart(direction) + mainRelativeInset;
+            }
 
             var offsetCross = totalOffsetCross
                 + item.OffsetCross
-                + lineOffsetCross
+                + effectiveLineOffsetCross
                 + item.Margin.CrossStart(direction)
-                + crossInsetOffset;
+                + crossRelativeInset;
 
             if (direction.IsRow())
             {
-                var baselineOffsetCross = totalOffsetCross + item.OffsetCross + item.Margin.CrossStart(direction);
+                var baselineOffsetCross = totalOffsetCross + item.OffsetCross + effectiveLineOffsetCross + item.Margin.CrossStart(direction);
                 var innerBaseline = layoutOutput.FirstBaselines.Y ?? size.Height;
                 item.Baseline = baselineOffsetCross + innerBaseline;
             }
@@ -1902,10 +1960,20 @@ namespace Marius.Winter.Taffy
                     Margin = item.Margin,
                 });
 
-            totalOffsetMain += item.OffsetMain + item.Margin.MainAxisSum(direction) + size.Main(direction);
+            if (isRtlRow)
+            {
+                totalOffsetMain -= item.OffsetMain + item.Margin.MainAxisSum(direction) + size.Main(direction);
+            }
+            else
+            {
+                totalOffsetMain += item.OffsetMain + item.Margin.MainAxisSum(direction) + size.Main(direction);
+            }
 
+            var contributionLocation = layoutDirection.IsRtl()
+                ? new Point<float>(containerSize.Width - (location.X + size.Width), location.Y)
+                : location;
             totalContentSize = totalContentSize.F32Max(
-                ContentSizeUtils.ComputeContentSizeContribution(location, size, contentSize, item.OverflowStyle));
+                ContentSizeUtils.ComputeContentSizeContribution(contributionLocation, size, contentSize, item.OverflowStyle));
         }
 
         /// <summary>
@@ -1919,10 +1987,19 @@ namespace Marius.Winter.Taffy
             Size<float> containerSize,
             Size<float?> nodeInnerSize,
             Rect<float> paddingBorder,
-            FlexDirection direction)
+            FlexDirection direction,
+            Direction layoutDirection)
         {
-            float totalOffsetMain = paddingBorder.MainStart(direction);
+            float totalOffsetMain = (layoutDirection.IsRtl() && direction.IsRow())
+                ? containerSize.Width - paddingBorder.MainEnd(direction)
+                : paddingBorder.MainStart(direction);
             var lineOffsetCross = line.OffsetCross;
+
+            var isRtlColumn = layoutDirection.IsRtl() && direction.IsColumn();
+            if (isRtlColumn)
+            {
+                totalOffsetCross -= lineOffsetCross + line.CrossSize;
+            }
 
             if (direction.IsReverse())
             {
@@ -1937,7 +2014,8 @@ namespace Marius.Winter.Taffy
                         ref contentSize,
                         containerSize,
                         nodeInnerSize,
-                        direction);
+                        direction,
+                        layoutDirection);
                 }
             }
             else
@@ -1953,11 +2031,15 @@ namespace Marius.Winter.Taffy
                         ref contentSize,
                         containerSize,
                         nodeInnerSize,
-                        direction);
+                        direction,
+                        layoutDirection);
                 }
             }
 
-            totalOffsetCross += lineOffsetCross + line.CrossSize;
+            if (!isRtlColumn)
+            {
+                totalOffsetCross += lineOffsetCross + line.CrossSize;
+            }
         }
 
         /// <summary>
@@ -1969,7 +2051,9 @@ namespace Marius.Winter.Taffy
             ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
         {
-            float totalOffsetCross = constants.ContentBoxInset.CrossStart(constants.Dir);
+            float totalOffsetCross = (constants.IsColumn && constants.LayoutDirection.IsRtl())
+                ? constants.ContainerSize.Width - constants.ContentBoxInset.CrossEnd(constants.Dir)
+                : constants.ContentBoxInset.CrossStart(constants.Dir);
             var contentSize = SizeExtensions.ZeroF32;
 
             if (constants.IsWrapReverse)
@@ -1984,7 +2068,8 @@ namespace Marius.Winter.Taffy
                         constants.ContainerSize,
                         constants.NodeInnerSize,
                         constants.ContentBoxInset,
-                        constants.Dir);
+                        constants.Dir,
+                        constants.LayoutDirection);
                 }
             }
             else
@@ -1999,11 +2084,14 @@ namespace Marius.Winter.Taffy
                         constants.ContainerSize,
                         constants.NodeInnerSize,
                         constants.ContentBoxInset,
-                        constants.Dir);
+                        constants.Dir,
+                        constants.LayoutDirection);
                 }
             }
 
-            contentSize.Width += constants.ContentBoxInset.Right - constants.Border.Right - constants.ScrollbarGutter.X;
+            contentSize.Width += constants.LayoutDirection.IsRtl()
+                ? constants.ContentBoxInset.Left - constants.Border.Left - constants.ScrollbarGutter.X
+                : constants.ContentBoxInset.Right - constants.Border.Right - constants.ScrollbarGutter.X;
             contentSize.Height += constants.ContentBoxInset.Bottom - constants.Border.Bottom - constants.ScrollbarGutter.Y;
 
             return contentSize;

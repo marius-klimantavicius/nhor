@@ -95,12 +95,11 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Try to retrieve a cached result from the cache</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public LayoutOutput? Get(
-            Size<float?> knownDimensions,
-            Size<AvailableSpace> availableSpace,
-            RunMode runMode)
+        public LayoutOutput? Get(in LayoutInput input)
         {
-            switch (runMode)
+            var knownDimensions = input.KnownDimensions;
+            var availableSpace = input.AvailableSpace;
+            switch (input.RunMode)
             {
                 case RunMode.PerformLayout:
                 {
@@ -157,13 +156,11 @@ namespace Marius.Winter.Taffy
         }
 
         /// <summary>Store a computed size in the cache</summary>
-        public void Store(
-            Size<float?> knownDimensions,
-            Size<AvailableSpace> availableSpace,
-            RunMode runMode,
-            LayoutOutput layoutOutput)
+        public void Store(in LayoutInput input, LayoutOutput layoutOutput)
         {
-            switch (runMode)
+            var knownDimensions = input.KnownDimensions;
+            var availableSpace = input.AvailableSpace;
+            switch (input.RunMode)
             {
                 case RunMode.PerformLayout:
                     _isEmpty = false;

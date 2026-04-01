@@ -20,7 +20,8 @@ namespace Marius.Winter.Taffy
             Line<float> padding,
             Line<float> border,
             ref ValueList<GridTrack> tracks,
-            AlignContent trackAlignmentStyle)
+            AlignContent trackAlignmentStyle,
+            bool axisIsReversed)
         {
             float usedSize = 0f;
             for (int i = 0; i < tracks.Count; i++)
@@ -43,31 +44,38 @@ namespace Marius.Winter.Taffy
             bool layoutIsReversed = false;
             bool isSafe = false; // TODO: Implement safe alignment
             var trackAlignment = AlignmentUtils.ApplyAlignmentFallback(freeSpace, numTracks, trackAlignmentStyle, isSafe);
+            if (axisIsReversed)
+                trackAlignment = trackAlignment.Reversed();
 
             // Compute offsets
             float totalOffset = origin;
+            bool seenNonCollapsedTrack = false;
             for (int i = 0; i < tracks.Count; i++)
             {
                 var track = tracks[i];
                 // Odd tracks are gutters (but slices are zero-indexed, so odd tracks have even indices)
                 bool isGutter = i % 2 == 0;
+                bool isNonCollapsedTrack = !isGutter && !track.IsCollapsed;
 
-                // The first non-gutter track is index 1
-                bool isFirst = i == 1;
+                // Alignment offsets should be applied only to non-collapsed tracks.
+                bool isFirst = isNonCollapsedTrack && !seenNonCollapsedTrack;
 
                 float offset;
-                if (isGutter)
+                if (isNonCollapsedTrack)
                 {
-                    offset = 0f;
+                    offset = AlignmentUtils.ComputeAlignmentOffset(freeSpace, numTracks, gap, trackAlignment, layoutIsReversed, isFirst);
                 }
                 else
                 {
-                    offset = AlignmentUtils.ComputeAlignmentOffset(freeSpace, numTracks, gap, trackAlignment, layoutIsReversed, isFirst);
+                    offset = 0f;
                 }
 
                 track.Offset = totalOffset + offset;
                 totalOffset = totalOffset + offset + track.BaseSize;
                 tracks[i] = track;
+
+                if (isNonCollapsedTrack)
+                    seenNonCollapsedTrack = true;
             }
         }
 
@@ -80,7 +88,8 @@ namespace Marius.Winter.Taffy
             uint order,
             Rect<float> gridArea,
             InBothAbsAxis<AlignItems?> containerAlignmentStyles,
-            float baselineShim)
+            float baselineShim,
+            Direction direction)
         {
             var gridAreaSize = new Size<float>
             {
@@ -229,7 +238,8 @@ namespace Marius.Winter.Taffy
                 position,
                 insetH,
                 margin.HorizontalComponents(),
-                0f);
+                0f,
+                direction);
 
             var (y, yMargin) = AlignItemWithinArea(
                 new Line<float> { Start = gridArea.Top, End = gridArea.Bottom },
@@ -238,7 +248,8 @@ namespace Marius.Winter.Taffy
                 position,
                 insetV,
                 margin.VerticalComponents(),
-                baselineShim);
+                baselineShim,
+                Direction.Ltr);
 
             var scrollbarSize = new Size<float>
             {
@@ -285,7 +296,8 @@ namespace Marius.Winter.Taffy
             Position position,
             Line<float?> inset,
             Line<float?> margin,
-            float baselineShim)
+            float baselineShim,
+            Direction direction)
         {
             // Calculate grid area dimension in the axis
             var nonAutoMargin = new Line<float>
@@ -308,18 +320,28 @@ namespace Marius.Winter.Taffy
             // Compute offset in the axis
             float alignmentBasedOffset = alignmentStyle switch
             {
-                AlignItems.Start or AlignItems.FlexStart => resolvedMargin.Start,
-                AlignItems.End or AlignItems.FlexEnd => gridAreaSize - resolvedSize - resolvedMargin.End,
+                AlignItems.Start or AlignItems.FlexStart or AlignItems.Baseline or AlignItems.Stretch =>
+                    direction.IsRtl()
+                        ? gridAreaSize - resolvedSize - resolvedMargin.End
+                        : resolvedMargin.Start,
+                AlignItems.End or AlignItems.FlexEnd =>
+                    direction.IsRtl()
+                        ? resolvedMargin.Start
+                        : gridAreaSize - resolvedSize - resolvedMargin.End,
                 AlignItems.Center => (gridAreaSize - resolvedSize + resolvedMargin.Start - resolvedMargin.End) / 2f,
-                AlignItems.Baseline => resolvedMargin.Start, // TODO: Add support for baseline alignment
-                AlignItems.Stretch => resolvedMargin.Start,
                 _ => resolvedMargin.Start,
             };
 
             float offsetWithinArea;
             if (position == Position.Absolute)
             {
-                if (inset.Start.HasValue)
+                if (inset.Start.HasValue && inset.End.HasValue)
+                {
+                    offsetWithinArea = direction.IsRtl()
+                        ? gridAreaSize - inset.End.Value - resolvedSize - nonAutoMargin.End
+                        : inset.Start.Value + nonAutoMargin.Start;
+                }
+                else if (inset.Start.HasValue)
                     offsetWithinArea = inset.Start.Value + nonAutoMargin.Start;
                 else if (inset.End.HasValue)
                     offsetWithinArea = gridAreaSize - inset.End.Value - resolvedSize - nonAutoMargin.End;
@@ -334,7 +356,12 @@ namespace Marius.Winter.Taffy
             float start = gridArea.Start + offsetWithinArea;
             if (position == Position.Relative)
             {
-                start += inset.Start ?? (inset.End.HasValue ? -inset.End.Value : 0f);
+                float? relativeInset;
+                if (direction.IsRtl())
+                    relativeInset = inset.End.HasValue ? -inset.End.Value : inset.Start;
+                else
+                    relativeInset = inset.Start ?? (inset.End.HasValue ? -inset.End.Value : (float?)null);
+                start += relativeInset ?? 0f;
             }
 
             return (start, resolvedMargin);

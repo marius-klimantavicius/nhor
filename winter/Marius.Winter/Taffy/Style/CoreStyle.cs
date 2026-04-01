@@ -95,6 +95,23 @@ namespace Marius.Winter.Taffy
     /// The core set of styles that are shared between all CSS layout nodes.
     /// Port of Rust's CoreStyle trait.
     /// </summary>
+    /// <summary>
+    /// The text/layout direction of a container
+    /// </summary>
+    public enum Direction
+    {
+        /// Left-to-right
+        Ltr,
+        /// Right-to-left
+        Rtl,
+    }
+
+    public static class DirectionExtensions
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsRtl(this Direction d) => d == Direction.Rtl;
+    }
+
     public interface ICoreStyle
     {
         /// <summary>Which box generation mode should be used</summary>
@@ -114,6 +131,9 @@ namespace Marius.Winter.Taffy
 
         /// <summary>How much space should be reserved for scrollbars</summary>
         float ScrollbarWidth() => 0f;
+
+        /// <summary>The text/layout direction</summary>
+        Direction Direction() => Taffy.Direction.Ltr;
 
         /// <summary>What should the position value of this struct use as a base offset?</summary>
         Position Position() => Taffy.Position.Relative;

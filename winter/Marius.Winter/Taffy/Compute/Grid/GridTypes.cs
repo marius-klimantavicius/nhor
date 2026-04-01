@@ -625,6 +625,50 @@ namespace Marius.Winter.Taffy
                 return trackCounts.TrackToPrevOzLine((ushort)maybeIndex.Value);
             return null;
         }
+
+        /// <summary>
+        /// Given an axis and a track index, search forwards from the start and find the first grid cell
+        /// matching the specified state (if any). Return the index of that cell or null.
+        /// </summary>
+        public OriginZeroLine? FirstOfType(AbsoluteAxis trackType, OriginZeroLine startAt, CellOccupancyState kind)
+        {
+            var trackCounts = GetTrackCounts(trackType.OtherAxis());
+            var trackComputedIndex = trackCounts.OzLineToNextTrack(startAt);
+
+            int? maybeIndex = null;
+            if (trackType == AbsoluteAxis.Horizontal)
+            {
+                if (trackComputedIndex < 0 || trackComputedIndex >= _rows)
+                    return null;
+                // Search row for first match (position)
+                for (int col = 0; col < _cols; col++)
+                {
+                    if (_data[trackComputedIndex * _cols + col] == kind)
+                    {
+                        maybeIndex = col;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                if (trackComputedIndex < 0 || trackComputedIndex >= _cols)
+                    return null;
+                // Search column for first match (position)
+                for (int row = 0; row < _rows; row++)
+                {
+                    if (_data[row * _cols + trackComputedIndex] == kind)
+                    {
+                        maybeIndex = row;
+                        break;
+                    }
+                }
+            }
+
+            if (maybeIndex.HasValue)
+                return trackCounts.TrackToPrevOzLine((ushort)maybeIndex.Value);
+            return null;
+        }
     }
 
     // =========================================================================

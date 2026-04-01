@@ -26,12 +26,13 @@ namespace Marius.Winter.Taffy
         public static (TrackCounts columnCounts, TrackCounts rowCounts) ComputeGridSizeEstimate(
             ushort explicitColCount,
             ushort explicitRowCount,
+            Direction direction,
             IEnumerable<Style> childStylesIter)
         {
             // Iterate over children, producing an estimate of the min and max grid lines (in origin-zero coordinates)
             // along with the span of each item
             var (colMin, colMax, colMaxSpan, rowMin, rowMax, rowMaxSpan) =
-                GetKnownChildPositions(childStylesIter, explicitColCount, explicitRowCount);
+                GetKnownChildPositions(childStylesIter, explicitColCount, explicitRowCount, direction);
 
             // Compute *track* count estimates for each axis from:
             //   - The explicit track counts
@@ -74,7 +75,8 @@ namespace Marius.Winter.Taffy
             GetKnownChildPositions(
                 IEnumerable<Style> childrenIter,
                 ushort explicitColCount,
-                ushort explicitRowCount)
+                ushort explicitRowCount,
+                Direction direction)
         {
             var colMin = new OriginZeroLine(0);
             var colMax = new OriginZeroLine(0);
@@ -91,6 +93,18 @@ namespace Marius.Winter.Taffy
                     ChildMinLineMaxLineSpan(childStyle.GetGridColumn(), explicitColCount);
                 var (childRowMin, childRowMax, childRowSpan) =
                     ChildMinLineMaxLineSpan(childStyle.GetGridRow(), explicitRowCount);
+
+                // Placement mirrors horizontal spans in RTL, so mirror known column line bounds here
+                // to keep implicit-grid pre-sizing consistent with actual placement.
+                if (direction.IsRtl() && (childColMin != new OriginZeroLine(0) || childColMax != new OriginZeroLine(0)))
+                {
+                    var explicitColEndLine = (short)explicitColCount;
+                    var mirroredMin = new OriginZeroLine((short)(explicitColEndLine - childColMax.Value));
+                    var mirroredMax = new OriginZeroLine((short)(explicitColEndLine - childColMin.Value));
+                    childColMin = mirroredMin;
+                    childColMax = mirroredMax;
+                }
+
                 colMin = (childColMin < colMin ? childColMin : colMin);
                 colMax = (childColMax > colMax ? childColMax : colMax);
                 colMaxSpan = Math.Max(colMaxSpan, childColSpan);

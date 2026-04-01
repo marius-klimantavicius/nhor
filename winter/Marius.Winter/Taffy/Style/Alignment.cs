@@ -88,3 +88,25 @@ public enum AlignContent
 
 // In Rust: pub type JustifyContent = AlignContent;
 // In C#, just use AlignContent directly wherever JustifyContent would be used.
+
+/// <summary>
+/// Extension methods for <see cref="AlignContent"/>.
+/// </summary>
+public static class AlignContentExtensions
+{
+    /// <summary>
+    /// Returns the reversed alignment for RTL (right-to-left) contexts.
+    /// </summary>
+    public static AlignContent Reversed(this AlignContent self)
+    {
+        return self switch
+        {
+            AlignContent.Start => AlignContent.End,
+            AlignContent.End => AlignContent.Start,
+            AlignContent.FlexStart => AlignContent.FlexEnd,
+            AlignContent.FlexEnd => AlignContent.FlexStart,
+            AlignContent.Stretch => AlignContent.End,
+            _ => self,
+        };
+    }
+}

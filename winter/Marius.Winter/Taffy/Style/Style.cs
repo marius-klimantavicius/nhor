@@ -58,6 +58,11 @@ namespace Marius.Winter.Taffy
         /// <summary>Should the box clear floats</summary>
         public Clear ClearValue;
 
+        // --- Direction ---
+
+        /// <summary>The text/layout direction</summary>
+        public Direction DirectionValue;
+
         // --- Position properties ---
 
         /// <summary>What should the position value of this struct use as a base offset?</summary>
@@ -263,6 +268,9 @@ namespace Marius.Winter.Taffy
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         float ICoreStyle.ScrollbarWidth() => ScrollbarWidthValue;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        Direction ICoreStyle.Direction() => DirectionValue;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         Position ICoreStyle.Position() => PositionValue;

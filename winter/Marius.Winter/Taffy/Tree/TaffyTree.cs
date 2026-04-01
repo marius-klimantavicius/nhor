@@ -835,15 +835,15 @@ namespace Marius.Winter.Taffy
         // --- ICacheTree ---
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public LayoutOutput? CacheGet(NodeId nodeId, Size<float?> knownDimensions, Size<AvailableSpace> availableSpace, RunMode runMode)
+        public LayoutOutput? CacheGet(NodeId nodeId, in LayoutInput input)
         {
-            return GetNode(nodeId).Cache.Get(knownDimensions, availableSpace, runMode);
+            return GetNode(nodeId).Cache.Get(in input);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void CacheStore(NodeId nodeId, Size<float?> knownDimensions, Size<AvailableSpace> availableSpace, RunMode runMode, LayoutOutput layoutOutput)
+        public void CacheStore(NodeId nodeId, in LayoutInput input, LayoutOutput layoutOutput)
         {
-            GetNode(nodeId).Cache.Store(knownDimensions, availableSpace, runMode, layoutOutput);
+            GetNode(nodeId).Cache.Store(in input, layoutOutput);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

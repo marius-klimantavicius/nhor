@@ -30,6 +30,7 @@ namespace Marius.Winter.Taffy
 
             var gridStyle = tree.GetGridContainerStyle(node);
             var style = (Style)gridStyle;
+            var direction = gridStyle.Direction();
 
             // 1. Compute "available grid space"
             // https://www.w3.org/TR/css-grid-1/#available-grid-space
@@ -73,10 +74,12 @@ namespace Marius.Winter.Taffy
                 Height = overflowVal.X == Overflow.Scroll ? gridStyle.ScrollbarWidth() : 0f,
             };
 
-            // TODO: make side configurable based on the `direction` property
             var contentBoxInset = paddingBorder;
-            contentBoxInset.Right += scrollbarGutter.Width;
             contentBoxInset.Bottom += scrollbarGutter.Height;
+            if (direction.IsRtl())
+                contentBoxInset.Left += scrollbarGutter.Width;
+            else
+                contentBoxInset.Right += scrollbarGutter.Width;
 
             var alignContent = gridStyle.AlignContent() ?? AlignContent.Stretch;
             var justifyContent = gridStyle.JustifyContent() ?? AlignContent.Stretch;
@@ -149,7 +152,7 @@ namespace Marius.Winter.Taffy
                 foreach (var childNode in tree.ChildIds(node))
                     yield return (Style)tree.GetGridChildStyle(childNode);
             }
-            var (estColCounts, estRowCounts) = ImplicitGridUtils.ComputeGridSizeEstimate(explicitColCount, explicitRowCount, ChildStylesIter());
+            var (estColCounts, estRowCounts) = ImplicitGridUtils.ComputeGridSizeEstimate(explicitColCount, explicitRowCount, direction, ChildStylesIter());
 
             // 4. Grid Item Placement
             var items = new ValueList<GridItem>();
@@ -174,6 +177,7 @@ namespace Marius.Winter.Taffy
                 cellOccupancyMatrix,
                 ref items,
                 () => InFlowChildrenIter(),
+                direction,
                 gridStyle.GridAutoFlow(),
                 alignItems ?? AlignItems.Stretch,
                 justifyItems ?? AlignItems.Stretch,
@@ -186,10 +190,24 @@ namespace Marius.Winter.Taffy
             // 5. Initialize Tracks
             var columns = new ValueList<GridTrack>();
             var rows = new ValueList<GridTrack>();
-            ExplicitGridUtils.InitializeGridTracks(ref columns, finalColCounts, style, AbsoluteAxis.Horizontal,
-                columnIndex => cellOccupancyMatrix.ColumnIsOccupied(columnIndex));
+            var columnTrackCountsForInit = finalColCounts;
+            if (direction.IsRtl() && finalColCounts.Explicit <= 1)
+            {
+                columnTrackCountsForInit.NegativeImplicit = finalColCounts.PositiveImplicit;
+                columnTrackCountsForInit.PositiveImplicit = finalColCounts.NegativeImplicit;
+            }
+            ExplicitGridUtils.InitializeGridTracks(ref columns, columnTrackCountsForInit, style, AbsoluteAxis.Horizontal,
+                columnIndex =>
+                {
+                    var occupancyIndex = direction.IsRtl()
+                        ? RtlColumnOccupancyIndexForInitialization(columnIndex, finalColCounts)
+                        : columnIndex;
+                    return cellOccupancyMatrix.ColumnIsOccupied(occupancyIndex);
+                });
             ExplicitGridUtils.InitializeGridTracks(ref rows, finalRowCounts, style, AbsoluteAxis.Vertical,
                 rowIndex => cellOccupancyMatrix.RowIsOccupied(rowIndex));
+            if (direction.IsRtl())
+                ReverseNonGutterTracks(ref columns, finalColCounts);
 
             // 6. Track Sizing
 
@@ -437,19 +455,27 @@ namespace Marius.Winter.Taffy
             // 8. Track Alignment
 
             // Align columns
+            var inlineSizeWithoutScrollbar = MathF.Max(containerBorderBox.Width - (padding.Left + padding.Right + border.Left + border.Right), 0f);
+            var inlineScrollbarGutterForAlignment = MathF.Min(scrollbarGutter.Width, inlineSizeWithoutScrollbar);
             GridAlignmentUtils.AlignTracks(
                 containerContentBox.Get(AbstractAxis.Inline),
-                new Line<float> { Start = padding.Left, End = padding.Right },
+                new Line<float>
+                {
+                    Start = padding.Left + (direction.IsRtl() ? inlineScrollbarGutterForAlignment : 0f),
+                    End = padding.Right + (direction.IsRtl() ? 0f : inlineScrollbarGutterForAlignment),
+                },
                 new Line<float> { Start = border.Left, End = border.Right },
                 ref columns,
-                justifyContent);
+                justifyContent,
+                direction.IsRtl());
             // Align rows
             GridAlignmentUtils.AlignTracks(
                 containerContentBox.Get(AbstractAxis.Block),
                 new Line<float> { Start = padding.Top, End = padding.Bottom },
                 new Line<float> { Start = border.Top, End = border.Bottom },
                 ref rows,
-                alignContent);
+                alignContent,
+                false);
 
             // 9. Size, Align, and Position Grid Items
             var itemContentSizeContribution = SizeExtensions.ZeroF32;
@@ -481,7 +507,8 @@ namespace Marius.Winter.Taffy
                     (uint)index,
                     gridAreaRect,
                     containerAlignmentStyles,
-                    item.BaselineShim);
+                    item.BaselineShim,
+                    direction);
 
                 item.YPosition = yPosition;
                 item.Height = height;
@@ -526,11 +553,18 @@ namespace Marius.Winter.Taffy
                         {
                             if (maybeGridLine.HasValue)
                             {
-                                var idx2 = maybeGridLine.Value.TryIntoTrackVecIndex(finalColCounts);
+                                var line = maybeGridLine.Value;
+                                if (direction.IsRtl())
+                                    line = new OriginZeroLine((short)(finalColCounts.Explicit - line.Value));
+                                var idx2 = line.TryIntoTrackVecIndex(finalColCounts);
                                 return idx2 >= 0 ? (int?)idx2 : null;
                             }
                             return null;
                         });
+
+                    // RTL: swap start/end for absolute column indexes
+                    if (direction.IsRtl())
+                        maybeColIndexes = new Line<int?> { Start = maybeColIndexes.End, End = maybeColIndexes.Start };
 
                     var maybeRowIndexes = nameResolver
                         .ResolveRowNames(childStyle.GetGridRow())
@@ -552,14 +586,16 @@ namespace Marius.Winter.Taffy
                         Bottom = maybeRowIndexes.End.HasValue
                             ? rows[maybeRowIndexes.End.Value].Offset
                             : containerBorderBox.Height - border.Bottom - scrollbarGutter.Height,
-                        Left = maybeColIndexes.Start.HasValue ? columns[maybeColIndexes.Start.Value].Offset : border.Left,
+                        Left = maybeColIndexes.Start.HasValue
+                            ? columns[maybeColIndexes.Start.Value].Offset
+                            : (direction.IsRtl() ? border.Left + scrollbarGutter.Width : border.Left),
                         Right = maybeColIndexes.End.HasValue
                             ? columns[maybeColIndexes.End.Value].Offset
-                            : containerBorderBox.Width - border.Right - scrollbarGutter.Width,
+                            : (direction.IsRtl() ? containerBorderBox.Width - border.Right : containerBorderBox.Width - border.Right - scrollbarGutter.Width),
                     };
 
                     var (contentSizeContrib, _, _) = GridAlignmentUtils.AlignAndPositionItem(
-                        tree, child, orderVal, gridAreaRect, containerAlignmentStyles, 0f);
+                        tree, child, orderVal, gridAreaRect, containerAlignmentStyles, 0f, direction);
                     itemContentSizeContribution = itemContentSizeContribution.F32Max(contentSizeContrib);
                     orderVal++;
                 }
@@ -622,6 +658,66 @@ namespace Marius.Winter.Taffy
                 containerBorderBox,
                 itemContentSizeContribution,
                 new Point<float?> { X = null, Y = gridContainerBaseline });
+        }
+
+        /// <summary>
+        /// Reverses only non-gutter column tracks in-place while preserving line/gutter slots.
+        /// </summary>
+        private static void ReverseNonGutterTracks(ref ValueList<GridTrack> tracks, TrackCounts trackCounts)
+        {
+            // When the explicit grid has 0/1 tracks, visual RTL mirroring is entirely determined by implicit tracks.
+            // Reverse all non-gutter tracks in that case.
+            if (trackCounts.Explicit <= 1)
+            {
+                const int MIN_TRACK_VEC_LEN_TO_REVERSE_COLUMNS = 5;
+                if (tracks.Count < MIN_TRACK_VEC_LEN_TO_REVERSE_COLUMNS)
+                    return;
+                int left = 1;
+                int right = tracks.Count - 2;
+                while (left < right)
+                {
+                    var tmp = tracks[left];
+                    tracks[left] = tracks[right];
+                    tracks[right] = tmp;
+                    left += 2;
+                    right = right >= 2 ? right - 2 : 0;
+                }
+                return;
+            }
+
+            int explicitTrackCount = trackCounts.Explicit;
+            if (explicitTrackCount < 2)
+                return;
+
+            {
+                int left = trackCounts.NegativeImplicit;
+                int right = left + explicitTrackCount - 1;
+                while (left < right)
+                {
+                    int leftIdx = (2 * left) + 1;
+                    int rightIdx = (2 * right) + 1;
+                    var tmp = tracks[leftIdx];
+                    tracks[leftIdx] = tracks[rightIdx];
+                    tracks[rightIdx] = tmp;
+                    left += 1;
+                    right = right >= 1 ? right - 1 : 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Maps initialized column indexes to occupancy-matrix indexes for auto-fit collapsing in RTL.
+        /// </summary>
+        private static int RtlColumnOccupancyIndexForInitialization(int columnIndex, TrackCounts trackCounts)
+        {
+            if (trackCounts.Explicit <= 1)
+                return trackCounts.Len() - columnIndex - 1;
+
+            int explicitStart = trackCounts.NegativeImplicit;
+            int explicitEnd = explicitStart + trackCounts.Explicit;
+            if (columnIndex >= explicitStart && columnIndex < explicitEnd)
+                return explicitStart + (explicitEnd - columnIndex - 1);
+            return columnIndex;
         }
     }
 }

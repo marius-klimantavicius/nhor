@@ -376,6 +376,7 @@ namespace Marius.Winter.Taffy
             var aspectRatio = style.AspectRatio();
             var padding = rawPadding.ResolveOrZero(parentSize.Width, tree.Calc);
             var border = rawBorder.ResolveOrZero(parentSize.Width, tree.Calc);
+            var direction = style.Direction();
 
             // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
             // However, the axis are switched (transposed) because a node that scrolls vertically needs
@@ -383,12 +384,11 @@ namespace Marius.Winter.Taffy
             var overflowStyle = style.Overflow();
             var transposedOverflow = new Point<Overflow>(overflowStyle.Y, overflowStyle.X);
             float scrollbarWidthVal = style.ScrollbarWidth();
-            var scrollbarGutter = new Rect<float>(
-                0.0f,
-                transposedOverflow.X == Overflow.Scroll ? scrollbarWidthVal : 0.0f,
-                0.0f,
-                transposedOverflow.Y == Overflow.Scroll ? scrollbarWidthVal : 0.0f
-            );
+            float offsetsX = transposedOverflow.X == Overflow.Scroll ? scrollbarWidthVal : 0.0f;
+            float offsetsY = transposedOverflow.Y == Overflow.Scroll ? scrollbarWidthVal : 0.0f;
+            var scrollbarGutter = direction == Direction.Ltr
+                ? new Rect<float>(0.0f, offsetsX, 0.0f, offsetsY)
+                : new Rect<float>(offsetsX, 0.0f, 0.0f, offsetsY);
             var paddingBorder = padding.Add(border);
             var paddingBorderSize = paddingBorder.SumAxes();
             var contentBoxInset = paddingBorder.Add(scrollbarGutter);
@@ -484,6 +484,7 @@ namespace Marius.Winter.Taffy
                     contentBoxInset,
                     resolvedContentBoxInset,
                     textAlign,
+                    direction,
                     ownMarginsCollapseWithChildren,
                     blockCtx
                 );
@@ -510,7 +511,7 @@ namespace Marius.Winter.Taffy
             var absolutePositionArea = finalOuterSize.Sub(absolutePositionInset.SumAxes());
             var absolutePositionOffset = new Point<float>(absolutePositionInset.Left, absolutePositionInset.Top);
             var absoluteContentSize =
-                PerformAbsoluteLayoutOnAbsoluteChildren(tree, items, absolutePositionArea, absolutePositionOffset);
+                PerformAbsoluteLayoutOnAbsoluteChildren(tree, items, absolutePositionArea, absolutePositionOffset, direction);
 
             // 5. Perform hidden layout on hidden children
             int len = tree.ChildCount(nodeId);
@@ -721,6 +722,7 @@ namespace Marius.Winter.Taffy
                 Rect<float> contentBoxInset,
                 Rect<float> resolvedContentBoxInset,
                 TextAlign textAlign,
+                Direction direction,
                 Line<bool> ownMarginsCollapseWithChildren,
                 BlockContext blockCtx)
         {
@@ -755,7 +757,10 @@ namespace Marius.Winter.Taffy
 
                 if (item.Position == Position.Absolute)
                 {
-                    item.StaticPosition = new Point<float>(resolvedContentBoxInset.Left, yOffsetForAbsolute);
+                    float x = direction == Direction.Ltr
+                        ? resolvedContentBoxInset.Left
+                        : containerOuterWidth - resolvedContentBoxInset.Right;
+                    item.StaticPosition = new Point<float>(x, yOffsetForAbsolute);
                     items[idx] = item;
                 }
                 else
@@ -826,11 +831,13 @@ namespace Marius.Winter.Taffy
 
                     float stretchWidth;
                     Point<float> floatAvoidingPosition;
+                    float floatAvoidingWidth;
 
                     if (item.IsInSameBfc)
                     {
                         stretchWidth = containerInnerWidth - itemNonAutoXMarginSum;
                         floatAvoidingPosition = new Point<float>(0.0f, 0.0f);
+                        floatAvoidingWidth = 0.0f;
                     }
                     else
                     {
@@ -848,11 +855,13 @@ namespace Marius.Winter.Taffy
                             hasActiveFloats = slot.SegmentId.HasValue;
                             stretchWidth = slot.Width - itemNonAutoXMarginSum;
                             floatAvoidingPosition = new Point<float>(slot.X, slot.Y);
+                            floatAvoidingWidth = slot.Width;
                         }
                         else
                         {
                             stretchWidth = containerInnerWidth - itemNonAutoXMarginSum;
-                            floatAvoidingPosition = new Point<float>(0.0f, minY);
+                            floatAvoidingPosition = new Point<float>(resolvedContentBoxInset.Left, minY);
+                            floatAvoidingWidth = containerInnerWidth;
                         }
                     }
 
@@ -937,7 +946,9 @@ namespace Marius.Winter.Taffy
                         (p, s) => p.MaybeResolve(s, tree.Calc)
                     );
                     var insetOffset = new Point<float>(
-                        insetRect.Left ?? (insetRect.Right.HasValue ? -insetRect.Right.Value : 0.0f),
+                        direction.IsRtl()
+                            ? (insetRect.Right.HasValue ? -insetRect.Right.Value : insetRect.Left ?? 0.0f)
+                            : (insetRect.Left ?? (insetRect.Right.HasValue ? -insetRect.Right.Value : 0.0f)),
                         insetRect.Top ?? (insetRect.Bottom.HasValue ? -insetRect.Bottom.Value : 0.0f)
                     );
 
@@ -952,51 +963,74 @@ namespace Marius.Winter.Taffy
 
                     item.ComputedSize = itemLayout.Size;
                     item.CanBeCollapsedThrough = itemLayout.MarginsCanCollapseThrough && floatOrNotClear;
-                    item.StaticPosition = item.IsInSameBfc
-                        ? new Point<float>(
-                            resolvedContentBoxInset.Left,
-                            MathF.Max(committedYOffset + activeCollapsibleMarginSet.Resolve(), clearPos))
-                        : new Point<float>(
-                            floatAvoidingPosition.X + resolvedContentBoxInset.Left,
+                    if (item.IsInSameBfc)
+                    {
+                        float unclearedY = committedYOffset + activeCollapsibleMarginSet.Resolve();
+                        item.StaticPosition = new Point<float>(
+                            direction == Direction.Ltr
+                                ? resolvedContentBoxInset.Left
+                                : containerOuterWidth - resolvedContentBoxInset.Right - finalSize.Width,
+                            MathF.Max(unclearedY, clearPos));
+                    }
+                    else
+                    {
+                        item.StaticPosition = new Point<float>(
+                            direction == Direction.Ltr
+                                ? floatAvoidingPosition.X
+                                : floatAvoidingPosition.X + floatAvoidingWidth - finalSize.Width,
                             floatAvoidingPosition.Y);
+                    }
 
                     Point<float> location;
                     if (item.IsInSameBfc)
                     {
+                        float locationX = direction == Direction.Ltr
+                            ? resolvedContentBoxInset.Left + insetOffset.X + resolvedMargin.Left
+                            : containerOuterWidth - resolvedContentBoxInset.Right - finalSize.Width - resolvedMargin.Right + insetOffset.X;
                         location = new Point<float>(
-                            resolvedContentBoxInset.Left + insetOffset.X + resolvedMargin.Left,
+                            locationX,
                             MathF.Max(committedYOffset, clearPos) + insetOffset.Y + yMarginOffset
                         );
                     }
                     else
                     {
                         // TODO: handle inset and margins
+                        float locationX = direction == Direction.Ltr
+                            ? floatAvoidingPosition.X + resolvedMargin.Left + insetOffset.X
+                            : floatAvoidingPosition.X + floatAvoidingWidth - finalSize.Width - resolvedMargin.Right + insetOffset.X;
                         location = new Point<float>(
-                            floatAvoidingPosition.X
-                                + resolvedContentBoxInset.Left
-                                + insetOffset.X
-                                + resolvedMargin.Left,
+                            locationX,
                             floatAvoidingPosition.Y + insetOffset.Y
                         );
                     }
 
                     // Apply alignment
                     float itemOuterWidth = itemLayout.Size.Width + resolvedMargin.HorizontalAxisSum();
-                    if (itemOuterWidth < stretchWidth)
+                    if (itemOuterWidth < containerInnerWidth)
                     {
-                        switch (textAlign)
+                        float alignmentFreeSpace = containerInnerWidth - itemOuterWidth;
+                        switch (textAlign, direction)
                         {
-                            case TextAlign.Auto:
+                            case (TextAlign.Auto, _):
                                 // Do nothing
                                 break;
-                            case TextAlign.LegacyLeft:
+                            case (TextAlign.LegacyLeft, Direction.Ltr):
                                 // Do nothing. Left aligned by default.
                                 break;
-                            case TextAlign.LegacyRight:
-                                location.X += stretchWidth - itemOuterWidth;
+                            case (TextAlign.LegacyLeft, Direction.Rtl):
+                                location.X -= alignmentFreeSpace;
                                 break;
-                            case TextAlign.LegacyCenter:
-                                location.X += (stretchWidth - itemOuterWidth) / 2.0f;
+                            case (TextAlign.LegacyRight, Direction.Ltr):
+                                location.X += alignmentFreeSpace;
+                                break;
+                            case (TextAlign.LegacyRight, Direction.Rtl):
+                                // Do nothing. Right aligned by default.
+                                break;
+                            case (TextAlign.LegacyCenter, Direction.Ltr):
+                                location.X += alignmentFreeSpace / 2.0f;
+                                break;
+                            case (TextAlign.LegacyCenter, Direction.Rtl):
+                                location.X -= alignmentFreeSpace / 2.0f;
                                 break;
                         }
                     }
@@ -1018,7 +1052,7 @@ namespace Marius.Winter.Taffy
 
                     inflowContentSize = inflowContentSize.F32Max(
                         ContentSizeUtils.ComputeContentSizeContribution(
-                            location,
+                            new Point<float>(location.X - resolvedContentBoxInset.Left, location.Y - resolvedContentBoxInset.Top),
                             finalSize,
                             itemLayout.ContentSize,
                             item.Overflow
@@ -1079,7 +1113,8 @@ namespace Marius.Winter.Taffy
             ILayoutBlockContainer tree,
             List<BlockItem> items,
             Size<float> areaSize,
-            Point<float> areaOffset)
+            Point<float> areaOffset,
+            Direction direction)
         {
             float areaWidth = areaSize.Width;
             float areaHeight = areaSize.Height;
@@ -1254,12 +1289,30 @@ namespace Marius.Winter.Taffy
                     margin.Bottom ?? autoMargin.Bottom
                 );
 
+                float xOffset;
+                if (left.HasValue && right.HasValue)
+                {
+                    xOffset = direction.IsRtl()
+                        ? areaSize.Width - finalSize.Width - right.Value - resolvedMargin.Right
+                        : left.Value + resolvedMargin.Left;
+                }
+                else if (left.HasValue)
+                {
+                    xOffset = left.Value + resolvedMargin.Left;
+                }
+                else if (right.HasValue)
+                {
+                    xOffset = areaSize.Width - finalSize.Width - right.Value - resolvedMargin.Right;
+                }
+                else
+                {
+                    xOffset = direction.IsRtl()
+                        ? item.StaticPosition.X - finalSize.Width - resolvedMargin.Right - areaOffset.X
+                        : item.StaticPosition.X + resolvedMargin.Left - areaOffset.X;
+                }
+
                 var location = new Point<float>(
-                    x: left.HasValue
-                        ? (left.Value + resolvedMargin.Left + areaOffset.X)
-                        : right.HasValue
-                            ? (areaSize.Width - finalSize.Width - right.Value - resolvedMargin.Right + areaOffset.X)
-                            : (item.StaticPosition.X + resolvedMargin.Left),
+                    x: xOffset + areaOffset.X,
                     y: top.HasValue
                         ? (top.Value + resolvedMargin.Top + areaOffset.Y)
                         : bottom.HasValue
@@ -1289,9 +1342,10 @@ namespace Marius.Winter.Taffy
                     }
                 );
 
+                var relativeLocation = new Point<float>(location.X - areaOffset.X, location.Y - areaOffset.Y);
                 absoluteContentSize = absoluteContentSize.F32Max(
                     ContentSizeUtils.ComputeContentSizeContribution(
-                        location,
+                        relativeLocation,
                         finalSize,
                         layoutOutput.ContentSize,
                         item.Overflow

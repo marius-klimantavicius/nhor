@@ -32,10 +32,11 @@ namespace Marius.Winter.Taffy
 
             if (sizeContentSizeContribution.Width > 0f && sizeContentSizeContribution.Height > 0f)
             {
-                return new Size<float>(
-                    location.X + sizeContentSizeContribution.Width,
-                    location.Y + sizeContentSizeContribution.Height
-                );
+                var maxX = MathF.Max(location.X + sizeContentSizeContribution.Width, 0f);
+                var minX = MathF.Min(location.X, 0f);
+                var maxY = MathF.Max(location.Y + sizeContentSizeContribution.Height, 0f);
+                var minY = MathF.Min(location.Y, 0f);
+                return new Size<float>(maxX - minX, maxY - minY);
             }
 
             return SizeExtensions.ZeroF32;

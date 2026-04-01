@@ -127,7 +127,7 @@ namespace Marius.Winter.Taffy
             var runMode = inputs.RunMode;
 
             // First we check if we have a cached result for the given input
-            var cacheEntry = tree.CacheGet(node, knownDimensions, availableSpace, runMode);
+            var cacheEntry = tree.CacheGet(node, in inputs);
             if (cacheEntry.HasValue)
             {
                 return cacheEntry.Value;
@@ -136,7 +136,7 @@ namespace Marius.Winter.Taffy
             var computedSizeAndBaselines = computeUncached(tree, node, inputs);
 
             // Cache result
-            tree.CacheStore(node, knownDimensions, availableSpace, runMode, computedSizeAndBaselines);
+            tree.CacheStore(node, in inputs, computedSizeAndBaselines);
 
             return computedSizeAndBaselines;
         }
