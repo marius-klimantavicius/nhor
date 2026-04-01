@@ -44,13 +44,13 @@ namespace ThorVG
         //  UTF-8 codepoint decoding
         // ----------------------------------------------------------------
 
-        private static uint DecodeCodepoint(string text, ref int idx)
+        private static uint DecodeCodepoint(string text, ref int idx, int end)
         {
-            if (idx >= text.Length) return 0;
+            if (idx >= end) return 0;
 
             char c = text[idx];
             // Handle surrogate pairs for codepoints > 0xFFFF
-            if (char.IsHighSurrogate(c) && idx + 1 < text.Length && char.IsLowSurrogate(text[idx + 1]))
+            if (char.IsHighSurrogate(c) && idx + 1 < end && char.IsLowSurrogate(text[idx + 1]))
             {
                 var cp = (uint)char.ConvertToUtf32(c, text[idx + 1]);
                 idx += 2;
@@ -164,16 +164,16 @@ namespace ThorVG
         //  Wrapping modes
         // ----------------------------------------------------------------
 
-        private void WrapNone(FontMetrics fm, in Point box, string utf8, RenderPath output)
+        private void WrapNone(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             var cursor = new Point(0, 0);
             uint line = 0;
             int idx = 0;
 
-            while (idx < utf8.Length)
+            while (idx < len)
             {
-                var code = DecodeCodepoint(utf8, ref idx);
+                var code = DecodeCodepoint(utf8, ref idx, len);
                 if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
@@ -200,16 +200,16 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private void WrapChar(FontMetrics fm, in Point box, string utf8, RenderPath output)
+        private void WrapChar(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
             var cursor = new Point(0, 0);
             int idx = 0;
 
-            while (idx < utf8.Length)
+            while (idx < len)
             {
-                var code = DecodeCodepoint(utf8, ref idx);
+                var code = DecodeCodepoint(utf8, ref idx, len);
                 if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
@@ -251,7 +251,7 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private unsafe void WrapWord(FontMetrics fm, in Point box, string utf8, RenderPath output, bool smart)
+        private unsafe void WrapWord(FontMetrics fm, in Point box, string utf8, int len, RenderPath output, bool smart)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
@@ -261,9 +261,9 @@ namespace ThorVG
             var cursor = new Point(0, 0);
             int idx = 0;
 
-            while (idx < utf8.Length)
+            while (idx < len)
             {
-                var code = DecodeCodepoint(utf8, ref idx);
+                var code = DecodeCodepoint(utf8, ref idx, len);
                 if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
@@ -323,7 +323,7 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private void WrapEllipsis(FontMetrics fm, in Point box, string utf8, RenderPath output)
+        private void WrapEllipsis(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
@@ -334,9 +334,9 @@ namespace ThorVG
             bool stop = false;
             int idx = 0;
 
-            while (idx < utf8.Length)
+            while (idx < len)
             {
-                var code = DecodeCodepoint(utf8, ref idx);
+                var code = DecodeCodepoint(utf8, ref idx, len);
                 if (code == LINE_FEED_CODEPOINT)
                 {
                     line = FeedLine(fm, box.x, cursor.x, line, output.pts.count, ref cursor, output);
@@ -450,7 +450,7 @@ namespace ThorVG
             paint.Transform(m);
         }
 
-        public override bool Get(FontMetrics fm, string? text, RenderPath output)
+        public override bool Get(FontMetrics fm, string? text, uint len, RenderPath output)
         {
             output.Clear();
 
@@ -463,12 +463,13 @@ namespace ThorVG
             if (fm.engine == null) fm.engine = new TtfMetrics();
 
             var box = new Point(fm.box.x * fm.scale, fm.box.y * fm.scale);
+            var end = (int)Math.Min(len, text.Length);
 
-            if (fm.wrap == TextWrap.None || fm.box.x == 0.0f) WrapNone(fm, box, text, output);
-            else if (fm.wrap == TextWrap.Character) WrapChar(fm, box, text, output);
-            else if (fm.wrap == TextWrap.Word) WrapWord(fm, box, text, output, false);
-            else if (fm.wrap == TextWrap.Smart) WrapWord(fm, box, text, output, true);
-            else if (fm.wrap == TextWrap.Ellipsis) WrapEllipsis(fm, box, text, output);
+            if (fm.wrap == TextWrap.None || fm.box.x == 0.0f) WrapNone(fm, box, text, end, output);
+            else if (fm.wrap == TextWrap.Character) WrapChar(fm, box, text, end, output);
+            else if (fm.wrap == TextWrap.Word) WrapWord(fm, box, text, end, output, false);
+            else if (fm.wrap == TextWrap.Smart) WrapWord(fm, box, text, end, output, true);
+            else if (fm.wrap == TextWrap.Ellipsis) WrapEllipsis(fm, box, text, end, output);
             else return false;
 
             return true;
@@ -500,7 +501,7 @@ namespace ThorVG
             output = default;
             if (string.IsNullOrEmpty(ch)) return false;
             int idx = 0;
-            var code = DecodeCodepoint(ch, ref idx);
+            var code = DecodeCodepoint(ch, ref idx, ch.Length);
             var glyph = Request(code);
             if (glyph == null) return false;
             var scale = (fm.fontSize * DPI) / reader.metrics.unitsPerEm;

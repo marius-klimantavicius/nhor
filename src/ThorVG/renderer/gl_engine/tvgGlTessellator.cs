@@ -438,10 +438,6 @@ namespace ThorVG
     {
         private GlGeometryBuffer mBuffer;
         private BBox bbox;
-        private Point firstPt;
-        private Point prevPt;
-        private Point prevEdge;
-        private sbyte winding = -1;
 
         public bool convex = true;
 
@@ -450,9 +446,8 @@ namespace ThorVG
             mBuffer = buffer;
         }
 
-        public void Tessellate(RenderPath path, sbyte defaultWinding = -1)
+        public void Tessellate(RenderPath path)
         {
-            winding = defaultWinding;
             var cmds = path.cmds.data;
             var cmdCnt = path.cmds.count;
             var pts = path.pts.data;
@@ -462,6 +457,10 @@ namespace ThorVG
 
             uint firstIndex = 0;
             uint prevIndex = 0;
+            Point firstPt = default;
+            Point prevPt = default;
+            ConvexProbe probe = ConvexProbe.Create();
+            bool contourClosed = false;
 
             mBuffer.vertex.Reserve(ptsCnt * 2);
             mBuffer.index.Reserve((ptsCnt - 2) * 3);
@@ -472,23 +471,31 @@ namespace ThorVG
                 {
                     case PathCommand.MoveTo:
                     {
+                        // finishContour
+                        if (prevIndex != 0 && !contourClosed)
+                        {
+                            probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
+                            contourClosed = true;
+                        }
+                        probe.NextContour();
                         firstIndex = PushVertex(pts->x, pts->y);
                         firstPt = prevPt = *pts;
-                        prevEdge = default;
                         prevIndex = 0;
+                        contourClosed = false;
                         pts++;
                     } break;
                     case PathCommand.LineTo:
                     {
+                        var edge = TvgMath.PointSub(*pts, prevPt);
                         if (prevIndex == 0)
                         {
                             prevIndex = PushVertex(pts->x, pts->y);
-                            prevEdge = TvgMath.PointSub(*pts, prevPt);
+                            probe.AddEdge(edge);
                             prevPt = *pts++;
                         }
                         else
                         {
-                            UpdateConvexity(TvgMath.PointSub(*pts, prevPt));
+                            probe.AddEdge(edge);
                             var currIndex = PushVertex(pts->x, pts->y);
                             PushTriangle(firstIndex, prevIndex, currIndex);
                             prevIndex = currIndex;
@@ -498,25 +505,19 @@ namespace ThorVG
                     case PathCommand.CubicTo:
                     {
                         var curve = new Bezier(pts[-1], pts[0], pts[1], pts[2]);
-                        if (convex)
-                        {
-                            var e1 = TvgMath.PointSub(curve.ctrl1, curve.start);
-                            var e2 = TvgMath.PointSub(curve.ctrl2, curve.ctrl1);
-                            var e3 = TvgMath.PointSub(curve.end, curve.ctrl2);
-                            if (prevIndex != 0) UpdateConvexity(e1);
-                            else prevEdge = e1;
-                            UpdateConvexity(e2);
-                            UpdateConvexity(e3);
-                        }
+                        if (probe.convex && TvgMath.EdgesCross(curve.start, curve.ctrl1, curve.ctrl2, curve.end)) probe.convex = false;
 
                         var stepCount = curve.Segments();
                         if (stepCount <= 1) stepCount = 2;
                         float step = 1f / stepCount;
+                        var curvePrevPt = prevPt;
 
                         for (uint s = 1; s <= stepCount; s++)
                         {
                             var pt = curve.At(step * s);
+                            probe.AddEdge(TvgMath.PointSub(pt, curvePrevPt));
                             var currIndex = PushVertex(pt.x, pt.y);
+                            curvePrevPt = pt;
                             if (prevIndex == 0) { prevIndex = currIndex; continue; }
                             PushTriangle(firstIndex, prevIndex, currIndex);
                             prevIndex = currIndex;
@@ -526,20 +527,24 @@ namespace ThorVG
                     } break;
                     case PathCommand.Close:
                     {
-                        if (convex && prevIndex != 0)
+                        // finishContour
+                        if (prevIndex != 0 && !contourClosed)
                         {
-                            UpdateConvexity(TvgMath.PointSub(firstPt, prevPt));
-                            if (convex && winding != 0)
-                            {
-                                var secondPt = new Point(mBuffer.vertex[firstIndex * 2 + 2], mBuffer.vertex[firstIndex * 2 + 3]);
-                                UpdateConvexity(TvgMath.PointSub(secondPt, firstPt));
-                            }
+                            probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
+                            contourClosed = true;
                         }
                     } break;
                     default:
                         break;
                 }
             }
+
+            // finishContour (final)
+            if (prevIndex != 0 && !contourClosed)
+            {
+                probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
+            }
+            convex = probe.convex;
         }
 
         public RenderRegion Bounds()
@@ -564,18 +569,6 @@ namespace ThorVG
             mBuffer.index.Push(a);
             mBuffer.index.Push(b);
             mBuffer.index.Push(c);
-        }
-
-        private void UpdateConvexity(Point edge)
-        {
-            if (!convex) return;
-            if (prevEdge.x == 0.0f && prevEdge.y == 0.0f) { prevEdge = edge; return; }
-            var c = TvgMath.Cross(prevEdge, edge);
-            if (TvgMath.Zero(c)) { prevEdge = edge; return; }
-            var sign = (sbyte)(c > 0 ? 1 : -1);
-            if (winding == 0) winding = sign;
-            else if (sign != winding) convex = false;
-            prevEdge = edge;
         }
     }
 }

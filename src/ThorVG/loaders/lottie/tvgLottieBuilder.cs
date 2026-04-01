@@ -56,9 +56,7 @@ namespace ThorVG
         public int beginIdx;
         public List<RenderRepeater> repeaters = new();
         public Matrix? transform;
-        public LottieRoundnessModifier? roundness;
-        public LottieOffsetModifier? offset;
-        public LottieModifier? modifier;
+        public LottieModifier? modifiers;
         public RenderFragment fragment = RenderFragment.ByNone;
         public bool reqFragment;
 
@@ -80,16 +78,35 @@ namespace ThorVG
             this.propagator = propagator;
             repeaters.AddRange(rhs.repeaters);
             fragment = rhs.fragment;
-            if (rhs.roundness != null)
+
+            // copy modifiers
+            var m = rhs.modifiers;
+            while (m != null)
             {
-                roundness = new LottieRoundnessModifier(rhs.roundness.buffer, rhs.roundness.r);
-                Update(roundness);
+                switch (m.type)
+                {
+                    case LottieModifier.ModifierType.Roundness:
+                    {
+                        var roundness = (LottieRoundnessModifier)m;
+                        Update(new LottieRoundnessModifier(roundness.buffer, roundness.r));
+                        break;
+                    }
+                    case LottieModifier.ModifierType.Offset:
+                    {
+                        var offset = (LottieOffsetModifier)m;
+                        Update(new LottieOffsetModifier(offset.buffer, offset.offset, offset.miterLimit, offset.join));
+                        break;
+                    }
+                    case LottieModifier.ModifierType.PuckerBloat:
+                    {
+                        var pucker = (LottiePuckerBloatModifier)m;
+                        Update(new LottiePuckerBloatModifier(pucker.buffer, pucker.amount));
+                        break;
+                    }
+                }
+                m = m.next;
             }
-            if (rhs.offset != null)
-            {
-                offset = new LottieOffsetModifier(rhs.offset.offset, rhs.offset.miterLimit, rhs.offset.join);
-                Update(offset);
-            }
+
             if (rhs.transform.HasValue)
             {
                 transform = rhs.transform.Value;
@@ -103,9 +120,7 @@ namespace ThorVG
             beginIdx = 0;
             repeaters.Clear();
             transform = null;
-            roundness = null;
-            offset = null;
-            modifier = null;
+            modifiers = null;
             fragment = RenderFragment.ByNone;
             reqFragment = false;
             Prev = null;
@@ -114,8 +129,8 @@ namespace ThorVG
 
         public void Update(LottieModifier next)
         {
-            if (modifier != null) modifier = modifier.Decorate(next);
-            else modifier = next;
+            if (modifiers != null) modifiers = modifiers.Decorate(next);
+            else modifiers = next;
         }
 
         public void Dispose()
@@ -509,16 +524,24 @@ namespace ThorVG
 
             if (!group.visible) return;
 
-            // Prepare render data
-            if (group.blendMethod == parent.blendMethod)
+            // prepare render data
+
+            // special tune: sharing the context if the blending is compatible
+            // propagate the blending to its parent(layer) if possible. this potentially helps performance if the layer has mattes/maskings.
+            if (group.blendMethod == BlendMethod.Normal || group.blendMethod == parent.blendMethod)
             {
                 group.scene = parent.scene;
+            }
+            else if (parent.blendMethod == BlendMethod.Normal && parent.children.Count == 1)
+            {
+                group.scene = parent.scene;
+                group.scene!.SetBlend(group.blendMethod);
             }
             else
             {
                 group.scene = Scene.Gen();
-                group.scene.SetBlend(group.blendMethod);
                 parent.scene!.Add(group.scene);
+                group.scene.SetBlend(group.blendMethod);
             }
 
             group.reqFragment |= ctx.reqFragment;
@@ -621,26 +644,27 @@ namespace ThorVG
             return false;
         }
 
-        private unsafe void AppendRect(Shape shape, Point pos, Point size, float r, bool clockwise, RenderContext ctx)
+        private unsafe void AppendRect(LottieRect rect, Shape shape, Point pos, Point size, float r, bool clockwise, RenderContext ctx)
         {
-            var temp = (ctx.offset != null) ? Shape.Gen() : shape;
-            var cnt = temp.rs.path.pts.count;
+            ref var path = ref shape.rs.path;
+            var cnt = path.pts.count;
 
-            temp.AppendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
+            if (ctx.modifiers != null)
+            {
+                var temp = rect.renderPooler.Pooling();
+                temp.ResetShape();
+                temp.AppendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
+                ctx.modifiers.Rect(temp.rs.path, shape.rs.path, pos, size, r, clockwise);
+            }
+            else shape.AppendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
 
             if (ctx.transform.HasValue)
             {
                 var t = ctx.transform.Value;
-                for (var i = cnt; i < temp.rs.path.pts.count; ++i)
+                for (var i = cnt; i < path.pts.count; ++i)
                 {
-                    TvgMath.TransformInPlace(ref temp.rs.path.pts[i], t);
+                    TvgMath.TransformInPlace(ref path.pts[i], t);
                 }
-            }
-
-            if (ctx.offset != null)
-            {
-                ctx.offset.ModifyRect(temp.rs.path, shape.rs.path);
-                Paint.Rel(temp);
             }
         }
 
@@ -649,45 +673,42 @@ namespace ThorVG
             var rect = (LottieRect)parent.children[childIdx];
             var size = rect.size.Evaluate(frameNo, tween, exps);
             var pos = TvgMath.PointSub(rect.position.Evaluate(frameNo, tween, exps), TvgMath.PointMul(size, 0.5f));
-            var r = rect.radius.Evaluate(frameNo, tween, exps);
-
-            if (r == 0.0f)
-            {
-                if (ctx.roundness != null) ctx.roundness.ModifyRect(ref size, ref r);
-            }
-            else
-            {
-                r = MathF.Min(r, MathF.Min(size.x * 0.5f, size.y * 0.5f));
-            }
+            var r = MathF.Min(rect.radius.Evaluate(frameNo, tween, exps), MathF.Min(size.x * 0.5f, size.y * 0.5f));
 
             if (ctx.repeaters.Count == 0)
             {
                 Draw(parent, rect, ctx);
-                AppendRect(ctx.merging!, pos, size, r, rect.clockwise, ctx);
+                AppendRect(rect, ctx.merging!, pos, size, r, rect.clockwise, ctx);
             }
             else
             {
                 var shape = rect.renderPooler.Pooling();
                 shape.ResetShape();
-                AppendRect(shape, pos, size, r, rect.clockwise, ctx);
+                AppendRect(rect, shape, pos, size, r, rect.clockwise, ctx);
                 Repeat(parent, shape, rect.renderPooler, ctx);
             }
         }
 
-        private static unsafe void AppendCircle(Shape shape, Point center, Point radius, bool clockwise, RenderContext ctx)
+        private unsafe void AppendCircle(LottieEllipse ellipse, Shape shape, Point center, Point radius, bool clockwise, RenderContext ctx)
         {
-            if (ctx.offset != null) ctx.offset.ModifyEllipse(ref radius);
+            ref var path = ref shape.rs.path;
+            var cnt = path.pts.count;
 
-            var cnt = shape.rs.path.pts.count;
-
-            shape.AppendCircle(center.x, center.y, radius.x, radius.y, clockwise);
+            if (ctx.modifiers != null)
+            {
+                var temp = ellipse.renderPooler.Pooling();
+                temp.ResetShape();
+                temp.AppendCircle(center.x, center.y, radius.x, radius.y, clockwise);
+                ctx.modifiers.Ellipse(temp.rs.path, shape.rs.path, center, radius, clockwise);
+            }
+            else shape.AppendCircle(center.x, center.y, radius.x, radius.y, clockwise);
 
             if (ctx.transform.HasValue)
             {
                 var t = ctx.transform.Value;
-                for (var i = cnt; i < shape.rs.path.pts.count; ++i)
+                for (var i = cnt; i < path.pts.count; ++i)
                 {
-                    TvgMath.TransformInPlace(ref shape.rs.path.pts[i], t);
+                    TvgMath.TransformInPlace(ref path.pts[i], t);
                 }
             }
         }
@@ -701,13 +722,13 @@ namespace ThorVG
             if (ctx.repeaters.Count == 0)
             {
                 Draw(parent, ellipse, ctx);
-                AppendCircle(ctx.merging!, pos, size, ellipse.clockwise, ctx);
+                AppendCircle(ellipse, ctx.merging!, pos, size, ellipse.clockwise, ctx);
             }
             else
             {
                 var shape = ellipse.renderPooler.Pooling();
                 shape.ResetShape();
-                AppendCircle(shape, pos, size, ellipse.clockwise, ctx);
+                AppendCircle(ellipse, shape, pos, size, ellipse.clockwise, ctx);
                 Repeat(parent, shape, ellipse.renderPooler, ctx);
             }
         }
@@ -726,7 +747,7 @@ namespace ThorVG
                     tVal = ctx.transform.Value;
                     t = &tVal;
                 }
-                if (path.pathset.Evaluate(frameNo, ctx.merging!.rs.path, t, tween, exps, ctx.modifier))
+                if (path.pathset.Evaluate(frameNo, ctx.merging!.rs.path, t, tween, exps, ctx.modifiers))
                 {
                     ctx.merging.pImpl.Mark(RenderUpdateFlag.Path);
                 }
@@ -742,7 +763,7 @@ namespace ThorVG
                     tVal = ctx.transform.Value;
                     t = &tVal;
                 }
-                path.pathset.Evaluate(frameNo, shape.rs.path, t, tween, exps, ctx.modifier);
+                path.pathset.Evaluate(frameNo, shape.rs.path, t, tween, exps, ctx.modifiers);
                 Repeat(parent, shape, path.renderPooler, ctx);
             }
         }
@@ -766,10 +787,9 @@ namespace ThorVG
             var numPoints = (int)MathF.Ceiling(ptsCnt) * 2;
             var direction = star.clockwise ? 1.0f : -1.0f;
             var hasRoundness = false;
-            bool roundedCorner = ctx.roundness != null && (TvgMath.Zero(innerRoundness) || TvgMath.Zero(outerRoundness));
 
             Shape shape;
-            if (roundedCorner || ctx.offset != null)
+            if (ctx.modifiers != null)
             {
                 shape = star.renderPooler.Pooling();
                 shape.ResetShape();
@@ -875,7 +895,7 @@ namespace ThorVG
             Close(ref shape.rs.path.pts, inPt, hasRoundness);
             shape.Close();
 
-            if (ctx.modifier != null) ctx.modifier.ModifyPolystar(shape.rs.path, merging.rs.path, outerRoundness, hasRoundness);
+            if (ctx.modifiers != null) ctx.modifiers.Polystar(shape.rs.path, merging.rs.path, outerRoundness, hasRoundness);
         }
 
         private unsafe void UpdatePolygon(LottieGroup parent, LottiePolyStar star, float frameNo, Matrix? transformM, Shape merging, RenderContext ctx, Tween tween, LottieExpressions? exps)
@@ -890,14 +910,13 @@ namespace ThorVG
             var anglePerPoint = 2.0f * MathConstants.MATH_PI / (float)ptsCnt;
             var direction = star.clockwise ? 1.0f : -1.0f;
             var hasRoundness = !TvgMath.Zero(outerRoundness);
-            bool roundedCorner = ctx.roundness != null && !hasRoundness;
             var x = radius * MathF.Cos(angle);
             var y = radius * MathF.Sin(angle);
 
             angle += anglePerPoint * direction;
 
             Shape shape;
-            if (roundedCorner || ctx.offset != null)
+            if (ctx.modifiers != null)
             {
                 shape = star.renderPooler.Pooling();
                 shape.ResetShape();
@@ -954,7 +973,7 @@ namespace ThorVG
             Close(ref shape.rs.path.pts, inPt, hasRoundness);
             shape.Close();
 
-            if (ctx.modifier != null) ctx.modifier.ModifyPolystar(shape.rs.path, merging.rs.path, 0.0f, false);
+            if (ctx.modifiers != null) ctx.modifiers.Polystar(shape.rs.path, merging.rs.path, 0.0f, false);
         }
 
         private void UpdatePolystar(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
@@ -992,25 +1011,19 @@ namespace ThorVG
             var roundedCorner = (LottieRoundedCorner)parent.children[childIdx];
             var r = roundedCorner.radius.Evaluate(frameNo, tween, exps);
             if (r < LottieRoundnessModifier.ROUNDNESS_EPSILON) return;
-
-            if (ctx.roundness != null)
-            {
-                if (ctx.roundness.r < r) ctx.roundness.r = r;
-            }
-            else
-            {
-                ctx.roundness = new LottieRoundnessModifier(buffer, r);
-                ctx.Update(ctx.roundness);
-            }
+            ctx.Update(new LottieRoundnessModifier(buffer, r));
         }
 
         private void UpdateOffsetPath(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
         {
             var offsetObj = (LottieOffsetPath)parent.children[childIdx];
-            if (ctx.offset == null)
-                ctx.offset = new LottieOffsetModifier(offsetObj.offset.Evaluate(frameNo, tween, exps), offsetObj.miterLimit.Evaluate(frameNo, tween, exps), offsetObj.join);
+            ctx.Update(new LottieOffsetModifier(buffer, offsetObj.offset.Evaluate(frameNo, tween, exps), offsetObj.miterLimit.Evaluate(frameNo, tween, exps), offsetObj.join));
+        }
 
-            ctx.Update(ctx.offset);
+        private void UpdatePuckerBloat(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
+        {
+            var puckerBloat = (LottiePuckerBloat)parent.children[childIdx];
+            ctx.Update(new LottiePuckerBloatModifier(buffer, puckerBloat.amount.Evaluate(frameNo, tween, exps)));
         }
 
         private void UpdateRepeater(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
@@ -1107,6 +1120,9 @@ namespace ThorVG
                         case LottieObject.ObjectType.OffsetPath:
                             UpdateOffsetPath(parent, childIdx, frameNo, contexts, ctx);
                             break;
+                        case LottieObject.ObjectType.PuckerBloat:
+                            UpdatePuckerBloat(parent, childIdx, frameNo, contexts, ctx);
+                            break;
                         default: break;
                     }
 
@@ -1198,8 +1214,10 @@ namespace ThorVG
             var feed = false;
             for (int i = 0; i < textStr.Length; ++i)
             {
+                // replace the carriage return and end of text with line feed.
                 if (textStr[i] == '\r' || textStr[i] == '\x03')
                 {
+                    if (i == textStr.Length - 1) break;  // ignore trailing occurrences
                     if (!feed) buf[bIdx] = '\n';
                     else continue;
                 }
@@ -1350,6 +1368,11 @@ namespace ThorVG
                 var pivot = TvgMath.PointMul(align, -1.0f);
                 transform.e13 += pivot.x * transform.e11 + pivot.x * transform.e12;
                 transform.e23 += pivot.y * transform.e21 + pivot.y * transform.e22;
+
+                //world space translation
+                transform.e13 += translation.x / ctx.scale;
+                transform.e23 += translation.y / ctx.scale;
+
                 ctx.lineScene.Transform(transform);
             }
             var matrix2 = TvgMath.Identity();
@@ -1568,7 +1591,7 @@ namespace ThorVG
                     // Masking with Expansion (Offset)
                     else
                     {
-                        var offset = new LottieOffsetModifier(expand);
+                        var offset = new LottieOffsetModifier(buffer, expand);
                         mask.pathset.Evaluate(frameNo, pShape.rs.path, null, tween, exps, offset);
                     }
                 }
@@ -1741,6 +1764,8 @@ namespace ThorVG
 
             if (!layer.matteSrc && !UpdateMatte(comp, frameNo, scene, layer)) return;
 
+            layer.scene.SetBlend(layer.blendMethod);
+
             switch (layer.layerType)
             {
                 case LottieLayer.LayerType.Precomp:
@@ -1778,8 +1803,6 @@ namespace ThorVG
             }
 
             UpdateMasks(layer, frameNo);
-
-            layer.scene.SetBlend(layer.blendMethod);
 
             UpdateEffect(layer, frameNo, comp.quality);
 

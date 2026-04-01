@@ -94,11 +94,7 @@ struct RenderRegion
 {
     struct {
         int32_t x, y;
-    } min;
-
-    struct {
-        int32_t x, y;
-    } max;
+    } min, max;
 
     static constexpr RenderRegion intersect(const RenderRegion& lhs, const RenderRegion& rhs)
     {
@@ -316,6 +312,8 @@ struct RenderPath
        and removing unnecessary cubic beziers. */
     void optimize(RenderPath& out, const Matrix& matrix, bool& thin) const;
     bool bounds(const Matrix* m, BBox& box);
+    void addCircle(float cx, float cy, float rx, float ry, bool cw);
+    void addRect(float x, float y, float w, float h, float rx, float ry, bool cw);
 };
 
 struct RenderTrimPath

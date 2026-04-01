@@ -27,6 +27,7 @@
 #include "tvgGlRenderTarget.h"
 #include "tvgGlRenderTask.h"
 #include "tvgGlGpuBuffer.h"
+#include "tvgGlTextureMgr.h"
 #include "tvgGlRenderPass.h"
 #include "tvgGlEffect.h"
 #include "tvgGlSolidBatch.h"
@@ -180,7 +181,7 @@ struct GlRenderer : RenderMethod
     void damage(RenderData rd, const RenderRegion& region) override;
     bool partial(bool disable) override;
 
-    static GlRenderer* gen(uint32_t threads);
+    static GlRenderer* gen(uint32_t threads, EngineOption op);
     static bool term();
 
 private:
@@ -207,6 +208,7 @@ private:
     void prepareBlitTask(GlBlitTask* task);
     void prepareCmpTask(GlRenderTask* task, const RenderRegion& vp, uint32_t cmpWidth, uint32_t cmpHeight);
     void endRenderPass(RenderCompositor* cmp);
+    void disposeTexture(GLuint texId);
 
     void flush();
     void clearDisposes();
@@ -227,6 +229,7 @@ private:
     Array<GlRenderTargetPool*> mBlendPool;
     Array<GlRenderPass*> mRenderPassStack;
     Array<GlCompositor*> mComposeStack;
+    TextureMgr mTextures;
     GlSolidBatch mSolidBatch;
 
     //Disposed resources. They should be released on synced call.

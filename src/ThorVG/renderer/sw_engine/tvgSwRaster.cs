@@ -1046,6 +1046,14 @@ namespace ThorVG
         {
             if (surface.channelSize == sizeof(byte)) return false;
 
+            // fast-track: mix the blending & masking composition
+            static bool injecting(SwCompositor? cmp)
+            {
+                return cmp != null && cmp.recoverCmp != null && cmp.recoverCmp.method != MaskMethod.None && _matting(cmp.recoverSfc!) && !_blending(cmp.recoverSfc!);
+            }
+
+            if (injecting(surface.compositor)) return _rasterDirectMattedBlendingImage(surface, image, surface.compositor!.recoverCmp!, bbox, w, h, opacity);
+
             var dbuffer = &surface.buf32[bbox.min.y * surface.stride + bbox.min.x];
             var sbuffer = image.buf32 + (bbox.min.y + image.oy) * image.stride + (bbox.min.x + image.ox);
 
@@ -1109,14 +1117,14 @@ namespace ThorVG
             return true;
         }
 
-        private static bool _rasterDirectMattedBlendingImage(SwSurface surface, SwImage image, in RenderRegion bbox, int w, int h, byte opacity)
+        private static bool _rasterDirectMattedBlendingImage(SwSurface surface, SwImage image, SwCompositor compositor, in RenderRegion bbox, int w, int h, byte opacity)
         {
             if (surface.channelSize == sizeof(byte)) return false;
 
-            var csize = surface.compositor!.image.channelSize;
-            var alpha = surface.Alpha(surface.compositor.method);
+            var csize = compositor.image.channelSize;
+            var alpha = surface.Alpha(compositor.method);
             var sbuffer = image.buf32 + (bbox.min.y + image.oy) * image.stride + (bbox.min.x + image.ox);
-            var cbuffer = surface.compositor.image.buf8 + (bbox.min.y * surface.compositor.image.stride + bbox.min.x) * csize;
+            var cbuffer = compositor.image.buf8 + (bbox.min.y * compositor.image.stride + bbox.min.x) * csize;
             var dbuffer = surface.buf32 + (bbox.min.y * surface.stride) + bbox.min.x;
 
             for (var y = 0; y < h; ++y, dbuffer += surface.stride, sbuffer += image.stride)
@@ -1137,7 +1145,7 @@ namespace ThorVG
                         *dst = INTERPOLATE(surface.blender!(*src, *dst), *dst, (byte)MULTIPLY(MULTIPLY(A(*src), alpha!(cmp)), opacity));
                     }
                 }
-                cbuffer += surface.compositor.image.stride * csize;
+                cbuffer += compositor.image.stride * csize;
             }
             return true;
         }
@@ -1651,7 +1659,7 @@ namespace ThorVG
             {
                 if (_matting(surface))
                 {
-                    if (_blending(surface)) return _rasterDirectMattedBlendingImage(surface, image, bbox, w, h, opacity);
+                    if (_blending(surface)) return _rasterDirectMattedBlendingImage(surface, image, surface.compositor!, bbox, w, h, opacity);
                     else return _rasterDirectMattedImage(surface, image, bbox, w, h, opacity);
                 }
                 else return _rasterDirectMaskedImage(surface, image, bbox, w, h, opacity);

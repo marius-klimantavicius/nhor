@@ -138,6 +138,14 @@ namespace ThorVG
                 to.flags |= SvgStyleFlags.Opacity;
                 if ((from.flagsImportance & SvgStyleFlags.Opacity) != 0) to.flagsImportance |= SvgStyleFlags.Opacity;
             }
+            // BlendMode
+            if (((from.flags & SvgStyleFlags.BlendMode) != 0 && (overwrite || (to.flags & SvgStyleFlags.BlendMode) == 0)) ||
+                IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.BlendMode))
+            {
+                to.blendMode = from.blendMode;
+                to.flags |= SvgStyleFlags.BlendMode;
+                if ((from.flagsImportance & SvgStyleFlags.BlendMode) != 0) to.flagsImportance |= SvgStyleFlags.BlendMode;
+            }
         }
 
         public static void CopyStyleAttr(SvgNode to, SvgNode from, bool overwrite = false)

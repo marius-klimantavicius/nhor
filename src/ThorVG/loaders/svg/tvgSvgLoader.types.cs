@@ -6,10 +6,10 @@ using System;
 namespace ThorVG
 {
     // Delegate types matching C++ function-pointer typedefs.
-    public delegate bool ParseAttributesFunc(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgLoaderData data);
-    public delegate SvgNode? FactoryMethod(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func);
-    public delegate SvgStyleGradient? GradientFactoryMethod(SvgLoaderData loader, string buf, int bufOffset, int bufLength);
-    public delegate void StyleMethodDelegate(SvgLoaderData loader, SvgNode node, string value);
+    public delegate bool ParseAttributesFunc(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgParserContext data);
+    public delegate SvgNode? FactoryMethod(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func);
+    public delegate SvgStyleGradient? GradientFactoryMethod(SvgParserContext ctx, string buf, int bufOffset, int bufLength);
+    public delegate void StyleMethodDelegate(SvgParserContext ctx, SvgNode node, string value);
 
     public enum MatrixState
     {
@@ -245,7 +245,27 @@ namespace ThorVG
             ("mask-type", HandleMaskTypeAttr, SvgStyleFlags.MaskType),
             ("display", HandleDisplayAttr, SvgStyleFlags.Display),
             ("paint-order", HandlePaintOrderAttr, SvgStyleFlags.PaintOrder),
-            ("filter", HandleFilterAttr, SvgStyleFlags.Filter)
+            ("filter", HandleFilterAttr, SvgStyleFlags.Filter),
+            ("mix-blend-mode", HandleMixBlendModeAttr, SvgStyleFlags.BlendMode)
+        };
+
+        // --- Blend mode tags ---
+        private static readonly (BlendMethod blendMode, string tag)[] BlendModeTags = {
+            (BlendMethod.Multiply, "multiply"),
+            (BlendMethod.Screen, "screen"),
+            (BlendMethod.Overlay, "overlay"),
+            (BlendMethod.Darken, "darken"),
+            (BlendMethod.Lighten, "lighten"),
+            (BlendMethod.ColorDodge, "color-dodge"),
+            (BlendMethod.ColorBurn, "color-burn"),
+            (BlendMethod.HardLight, "hard-light"),
+            (BlendMethod.SoftLight, "soft-light"),
+            (BlendMethod.Difference, "difference"),
+            (BlendMethod.Exclusion, "exclusion"),
+            (BlendMethod.Hue, "hue"),
+            (BlendMethod.Saturation, "saturation"),
+            (BlendMethod.Color, "color"),
+            (BlendMethod.Luminosity, "luminosity")
         };
 
         private static readonly string[] IgnoreUnsupportedLogElements = {
@@ -363,8 +383,17 @@ namespace ThorVG
         // --- ToMaskType ---
         private static SvgMaskType ToMaskType(string str)
         {
-            if (SvgHelper.StrAs(str, "Alpha")) return SvgMaskType.Alpha;
-            return SvgMaskType.Luminance;
+            return SvgHelper.StrAs(str, "Alpha") ? SvgMaskType.Alpha : SvgMaskType.Luminance;
+        }
+
+        // --- ToBlendMode ---
+        private static BlendMethod ToBlendMode(string str)
+        {
+            for (int i = 0; i < BlendModeTags.Length; i++)
+            {
+                if (SvgHelper.StrAs(str, BlendModeTags[i].tag)) return BlendModeTags[i].blendMode;
+            }
+            return BlendMethod.Normal;
         }
 
         // --- ToPaintOrder ---
@@ -467,7 +496,7 @@ namespace ThorVG
         }
 
         // --- ParseDashArray ---
-        private static void ParseDashArray(SvgLoaderData loader, string str, SvgDash dash)
+        private static void ParseDashArray(SvgParserContext ctx, string str, SvgDash dash)
         {
             if (str.StartsWith("none", StringComparison.Ordinal)) return;
 
@@ -487,8 +516,8 @@ namespace ThorVG
                 if (pos < str.Length && str[pos] == '%')
                 {
                     pos++;
-                    var gw = loader.svgParse!.global.w;
-                    var gh = loader.svgParse.global.h;
+                    var gw = ctx.svgParse!.global.w;
+                    var gh = ctx.svgParse.global.h;
                     parsedValue = (MathF.Sqrt(gw * gw + gh * gh) / MathF.Sqrt(2.0f)) * (parsedValue / 100.0f);
                 }
                 dash.array.Add(parsedValue);

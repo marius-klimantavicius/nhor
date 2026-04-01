@@ -33,7 +33,7 @@ namespace ThorVG
         }
 
         // ========== Style attribute handlers ==========
-        private static void HandleColorAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleColorAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             byte r = 0, g = 0, b = 0;
             if (ToColorNoPaint(value, ref r, ref g, ref b))
@@ -43,55 +43,55 @@ namespace ThorVG
             }
         }
 
-        private static void HandleFillAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleFillAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.fill.flags |= SvgFillFlags.Paint;
             HandlePaintAttr(node.style.fill.paint, value);
         }
 
-        private static void HandleStrokeAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Paint;
             HandlePaintAttr(node.style.stroke.paint, value);
         }
 
-        private static void HandleStrokeOpacityAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeOpacityAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Opacity;
             node.style.stroke.opacity = ToOpacity(value);
         }
 
-        private static void HandleStrokeDashArrayAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeDashArrayAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Dash;
-            ParseDashArray(loader, value, node.style.stroke.dash);
+            ParseDashArray(ctx, value, node.style.stroke.dash);
         }
 
-        private static void HandleStrokeDashOffsetAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeDashOffsetAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.DashOffset;
-            node.style!.stroke.dash.offset = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal);
+            node.style!.stroke.dash.offset = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal);
         }
 
-        private static void HandleStrokeWidthAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeWidthAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Width;
-            node.style.stroke.width = ToFloat(loader.svgParse, value, SvgParserLengthType.Diagonal);
+            node.style.stroke.width = ToFloat(ctx.svgParse, value, SvgParserLengthType.Diagonal);
         }
 
-        private static void HandleStrokeLineCapAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeLineCapAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Cap;
             node.style.stroke.cap = ToLineCap(value);
         }
 
-        private static void HandleStrokeLineJoinAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeLineJoinAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.stroke.flags |= SvgStrokeFlags.Join;
             node.style.stroke.join = ToLineJoin(value);
         }
 
-        private static void HandleStrokeMiterlimitAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleStrokeMiterlimitAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             int pos = 0;
             float miterlimit = TvgStr.ToFloat(value, ref pos);
@@ -100,30 +100,30 @@ namespace ThorVG
             node.style.stroke.miterlimit = miterlimit;
         }
 
-        private static void HandleFillRuleAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleFillRuleAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.fill.flags |= SvgFillFlags.FillRule;
             node.style.fill.fillRule = ToFillRule(value);
         }
 
-        private static void HandleOpacityAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleOpacityAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.flags |= SvgStyleFlags.Opacity;
             node.style.opacity = ToOpacity(value);
         }
 
-        private static void HandleFillOpacityAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleFillOpacityAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.fill.flags |= SvgFillFlags.Opacity;
             node.style.fill.opacity = ToOpacity(value);
         }
 
-        private static void HandleTransformAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleTransformAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.transform = ParseTransformationMatrix(value);
         }
 
-        private static void HandleClipPathAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleClipPathAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             if (value.Length >= 3 && value.StartsWith("url", StringComparison.Ordinal))
             {
@@ -131,7 +131,7 @@ namespace ThorVG
             }
         }
 
-        private static void HandleMaskAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleMaskAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             if (value.Length >= 3 && value.StartsWith("url", StringComparison.Ordinal))
             {
@@ -139,7 +139,7 @@ namespace ThorVG
             }
         }
 
-        private static void HandleFilterAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleFilterAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             if (value.Length >= 3 && value.StartsWith("url", StringComparison.Ordinal))
             {
@@ -147,37 +147,43 @@ namespace ThorVG
             }
         }
 
-        private static void HandleMaskTypeAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleMaskTypeAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.maskNode.type = ToMaskType(value);
         }
 
-        private static void HandleDisplayAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleDisplayAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.flags |= SvgStyleFlags.Display;
             node.style.display = !SvgHelper.StrAs(value, "none");
         }
 
-        private static void HandlePaintOrderAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandlePaintOrderAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.flags |= SvgStyleFlags.PaintOrder;
             node.style.paintOrder = ToPaintOrder(value);
         }
 
-        private static void HandleCssClassAttr(SvgLoaderData loader, SvgNode node, string value)
+        private static void HandleMixBlendModeAttr(SvgParserContext ctx, SvgNode node, string value)
+        {
+            node.style!.blendMode = ToBlendMode(value);
+            node.style.flags |= SvgStyleFlags.BlendMode;
+        }
+
+        private static void HandleCssClassAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.cssClass = CopyId(value);
 
-            if (!CssApplyClass(node, node.style.cssClass, loader.cssStyle))
+            if (!CssApplyClass(node, node.style.cssClass, ctx.cssStyle))
             {
-                loader.nodesToStyle.Add(new SvgNodeIdPair(node, node.style.cssClass ?? ""));
+                ctx.nodesToStyle.Add(new SvgNodeIdPair(node, node.style.cssClass ?? ""));
             }
         }
 
         // ========== _parseStyleAttr ==========
-        private static bool ParseStyleAttr(SvgLoaderData loader, string key, string value, bool style)
+        private static bool ParseStyleAttr(SvgParserContext ctx, string key, string value, bool style)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) return false;
 
             key = key.Trim();
@@ -205,13 +211,13 @@ namespace ThorVG
                     {
                         if (importance || (node.style!.flagsImportance & StyleTags[i].flag) == 0)
                         {
-                            StyleTags[i].handler(loader, node, valueToUse);
+                            StyleTags[i].handler(ctx, node, valueToUse);
                             node.style!.flags |= StyleTags[i].flag;
                         }
                     }
                     else if ((node.style!.flags & StyleTags[i].flag) == 0)
                     {
-                        StyleTags[i].handler(loader, node, valueToUse);
+                        StyleTags[i].handler(ctx, node, valueToUse);
                     }
                     if (importance)
                     {
@@ -224,21 +230,21 @@ namespace ThorVG
             return false;
         }
 
-        private static bool ParseStyleAttrCb(SvgLoaderData data, string key, string value)
+        private static bool ParseStyleAttrCb(SvgParserContext data, string key, string value)
         {
             return ParseStyleAttr(data, key, value, true);
         }
 
         // ========== Attribute parse callbacks ==========
 
-        private static bool AttrParseSvgNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseSvgNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var doc = node.doc;
 
             if (SvgHelper.StrAs(key, "width"))
             {
-                doc.w = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal);
+                doc.w = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal);
                 if (value.Contains("%") && (doc.viewFlag & SvgViewFlag.Viewbox) == 0)
                     doc.viewFlag |= SvgViewFlag.WidthInPercent;
                 else
@@ -246,7 +252,7 @@ namespace ThorVG
             }
             else if (SvgHelper.StrAs(key, "height"))
             {
-                doc.h = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical);
+                doc.h = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical);
                 if (value.Contains("%") && (doc.viewFlag & SvgViewFlag.Viewbox) == 0)
                     doc.viewFlag |= SvgViewFlag.HeightInPercent;
                 else
@@ -266,13 +272,13 @@ namespace ThorVG
                             {
                                 doc.vbox = new Box(x, y, w, h);
                                 doc.viewFlag |= SvgViewFlag.Viewbox;
-                                loader.svgParse.global.h = h;
+                                ctx.svgParse.global.h = h;
                             }
-                            loader.svgParse.global.w = w;
+                            ctx.svgParse.global.w = w;
                         }
-                        loader.svgParse.global.y = y;
+                        ctx.svgParse.global.y = y;
                     }
-                    loader.svgParse.global.x = x;
+                    ctx.svgParse.global.x = x;
                 }
                 if ((doc.viewFlag & SvgViewFlag.Viewbox) != 0 && (doc.vbox.w < 0.0f || doc.vbox.h < 0.0f))
                 {
@@ -280,10 +286,10 @@ namespace ThorVG
                 }
                 if ((doc.viewFlag & SvgViewFlag.Viewbox) == 0)
                 {
-                    loader.svgParse.global.x = 0;
-                    loader.svgParse.global.y = 0;
-                    loader.svgParse.global.w = 1;
-                    loader.svgParse.global.h = 1;
+                    ctx.svgParse.global.x = 0;
+                    ctx.svgParse.global.y = 0;
+                    ctx.svgParse.global.w = 1;
+                    ctx.svgParse.global.h = 1;
                 }
             }
             else if (SvgHelper.StrAs(key, "preserveAspectRatio"))
@@ -293,71 +299,71 @@ namespace ThorVG
             }
             else if (SvgHelper.StrAs(key, "style"))
             {
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             }
             else
             {
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             }
             return true;
         }
 
-        private static bool AttrParseGNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseGNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
 
             if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "transform"))
                 node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseClipPathNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseClipPathNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
 
             if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "transform"))
                 node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "clipPathUnits"))
             {
                 if (SvgHelper.StrAs(value, "objectBoundingBox")) node.clip.userSpace = false;
             }
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseMaskNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseMaskNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
 
             if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "transform"))
                 node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "maskContentUnits"))
             {
                 if (SvgHelper.StrAs(value, "objectBoundingBox")) node.maskNode.userSpace = false;
@@ -365,23 +371,23 @@ namespace ThorVG
             else if (SvgHelper.StrAs(key, "mask-type"))
                 node.maskNode.type = ToMaskType(value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseCssStyleNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseCssStyleNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseSymbolNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseSymbolNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var symbol = node.symbol;
 
             if (SvgHelper.StrAs(key, "viewBox"))
@@ -395,12 +401,12 @@ namespace ThorVG
             }
             else if (SvgHelper.StrAs(key, "width"))
             {
-                symbol.w = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal);
+                symbol.w = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal);
                 symbol.hasWidth = true;
             }
             else if (SvgHelper.StrAs(key, "height"))
             {
-                symbol.h = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical);
+                symbol.h = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical);
                 symbol.hasHeight = true;
             }
             else if (SvgHelper.StrAs(key, "preserveAspectRatio"))
@@ -413,84 +419,84 @@ namespace ThorVG
                 if (SvgHelper.StrAs(value, "visible")) symbol.overflowVisible = true;
             }
             else
-                return AttrParseGNode(loader, key, value);
+                return AttrParseGNode(ctx, key, value);
             return true;
         }
 
         // ========== Graphics node attribute parsers ==========
 
-        private static bool AttrParsePathNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParsePathNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             if (SvgHelper.StrAs(key, "d"))
                 node.path.path = CopyId(value);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseCircleNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseCircleNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var circle = node.circle;
 
-            if (SvgHelper.StrAs(key, "cx")) { circle.cx = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "cy")) { circle.cy = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "r")) { circle.r = ToFloat(loader.svgParse, value, SvgParserLengthType.Diagonal); return true; }
+            if (SvgHelper.StrAs(key, "cx")) { circle.cx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "cy")) { circle.cy = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "r")) { circle.r = ToFloat(ctx.svgParse, value, SvgParserLengthType.Diagonal); return true; }
 
             if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseEllipseNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseEllipseNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var ellipse = node.ellipse;
 
-            if (SvgHelper.StrAs(key, "cx")) { ellipse.cx = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "cy")) { ellipse.cy = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "rx")) { ellipse.rx = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "ry")) { ellipse.ry = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "cx")) { ellipse.cx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "cy")) { ellipse.cy = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "rx")) { ellipse.rx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "ry")) { ellipse.ry = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
 
             if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
@@ -507,9 +513,9 @@ namespace ThorVG
             return true;
         }
 
-        private static bool AttrParsePolygonNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParsePolygonNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             SvgPolygonNode polygon;
             if (node.type == SvgNodeType.Polygon) polygon = node.polygon;
             else polygon = node.polyline;
@@ -517,41 +523,41 @@ namespace ThorVG
             if (SvgHelper.StrAs(key, "points"))
                 return AttrParsePolygonPoints(value, polygon);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseRectNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseRectNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var rect = node.rect;
 
-            if (SvgHelper.StrAs(key, "x")) { rect.x = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y")) { rect.y = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "width")) { rect.w = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "height")) { rect.h = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "x")) { rect.x = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y")) { rect.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "width")) { rect.w = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "height")) { rect.h = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
             if (SvgHelper.StrAs(key, "rx"))
             {
-                rect.rx = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal);
+                rect.rx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal);
                 rect.hasRx = true;
                 if (rect.rx >= MathConstants.FLOAT_EPSILON && rect.ry < MathConstants.FLOAT_EPSILON && !rect.hasRy) rect.ry = rect.rx;
                 return true;
             }
             if (SvgHelper.StrAs(key, "ry"))
             {
-                rect.ry = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical);
+                rect.ry = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical);
                 rect.hasRy = true;
                 if (rect.ry >= MathConstants.FLOAT_EPSILON && rect.rx < MathConstants.FLOAT_EPSILON && !rect.hasRx) rect.rx = rect.ry;
                 return true;
@@ -560,115 +566,115 @@ namespace ThorVG
             if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseLineNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseLineNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var line = node.line;
 
-            if (SvgHelper.StrAs(key, "x1")) { line.x1 = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y1")) { line.y1 = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "x2")) { line.x2 = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y2")) { line.y2 = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "x1")) { line.x1 = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y1")) { line.y1 = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "x2")) { line.x2 = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y2")) { line.y2 = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
 
             if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseImageNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseImageNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var image = node.image;
 
-            if (SvgHelper.StrAs(key, "x")) { image.x = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y")) { image.y = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "width")) { image.w = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "height")) { image.h = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "x")) { image.x = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y")) { image.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "width")) { image.w = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "height")) { image.h = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
 
             if (SvgHelper.StrAs(key, "href") || SvgHelper.StrAs(key, "xlink:href"))
                 image.href = IdFromHref(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "transform"))
                 node.transform = ParseTransformationMatrix(value);
             else
-                return ParseStyleAttr(loader, key, value, true);
+                return ParseStyleAttr(ctx, key, value, true);
             return true;
         }
 
-        private static bool AttrParseTextNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseTextNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var text = node.text;
 
-            if (SvgHelper.StrAs(key, "x")) { text.x = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y")) { text.y = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "font-size")) { text.fontSize = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "x")) { text.x = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y")) { text.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "font-size")) { text.fontSize = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
 
             if (SvgHelper.StrAs(key, "font-family"))
                 text.fontFamily = value;
             else if (SvgHelper.StrAs(key, "style"))
-                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, loader);
+                return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(loader, node, value);
+                HandleClipPathAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(loader, node, value);
+                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
-                HandleFilterAttr(loader, node, value);
+                HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
-                HandleCssClassAttr(loader, node, value);
+                HandleCssClassAttr(ctx, node, value);
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseUseNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseUseNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var use = node.use;
 
-            if (SvgHelper.StrAs(key, "x")) { use.x = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); return true; }
-            if (SvgHelper.StrAs(key, "y")) { use.y = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "width")) { use.w = ToFloat(loader.svgParse, value, SvgParserLengthType.Horizontal); use.isWidthSet = true; return true; }
-            if (SvgHelper.StrAs(key, "height")) { use.h = ToFloat(loader.svgParse, value, SvgParserLengthType.Vertical); use.isHeightSet = true; return true; }
+            if (SvgHelper.StrAs(key, "x")) { use.x = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "y")) { use.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "width")) { use.w = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); use.isWidthSet = true; return true; }
+            if (SvgHelper.StrAs(key, "height")) { use.h = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); use.isHeightSet = true; return true; }
 
             if (SvgHelper.StrAs(key, "href") || SvgHelper.StrAs(key, "xlink:href"))
             {
@@ -677,17 +683,17 @@ namespace ThorVG
                 var nodeFrom = FindNodeById(defs, id);
                 if (nodeFrom != null)
                 {
-                    if (FindParentById(node, id, loader.doc) == null)
+                    if (FindParentById(node, id, ctx.doc) == null)
                     {
                         // Check if none of nodeFrom's children are in the cloneNodes list
                         var postpone = false;
-                        var pair = loader.cloneNodes.Head;
+                        var pair = ctx.cloneNodes.Head;
                         while (pair != null)
                         {
                             if (SvgLoader.CheckPostponed(nodeFrom, pair.node, 1))
                             {
                                 postpone = true;
-                                loader.cloneNodes.Back(new SvgNodeIdPair(node, id ?? ""));
+                                ctx.cloneNodes.Back(new SvgNodeIdPair(node, id ?? ""));
                                 break;
                             }
                             pair = pair.Next;
@@ -702,17 +708,17 @@ namespace ThorVG
                 else
                 {
                     // Postpone cloning - some svg export software include <defs> at end of file
-                    loader.cloneNodes.Back(new SvgNodeIdPair(node, id ?? ""));
+                    ctx.cloneNodes.Back(new SvgNodeIdPair(node, id ?? ""));
                 }
             }
             else
-                return AttrParseGNode(loader, key, value);
+                return AttrParseGNode(ctx, key, value);
             return true;
         }
 
-        private static bool AttrParseFilterNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseFilterNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var filter = node.filter;
 
             if (SvgHelper.StrAs(key, "id"))
@@ -752,9 +758,9 @@ namespace ThorVG
             return true;
         }
 
-        private static bool AttrParseGaussianBlurNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseGaussianBlurNode(SvgParserContext ctx, string key, string value)
         {
-            var node = loader.svgParse!.node!;
+            var node = ctx.svgParse!.node!;
             var gb = node.gaussianBlur;
 
             if (SvgHelper.StrAs(key, "id"))
@@ -782,16 +788,16 @@ namespace ThorVG
                 gb.hasBox = true;
             }
             else
-                return ParseStyleAttr(loader, key, value, false);
+                return ParseStyleAttr(ctx, key, value, false);
             return true;
         }
 
-        private static bool AttrParseFontFace(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseFontFace(SvgParserContext ctx, string key, string value)
         {
             if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) return false;
             key = key.Trim();
             value = value.Trim();
-            var font = loader.fonts[loader.fonts.Count - 1];
+            var font = ctx.fonts[ctx.fonts.Count - 1];
 
             if (SvgHelper.StrAs(key, "font-family"))
                 font.name = Unquote(value);
@@ -806,20 +812,20 @@ namespace ThorVG
 
         // ========== Stop attribute parsers ==========
 
-        private static bool AttrParseStopsStyle(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseStopsStyle(SvgParserContext ctx, string key, string value)
         {
-            var stop = loader.svgParse!.gradStop;
+            var stop = ctx.svgParse!.gradStop;
 
             if (SvgHelper.StrAs(key, "stop-opacity"))
             {
                 stop.a = (byte)ToOpacity(value);
-                loader.svgParse.flags |= SvgStopStyleFlags.StopOpacity;
+                ctx.svgParse.flags |= SvgStopStyleFlags.StopOpacity;
             }
             else if (SvgHelper.StrAs(key, "stop-color"))
             {
                 if (SvgHelper.StrAs(value, "currentColor"))
                 {
-                    var latestColor = FindLatestColor(loader);
+                    var latestColor = FindLatestColor(ctx);
                     if (latestColor.HasValue)
                     {
                         stop.r = latestColor.Value.r;
@@ -835,19 +841,19 @@ namespace ThorVG
                         stop.r = r;
                         stop.g = g;
                         stop.b = b;
-                        loader.svgParse.flags |= SvgStopStyleFlags.StopColor;
+                        ctx.svgParse.flags |= SvgStopStyleFlags.StopColor;
                     }
                 }
             }
             else return false;
 
-            loader.svgParse.gradStop = stop;
+            ctx.svgParse.gradStop = stop;
             return true;
         }
 
-        private static bool AttrParseStops(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseStops(SvgParserContext ctx, string key, string value)
         {
-            var stop = loader.svgParse!.gradStop;
+            var stop = ctx.svgParse!.gradStop;
 
             if (SvgHelper.StrAs(key, "offset"))
             {
@@ -855,14 +861,14 @@ namespace ThorVG
             }
             else if (SvgHelper.StrAs(key, "stop-opacity"))
             {
-                if ((loader.svgParse.flags & SvgStopStyleFlags.StopOpacity) == 0)
+                if ((ctx.svgParse.flags & SvgStopStyleFlags.StopOpacity) == 0)
                     stop.a = (byte)ToOpacity(value);
             }
             else if (SvgHelper.StrAs(key, "stop-color"))
             {
                 if (SvgHelper.StrAs(value, "currentColor"))
                 {
-                    var latestColor = FindLatestColor(loader);
+                    var latestColor = FindLatestColor(ctx);
                     if (latestColor.HasValue)
                     {
                         stop.r = latestColor.Value.r;
@@ -870,7 +876,7 @@ namespace ThorVG
                         stop.b = latestColor.Value.b;
                     }
                 }
-                else if ((loader.svgParse.flags & SvgStopStyleFlags.StopColor) == 0)
+                else if ((ctx.svgParse.flags & SvgStopStyleFlags.StopColor) == 0)
                 {
                     byte r = 0, g = 0, b = 0;
                     ToColorNoPaint(value, ref r, ref g, ref b);
@@ -881,19 +887,19 @@ namespace ThorVG
             }
             else if (SvgHelper.StrAs(key, "style"))
             {
-                loader.svgParse.gradStop = stop;
-                XmlParser.ParseW3CAttribute(value, 0, value.Length, AttrParseStopsStyle, loader);
+                ctx.svgParse.gradStop = stop;
+                XmlParser.ParseW3CAttribute(value, 0, value.Length, AttrParseStopsStyle, ctx);
                 return true;
             }
             else return false;
 
-            loader.svgParse.gradStop = stop;
+            ctx.svgParse.gradStop = stop;
             return true;
         }
 
-        private static RGB? FindLatestColor(SvgLoaderData loader)
+        private static RGB? FindLatestColor(SvgParserContext ctx)
         {
-            var parent = loader.stack.Count > 0 ? loader.stack[loader.stack.Count - 1] : loader.doc;
+            var parent = ctx.stack.Count > 0 ? ctx.stack[ctx.stack.Count - 1] : ctx.doc;
             while (parent != null)
             {
                 if (parent.style!.curColorSet) return parent.style.color;
@@ -930,181 +936,181 @@ namespace ThorVG
             return node;
         }
 
-        private static SvgNode? CreateDefsNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateDefsNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            if (loader.def != null && loader.doc!.doc.defs != null) return loader.def;
-            loader.def = CreateNode(null, SvgNodeType.Defs);
-            loader.doc!.doc.defs = loader.def;
-            return loader.def;
+            if (ctx.def != null && ctx.doc!.doc.defs != null) return ctx.def;
+            ctx.def = CreateNode(null, SvgNodeType.Defs);
+            ctx.doc!.doc.defs = ctx.def;
+            return ctx.def;
         }
 
-        private static SvgNode? CreateGNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateGNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.G);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseGNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.G);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseGNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateSvgNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateSvgNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Doc);
-            var doc = loader.svgParse.node.doc;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Doc);
+            var doc = ctx.svgParse.node.doc;
 
-            loader.svgParse.global.w = 1.0f;
-            loader.svgParse.global.h = 1.0f;
+            ctx.svgParse.global.w = 1.0f;
+            ctx.svgParse.global.h = 1.0f;
 
             doc.align = AspectRatioAlign.XMidYMid;
             doc.meetOrSlice = AspectRatioMeetOrSlice.Meet;
             doc.viewFlag = SvgViewFlag.None;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseSvgNode, loader);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseSvgNode, ctx);
 
             if ((doc.viewFlag & SvgViewFlag.Viewbox) == 0)
             {
-                if ((doc.viewFlag & SvgViewFlag.Width) != 0) loader.svgParse.global.w = doc.w;
-                if ((doc.viewFlag & SvgViewFlag.Height) != 0) loader.svgParse.global.h = doc.h;
+                if ((doc.viewFlag & SvgViewFlag.Width) != 0) ctx.svgParse.global.w = doc.w;
+                if ((doc.viewFlag & SvgViewFlag.Height) != 0) ctx.svgParse.global.h = doc.h;
             }
-            return loader.svgParse.node;
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateMaskNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateMaskNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Mask);
-            loader.svgParse.node.maskNode.userSpace = true;
-            loader.svgParse.node.maskNode.type = SvgMaskType.Luminance;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseMaskNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Mask);
+            ctx.svgParse.node.maskNode.userSpace = true;
+            ctx.svgParse.node.maskNode.type = SvgMaskType.Luminance;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseMaskNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateClipPathNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateClipPathNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.ClipPath);
-            loader.svgParse.node.style!.display = false;
-            loader.svgParse.node.clip.userSpace = true;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseClipPathNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.ClipPath);
+            ctx.svgParse.node.style!.display = false;
+            ctx.svgParse.node.clip.userSpace = true;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseClipPathNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateCssStyleNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateCssStyleNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.CssStyle);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseCssStyleNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.CssStyle);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseCssStyleNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateSymbolNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateSymbolNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Symbol);
-            loader.svgParse.node.symbol.align = AspectRatioAlign.XMidYMid;
-            loader.svgParse.node.symbol.meetOrSlice = AspectRatioMeetOrSlice.Meet;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseSymbolNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Symbol);
+            ctx.svgParse.node.symbol.align = AspectRatioAlign.XMidYMid;
+            ctx.svgParse.node.symbol.meetOrSlice = AspectRatioMeetOrSlice.Meet;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseSymbolNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreatePathNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreatePathNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Path);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParsePathNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Path);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParsePathNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateCircleNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateCircleNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Circle);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseCircleNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Circle);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseCircleNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateEllipseNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateEllipseNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Ellipse);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseEllipseNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Ellipse);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseEllipseNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreatePolygonNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreatePolygonNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Polygon);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParsePolygonNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Polygon);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParsePolygonNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreatePolylineNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreatePolylineNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Polyline);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParsePolygonNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Polyline);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParsePolygonNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateRectNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateRectNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Rect);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseRectNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Rect);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseRectNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateLineNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateLineNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Line);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseLineNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Line);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseLineNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateImageNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateImageNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Image);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseImageNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Image);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseImageNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateTextNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateTextNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Text);
-            loader.svgParse.node.text.fontSize = 10.0f;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseTextNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Text);
+            ctx.svgParse.node.text.fontSize = 10.0f;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseTextNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateUseNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateUseNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Use);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseUseNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Use);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseUseNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateGaussianBlurNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateGaussianBlurNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.GaussianBlur);
-            loader.svgParse.node.style!.display = false;
-            loader.svgParse.node.gaussianBlur.box = new Box(0, 0, 1, 1);
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseGaussianBlurNode, loader);
-            return loader.svgParse.node;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.GaussianBlur);
+            ctx.svgParse.node.style!.display = false;
+            ctx.svgParse.node.gaussianBlur.box = new Box(0, 0, 1, 1);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseGaussianBlurNode, ctx);
+            return ctx.svgParse.node;
         }
 
-        private static SvgNode? CreateFilterNode(SvgLoaderData loader, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        private static SvgNode? CreateFilterNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
-            loader.svgParse!.node = CreateNode(parent, SvgNodeType.Filter);
-            var filter = loader.svgParse.node.filter;
-            loader.svgParse.node.style!.display = false;
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Filter);
+            var filter = ctx.svgParse.node.filter;
+            ctx.svgParse.node.style!.display = false;
             filter.box = new Box(-0.1f, -0.1f, 1.2f, 1.2f);
             filter.primitiveUserSpace = true;
-            func?.Invoke(buf, bufOffset, bufLength, AttrParseFilterNode, loader);
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseFilterNode, ctx);
 
-            if (filter.filterUserSpace) RecalcBox(loader, ref filter.box, filter.isPercentage);
-            return loader.svgParse.node;
+            if (filter.filterUserSpace) RecalcBox(ctx, ref filter.box, filter.isPercentage);
+            return ctx.svgParse.node;
         }
 
-        private static void CreateFontFace(SvgLoaderData loader, string buf, int bufOffset, int bufLength, ParseAttributesFunc func)
+        private static void CreateFontFace(SvgParserContext ctx, string buf, int bufOffset, int bufLength, ParseAttributesFunc func)
         {
-            loader.fonts.Add(new FontFace());
-            func(buf, bufOffset, bufLength, AttrParseFontFace, loader);
+            ctx.fonts.Add(new FontFace());
+            func(buf, bufOffset, bufLength, AttrParseFontFace, ctx);
         }
 
-        private static void RecalcBox(SvgLoaderData loader, ref Box box, bool[] isPercentage)
+        private static void RecalcBox(SvgParserContext ctx, ref Box box, bool[] isPercentage)
         {
-            if (isPercentage[0]) box.x *= loader.svgParse!.global.w;
-            if (isPercentage[1]) box.y *= loader.svgParse!.global.h;
-            if (isPercentage[2]) box.w *= loader.svgParse!.global.w;
-            if (isPercentage[3]) box.h *= loader.svgParse!.global.h;
+            if (isPercentage[0]) box.x *= ctx.svgParse!.global.w;
+            if (isPercentage[1]) box.y *= ctx.svgParse!.global.h;
+            if (isPercentage[2]) box.w *= ctx.svgParse!.global.w;
+            if (isPercentage[3]) box.h *= ctx.svgParse!.global.h;
         }
 
         // ========== Tag lookup tables ==========
@@ -1161,17 +1167,17 @@ namespace ThorVG
 
         // ========== Gradient factories ==========
 
-        private static bool AttrParseRadialGradientNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseRadialGradientNode(SvgParserContext ctx, string key, string value)
         {
-            var grad = loader.svgParse!.styleGrad!;
+            var grad = ctx.svgParse!.styleGrad!;
             var radial = grad.radial!;
 
-            if (SvgHelper.StrAs(key, "cx")) { bool p = false; radial.cx = GradientToFloat(loader.svgParse, value, ref p); radial.isCxPercentage = p; if (!loader.svgParse.parsedFx) { radial.fx = radial.cx; radial.isFxPercentage = p; } grad.flags |= SvgGradientFlags.Cx; return true; }
-            if (SvgHelper.StrAs(key, "cy")) { bool p = false; radial.cy = GradientToFloat(loader.svgParse, value, ref p); radial.isCyPercentage = p; if (!loader.svgParse.parsedFy) { radial.fy = radial.cy; radial.isFyPercentage = p; } grad.flags |= SvgGradientFlags.Cy; return true; }
-            if (SvgHelper.StrAs(key, "fx")) { bool p = false; radial.fx = GradientToFloat(loader.svgParse, value, ref p); radial.isFxPercentage = p; loader.svgParse.parsedFx = true; grad.flags |= SvgGradientFlags.Fx; return true; }
-            if (SvgHelper.StrAs(key, "fy")) { bool p = false; radial.fy = GradientToFloat(loader.svgParse, value, ref p); radial.isFyPercentage = p; loader.svgParse.parsedFy = true; grad.flags |= SvgGradientFlags.Fy; return true; }
-            if (SvgHelper.StrAs(key, "r")) { bool p = false; radial.r = GradientToFloat(loader.svgParse, value, ref p); radial.isRPercentage = p; grad.flags |= SvgGradientFlags.R; return true; }
-            if (SvgHelper.StrAs(key, "fr")) { bool p = false; radial.fr = GradientToFloat(loader.svgParse, value, ref p); radial.isFrPercentage = p; grad.flags |= SvgGradientFlags.Fr; return true; }
+            if (SvgHelper.StrAs(key, "cx")) { bool p = false; radial.cx = GradientToFloat(ctx.svgParse, value, ref p); radial.isCxPercentage = p; if (!ctx.svgParse.parsedFx) { radial.fx = radial.cx; radial.isFxPercentage = p; } grad.flags |= SvgGradientFlags.Cx; return true; }
+            if (SvgHelper.StrAs(key, "cy")) { bool p = false; radial.cy = GradientToFloat(ctx.svgParse, value, ref p); radial.isCyPercentage = p; if (!ctx.svgParse.parsedFy) { radial.fy = radial.cy; radial.isFyPercentage = p; } grad.flags |= SvgGradientFlags.Cy; return true; }
+            if (SvgHelper.StrAs(key, "fx")) { bool p = false; radial.fx = GradientToFloat(ctx.svgParse, value, ref p); radial.isFxPercentage = p; ctx.svgParse.parsedFx = true; grad.flags |= SvgGradientFlags.Fx; return true; }
+            if (SvgHelper.StrAs(key, "fy")) { bool p = false; radial.fy = GradientToFloat(ctx.svgParse, value, ref p); radial.isFyPercentage = p; ctx.svgParse.parsedFy = true; grad.flags |= SvgGradientFlags.Fy; return true; }
+            if (SvgHelper.StrAs(key, "r")) { bool p = false; radial.r = GradientToFloat(ctx.svgParse, value, ref p); radial.isRPercentage = p; grad.flags |= SvgGradientFlags.R; return true; }
+            if (SvgHelper.StrAs(key, "fr")) { bool p = false; radial.fr = GradientToFloat(ctx.svgParse, value, ref p); radial.isFrPercentage = p; grad.flags |= SvgGradientFlags.Fr; return true; }
 
             if (SvgHelper.StrAs(key, "id")) grad.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "spreadMethod")) { grad.spread = ParseSpreadValue(value); grad.flags |= SvgGradientFlags.SpreadMethod; }
@@ -1182,10 +1188,10 @@ namespace ThorVG
             return true;
         }
 
-        private static SvgStyleGradient? CreateRadialGradient(SvgLoaderData loader, string buf, int bufOffset, int bufLength)
+        private static SvgStyleGradient? CreateRadialGradient(SvgParserContext ctx, string buf, int bufOffset, int bufLength)
         {
             var grad = new SvgStyleGradient();
-            loader.svgParse!.styleGrad = grad;
+            ctx.svgParse!.styleGrad = grad;
 
             grad.flags = SvgGradientFlags.None;
             grad.type = SvgGradientType.Radial;
@@ -1197,21 +1203,21 @@ namespace ThorVG
             grad.radial.isFxPercentage = true; grad.radial.isFyPercentage = true;
             grad.radial.isRPercentage = true; grad.radial.isFrPercentage = true;
 
-            loader.svgParse.parsedFx = false;
-            loader.svgParse.parsedFy = false;
+            ctx.svgParse.parsedFx = false;
+            ctx.svgParse.parsedFy = false;
 
-            XmlParser.ParseAttributes(buf, bufOffset, bufLength, AttrParseRadialGradientNode, loader);
+            XmlParser.ParseAttributes(buf, bufOffset, bufLength, AttrParseRadialGradientNode, ctx);
 
             // Recalc for userSpace
-            RecalcRadialGrad(loader, grad);
+            RecalcRadialGrad(ctx, grad);
 
             return grad;
         }
 
-        private static void RecalcRadialGrad(SvgLoaderData loader, SvgStyleGradient grad)
+        private static void RecalcRadialGrad(SvgParserContext ctx, SvgStyleGradient grad)
         {
             var r = grad.radial!;
-            var g = loader.svgParse!.global;
+            var g = ctx.svgParse!.global;
             var userSpace = grad.userSpace;
             if (userSpace && !r.isCxPercentage) r.cx /= g.w;
             if (userSpace && !r.isCyPercentage) r.cy /= g.h;
@@ -1222,15 +1228,15 @@ namespace ThorVG
             if (userSpace && !r.isFrPercentage && diag > 0) r.fr /= diag;
         }
 
-        private static bool AttrParseLinearGradientNode(SvgLoaderData loader, string key, string value)
+        private static bool AttrParseLinearGradientNode(SvgParserContext ctx, string key, string value)
         {
-            var grad = loader.svgParse!.styleGrad!;
+            var grad = ctx.svgParse!.styleGrad!;
             var linear = grad.linear!;
 
-            if (SvgHelper.StrAs(key, "x1")) { bool p = false; linear.x1 = GradientToFloat(loader.svgParse, value, ref p); linear.isX1Percentage = p; grad.flags |= SvgGradientFlags.X1; return true; }
-            if (SvgHelper.StrAs(key, "y1")) { bool p = false; linear.y1 = GradientToFloat(loader.svgParse, value, ref p); linear.isY1Percentage = p; grad.flags |= SvgGradientFlags.Y1; return true; }
-            if (SvgHelper.StrAs(key, "x2")) { bool p = false; linear.x2 = GradientToFloat(loader.svgParse, value, ref p); linear.isX2Percentage = p; grad.flags |= SvgGradientFlags.X2; return true; }
-            if (SvgHelper.StrAs(key, "y2")) { bool p = false; linear.y2 = GradientToFloat(loader.svgParse, value, ref p); linear.isY2Percentage = p; grad.flags |= SvgGradientFlags.Y2; return true; }
+            if (SvgHelper.StrAs(key, "x1")) { bool p = false; linear.x1 = GradientToFloat(ctx.svgParse, value, ref p); linear.isX1Percentage = p; grad.flags |= SvgGradientFlags.X1; return true; }
+            if (SvgHelper.StrAs(key, "y1")) { bool p = false; linear.y1 = GradientToFloat(ctx.svgParse, value, ref p); linear.isY1Percentage = p; grad.flags |= SvgGradientFlags.Y1; return true; }
+            if (SvgHelper.StrAs(key, "x2")) { bool p = false; linear.x2 = GradientToFloat(ctx.svgParse, value, ref p); linear.isX2Percentage = p; grad.flags |= SvgGradientFlags.X2; return true; }
+            if (SvgHelper.StrAs(key, "y2")) { bool p = false; linear.y2 = GradientToFloat(ctx.svgParse, value, ref p); linear.isY2Percentage = p; grad.flags |= SvgGradientFlags.Y2; return true; }
 
             if (SvgHelper.StrAs(key, "id")) grad.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "spreadMethod")) { grad.spread = ParseSpreadValue(value); grad.flags |= SvgGradientFlags.SpreadMethod; }
@@ -1241,10 +1247,10 @@ namespace ThorVG
             return true;
         }
 
-        private static SvgStyleGradient? CreateLinearGradient(SvgLoaderData loader, string buf, int bufOffset, int bufLength)
+        private static SvgStyleGradient? CreateLinearGradient(SvgParserContext ctx, string buf, int bufOffset, int bufLength)
         {
             var grad = new SvgStyleGradient();
-            loader.svgParse!.styleGrad = grad;
+            ctx.svgParse!.styleGrad = grad;
 
             grad.flags = SvgGradientFlags.None;
             grad.type = SvgGradientType.Linear;
@@ -1252,18 +1258,18 @@ namespace ThorVG
             grad.linear.x2 = 1.0f;
             grad.linear.isX2Percentage = true;
 
-            XmlParser.ParseAttributes(buf, bufOffset, bufLength, AttrParseLinearGradientNode, loader);
+            XmlParser.ParseAttributes(buf, bufOffset, bufLength, AttrParseLinearGradientNode, ctx);
 
             // Recalc for userSpace
-            RecalcLinearGrad(loader, grad);
+            RecalcLinearGrad(ctx, grad);
 
             return grad;
         }
 
-        private static void RecalcLinearGrad(SvgLoaderData loader, SvgStyleGradient grad)
+        private static void RecalcLinearGrad(SvgParserContext ctx, SvgStyleGradient grad)
         {
             var l = grad.linear!;
-            var g = loader.svgParse!.global;
+            var g = ctx.svgParse!.global;
             var userSpace = grad.userSpace;
             if (userSpace && !l.isX1Percentage) l.x1 /= g.w;
             if (userSpace && !l.isY1Percentage) l.y1 /= g.h;
@@ -1330,6 +1336,7 @@ namespace ThorVG
             if ((from.flags & SvgStyleFlags.Opacity) != 0) to.opacity = from.opacity;
             if ((from.flags & SvgStyleFlags.PaintOrder) != 0) to.paintOrder = from.paintOrder;
             if ((from.flags & SvgStyleFlags.Display) != 0) to.display = from.display;
+            if ((from.flags & SvgStyleFlags.BlendMode) != 0) to.blendMode = from.blendMode;
             // Fill
             to.fill.flags |= from.fill.flags;
             if ((from.fill.flags & SvgFillFlags.Paint) != 0)
@@ -1553,7 +1560,7 @@ namespace ThorVG
             return grad;
         }
 
-        private static void InheritGradient(SvgLoaderData loader, SvgStyleGradient to, SvgStyleGradient from)
+        private static void InheritGradient(SvgParserContext ctx, SvgStyleGradient to, SvgStyleGradient from)
         {
             if ((to.flags & SvgGradientFlags.SpreadMethod) == 0 && (from.flags & SvgGradientFlags.SpreadMethod) != 0)
             {
@@ -1568,14 +1575,14 @@ namespace ThorVG
             }
             if (to.transform == null && from.transform != null) to.transform = from.transform;
 
-            var g = loader.svgParse!.global;
+            var g = ctx.svgParse!.global;
 
             if (to.type == SvgGradientType.Linear && to.linear != null && from.linear != null)
             {
-                InheritLinearCoord(loader, to, from, SvgGradientFlags.X1, gradUnitSet, ref to.linear.x1, from.linear.x1, ref to.linear.isX1Percentage, from.linear.isX1Percentage, true);
-                InheritLinearCoord(loader, to, from, SvgGradientFlags.Y1, gradUnitSet, ref to.linear.y1, from.linear.y1, ref to.linear.isY1Percentage, from.linear.isY1Percentage, false);
-                InheritLinearCoord(loader, to, from, SvgGradientFlags.X2, gradUnitSet, ref to.linear.x2, from.linear.x2, ref to.linear.isX2Percentage, from.linear.isX2Percentage, true);
-                InheritLinearCoord(loader, to, from, SvgGradientFlags.Y2, gradUnitSet, ref to.linear.y2, from.linear.y2, ref to.linear.isY2Percentage, from.linear.isY2Percentage, false);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X1, gradUnitSet, ref to.linear.x1, from.linear.x1, ref to.linear.isX1Percentage, from.linear.isX1Percentage, true);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y1, gradUnitSet, ref to.linear.y1, from.linear.y1, ref to.linear.isY1Percentage, from.linear.isY1Percentage, false);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X2, gradUnitSet, ref to.linear.x2, from.linear.x2, ref to.linear.isX2Percentage, from.linear.isX2Percentage, true);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y2, gradUnitSet, ref to.linear.y2, from.linear.y2, ref to.linear.isY2Percentage, from.linear.isY2Percentage, false);
             }
             else if (to.type == SvgGradientType.Radial && to.radial != null && from.radial != null)
             {
@@ -1620,10 +1627,10 @@ namespace ThorVG
             if (to.stops.Count == 0) to.stops.AddRange(from.stops);
         }
 
-        private static void InheritLinearCoord(SvgLoaderData loader, SvgStyleGradient to, SvgStyleGradient from,
+        private static void InheritLinearCoord(SvgParserContext ctx, SvgStyleGradient to, SvgStyleGradient from,
             SvgGradientFlags flag, bool gradUnitSet, ref float coord, float fromCoord, ref bool isPercentage, bool fromIsPercentage, bool isHorizontal)
         {
-            var g = loader.svgParse!.global;
+            var g = ctx.svgParse!.global;
             var dim = isHorizontal ? g.w : g.h;
             bool coordSet = (to.flags & flag) != 0;
 

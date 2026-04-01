@@ -57,7 +57,7 @@ namespace ThorVG
 
         public MetricsData metrics;
 
-        // Table offsets (mirrors C++ atomic<uint32_t> — atomicity not needed in C# port)
+        // Table offsets (eagerly loaded in Header())
         private uint _cmap;
         private uint _hmtx;
         private uint _loca;
@@ -252,9 +252,6 @@ namespace ThorVG
         {
             if (data == null) return 0;
 
-            if (_loca == 0) _loca = Table("loca");
-            if (_glyf == 0) _glyf = Table("glyf");
-
             uint cur, next;
             if (metrics.locaFormat == 0)
             {
@@ -375,20 +372,34 @@ namespace ThorVG
 
             // header
             var head = Table("head");
-            if (!Validate(head, 54)) return false;
+            if (head == 0 || !Validate(head, 54)) return false;
 
             metrics.unitsPerEm = U16(data, head + 18);
             metrics.locaFormat = (byte)U16(data, head + 50);
 
-            // horizontal metrics
+            // horizontal header
             var hhea = Table("hhea");
-            if (!Validate(hhea, 36)) return false;
+            if (hhea == 0 || !Validate(hhea, 36)) return false;
 
             metrics.hhea.ascent = I16(data, hhea + 4);
             metrics.hhea.descent = I16(data, hhea + 6);
             metrics.hhea.linegap = I16(data, hhea + 8);
             metrics.hhea.advance = metrics.hhea.ascent - metrics.hhea.descent + metrics.hhea.linegap;
             metrics.numHmtx = U16(data, hhea + 34);
+
+            _maxp = Table("maxp");
+            if (_maxp == 0 || !Validate(_maxp, 6)) return false;
+
+            // glyph outlines count
+            var glyphs = U16(data, _maxp + 4);
+            if (glyphs == 0) return false;
+
+            // horizontal metrics count
+            var hmtxs = U16(data, hhea + 34);
+            if (hmtxs == 0 || hmtxs > glyphs) return false;
+
+            _cmap = Table("cmap");
+            if (_cmap == 0 || !Validate(_cmap, 4)) return false;
 
             // kerning
             _kern = Table("kern");
@@ -397,6 +408,12 @@ namespace ThorVG
                 if (!Validate(_kern, 4)) return false;
                 if (U16(data, _kern) != 0) return false;
             }
+
+            _hmtx = Table("hmtx");
+            _loca = Table("loca");
+            _glyf = Table("glyf");
+
+            if (_hmtx == 0 || _loca == 0 || _glyf == 0) return false;
 
             return true;
         }
@@ -408,12 +425,6 @@ namespace ThorVG
         public uint Glyph(uint codepoint)
         {
             if (data == null) return INVALID_GLYPH;
-
-            if (_cmap == 0)
-            {
-                _cmap = Table("cmap");
-                if (!Validate(_cmap, 4)) return INVALID_GLYPH;
-            }
 
             var entryCnt = U16(data, _cmap + 2);
             if (!Validate(_cmap, 4 + (uint)entryCnt * 8)) return INVALID_GLYPH;
@@ -477,8 +488,6 @@ namespace ThorVG
         {
             if (data == null) return 0;
 
-            if (_hmtx == 0) _hmtx = Table("hmtx");
-
             // glyph is inside long metrics segment.
             if (glyph.idx < metrics.numHmtx)
             {
@@ -539,7 +548,6 @@ namespace ThorVG
             if (outlineCnt < 0)
             {
                 ushort maxComponentDepth = 1;
-                if (_maxp == 0) _maxp = Table("maxp");
                 if (Validate(_maxp, 32) && U32(data, _maxp) >= 0x00010000U)
                 {
                     maxComponentDepth = U16(data, _maxp + 30);

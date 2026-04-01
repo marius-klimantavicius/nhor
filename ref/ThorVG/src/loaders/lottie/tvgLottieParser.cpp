@@ -868,6 +868,19 @@ LottieOffsetPath* LottieParser::parseOffsetPath()
     return offsetPath;
 }
 
+LottiePuckerBloat* LottieParser::parsePuckerBloat()
+{
+    auto puckerBloat = new LottiePuckerBloat;
+
+    context.parent = puckerBloat;
+
+    while (auto key = nextObjectKey()) {
+        if (parseCommon(puckerBloat, key)) continue;
+        else if (KEY_AS("a")) parseProperty(puckerBloat->amount);
+        else skip();
+    }
+    return puckerBloat;
+}
 
 LottieObject* LottieParser::parseObject(const char* type)
 {
@@ -884,10 +897,10 @@ LottieObject* LottieParser::parseObject(const char* type)
     else if (!strcmp(type, "gs")) return parseGradientStroke();
     else if (!strcmp(type, "tm")) return parseTrimpath();
     else if (!strcmp(type, "rp")) return parseRepeater();
-    else if (!strcmp(type, "mm")) TVGLOG("LOTTIE", "MergePath(mm) is not supported yet");
-    else if (!strcmp(type, "pb")) TVGLOG("LOTTIE", "Puker/Bloat(pb) is not supported yet");
-    else if (!strcmp(type, "tw")) TVGLOG("LOTTIE", "Twist(tw) is not supported yet");
+    else if (!strcmp(type, "pb")) return parsePuckerBloat();
     else if (!strcmp(type, "op")) return parseOffsetPath();
+    else if (!strcmp(type, "mm")) TVGLOG("LOTTIE", "MergePath(mm) is not supported yet");
+    else if (!strcmp(type, "tw")) TVGLOG("LOTTIE", "Twist(tw) is not supported yet");
     else if (!strcmp(type, "zz")) TVGLOG("LOTTIE", "ZigZag(zz) is not supported yet");
     return nullptr;
 }
@@ -953,6 +966,8 @@ void LottieParser::parseImage(LottieImage* image, const char* data, const char* 
     auto dlen = strlen(data);
     if (dlen == 0) return;
 
+    auto external = false;
+
     //embedded image resource. should start with "data:"
     //header look like "data:image/png;base64," so need to skip till ','.
     if (embedded && !strncmp(data, "data:", 5)) {
@@ -964,16 +979,20 @@ void LottieParser::parseImage(LottieImage* image, const char* data, const char* 
         auto b64Data = strstr(data, ",") + 1;
         size_t length = dlen - (b64Data - data);
         image->bitmap.size = b64Decode(b64Data, length, &image->bitmap.data);
+    //remote image resource (https:// or http://)
+    } else if (!strncmp(data, "https://", 8) || !strncmp(data, "http://", 7)) {
+        image->bitmap.path = duplicate(data);
     //external image resource
     } else {
         auto subPathLen = subPath ? strlen(subPath) : 0;
         auto len = strlen(dirName) + subPathLen + dlen + 2;
         image->bitmap.path = tvg::malloc<char>(len);
         snprintf(image->bitmap.path, len, "%s/%s%s", dirName, subPath ? subPath : "", data);
+        external = true;
     }
     image->bitmap.width = width;
     image->bitmap.height = height;
-    image->prepare();
+    image->prepare(external);
 }
 
 

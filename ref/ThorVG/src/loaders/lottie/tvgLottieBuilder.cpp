@@ -208,13 +208,19 @@ void LottieBuilder::updateGroup(LottieGroup* parent, LottieObject** child, float
 
     if (!group->visible) return;
 
-    //Prepare render data
-    if (group->blendMethod == parent->blendMethod) {
+    // prepare render data
+
+    // special tune: sharing the context if the blending is compatible
+    // propagate the blending to its parent(layer) if possible. this potentially helps performance if the layer has mattes/maskings.
+    if (group->blendMethod == BlendMethod::Normal || group->blendMethod == parent->blendMethod) {
         group->scene = parent->scene;
+    } else if (parent->blendMethod == BlendMethod::Normal && parent->children.count == 1) {
+        group->scene = parent->scene;
+        group->scene->blend(group->blendMethod);
     } else {
         group->scene = tvg::Scene::gen();
-        group->scene->blend(group->blendMethod);
         parent->scene->add(group->scene);
+        group->scene->blend(group->blendMethod);
     }
 
     group->reqFragment |= ctx->reqFragment;
@@ -411,23 +417,22 @@ static void _repeat(LottieGroup* parent, Shape* path, LottieRenderPooler<Shape>*
     path->unref();
 }
 
-
-void LottieBuilder::appendRect(Shape* shape, Point& pos, Point& size, float r, bool clockwise, RenderContext* ctx)
+void LottieBuilder::appendRect(LottieRect* rect, Shape* shape, Point& pos, Point& size, float r, bool clockwise, RenderContext* ctx)
 {
-    auto temp = (ctx->offset) ? Shape::gen() : shape;
-    auto cnt = to<ShapeImpl>(temp)->rs.path.pts.count;
+    auto& path = to<ShapeImpl>(shape)->rs.path;
+    auto cnt = path.pts.count;
 
-    temp->appendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
+    if (ctx->modifiers) {
+        auto temp = rect->pooling();
+        temp->reset();
+        temp->appendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
+        ctx->modifiers->rect(to<ShapeImpl>(temp)->rs.path, to<ShapeImpl>(shape)->rs.path, pos, size, r, clockwise);
+    } else shape->appendRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
 
     if (ctx->transform) {
-        for (auto i = cnt; i < to<ShapeImpl>(temp)->rs.path.pts.count; ++i) {
-            to<ShapeImpl>(temp)->rs.path.pts[i] *= *ctx->transform;
+        for (auto i = cnt; i < path.pts.count; ++i) {
+            path.pts[i] *= *ctx->transform;
         }
-    }
-
-    if (ctx->offset) {
-        ctx->offset->modifyRect(to<ShapeImpl>(temp)->rs.path, to<ShapeImpl>(shape)->rs.path);
-        Paint::rel(temp);
     }
 }
 
@@ -437,33 +442,30 @@ void LottieBuilder::updateRect(LottieGroup* parent, LottieObject** child, float 
     auto rect = static_cast<LottieRect*>(*child);
     auto size = rect->size(frameNo, tween, exps);
     auto pos = rect->position(frameNo, tween, exps) - size * 0.5f;
-    auto r = rect->radius(frameNo, tween, exps);
-
-    if (r == 0.0f)  {
-        if (ctx->roundness) ctx->roundness->modifyRect(size, r);
-    } else {
-        r = std::min({r, size.x * 0.5f, size.y * 0.5f});
-    }
+    auto r = std::min({rect->radius(frameNo, tween, exps), size.x * 0.5f, size.y * 0.5f});
 
     if (ctx->repeaters.empty()) {
         _draw(parent, rect, ctx);
-        appendRect(ctx->merging, pos, size, r, rect->clockwise, ctx);
+        appendRect(rect, ctx->merging, pos, size, r, rect->clockwise, ctx);
     } else {
         auto shape = rect->pooling();
         shape->reset();
-        appendRect(shape, pos, size, r, rect->clockwise, ctx);
+        appendRect(rect, shape, pos, size, r, rect->clockwise, ctx);
         _repeat(parent, shape, rect, ctx);
     }
 }
 
-
-static void _appendCircle(Shape* shape, Point& center, Point& radius, bool clockwise, RenderContext* ctx)
+void LottieBuilder::appendCircle(LottieEllipse* ellipse, Shape* shape, Point& center, Point& radius, bool clockwise, RenderContext* ctx)
 {
-    if (ctx->offset) ctx->offset->modifyEllipse(radius);
+    auto& path = to<ShapeImpl>(shape)->rs.path;
+    auto cnt = path.pts.count;
 
-    auto cnt = to<ShapeImpl>(shape)->rs.path.pts.count;
-
-    shape->appendCircle(center.x, center.y, radius.x, radius.y, clockwise);
+    if (ctx->modifiers) {
+        auto temp = ellipse->pooling();
+        temp->reset();
+        temp->appendCircle(center.x, center.y, radius.x, radius.y, clockwise);
+        ctx->modifiers->ellipse(to<ShapeImpl>(temp)->rs.path, to<ShapeImpl>(shape)->rs.path, center, radius, clockwise);
+    } else shape->appendCircle(center.x, center.y, radius.x, radius.y, clockwise);
 
     if (ctx->transform) {
         for (auto i = cnt; i < to<ShapeImpl>(shape)->rs.path.pts.count; ++i) {
@@ -481,11 +483,11 @@ void LottieBuilder::updateEllipse(LottieGroup* parent, LottieObject** child, flo
 
     if (ctx->repeaters.empty()) {
         _draw(parent, ellipse, ctx);
-        _appendCircle(ctx->merging, pos, size, ellipse->clockwise, ctx);
+        appendCircle(ellipse, ctx->merging, pos, size, ellipse->clockwise, ctx);
     } else {
         auto shape = ellipse->pooling();
         shape->reset();
-        _appendCircle(shape, pos, size, ellipse->clockwise, ctx);
+        appendCircle(ellipse, shape, pos, size, ellipse->clockwise, ctx);
         _repeat(parent, shape, ellipse, ctx);
     }
 }
@@ -497,13 +499,13 @@ void LottieBuilder::updatePath(LottieGroup* parent, LottieObject** child, float 
 
     if (ctx->repeaters.empty()) {
         _draw(parent, path, ctx);
-        if (path->pathset(frameNo, to<ShapeImpl>(ctx->merging)->rs.path, ctx->transform, tween, exps, ctx->modifier)) {
+        if (path->pathset(frameNo, to<ShapeImpl>(ctx->merging)->rs.path, ctx->transform, tween, exps, ctx->modifiers)) {
             PAINT(ctx->merging)->mark(RenderUpdateFlag::Path);
         }
     } else {
         auto shape = path->pooling();
         shape->reset();
-        path->pathset(frameNo, to<ShapeImpl>(shape)->rs.path, ctx->transform, tween, exps, ctx->modifier);
+        path->pathset(frameNo, to<ShapeImpl>(shape)->rs.path, ctx->transform, tween, exps, ctx->modifiers);
         _repeat(parent, shape, path, ctx);
     }
 }
@@ -535,10 +537,9 @@ void LottieBuilder::updateStar(LottiePolyStar* star, float frameNo, Matrix* tran
     auto numPoints = size_t(ceilf(ptsCnt) * 2);
     auto direction = star->clockwise ? 1.0f : -1.0f;
     auto hasRoundness = false;
-    bool roundedCorner = ctx->roundness && (tvg::zero(innerRoundness) || tvg::zero(outerRoundness));
 
     Shape* shape;
-    if (roundedCorner || ctx->offset) {
+    if (ctx->modifiers) {
         shape = star->pooling();
         shape->reset();
     } else {
@@ -627,7 +628,7 @@ void LottieBuilder::updateStar(LottiePolyStar* star, float frameNo, Matrix* tran
     _close(to<ShapeImpl>(shape)->rs.path.pts, in, hasRoundness);
     shape->close();
 
-    if (ctx->modifier) ctx->modifier->modifyPolystar(to<ShapeImpl>(shape)->rs.path, to<ShapeImpl>(merging)->rs.path, outerRoundness, hasRoundness);
+    if (ctx->modifiers) ctx->modifiers->polystar(to<ShapeImpl>(shape)->rs.path, to<ShapeImpl>(merging)->rs.path, outerRoundness, hasRoundness);
 }
 
 
@@ -643,14 +644,13 @@ void LottieBuilder::updatePolygon(LottieGroup* parent, LottiePolyStar* star, flo
     auto anglePerPoint = 2.0f * MATH_PI / float(ptsCnt);
     auto direction = star->clockwise ? 1.0f : -1.0f;
     auto hasRoundness = !tvg::zero(outerRoundness);
-    bool roundedCorner = ctx->roundness && !hasRoundness;
     auto x = radius * cosf(angle);
     auto y = radius * sinf(angle);
 
     angle += anglePerPoint * direction;
 
     Shape* shape;
-    if (roundedCorner || ctx->offset) {
+    if (ctx->modifiers) {
         shape = star->pooling();
         shape->reset();
     } else {
@@ -697,7 +697,7 @@ void LottieBuilder::updatePolygon(LottieGroup* parent, LottiePolyStar* star, flo
     _close(to<ShapeImpl>(shape)->rs.path.pts, in, hasRoundness);
     shape->close();
 
-    if (ctx->modifier) ctx->modifier->modifyPolystar(to<ShapeImpl>(shape)->rs.path, to<ShapeImpl>(merging)->rs.path, 0.0f, false);
+    if (ctx->modifiers) ctx->modifiers->polystar(to<ShapeImpl>(shape)->rs.path, to<ShapeImpl>(merging)->rs.path, 0.0f, false);
 }
 
 
@@ -734,24 +734,21 @@ void LottieBuilder::updateRoundedCorner(TVG_UNUSED LottieGroup* parent, LottieOb
     auto roundedCorner = static_cast<LottieRoundedCorner*>(*child);
     auto r = roundedCorner->radius(frameNo, tween, exps);
     if (r < LottieRoundnessModifier::ROUNDNESS_EPSILON) return;
-
-    if (ctx->roundness) {
-        if (ctx->roundness->r < r) ctx->roundness->r = r;
-    } else {
-        ctx->roundness = new LottieRoundnessModifier(&buffer, r);
-        ctx->update(ctx->roundness);
-    }
+    ctx->update(new LottieRoundnessModifier(&buffer, r));
 }
 
 
 void LottieBuilder::updateOffsetPath(TVG_UNUSED LottieGroup* parent, LottieObject** child, float frameNo, TVG_UNUSED Inlist<RenderContext>& contexts, RenderContext* ctx)
 {
     auto offset = static_cast<LottieOffsetPath*>(*child);
-    if (!ctx->offset) ctx->offset = new LottieOffsetModifier(offset->offset(frameNo, tween, exps), offset->miterLimit(frameNo, tween, exps), offset->join);
-
-    ctx->update(ctx->offset);
+    ctx->update(new LottieOffsetModifier(&buffer, offset->offset(frameNo, tween, exps), offset->miterLimit(frameNo, tween, exps), offset->join));
 }
 
+void LottieBuilder::updatePuckerBloat(TVG_UNUSED LottieGroup* parent, LottieObject** child, float frameNo, TVG_UNUSED Inlist<RenderContext>& contexts, RenderContext* ctx)
+{
+    auto puckerBloat = static_cast<LottiePuckerBloat*>(*child);
+    ctx->update(new LottiePuckerBloatModifier(&buffer, puckerBloat->amount(frameNo, tween, exps)));
+}
 
 void LottieBuilder::updateRepeater(TVG_UNUSED LottieGroup* parent, LottieObject** child, float frameNo, TVG_UNUSED Inlist<RenderContext>& contexts, RenderContext* ctx)
 {
@@ -860,6 +857,10 @@ void LottieBuilder::updateChildren(LottieGroup* parent, float frameNo, Inlist<Re
                     updateOffsetPath(parent, child, frameNo, contexts, ctx);
                     break;
                 }
+                case LottieObject::PuckerBloat: {
+                    updatePuckerBloat(parent, child, frameNo, contexts, ctx);
+                    break;
+                }
                 default: break;
             }
 
@@ -954,13 +955,14 @@ void LottieBuilder::updateURLFont(LottieLayer* layer, float frameNo, LottieText*
     auto len = strlen(doc.text);
     auto buf = tvg::malloc<char>(len + 1);
 
-    // preprocessing text for modern systems: handle carriage return ('\r') and end-of-text ('\3')
-    // as line feed ('\n') only when they appear independently.
+    // preprocess text: convert '\r' and '\3' to '\n' only when they appear within the string
+    // this is for the modern-system compatibility
     auto p = buf;
     auto feed = false;
     for (size_t i = 0; i < len; ++i) {
-        //replace the carriage return and end of text with line feed.
+        // replace the carriage return and end of text with line feed.
         if (doc.text[i] == '\r' || doc.text[i] == '\3') {
+            if (i == len - 1) break;  // ignore trailing occurrences
             if (!feed) *p = '\n';
             else continue;
         } else *p = doc.text[i];
@@ -1105,6 +1107,11 @@ bool LottieBuilder::updateTextRange(LottieText* text, float frameNo, Shape* shap
         auto pivot = align * -1;
         transform.e13 += (pivot.x * transform.e11 + pivot.x * transform.e12);
         transform.e23 += (pivot.y * transform.e21 + pivot.y * transform.e22);
+
+        //world space translation
+        transform.e13 += translation.x / ctx.scale;
+        transform.e23 += translation.y / ctx.scale;
+
         ctx.lineScene->transform(transform);
     }
     auto& matrix = shape->transform();
@@ -1303,7 +1310,7 @@ void LottieBuilder::updateMasks(LottieLayer* layer, float frameNo)
         //Masking with Expansion (Offset)
         } else {
             //TODO: Once path direction support is implemented, ensure that the direction is ignored here
-            auto offset = LottieOffsetModifier(expand);
+            auto offset = LottieOffsetModifier(&buffer, expand);
             mask->pathset(frameNo, to<ShapeImpl>(pShape)->rs.path, nullptr, tween, exps, &offset);
         }
         pOpacity = opacity;
@@ -1460,6 +1467,8 @@ void LottieBuilder::updateLayer(LottieComposition* comp, Scene* scene, LottieLay
 
     if (!layer->matteSrc && !updateMatte(comp, frameNo, scene, layer)) return;
 
+    layer->scene->blend(layer->blendMethod);
+
     switch (layer->type) {
         case LottieLayer::Precomp: {
             if (!tweening()) updatePrecomp(comp, layer, frameNo);
@@ -1490,8 +1499,6 @@ void LottieBuilder::updateLayer(LottieComposition* comp, Scene* scene, LottieLay
     }
 
     updateMasks(layer, frameNo);
-
-    layer->scene->blend(layer->blendMethod);
 
     updateEffect(layer, frameNo, comp->quality);
 

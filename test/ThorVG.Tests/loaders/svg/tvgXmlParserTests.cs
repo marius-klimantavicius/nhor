@@ -5,9 +5,9 @@ namespace ThorVG.Tests
 {
     public class tvgXmlParserTests
     {
-        private SvgLoaderData MakeLoaderData()
+        private SvgParserContext MakeLoaderData()
         {
-            var data = new SvgLoaderData();
+            var data = new SvgParserContext();
             data.svgParse = new SvgParser();
             data.svgParse.flags = SvgStopStyleFlags.StopDefault;
             return data;
@@ -21,7 +21,7 @@ namespace ThorVG.Tests
             var attrs = new List<(string key, string value)>();
 
             XmlParser.ParseAttributes("x=\"10\"", 0, 6,
-                (SvgLoaderData d, string key, string val) =>
+                (SvgParserContext d, string key, string val) =>
                 {
                     attrs.Add((key, val));
                     return true;
@@ -41,7 +41,7 @@ namespace ThorVG.Tests
 
             var buf = "width=\"100\" height=\"200\"";
             XmlParser.ParseAttributes(buf, 0, buf.Length,
-                (SvgLoaderData d, string key, string val) =>
+                (SvgParserContext d, string key, string val) =>
                 {
                     attrs.Add((key, val));
                     return true;
@@ -63,7 +63,7 @@ namespace ThorVG.Tests
 
             var buf = "d='M 0 0'";
             XmlParser.ParseAttributes(buf, 0, buf.Length,
-                (SvgLoaderData d, string key, string val) =>
+                (SvgParserContext d, string key, string val) =>
                 {
                     attrs.Add((key, val));
                     return true;
@@ -83,7 +83,7 @@ namespace ThorVG.Tests
 
             var buf = "fill:red;stroke:blue";
             XmlParser.ParseW3CAttribute(buf, 0, buf.Length,
-                (SvgLoaderData d, string key, string val) =>
+                (SvgParserContext d, string key, string val) =>
                 {
                     attrs.Add((key, val));
                     return true;
@@ -145,7 +145,7 @@ namespace ThorVG.Tests
 
             var xml = "<svg></svg>";
             XmlParser.Parse(xml, xml.Length, true,
-                (SvgLoaderData d, XMLType type, string content, int offset, int length) =>
+                (SvgParserContext d, XMLType type, string content, int offset, int length) =>
                 {
                     calls.Add((type, content.Substring(offset, length)));
                     return true;
@@ -165,7 +165,7 @@ namespace ThorVG.Tests
 
             var xml = "<circle r=\"5\"/>";
             XmlParser.Parse(xml, xml.Length, true,
-                (SvgLoaderData d, XMLType type, string content, int offset, int length) =>
+                (SvgParserContext d, XMLType type, string content, int offset, int length) =>
                 {
                     calls.Add((type, content.Substring(offset, length)));
                     return true;

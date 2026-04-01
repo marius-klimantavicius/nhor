@@ -64,7 +64,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "Hello", path));
+            Assert.True(loader.Get(fm, "Hello", 5, path));
             Assert.True(path.cmds.count > 0, "Should produce path commands");
             Assert.True(path.pts.count > 0, "Should produce path points");
         }
@@ -76,7 +76,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            Assert.False(loader.Get(fm, "", path));
+            Assert.False(loader.Get(fm, "", 0, path));
         }
 
         [Fact]
@@ -86,7 +86,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            Assert.False(loader.Get(fm, null!, path));
+            Assert.False(loader.Get(fm, null!, 0, path));
         }
 
         [Fact]
@@ -96,7 +96,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 0.0f };
             var path = new RenderPath();
 
-            Assert.False(loader.Get(fm, "Hello", path));
+            Assert.False(loader.Get(fm, "Hello", 5, path));
         }
 
         [Fact]
@@ -106,7 +106,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            loader.Get(fm, "Hello World", path);
+            loader.Get(fm, "Hello World", 11, path);
             Assert.True(fm.size.x > 0, "Text width should be positive");
             Assert.True(fm.size.y > 0, "Text height should be positive");
         }
@@ -118,7 +118,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            loader.Get(fm, "A", path);
+            loader.Get(fm, "A", 1, path);
             Assert.NotNull(fm.engine);
             Assert.IsType<TtfMetrics>(fm.engine);
         }
@@ -130,7 +130,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            loader.Get(fm, " ", path);
+            loader.Get(fm, " ", 1, path);
             // Space has no outline path, but the call should succeed
             Assert.True(fm.size.x > 0, "Width should account for space advance");
         }
@@ -149,7 +149,7 @@ namespace ThorVG.Tests
             };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "This is a longer text string for testing character wrap", path));
+            Assert.True(loader.Get(fm, "This is a longer text string for testing character wrap", 55, path));
             Assert.True(path.cmds.count > 0);
         }
 
@@ -165,7 +165,7 @@ namespace ThorVG.Tests
             };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "This is a longer text string for testing word wrap", path));
+            Assert.True(loader.Get(fm, "This is a longer text string for testing word wrap", 50, path));
             Assert.True(path.cmds.count > 0);
         }
 
@@ -181,7 +181,7 @@ namespace ThorVG.Tests
             };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "This is a longer text string for testing smart wrap", path));
+            Assert.True(loader.Get(fm, "This is a longer text string for testing smart wrap", 51, path));
             Assert.True(path.cmds.count > 0);
         }
 
@@ -197,7 +197,7 @@ namespace ThorVG.Tests
             };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "This is a very long text that should be truncated with ellipsis", path));
+            Assert.True(loader.Get(fm, "This is a very long text that should be truncated with ellipsis", 63, path));
             Assert.True(path.cmds.count > 0);
         }
 
@@ -213,7 +213,7 @@ namespace ThorVG.Tests
             };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "Hello World", path));
+            Assert.True(loader.Get(fm, "Hello World", 11, path));
             Assert.True(path.cmds.count > 0);
         }
 
@@ -226,7 +226,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            Assert.True(loader.Get(fm, "Line1\nLine2", path));
+            Assert.True(loader.Get(fm, "Line1\nLine2", 11, path));
             Assert.True(fm.size.y > 0);
         }
 
@@ -268,7 +268,7 @@ namespace ThorVG.Tests
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            loader.Get(fm, "A", path);
+            loader.Get(fm, "A", 1, path);
             Assert.NotNull(fm.engine);
 
             loader.Release(fm);
@@ -288,7 +288,7 @@ namespace ThorVG.Tests
                 align = new Point(0.5f, 0.5f)
             };
             var path = new RenderPath();
-            loader.Get(input, "A", path);
+            loader.Get(input, "A", 1, path);
 
             var output = new FontMetrics();
             loader.Copy(input, output);
@@ -311,7 +311,7 @@ namespace ThorVG.Tests
             var loader = CreateLoader();
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
-            loader.Get(fm, "A", path);
+            loader.Get(fm, "A", 1, path);
 
             var shape = Shape.Gen();
             // Should not throw
@@ -324,7 +324,7 @@ namespace ThorVG.Tests
             var loader = CreateLoader();
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
-            loader.Get(fm, "A", path);
+            loader.Get(fm, "A", 1, path);
 
             var shape = Shape.Gen();
             loader.Transform(shape, fm, 0.2f);
@@ -341,10 +341,10 @@ namespace ThorVG.Tests
             var path2 = new RenderPath();
 
             // First call caches glyphs, second uses cache
-            loader.Get(fm, "AA", path1);
+            loader.Get(fm, "AA", 2, path1);
             var count1 = path1.pts.count;
 
-            loader.Get(fm, "AA", path2);
+            loader.Get(fm, "AA", 2, path2);
             var count2 = path2.pts.count;
 
             Assert.Equal(count1, count2);

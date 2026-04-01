@@ -1272,6 +1272,21 @@ namespace ThorVG
             return offsetPath;
         }
 
+        private LottiePuckerBloat ParsePuckerBloat()
+        {
+            var puckerBloat = new LottiePuckerBloat();
+            context.parent = puckerBloat;
+
+            string? key;
+            while ((key = NextObjectKey()) != null)
+            {
+                if (ParseCommon(puckerBloat, key)) continue;
+                else if (key == "a") ParseProperty(puckerBloat.amount);
+                else Skip();
+            }
+            return puckerBloat;
+        }
+
         #endregion
 
         #region Object/asset parsing
@@ -1293,10 +1308,10 @@ namespace ThorVG
                 case "gs": return ParseGradientStroke();
                 case "tm": return ParseTrimpath();
                 case "rp": return ParseRepeater();
-                case "mm": TvgCommon.TVGLOG("LOTTIE", "MergePath(mm) is not supported yet"); break;
-                case "pb": TvgCommon.TVGLOG("LOTTIE", "Puker/Bloat(pb) is not supported yet"); break;
-                case "tw": TvgCommon.TVGLOG("LOTTIE", "Twist(tw) is not supported yet"); break;
+                case "pb": return ParsePuckerBloat();
                 case "op": return ParseOffsetPath();
+                case "mm": TvgCommon.TVGLOG("LOTTIE", "MergePath(mm) is not supported yet"); break;
+                case "tw": TvgCommon.TVGLOG("LOTTIE", "Twist(tw) is not supported yet"); break;
                 case "zz": TvgCommon.TVGLOG("LOTTIE", "ZigZag(zz) is not supported yet"); break;
             }
             return null;
@@ -1340,6 +1355,8 @@ namespace ThorVG
         {
             if (data == null || data.Length == 0) return;
 
+            var external = false;
+
             if (embedded && data.StartsWith("data:"))
             {
                 var mimeTypeStart = 11;
@@ -1354,14 +1371,21 @@ namespace ThorVG
                     image.bitmap.size = (uint)image.bitmap.b64Data.Length;
                 }
             }
+            //remote image resource (https:// or http://)
+            else if (data.StartsWith("https://") || data.StartsWith("http://"))
+            {
+                image.bitmap.path = data;
+            }
+            //external image resource
             else
             {
                 image.bitmap.path = $"{dirName}/{subPath ?? ""}{data}";
+                external = true;
             }
 
             image.bitmap.width = width;
             image.bitmap.height = height;
-            image.Prepare();
+            image.Prepare(external);
         }
 
         private LottieObject? ParseAsset()

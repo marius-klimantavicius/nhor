@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
+ * Copyright (c) 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,11 +20,37 @@
  * SOFTWARE.
  */
 
-#ifndef _TVG_SVG_SCENE_BUILDER_H_
-#define _TVG_SVG_SCENE_BUILDER_H_
+#ifndef _TVG_GL_TEXTURE_MGR_H_
+#define _TVG_GL_TEXTURE_MGR_H_
 
-#include "tvgCommon.h"
+#include "tvgGlCommon.h"
+#include "tvgInlist.h"
 
-Scene* svgSceneBuild(SvgParserContext& ctx, Box vBox, float w, float h, AspectRatioAlign align, AspectRatioMeetOrSlice meetOrSlice, const string& svgPath, SvgViewFlag viewFlag);
+struct TextureMgr
+{
+    GLuint retain(const RenderSurface* surface, FilterMethod filter);
+    GLuint release(const RenderSurface* surface, FilterMethod filter, GLuint texId);
+    void clear();
 
-#endif //_TVG_SVG_SCENE_BUILDER_H_
+    struct Entry
+    {
+        GLuint texId = 0;
+        uint32_t refCnt = 0;
+    };
+
+    struct SurfaceEntry
+    {
+        INLIST_ITEM(SurfaceEntry);
+        const RenderSurface* surface = nullptr;
+        Entry bilinear;
+        Entry nearest;
+    };
+
+    SurfaceEntry* find(const RenderSurface* surface);
+    static void upload(GLuint texId, const RenderSurface* surface, FilterMethod filter);
+
+    tvg::Inlist<SurfaceEntry> surfaces;  // Cached textures keyed by RenderSurface.
+    uint16_t stamp = 1;                  // Non-zero rolling stamp for stale texture ownership checks.
+};
+
+#endif /* _TVG_GL_TEXTURE_MGR_H_ */

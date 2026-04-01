@@ -20,8 +20,8 @@ namespace ThorVG
         DoctypeChild
     }
 
-    public delegate bool XmlCb(SvgLoaderData data, XMLType type, string content, int offset, int length);
-    public delegate bool XmlAttributeCb(SvgLoaderData data, string key, string value);
+    public delegate bool XmlCb(SvgParserContext data, XMLType type, string content, int offset, int length);
+    public delegate bool XmlAttributeCb(SvgParserContext data, string key, string value);
 
     public static class XmlParser
     {
@@ -242,7 +242,7 @@ namespace ThorVG
             return XMLType.Open;
         }
 
-        public static bool ParseAttributes(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgLoaderData data)
+        public static bool ParseAttributes(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgParserContext data)
         {
             int itr = bufOffset;
             int itrEnd = bufOffset + bufLength;
@@ -312,7 +312,7 @@ namespace ThorVG
             return true;
         }
 
-        public static bool Parse(string buf, int bufLength, bool strip, XmlCb func, SvgLoaderData data)
+        public static bool Parse(string buf, int bufLength, bool strip, XmlCb func, SvgParserContext data)
         {
             int itr = 0;
             int itrEnd = bufLength;
@@ -401,7 +401,7 @@ namespace ThorVG
             return true;
         }
 
-        public static bool ParseW3CAttribute(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgLoaderData data)
+        public static bool ParseW3CAttribute(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgParserContext data)
         {
             if (buf == null) return false;
             int pos = bufOffset;

@@ -16,7 +16,7 @@ namespace ThorVG
         private string? content;
         private string? svgPath;
         private SvgNode? doc;
-        private SvgLoaderData? loaderData;
+        private SvgParserContext? loaderData;
         private Scene? builtScene;
 
         public SvgLoaderInstance() : base(FileType.Svg) { }

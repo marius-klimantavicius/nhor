@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace ThorVG
 {
@@ -136,7 +135,8 @@ namespace ThorVG
         /* Static state                                                         */
         /************************************************************************/
 
-        private static int rendererCnt = -1;
+        private static int _rendererCnt = -1;
+        private static readonly object _rendererMtx = new object();
 
         /************************************************************************/
         /* Instance state                                                       */
@@ -157,6 +157,7 @@ namespace ThorVG
         private List<GlRenderTargetPool> mBlendPool = new List<GlRenderTargetPool>();
         private List<GlRenderPass> mRenderPassStack = new List<GlRenderPass>();
         private List<GlCompositor> mComposeStack = new List<GlCompositor>();
+        private TextureMgr mTextures = new TextureMgr();
         private GlSolidBatch mSolidBatch = new GlSolidBatch();
 
         // Disposed resources. They should be released on synced call.
@@ -173,19 +174,32 @@ namespace ThorVG
         private GlRenderer()
         {
             mEffect = new GlEffect(mGpuBuffer);
-            Interlocked.Increment(ref rendererCnt);
         }
 
         ~GlRenderer()
         {
-            Interlocked.Decrement(ref rendererCnt);
+            if (mContext != 0) CurrentContext();
             Flush();
+            mTextures.Clear();
+
             mPrograms.Clear();
+
+            lock (_rendererMtx)
+            {
+                --_rendererCnt;
+            }
         }
 
         /************************************************************************/
         /* Internal Class Implementation                                        */
         /************************************************************************/
+
+        private void DisposeTexture(uint texId)
+        {
+            if (texId == 0) return;
+            using var lk = new ScopedLock(mDisposedKey);
+            mDisposedTextures.Add(texId);
+        }
 
         private void ClearDisposes()
         {
@@ -696,12 +710,15 @@ namespace ThorVG
             if (mPrograms[shaderInd] != null) return mPrograms[shaderInd];
 
             var helpers = "";
-            if (method == BlendMethod.Hue ||
-                method == BlendMethod.Saturation ||
-                method == BlendMethod.Color ||
-                method == BlendMethod.Luminosity)
+            if (method == BlendMethod.Hue)
             {
-                helpers = GlShaderSrc.BLEND_FRAG_HSL;
+                helpers = GlShaderSrc.BLEND_FRAG_HUE;
+            }
+            else if (method == BlendMethod.Saturation ||
+                     method == BlendMethod.Color ||
+                     method == BlendMethod.Luminosity)
+            {
+                helpers = GlShaderSrc.BLEND_FRAG_LUM;
             }
 
             string vertShader;
@@ -969,7 +986,11 @@ namespace ThorVG
             // assume the context zero is invalid
             if (context == 0 || w == 0 || h == 0) return false;
 
-            if (mContext != 0) CurrentContext();
+            if (mContext != 0)
+            {
+                CurrentContext();
+                if (mContext != context) mTextures.Clear();
+            }
 
             Flush();
 
@@ -1307,49 +1328,40 @@ namespace ThorVG
         {
             var sdata = data as GlShape;
             if (sdata == null) return;
-
-            // dispose the non thread-safety resources on clearDisposes() call
-            if (sdata.texId != 0)
-            {
-                using var lk = new ScopedLock(mDisposedKey);
-                mDisposedTextures.Add(sdata.texId);
-            }
+            var ownsTexture = sdata.texId != 0 && (sdata.texStamp == mTextures.stamp);
+            if (ownsTexture) DisposeTexture(mTextures.Release(sdata.texSource, sdata.texFilter, sdata.texId));
         }
 
         public override object? Prepare(RenderSurface image, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
         {
             // TODO: redefine GlImage.
+            if (opacity == 0) return data;
+
             var sdata = data as GlShape;
             if (sdata == null) sdata = new GlShape();
-            sdata.validFill = false;
 
-            if (opacity == 0 || flags == RenderUpdateFlag.None) return data;
+            var cacheStale = sdata.texId != 0 && (sdata.texStamp != mTextures.stamp);
+            if (flags == RenderUpdateFlag.None && !cacheStale) return data;
+
+            sdata.validFill = false;
 
             sdata.viewWd = (float)surface.w;
             sdata.viewHt = (float)surface.h;
 
-            // generate a texture
-            if (sdata.texId == 0)
+            var sourceChanged = !ReferenceEquals(sdata.texSource, image) || (sdata.texFilter != filter);
+            if (sdata.texId == 0 || sourceChanged || cacheStale)
             {
-                uint texId;
-                GL.glGenTextures(1, &texId);
-                sdata.texId = texId;
-                GL.glBindTexture(GL.GL_TEXTURE_2D, sdata.texId);
-                fixed (uint* dataPtr = image.data)
-                {
-                    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, (int)GL.GL_RGBA8, (int)image.w, (int)image.h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, dataPtr);
-                }
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, (int)GL.GL_CLAMP_TO_EDGE);
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, (int)GL.GL_CLAMP_TO_EDGE);
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, (int)(filter == FilterMethod.Bilinear ? GL.GL_LINEAR : GL.GL_NEAREST));
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, (int)(filter == FilterMethod.Bilinear ? GL.GL_LINEAR : GL.GL_NEAREST));
-                GL.glBindTexture(GL.GL_TEXTURE_2D, 0);
-
-                sdata.texColorSpace = image.cs;
-                sdata.texFlipY = 1;
+                var ownsTexture = sdata.texId != 0 && (sdata.texStamp == mTextures.stamp);
+                if (ownsTexture) DisposeTexture(mTextures.Release(sdata.texSource, sdata.texFilter, sdata.texId));
+                sdata.texId = mTextures.Retain(image, filter);
+                sdata.texSource = image;
+                sdata.texFilter = filter;
+                sdata.texStamp = mTextures.stamp;
                 sdata.geometry = new GlGeometry();
             }
 
+            sdata.texColorSpace = image.cs;
+            sdata.texFlipY = 1;
             sdata.opacity = opacity;
             sdata.geometry.SetMatrix(transform);
             sdata.geometry.viewport = vport;
@@ -1470,26 +1482,33 @@ namespace ThorVG
 
         public static bool Term()
         {
-            if (Interlocked.CompareExchange(ref rendererCnt, 0, 0) > 0) return false;
+            lock (_rendererMtx)
+            {
+                if (_rendererCnt > 0) return false;
 
-            GL.glTerm();
+                GL.glTerm();
 
-            rendererCnt = -1;
+                _rendererCnt = -1;
+            }
 
             return true;
         }
 
-        public static GlRenderer? Gen(uint threads)
+        public static GlRenderer? Gen(uint threads, EngineOption op = EngineOption.Default)
         {
             // initialize engine
-            if (rendererCnt == -1)
+            lock (_rendererMtx)
             {
-                if (!GL.glInit())
+                if (_rendererCnt == -1)
                 {
-                    TvgCommon.TVGERR("GL_ENGINE", "Failed GL initialization!");
-                    return null;
+                    if (!GL.glInit())
+                    {
+                        TvgCommon.TVGERR("GL_ENGINE", "Failed GL initialization!");
+                        return null;
+                    }
+                    _rendererCnt = 0;
                 }
-                rendererCnt = 0;
+                ++_rendererCnt;
             }
 
             return new GlRenderer();

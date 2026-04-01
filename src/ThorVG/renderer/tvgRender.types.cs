@@ -282,6 +282,94 @@ namespace ThorVG
             cmds.Push(PathCommand.CubicTo);
         }
 
+        public unsafe void AddCircle(float cx, float cy, float rx, float ry, bool cw)
+        {
+            var rxk = rx * MathConstants.PATH_KAPPA;
+            var ryk = ry * MathConstants.PATH_KAPPA;
+            cmds.Grow(6);
+            var c = cmds.End();
+            c[0] = PathCommand.MoveTo;
+            c[1] = c[2] = c[3] = c[4] = PathCommand.CubicTo;
+            c[5] = PathCommand.Close;
+            cmds.count += 6;
+
+            ReadOnlySpan<int> tableCw = stackalloc int[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+            ReadOnlySpan<int> tableCcw = stackalloc int[] { 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 12 };
+            var idx = cw ? tableCw : tableCcw;
+
+            pts.Grow(13);
+            var p = pts.End();
+            p[idx[0]] = new Point(cx, cy - ry);
+            p[idx[1]] = new Point(cx + rxk, cy - ry); p[idx[2]] = new Point(cx + rx, cy - ryk); p[idx[3]] = new Point(cx + rx, cy);
+            p[idx[4]] = new Point(cx + rx, cy + ryk); p[idx[5]] = new Point(cx + rxk, cy + ry); p[idx[6]] = new Point(cx, cy + ry);
+            p[idx[7]] = new Point(cx - rxk, cy + ry); p[idx[8]] = new Point(cx - rx, cy + ryk); p[idx[9]] = new Point(cx - rx, cy);
+            p[idx[10]] = new Point(cx - rx, cy - ryk); p[idx[11]] = new Point(cx - rxk, cy - ry); p[idx[12]] = new Point(cx, cy - ry);
+            pts.count += 13;
+        }
+
+        public unsafe void AddRect(float x, float y, float w, float h, float rx, float ry, bool cw)
+        {
+            if (TvgMath.Zero(rx) && TvgMath.Zero(ry))
+            {
+                cmds.Grow(5);
+                pts.Grow(4);
+                var c = cmds.End();
+                var p = pts.End();
+                c[0] = PathCommand.MoveTo;
+                c[1] = c[2] = c[3] = PathCommand.LineTo;
+                c[4] = PathCommand.Close;
+                p[0] = new Point(x + w, y);
+                p[2] = new Point(x, y + h);
+                if (cw) { p[1] = new Point(x + w, y + h); p[3] = new Point(x, y); }
+                else { p[1] = new Point(x, y); p[3] = new Point(x + w, y + h); }
+                cmds.count += 5;
+                pts.count += 4;
+            }
+            else
+            {
+                var hsize = new Point(w * 0.5f, h * 0.5f);
+                if (rx > hsize.x) rx = hsize.x;
+                if (ry > hsize.y) ry = hsize.y;
+                var hr = new Point(rx * MathConstants.PATH_KAPPA, ry * MathConstants.PATH_KAPPA);
+
+                cmds.Grow(10);
+                pts.Grow(17);
+                var c = cmds.End();
+                var p = pts.End();
+                c[0] = PathCommand.MoveTo;
+                c[9] = PathCommand.Close;
+                p[0] = new Point(x + w, y + ry);
+                if (cw)
+                {
+                    c[1] = c[3] = c[5] = c[7] = PathCommand.LineTo;
+                    c[2] = c[4] = c[6] = c[8] = PathCommand.CubicTo;
+                    p[1] = new Point(x + w, y + h - ry);
+                    p[2] = new Point(x + w, y + h - ry + hr.y); p[3] = new Point(x + w - rx + hr.x, y + h); p[4] = new Point(x + w - rx, y + h);
+                    p[5] = new Point(x + rx, y + h);
+                    p[6] = new Point(x + rx - hr.x, y + h); p[7] = new Point(x, y + h - ry + hr.y); p[8] = new Point(x, y + h - ry);
+                    p[9] = new Point(x, y + ry);
+                    p[10] = new Point(x, y + ry - hr.y); p[11] = new Point(x + rx - hr.x, y); p[12] = new Point(x + rx, y);
+                    p[13] = new Point(x + w - rx, y);
+                    p[14] = new Point(x + w - rx + hr.x, y); p[15] = new Point(x + w, y + ry - hr.y); p[16] = new Point(x + w, y + ry);
+                }
+                else
+                {
+                    c[1] = c[3] = c[5] = c[7] = PathCommand.CubicTo;
+                    c[2] = c[4] = c[6] = c[8] = PathCommand.LineTo;
+                    p[1] = new Point(x + w, y + ry - hr.y); p[2] = new Point(x + w - rx + hr.x, y); p[3] = new Point(x + w - rx, y);
+                    p[4] = new Point(x + rx, y);
+                    p[5] = new Point(x + rx - hr.x, y); p[6] = new Point(x, y + ry - hr.y); p[7] = new Point(x, y + ry);
+                    p[8] = new Point(x, y + h - ry);
+                    p[9] = new Point(x, y + h - ry + hr.y); p[10] = new Point(x + rx - hr.x, y + h); p[11] = new Point(x + rx, y + h);
+                    p[12] = new Point(x + w - rx, y + h);
+                    p[13] = new Point(x + w - rx + hr.x, y + h); p[14] = new Point(x + w, y + h - ry + hr.y); p[15] = new Point(x + w, y + h - ry);
+                    p[16] = new Point(x + w, y + ry);
+                }
+                cmds.count += 10;
+                pts.count += 17;
+            }
+        }
+
         /// <summary>
         /// Get a point along the path at the given progress [0,1].
         /// Mirrors C++ RenderPath::point(float progress).

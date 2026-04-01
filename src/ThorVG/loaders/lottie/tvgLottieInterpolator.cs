@@ -92,7 +92,7 @@ namespace ThorVG
 
         public void Set(string? key, Point inTangent, Point outTangent)
         {
-            if (key != null) this.key = key;
+            this.key = key;
             this.inTangent = inTangent;
             this.outTangent = outTangent;
 

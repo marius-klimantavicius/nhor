@@ -20,7 +20,6 @@
  * SOFTWARE.
  */
 
-#include <atomic>
 #include "tvgFill.h"
 #include "tvgGlCommon.h"
 #include "tvgGlRenderer.h"
@@ -37,15 +36,25 @@
 
 #define NOISE_LEVEL 0.5f
 
-static atomic<int32_t> rendererCnt{-1};
+static int32_t _rendererCnt = -1;
+static mutex _rendererMtx;
+
+void GlRenderer::disposeTexture(GLuint texId)
+{
+    if (!texId) return;
+    ScopedLock lock(mDisposed.key);
+    mDisposed.textures.push(texId);
+}
+
 void GlRenderer::clearDisposes()
 {
     if (mDisposed.textures.count > 0) {
-        glDeleteTextures(mDisposed.textures.count, mDisposed.textures.data);
+        GL_CHECK(glDeleteTextures(mDisposed.textures.count, mDisposed.textures.data));
         mDisposed.textures.clear();
     }
 
-    ARRAY_FOREACH(p, mRenderPassStack) delete(*p);
+    ARRAY_FOREACH(p, mRenderPassStack)
+    delete (*p);
     mRenderPassStack.clear();
     mSolidBatch.clear();
 }
@@ -88,17 +97,20 @@ bool GlRenderer::currentContext()
 
 GlRenderer::GlRenderer() : mEffect(GlEffect(&mGpuBuffer))
 {
-    ++rendererCnt;
 }
 
 
 GlRenderer::~GlRenderer()
 {
-    --rendererCnt;
-
+    if (mContext) currentContext();
     flush();
+    mTextures.clear();
 
     ARRAY_FOREACH(p, mPrograms) delete(*p);
+
+    _rendererMtx.lock();
+    --_rendererCnt;
+    _rendererMtx.unlock();
 }
 
 
@@ -109,12 +121,12 @@ void GlRenderer::initShaders()
 #if 1  //for optimization
     #define LINEAR_TOTAL_LENGTH 2831
     #define RADIAL_TOTAL_LENGTH 5315
-    #define BLEND_TOTAL_LENGTH 5500
+    #define BLEND_TOTAL_LENGTH 5369
 #else
     #define COMMON_TOTAL_LENGTH strlen(STR_GRADIENT_FRAG_COMMON_VARIABLES) + strlen(STR_GRADIENT_FRAG_COMMON_FUNCTIONS) + 1
     #define LINEAR_TOTAL_LENGTH strlen(STR_LINEAR_GRADIENT_VARIABLES) + strlen(STR_LINEAR_GRADIENT_FUNCTIONS) + strlen(STR_LINEAR_GRADIENT_MAIN) + COMMON_TOTAL_LENGTH
     #define RADIAL_TOTAL_LENGTH strlen(STR_RADIAL_GRADIENT_VARIABLES) + strlen(STR_RADIAL_GRADIENT_FUNCTIONS) + strlen(STR_RADIAL_GRADIENT_MAIN) + COMMON_TOTAL_LENGTH
-    #define BLEND_TOTAL_LENGTH strlen(BLEND_SCENE_FRAG_HEADER) + strlen(BLEND_FRAG_HSL) + strlen(COLOR_BURN_BLEND_FRAG) + 1
+    #define BLEND_TOTAL_LENGTH strlen(BLEND_SCENE_FRAG_HEADER) + (strlen(BLEND_FRAG_HUE) > strlen(BLEND_FRAG_LUM) ? strlen(BLEND_FRAG_HUE) : strlen(BLEND_FRAG_LUM)) + strlen(COLOR_BURN_BLEND_FRAG) + 1
 #endif
 
     char linearGradientFragShader[LINEAR_TOTAL_LENGTH];
@@ -610,11 +622,11 @@ GlProgram* GlRenderer::getBlendProgram(BlendMethod method, BlendSource source)
     if (mPrograms[shaderInd]) return mPrograms[shaderInd];
 
     const char* helpers = "";
-    if ((method == BlendMethod::Hue) ||
-        (method == BlendMethod::Saturation) ||
-        (method == BlendMethod::Color) ||
-        (method == BlendMethod::Luminosity))
-        helpers = BLEND_FRAG_HSL;
+    if (method == BlendMethod::Hue) {
+        helpers = BLEND_FRAG_HUE;
+    } else if ((method == BlendMethod::Saturation) || (method == BlendMethod::Color) || (method == BlendMethod::Luminosity)) {
+        helpers = BLEND_FRAG_LUM;
+    }
 
     const char* vertShader;
     char fragShader[BLEND_TOTAL_LENGTH];
@@ -883,7 +895,10 @@ bool GlRenderer::target(void* display, void* surface, void* context, int32_t id,
     //assume the context zero is invalid
     if (!context || w == 0 || h == 0) return false;
 
-    if (mContext) currentContext();
+    if (mContext) {
+        currentContext();
+        if (mContext != context) mTextures.clear();
+    }
 
     flush();
 
@@ -1225,13 +1240,9 @@ bool GlRenderer::renderShape(RenderData data)
 void GlRenderer::dispose(RenderData data)
 {
     auto sdata = static_cast<GlShape*>(data);
-
-    //dispose the non thread-safety resources on clearDisposes() call
-    if (sdata->texId) {
-        ScopedLock lock(mDisposed.key);
-        mDisposed.textures.push(sdata->texId);
-    }
-
+    if (!sdata) return;
+    auto ownsTexture = sdata->texId && (sdata->texStamp == mTextures.stamp);
+    if (ownsTexture) disposeTexture(mTextures.release(sdata->texSource, sdata->texFilter, sdata->texId));
     delete sdata;
 }
 
@@ -1239,31 +1250,32 @@ void GlRenderer::dispose(RenderData data)
 RenderData GlRenderer::prepare(RenderSurface* image, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags)
 {
     //TODO: redefine GlImage.
+    if (opacity == 0) return data;
+
     auto sdata = static_cast<GlShape*>(data);
     if (!sdata) sdata = new GlShape;
-    sdata->validFill = false;
 
-    if (opacity == 0 || flags == RenderUpdateFlag::None) return data;
+    auto cacheStale = sdata->texId && (sdata->texStamp != mTextures.stamp);
+    if (flags == RenderUpdateFlag::None && !cacheStale) return data;
+
+    sdata->validFill = false;
 
     sdata->viewWd = static_cast<float>(surface.w);
     sdata->viewHt = static_cast<float>(surface.h);
 
-    //generate a texture
-    if (sdata->texId == 0) {
-        GL_CHECK(glGenTextures(1, &sdata->texId));
-        GL_CHECK(glBindTexture(GL_TEXTURE_2D, sdata->texId));
-        GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image->w, image->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, image->data));
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (filter == FilterMethod::Bilinear) ? GL_LINEAR : GL_NEAREST));
-        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (filter == FilterMethod::Bilinear) ? GL_LINEAR : GL_NEAREST));
-        GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
-
-        sdata->texColorSpace = image->cs;
-        sdata->texFlipY = 1;
+    auto sourceChanged = (sdata->texSource != image) || (sdata->texFilter != filter);
+    if (sdata->texId == 0 || sourceChanged || cacheStale) {
+        auto ownsTexture = sdata->texId && (sdata->texStamp == mTextures.stamp);
+        if (ownsTexture) disposeTexture(mTextures.release(sdata->texSource, sdata->texFilter, sdata->texId));
+        sdata->texId = mTextures.retain(image, filter);
+        sdata->texSource = image;
+        sdata->texFilter = filter;
+        sdata->texStamp = mTextures.stamp;
         sdata->geometry = GlGeometry();
     }
 
+    sdata->texColorSpace = image->cs;
+    sdata->texFlipY = 1;
     sdata->opacity = opacity;
     sdata->geometry.setMatrix(transform);
     sdata->geometry.viewport = vport;
@@ -1383,26 +1395,36 @@ bool GlRenderer::intersectsImage(RenderData data, TVG_UNUSED const RenderRegion&
 
 bool GlRenderer::term()
 {
-    if (rendererCnt > 0) return false;
+    _rendererMtx.lock();
+
+    if (_rendererCnt > 0) {
+        _rendererMtx.unlock();
+        return false;
+    }
 
     glTerm();
 
-    rendererCnt = -1;
+    _rendererCnt = -1;
+    _rendererMtx.unlock();
 
     return true;
 }
 
 
-GlRenderer* GlRenderer::gen(TVG_UNUSED uint32_t threads)
+GlRenderer* GlRenderer::gen(TVG_UNUSED uint32_t threads, TVG_UNUSED EngineOption op)
 {
     //initialize engine
-    if (rendererCnt == -1) {
+    _rendererMtx.lock();
+    if (_rendererCnt == -1) {
         if (!glInit()) {
             TVGERR("GL_ENGINE", "Failed GL initialization!");
+            _rendererMtx.unlock();
             return nullptr;
         }    
-        rendererCnt = 0;
+        _rendererCnt = 0;
     }
+    ++_rendererCnt;
+    _rendererMtx.unlock();
 
     return new GlRenderer;
 }

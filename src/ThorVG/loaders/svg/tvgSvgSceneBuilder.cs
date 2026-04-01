@@ -114,19 +114,15 @@ namespace ThorVG
 
             if (g.userSpace)
             {
-                g.linear!.x1 = g.linear.x1 * vBox.w;
-                g.linear.y1 = g.linear.y1 * vBox.h;
-                g.linear.x2 = g.linear.x2 * vBox.w;
-                g.linear.y2 = g.linear.y2 * vBox.h;
+                fillGrad.Linear(g.linear!.x1 * vBox.w, g.linear.y1 * vBox.h, g.linear.x2 * vBox.w, g.linear.y2 * vBox.h);
             }
             else
             {
                 var m = new Matrix(vBox.w, 0, vBox.x, 0, vBox.h, vBox.y, 0, 0, 1);
                 if (isTransform) _transformMultiply(m, ref finalTransform);
                 else finalTransform = m;
+                fillGrad.Linear(g.linear!.x1, g.linear.y1, g.linear.x2, g.linear.y2);
             }
-
-            fillGrad.Linear(g.linear!.x1, g.linear.y1, g.linear.x2, g.linear.y2);
             fillGrad.SetSpread(g.spread);
 
             //Update the stops
@@ -163,21 +159,16 @@ namespace ThorVG
             {
                 //The radius scaling is done according to the Units section:
                 //https://www.w3.org/TR/2015/WD-SVG2-20150915/coords.html
-                g.radial!.cx = g.radial.cx * vBox.w;
-                g.radial.cy = g.radial.cy * vBox.h;
-                g.radial.r = g.radial.r * MathF.Sqrt(MathF.Pow(vBox.w, 2.0f) + MathF.Pow(vBox.h, 2.0f)) / MathF.Sqrt(2.0f);
-                g.radial.fx = g.radial.fx * vBox.w;
-                g.radial.fy = g.radial.fy * vBox.h;
-                g.radial.fr = g.radial.fr * MathF.Sqrt(MathF.Pow(vBox.w, 2.0f) + MathF.Pow(vBox.h, 2.0f)) / MathF.Sqrt(2.0f);
+                var diag = MathF.Sqrt(MathF.Pow(vBox.w, 2.0f) + MathF.Pow(vBox.h, 2.0f)) / MathF.Sqrt(2.0f);
+                fillGrad.Radial(g.radial!.cx * vBox.w, g.radial.cy * vBox.h, g.radial.r * diag, g.radial.fx * vBox.w, g.radial.fy * vBox.h, g.radial.fr * diag);
             }
             else
             {
                 var m = new Matrix(vBox.w, 0, vBox.x, 0, vBox.h, vBox.y, 0, 0, 1);
                 if (isTransform) _transformMultiply(m, ref finalTransform);
                 else finalTransform = m;
+                fillGrad.Radial(g.radial!.cx, g.radial.cy, g.radial.r, g.radial.fx, g.radial.fy, g.radial.fr);
             }
-
-            fillGrad.Radial(g.radial!.cx, g.radial.cy, g.radial.r, g.radial.fx, g.radial.fy, g.radial.fr);
             fillGrad.SetSpread(g.spread);
 
             //Update the stops
@@ -257,7 +248,7 @@ namespace ThorVG
             shape.Close();
         }
 
-        private static bool _appendClipChild(SvgLoaderData loaderData, SvgNode node, Shape shape, in Box vBox, string svgPath)
+        private static bool _appendClipChild(SvgParserContext ctx, SvgNode node, Shape shape, in Box vBox, string svgPath)
         {
             //The SVG standard allows only for 'use' nodes that point directly to a basic shape.
             if (node.type == SvgNodeType.Use)
@@ -277,9 +268,9 @@ namespace ThorVG
                 }
 
                 var isIdentity = TvgMath.IsIdentity(finalTransform);
-                return _appendClipShape(loaderData, child, shape, vBox, svgPath, isIdentity ? null : (Matrix?)finalTransform);
+                return _appendClipShape(ctx, child, shape, vBox, svgPath, isIdentity ? null : (Matrix?)finalTransform);
             }
-            return _appendClipShape(loaderData, node, shape, vBox, svgPath, null);
+            return _appendClipShape(ctx, node, shape, vBox, svgPath, null);
         }
 
         private static Matrix _compositionTransform(Paint paint, SvgNode node, SvgNode compNode, SvgNodeType type)
@@ -302,7 +293,7 @@ namespace ThorVG
             return m;
         }
 
-        private static bool _applyClip(SvgLoaderData loaderData, Paint paint, SvgNode node, SvgNode clipNode, in Box vBox, string svgPath)
+        private static bool _applyClip(SvgParserContext ctx, Paint paint, SvgNode node, SvgNode clipNode, in Box vBox, string svgPath)
         {
             node.style!.clipPath.applying = true;
 
@@ -311,7 +302,7 @@ namespace ThorVG
 
             foreach (var p in clipNode.child)
             {
-                if (_appendClipChild(loaderData, p, clipper, vBox, svgPath)) valid = true;
+                if (_appendClipChild(ctx, p, clipper, vBox, svgPath)) valid = true;
             }
 
             if (valid)
@@ -329,7 +320,16 @@ namespace ThorVG
             return valid;
         }
 
-        private static Paint? _applyComposition(SvgLoaderData loaderData, Paint? paint, SvgNode node, in Box vBox, string svgPath)
+        private static Paint? _applyBlend(Paint? paint, SvgNode node)
+        {
+            if (paint != null && (node.style!.flags & SvgStyleFlags.BlendMode) != 0)
+            {
+                paint.SetBlend(node.style.blendMode);
+            }
+            return paint;
+        }
+
+        private static Paint? _applyComposition(SvgParserContext ctx, Paint? paint, SvgNode node, in Box vBox, string svgPath)
         {
             if (paint == null) return null;
 
@@ -354,7 +354,7 @@ namespace ThorVG
 
             if (clipNode != null)
             {
-                if (!_applyClip(loaderData, scene, node, clipNode, vBox, svgPath))
+                if (!_applyClip(ctx, scene, node, clipNode, vBox, svgPath))
                 {
                     Paint.Rel(scene);
                     return null;
@@ -366,7 +366,7 @@ namespace ThorVG
             {
                 node.style.mask.applying = true;
 
-                var mask = _sceneBuildHelper(loaderData, maskNode, vBox, svgPath, true, 0);
+                var mask = _sceneBuildHelper(ctx, maskNode, vBox, svgPath, true, 0);
                 if (mask != null)
                 {
                     if (!maskNode.maskNode.userSpace)
@@ -387,7 +387,7 @@ namespace ThorVG
             return scene;
         }
 
-        private static Paint? _applyFilter(SvgLoaderData loaderData, Paint paint, SvgNode node, in Box vBox, string svgPath)
+        private static Paint? _applyFilter(SvgParserContext ctx, Paint paint, SvgNode node, in Box vBox, string svgPath)
         {
             var filterNode = node.style!.filter.node;
             if (filterNode == null || filterNode.child.Count == 0) return paint;
@@ -422,10 +422,10 @@ namespace ThorVG
                         var isPercent = gauss.isPercentage;
                         if (primitiveUserSpace)
                         {
-                            if (isPercent[0]) gaussBox.x *= loaderData.svgParse!.global.w;
-                            if (isPercent[1]) gaussBox.y *= loaderData.svgParse!.global.h;
-                            if (isPercent[2]) gaussBox.w *= loaderData.svgParse!.global.w;
-                            if (isPercent[3]) gaussBox.h *= loaderData.svgParse!.global.h;
+                            if (isPercent[0]) gaussBox.x *= ctx.svgParse!.global.w;
+                            if (isPercent[1]) gaussBox.y *= ctx.svgParse!.global.h;
+                            if (isPercent[2]) gaussBox.w *= ctx.svgParse!.global.w;
+                            if (isPercent[3]) gaussBox.h *= ctx.svgParse!.global.h;
                         }
                         else
                         {
@@ -458,7 +458,7 @@ namespace ThorVG
             return scene;
         }
 
-        private static Paint? _applyProperty(SvgLoaderData loaderData, SvgNode node, Shape vg, in Box vBox, string svgPath, bool clip)
+        private static Paint? _applyProperty(SvgParserContext ctx, SvgNode node, Shape vg, in Box vBox, string svgPath, bool clip)
         {
             var style = node.style!;
 
@@ -501,7 +501,11 @@ namespace ThorVG
             vg.Order(!style.paintOrder);
             vg.Opacity((byte)style.opacity);
 
-            if (node.type == SvgNodeType.G || node.type == SvgNodeType.Use) return vg;
+            if (node.type == SvgNodeType.G || node.type == SvgNodeType.Use)
+            {
+                if ((style.flags & SvgStyleFlags.BlendMode) != 0) vg.SetBlend(style.blendMode);
+                return vg;
+            }
 
             //Apply the stroke style property
             vg.StrokeWidth(style.stroke.width);
@@ -553,8 +557,9 @@ namespace ThorVG
             //apply transform after the local space shape bbox for gradient acquisition
             if (node.transform != null && !clip) vg.Transform(node.transform.Value);
 
-            var p = _applyFilter(loaderData, vg, node, vBox, svgPath);
-            return _applyComposition(loaderData, p, node, vBox, svgPath);
+            var p = _applyFilter(ctx, vg, node, vBox, svgPath);
+            p = _applyComposition(ctx, p, node, vBox, svgPath);
+            return _applyBlend(p, node);
         }
 
         private static bool _recognizeShape(SvgNode node, Shape shape)
@@ -625,14 +630,14 @@ namespace ThorVG
             return true;
         }
 
-        private static Paint? _shapeBuildHelper(SvgLoaderData loaderData, SvgNode node, in Box vBox, string svgPath)
+        private static Paint? _shapeBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath)
         {
             var shape = Shape.Gen();
             if (!_recognizeShape(node, shape)) return null;
-            return _applyProperty(loaderData, node, shape, vBox, svgPath, false);
+            return _applyProperty(ctx, node, shape, vBox, svgPath, false);
         }
 
-        private static unsafe bool _appendClipShape(SvgLoaderData loaderData, SvgNode node, Shape shape, in Box vBox, string svgPath, Matrix? transform)
+        private static unsafe bool _appendClipShape(SvgParserContext ctx, SvgNode node, Shape shape, in Box vBox, string svgPath, Matrix? transform)
         {
             uint currentPtsCnt = shape.rs.path.pts.count;
 
@@ -665,7 +670,7 @@ namespace ThorVG
                     //TVGLOG("SVG", "Multiple composition tried! Check out circular dependency?");
                     return false;
                 }
-                return _applyClip(loaderData, shape, node, clipNode, vBox, svgPath);
+                return _applyClip(ctx, shape, node, clipNode, vBox, svgPath);
             }
 
             return true;
@@ -731,7 +736,7 @@ namespace ThorVG
             return false;
         }
 
-        private static Paint? _imageBuildHelper(SvgLoaderData loaderData, SvgNode node, in Box vBox, string svgPath)
+        private static Paint? _imageBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath)
         {
             if (string.IsNullOrEmpty(node.image.href)) return null;
 
@@ -754,7 +759,7 @@ namespace ThorVG
                     {
                         return null;
                     }
-                    loaderData.images.Add(dataStr);
+                    ctx.images.Add(dataStr);
                 }
                 else
                 {
@@ -764,7 +769,7 @@ namespace ThorVG
                     {
                         return null;
                     }
-                    loaderData.images.Add(dataStr);
+                    ctx.images.Add(dataStr);
                 }
             }
             else
@@ -807,8 +812,9 @@ namespace ThorVG
             if (node.transform != null) m = TvgMath.Multiply(node.transform.Value, m);
             picture.Transform(m);
 
-            var p = _applyFilter(loaderData, picture, node, vBox, svgPath);
-            return _applyComposition(loaderData, p, node, vBox, svgPath);
+            var p = _applyFilter(ctx, picture, node, vBox, svgPath);
+            p = _applyComposition(ctx, p, node, vBox, svgPath);
+            return _applyBlend(p, node);
         }
 
         private static Matrix _calculateAspectRatioMatrix(AspectRatioAlign align, AspectRatioMeetOrSlice meetOrSlice, float width, float height, in Box box)
@@ -877,9 +883,9 @@ namespace ThorVG
             return new Matrix(sx, 0, -tvx, 0, sy, -tvy, 0, 0, 1);
         }
 
-        private static Scene? _useBuildHelper(SvgLoaderData loaderData, SvgNode node, in Box vBox, string svgPath, int depth)
+        private static Scene? _useBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath, int depth)
         {
-            var scene = _sceneBuildHelper(loaderData, node, vBox, svgPath, false, depth + 1);
+            var scene = _sceneBuildHelper(ctx, node, vBox, svgPath, false, depth + 1);
             if (scene == null) return null;
 
             // mUseTransform = mUseTransform * mTranslate
@@ -1046,7 +1052,7 @@ namespace ThorVG
             }
         }
 
-        private static Paint? _textBuildHelper(SvgLoaderData loaderData, SvgNode node, in Box vBox, string svgPath)
+        private static Paint? _textBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath)
         {
             var textNode = node.text;
             if (textNode.text == null) return null;
@@ -1082,11 +1088,12 @@ namespace ThorVG
 
             _applyTextFill(node.style!, text, vBox);
 
-            var p = _applyFilter(loaderData, text, node, vBox, svgPath);
-            return _applyComposition(loaderData, p, node, vBox, svgPath);
+            var p = _applyFilter(ctx, text, node, vBox, svgPath);
+            p = _applyComposition(ctx, p, node, vBox, svgPath);
+            return _applyBlend(p, node);
         }
 
-        private static Scene? _sceneBuildHelper(SvgLoaderData loaderData, SvgNode node, in Box vBox, string svgPath, bool mask, int depth)
+        private static Scene? _sceneBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath, bool mask, int depth)
         {
             /* Exception handling: Prevent invalid SVG data input.
                The size is the arbitrary value, we need an experimental size. */
@@ -1114,12 +1121,12 @@ namespace ThorVG
                 {
                     if (child.type == SvgNodeType.Use)
                     {
-                        var usePaint = _useBuildHelper(loaderData, child, vBox, svgPath, depth + 1);
+                        var usePaint = _useBuildHelper(ctx, child, vBox, svgPath, depth + 1);
                         if (usePaint != null) scene.Add(usePaint);
                     }
                     else if (!(child.type == SvgNodeType.Symbol && node.type != SvgNodeType.Use))
                     {
-                        var childScene = _sceneBuildHelper(loaderData, child, vBox, svgPath, false, depth + 1);
+                        var childScene = _sceneBuildHelper(ctx, child, vBox, svgPath, false, depth + 1);
                         if (childScene != null) scene.Add(childScene);
                     }
                     if (child.id != null) scene.id = (uint)TvgCompressor.Djb2Encode(child.id);
@@ -1127,9 +1134,9 @@ namespace ThorVG
                 else
                 {
                     Paint? paint = null;
-                    if (child.type == SvgNodeType.Image) paint = _imageBuildHelper(loaderData, child, vBox, svgPath);
-                    else if (child.type == SvgNodeType.Text) paint = _textBuildHelper(loaderData, child, vBox, svgPath);
-                    else if (child.type != SvgNodeType.Mask) paint = _shapeBuildHelper(loaderData, child, vBox, svgPath);
+                    if (child.type == SvgNodeType.Image) paint = _imageBuildHelper(ctx, child, vBox, svgPath);
+                    else if (child.type == SvgNodeType.Text) paint = _textBuildHelper(ctx, child, vBox, svgPath);
+                    else if (child.type != SvgNodeType.Mask) paint = _shapeBuildHelper(ctx, child, vBox, svgPath);
                     if (paint != null)
                     {
                         if (child.id != null) paint.id = (uint)TvgCompressor.Djb2Encode(child.id);
@@ -1139,8 +1146,9 @@ namespace ThorVG
             }
             scene.Opacity((byte)node.style.opacity);
 
-            var p = _applyFilter(loaderData, scene, node, vBox, svgPath);
-            return (Scene?)_applyComposition(loaderData, p, node, vBox, svgPath);
+            var p = _applyFilter(ctx, scene, node, vBox, svgPath);
+            p = _applyComposition(ctx, p, node, vBox, svgPath);
+            return (Scene?)_applyBlend(p, node);
         }
 
         private static void _updateInvalidViewSize(Scene scene, ref Box vBox, ref float w, ref float h, SvgViewFlag viewFlag)
@@ -1209,18 +1217,46 @@ namespace ThorVG
         /* External Class Implementation                                        */
         /************************************************************************/
 
-        public static Scene? SvgSceneBuild(SvgLoaderData loaderData, Box vBox, float w, float h, AspectRatioAlign align, AspectRatioMeetOrSlice meetOrSlice, string svgPath, SvgViewFlag viewFlag)
+        private static bool _hasUserSpaceGradients(SvgParserContext ctx)
+        {
+            foreach (var g in ctx.gradients)
+            {
+                if (g.userSpace) return true;
+            }
+            if (ctx.def != null)
+            {
+                foreach (var g in ctx.def.defs.gradients)
+                {
+                    if (g.userSpace) return true;
+                }
+            }
+            return false;
+        }
+
+        public static Scene? SvgSceneBuild(SvgParserContext ctx, Box vBox, float w, float h, AspectRatioAlign align, AspectRatioMeetOrSlice meetOrSlice, string svgPath, SvgViewFlag viewFlag)
         {
             //TODO: aspect ratio is valid only if viewBox was set
 
-            if (loaderData.doc == null || loaderData.doc.type != SvgNodeType.Doc) return null;
+            if (ctx.doc == null || ctx.doc.type != SvgNodeType.Doc) return null;
 
-            _loadFonts(loaderData.fonts);
+            _loadFonts(ctx.fonts);
 
-            var docNode = _sceneBuildHelper(loaderData, loaderData.doc, vBox, svgPath, false, 0);
+            var docNode = _sceneBuildHelper(ctx, ctx.doc, vBox, svgPath, false, 0);
             if (docNode == null) return null;
 
-            if ((viewFlag & SvgViewFlag.Viewbox) == 0) _updateInvalidViewSize(docNode, ref vBox, ref w, ref h, viewFlag);
+            if ((viewFlag & SvgViewFlag.Viewbox) == 0)
+            {
+                var prevW = vBox.w;
+                var prevH = vBox.h;
+                _updateInvalidViewSize(docNode, ref vBox, ref w, ref h, viewFlag);
+                if ((!TvgMath.Equal(vBox.w, prevW) || !TvgMath.Equal(vBox.h, prevH)) && _hasUserSpaceGradients(ctx))
+                {
+                    Paint.Rel(docNode);
+                    ctx.images.Clear();
+                    docNode = _sceneBuildHelper(ctx, ctx.doc, vBox, svgPath, false, 0);
+                    if (docNode == null) return null;
+                }
+            }
 
             if (!TvgMath.Equal(w, vBox.w) || !TvgMath.Equal(h, vBox.h))
             {
@@ -1239,9 +1275,9 @@ namespace ThorVG
             clippingLayer.Clip(viewBoxClip);
             clippingLayer.Add(docNode);
 
-            loaderData.doc.doc.vbox = vBox;
-            loaderData.doc.doc.w = w;
-            loaderData.doc.doc.h = h;
+            ctx.doc.doc.vbox = vBox;
+            ctx.doc.doc.w = w;
+            ctx.doc.doc.h = h;
 
             var root = Scene.Gen();
             root.Add(clippingLayer);

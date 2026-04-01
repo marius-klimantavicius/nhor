@@ -137,7 +137,8 @@ namespace ThorVG
 
         protected FontLoader(FileType type) : base(type) { }
 
-        public abstract bool Get(FontMetrics fm, string? text, RenderPath output);
+        public abstract bool Get(FontMetrics fm, string? text, uint len, RenderPath output);
+        public bool Get(FontMetrics fm, string? text, RenderPath output) => Get(fm, text, text != null ? (uint)text.Length : 0, output);
         public abstract void Transform(Paint paint, FontMetrics fm, float italicShear);
         public abstract void Release(FontMetrics fm);
         public abstract void Metrics(FontMetrics fm, out TextMetrics output);

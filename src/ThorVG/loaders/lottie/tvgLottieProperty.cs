@@ -783,7 +783,8 @@ namespace ThorVG
             float t;
             if (Dispatch(frameNo, out path, out frameIdx, out t))
             {
-                return modifier.ModifyPath(path.cmds, path.cmdsCnt, path.pts, path.ptsCnt, transform, @out);
+                modifier.Path(path.cmds, path.cmdsCnt, path.pts, path.ptsCnt, transform, @out);
+                return true;
             }
 
             var fv = frames![frameIdx].value;
@@ -794,7 +795,7 @@ namespace ThorVG
                 interpPts[i] = new Point(fv.pts[i].x + (nv.pts[i].x - fv.pts[i].x) * t, fv.pts[i].y + (nv.pts[i].y - fv.pts[i].y) * t);
                 if (transform != null) TvgMath.TransformInPlace(ref interpPts[i], *transform);
             }
-            modifier.ModifyPath(fv.cmds, fv.cmdsCnt, interpPts, fv.ptsCnt, null, @out);
+            modifier.Path(fv.cmds, fv.cmdsCnt, interpPts, fv.ptsCnt, null, @out);
             return true;
         }
 
@@ -836,7 +837,8 @@ namespace ThorVG
 
             // Apply modifiers
             to.Clear();
-            return modifier.ModifyPath(to.cmds.ToArray(), (int)to.cmds.count, to.pts.ToArray(), (int)to.pts.count, transform, @out);
+            modifier.Path(to.cmds.ToArray(), (int)to.cmds.count, to.pts.ToArray(), (int)to.pts.count, transform, @out);
+            return true;
         }
 
         private bool Dispatch(float frameNo, out PathSet path, out int frameIdx, out float t)

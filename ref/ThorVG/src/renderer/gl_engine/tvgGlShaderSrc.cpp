@@ -819,7 +819,7 @@ vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
 )";
 #endif
 
-const char* BLEND_FRAG_HSL = R"(
+const char* BLEND_FRAG_HUE = R"(
 // RGB to HSL conversion
 vec3 rgbToHsl(vec3 color) {
     float minVal = min(color.r, min(color.g, color.b));
@@ -861,6 +861,22 @@ vec3 hslToRgb(vec3 color) {
     else                                      { rgb = vec3(C, 0.0, X); }
 
     return rgb + vec3(m);
+}
+)";
+
+//  helpers related to luminance adjustment
+const char* BLEND_FRAG_LUM = R"(
+const vec3 LUM_W = vec3(0.3, 0.59, 0.11);
+
+vec3 setLum(vec3 color, float l) {
+    color += l - dot(color, LUM_W);
+    float ll = dot(color, LUM_W);
+    float n = min(color.r, min(color.g, color.b));
+    float x = max(color.r, max(color.g, color.b));
+
+    if (n < 0.0) color = ll + (color - ll) * (ll / (ll - n));
+    if (x > 1.0) color = ll + (color - ll) * ((1.0 - ll) / (x - ll));
+    return color;
 }
 )";
 
@@ -982,7 +998,13 @@ void main() {
     vec3 Rc = d.Sc;
     if (d.Da > 0.0) {
         vec3 Dc = min(One, d.Dc / d.Da);
-        Rc = min(One, (One - 2.0 * d.Sc) * Dc * Dc + 2.0 * d.Sc * Dc);
+        vec3 Dlow = ((16.0 * Dc - 12.0) * Dc + 4.0) * Dc;
+        vec3 Dhigh = sqrt(Dc);
+        vec3 D = mix(Dhigh, Dlow, step(Dc, vec3(0.25)));
+        vec3 low = Dc - (1.0 - 2.0 * d.Sc) * Dc * (1.0 - Dc);
+        vec3 high = Dc + (2.0 * d.Sc - 1.0) * (D - Dc);
+        Rc = mix(high, low, step(d.Sc, vec3(0.5)));
+        Rc = clamp(Rc, vec3(0.0), One);
         Rc = mix(d.Sc, Rc, d.Da);
     }
     FragColor = postProcess(vec4(Rc, 1.0));
@@ -1012,9 +1034,8 @@ void main()
     vec3 Rc = d.Sc;
     if (d.Da > 0.0) {
         vec3 Dc = min(One, d.Dc / d.Da);
-        vec3 Sc = d.Sc;
 
-        vec3 Shsl = rgbToHsl(Sc);
+        vec3 Shsl = rgbToHsl(d.Sc);
         vec3 Dhsl = rgbToHsl(Dc);
         Rc = hslToRgb(vec3(Shsl.r, Dhsl.g, Dhsl.b)); // sh, ds, dl
         
@@ -1030,12 +1051,12 @@ void main() {
     vec3 Rc = d.Sc;
     if (d.Da > 0.0) {
         vec3 Dc = min(One, d.Dc / d.Da);
-        vec3 Sc = d.Sc;
-
-        vec3 Shsl = rgbToHsl(Sc);
-        vec3 Dhsl = rgbToHsl(Dc);
-        Rc = hslToRgb(vec3(Dhsl.r, Shsl.g, Dhsl.b)); // dh, ss, dl
-        
+        float s = max(d.Sc.r, max(d.Sc.g, d.Sc.b)) - min(d.Sc.r, min(d.Sc.g, d.Sc.b));
+        float n = min(Dc.r, min(Dc.g, Dc.b));
+        float x = max(Dc.r, max(Dc.g, Dc.b));
+        Rc = vec3(0.0);
+        if (x > n) Rc = (Dc - vec3(n)) * (s / (x - n));
+        Rc = setLum(Rc, dot(Dc, LUM_W));
         Rc = mix(d.Sc, Rc, d.Da);
     }
     FragColor = postProcess(vec4(Rc, 1.0));
@@ -1048,12 +1069,7 @@ void main() {
     vec3 Rc = d.Sc;
     if (d.Da > 0.0) {
         vec3 Dc = min(One, d.Dc / d.Da);
-        vec3 Sc = d.Sc;
-
-        vec3 Shsl = rgbToHsl(Sc);
-        vec3 Dhsl = rgbToHsl(Dc);
-        Rc = hslToRgb(vec3(Shsl.r, Shsl.g, Dhsl.b)); // sh, ss, dl
-        
+        Rc = setLum(d.Sc, dot(Dc, LUM_W));
         Rc = mix(d.Sc, Rc, d.Da);
     }
     FragColor = postProcess(vec4(Rc, 1.0));
@@ -1066,12 +1082,7 @@ void main() {
     vec3 Rc = d.Sc;
     if (d.Da > 0.0) {
         vec3 Dc = min(One, d.Dc / d.Da);
-        vec3 Sc = d.Sc;
-
-        vec3 Shsl = rgbToHsl(Sc);
-        vec3 Dhsl = rgbToHsl(Dc);
-        Rc = hslToRgb(vec3(Dhsl.r, Dhsl.g, Shsl.b)); // dh, ds, sl
-        
+        Rc = setLum(Dc, dot(d.Sc, LUM_W));
         Rc = mix(d.Sc, Rc, d.Da);
     }
     FragColor = postProcess(vec4(Rc, 1.0));

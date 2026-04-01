@@ -272,6 +272,7 @@ struct LottieObject
         Repeater,
         RoundedCorner,
         OffsetPath,
+        PuckerBloat,
         TextRange
     };
 
@@ -359,9 +360,9 @@ struct LottieTextRange : LottieObject
     LottieFloat maxEase = 0.0f;
     LottieFloat minEase = 0.0f;
     LottieFloat maxAmount = 0.0f;
-    LottieFloat smoothness = 0.0f;
+    LottieFloat smoothness = 100.0f;
     LottieFloat start = 0.0f;
-    LottieFloat end = FLT_MAX;
+    LottieFloat end = 100.0f;
     LottieInterpolator* interpolator = nullptr;
     Based based = Chars;
     Shape shape = Square;
@@ -952,7 +953,7 @@ struct LottieImage : LottieObject
         return backup;
     }
 
-    void prepare();
+    void prepare(bool external);
 };
 
 
@@ -1002,6 +1003,15 @@ struct LottieOffsetPath : LottieObject
     StrokeJoin join = StrokeJoin::Miter;
 };
 
+struct LottiePuckerBloat : LottieObject
+{
+    LottiePuckerBloat()
+    {
+        LottieObject::type = LottieObject::PuckerBloat;
+    }
+
+    LottieFloat amount = 0.0f;
+};
 
 struct LottieGroup : LottieObject, LottieRenderPooler<tvg::Shape>
 {

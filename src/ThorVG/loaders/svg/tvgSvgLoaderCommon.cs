@@ -117,7 +117,8 @@ namespace ThorVG
         PaintOrder = 0x10000,
         StrokeMiterlimit = 0x20000,
         StrokeDashOffset = 0x40000,
-        Filter = 0x80000
+        Filter = 0x80000,
+        BlendMode = 0x100000
     }
 
     [Flags]
@@ -416,6 +417,7 @@ namespace ThorVG
         public bool curColorSet;
         public bool paintOrder;
         public bool display;
+        public BlendMethod blendMode;
     }
 
     /// <summary>
@@ -490,23 +492,21 @@ namespace ThorVG
         Text
     }
 
-    public class SvgLoaderData
+    public class SvgParserContext
     {
-        public List<SvgNode> stack = new List<SvgNode>();
+        public SvgParser? svgParse;
         public SvgNode? doc;
         public SvgNode? def;
         public SvgNode? cssStyle;
-        public List<SvgStyleGradient> gradients = new List<SvgStyleGradient>();
-        public List<SvgStyleGradient> gradientStack = new List<SvgStyleGradient>();
-        public SvgParser? svgParse;
+        public SvgNode? currentGraphicsNode;
         public Inlist<SvgNodeIdPair> cloneNodes = new Inlist<SvgNodeIdPair>();
+        public List<SvgNode> stack = new List<SvgNode>();
+        public List<SvgStyleGradient> gradients = new List<SvgStyleGradient>();
+        public List<SvgStyleGradient?> gradientStack = new List<SvgStyleGradient?>();
         public List<SvgNodeIdPair> nodesToStyle = new List<SvgNodeIdPair>();
         public List<string> images = new List<string>();
         public List<FontFace> fonts = new List<FontFace>();
-        public int level;
-        public bool result;
         public OpenedTagType openedTag = OpenedTagType.Other;
-        public SvgNode? currentGraphicsNode;
     }
 
     /// <summary>Helper to check string equality (mirrors C++ STR_AS macro).</summary>

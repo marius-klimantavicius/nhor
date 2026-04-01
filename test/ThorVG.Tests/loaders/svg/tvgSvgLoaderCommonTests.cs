@@ -133,12 +133,12 @@ namespace ThorVG.Tests
             Assert.Equal(2, grad.stops.Count);
         }
 
-        // ========== SvgLoaderData ==========
+        // ========== SvgParserContext ==========
 
         [Fact]
-        public void SvgLoaderData_InitialState()
+        public void SvgParserContext_InitialState()
         {
-            var data = new SvgLoaderData();
+            var data = new SvgParserContext();
             Assert.Null(data.doc);
             Assert.Null(data.def);
             Assert.Null(data.cssStyle);

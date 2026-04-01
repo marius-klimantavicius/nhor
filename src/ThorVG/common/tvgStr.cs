@@ -24,10 +24,20 @@ namespace ThorVG
 
         // ---- Duplicate --------------------------------------------------
 
-        public static string Duplicate(string str, int n = int.MaxValue)
+        public static string? Duplicate(string? str, int n = int.MaxValue)
         {
+            if (str == null) return null;
             var len = str.Length;
             if (len < n) n = len;
+            return str.Substring(0, n);
+        }
+
+        public static string? Duplicate(string? str, int n, out uint size)
+        {
+            if (str == null) { size = 0; return null; }
+            var len = str.Length;
+            if (len < n) n = len;
+            size = (uint)n;
             return str.Substring(0, n);
         }
 

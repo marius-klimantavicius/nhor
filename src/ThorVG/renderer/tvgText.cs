@@ -14,6 +14,7 @@ namespace ThorVG
         internal FontLoader? loader;
         internal FontMetrics fm = new FontMetrics();
         internal string? utf8;
+        internal uint utf8len;
         internal float outlineWidth;
         internal float italicShear;
         internal bool updated;
@@ -34,6 +35,7 @@ namespace ThorVG
         public Result SetText(string? text)
         {
             this.utf8 = text;
+            this.utf8len = text != null ? (uint)text.Length : 0;
             updated = true;
             pImpl.Mark(RenderUpdateFlag.Path);
             return Result.Success;
@@ -327,6 +329,7 @@ namespace ThorVG
             }
 
             text.utf8 = utf8 != null ? TvgStr.Duplicate(utf8) : null;
+            text.utf8len = utf8len;
             text.italicShear = italicShear;
             text.outlineWidth = outlineWidth;
             text.lcdSubpixel = lcdSubpixel; // [LCD Subpixel]
@@ -361,7 +364,7 @@ namespace ThorVG
                 if (loader is TtfLoader ttf)
                     ttf._hintingEnabled = true;
 
-                if (loader.Get(fm, utf8, shape.rs.path))
+                if (loader.Get(fm, utf8, utf8len, shape.rs.path))
                 {
                     loader.Transform(shape, fm, italicShear);
                 }

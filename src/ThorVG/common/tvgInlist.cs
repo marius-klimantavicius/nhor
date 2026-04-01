@@ -21,6 +21,7 @@ namespace ThorVG
     {
         public T? Head;
         public T? Tail;
+        public uint Count;
 
         /// <summary>Remove and dispose all elements.</summary>
         public void Free()
@@ -34,6 +35,7 @@ namespace ThorVG
                 t.Prev = null;
                 t.Next = null;
             }
+            Count = 0;
             Head = Tail = null;
         }
 
@@ -53,6 +55,7 @@ namespace ThorVG
                 element.Prev = null;
                 element.Next = null;
             }
+            ++Count;
         }
 
         /// <summary>Prepend an element at the front of the list.</summary>
@@ -71,6 +74,7 @@ namespace ThorVG
                 element.Prev = null;
                 element.Next = null;
             }
+            ++Count;
         }
 
         /// <summary>Remove and return the last element (or null).
@@ -78,6 +82,7 @@ namespace ThorVG
         public T? PopBack()
         {
             if (Tail == null) return null;
+            --Count;
             var t = Tail;
             Tail = t.Prev;
             if (Tail == null) Head = null;
@@ -89,6 +94,7 @@ namespace ThorVG
         public T? PopFront()
         {
             if (Head == null) return null;
+            --Count;
             var t = Head;
             Head = t.Next;
             if (Head == null) Tail = null;
@@ -104,6 +110,7 @@ namespace ThorVG
             if (ReferenceEquals(element, Tail)) Tail = element.Prev;
             element.Prev = null;
             element.Next = null;
+            --Count;
         }
 
         public bool Empty() => Head == null;

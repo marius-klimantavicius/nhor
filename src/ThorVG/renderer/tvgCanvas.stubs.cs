@@ -89,7 +89,7 @@ namespace ThorVG
                 TvgCommon.TVGLOG("RENDERER", "GlCanvas doesn't support Smart Rendering");
             }
 
-            var r = GlRenderer.Gen(TaskScheduler.Threads());
+            var r = GlRenderer.Gen(TaskScheduler.Threads(), op);
             if (r == null) return null;
             r.Ref();
             var canvas = new GlCanvas();

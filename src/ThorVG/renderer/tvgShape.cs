@@ -78,94 +78,16 @@ namespace ThorVG
         }
 
         // --- Append helpers ---
-        public unsafe Result AppendRect(float x, float y, float w, float h, float rx = 0, float ry = 0, bool cw = true)
+        public Result AppendRect(float x, float y, float w, float h, float rx = 0, float ry = 0, bool cw = true)
         {
-            if (TvgMath.Zero(rx) && TvgMath.Zero(ry))
-            {
-                rs.path.cmds.Grow(5);
-                rs.path.pts.Grow(4);
-                var cmds = rs.path.cmds.End();
-                var pts = rs.path.pts.End();
-                cmds[0] = PathCommand.MoveTo;
-                cmds[1] = cmds[2] = cmds[3] = PathCommand.LineTo;
-                cmds[4] = PathCommand.Close;
-                pts[0] = new Point(x + w, y);
-                pts[2] = new Point(x, y + h);
-                if (cw) { pts[1] = new Point(x + w, y + h); pts[3] = new Point(x, y); }
-                else { pts[1] = new Point(x, y); pts[3] = new Point(x + w, y + h); }
-                rs.path.cmds.count += 5;
-                rs.path.pts.count += 4;
-            }
-            else
-            {
-                var hsize = new Point(w * 0.5f, h * 0.5f);
-                if (rx > hsize.x) rx = hsize.x;
-                if (ry > hsize.y) ry = hsize.y;
-                var hr = new Point(rx * MathConstants.PATH_KAPPA, ry * MathConstants.PATH_KAPPA);
-
-                rs.path.cmds.Grow(10);
-                rs.path.pts.Grow(17);
-                var cmds = rs.path.cmds.End();
-                var pts = rs.path.pts.End();
-                cmds[0] = PathCommand.MoveTo;
-                cmds[9] = PathCommand.Close;
-                pts[0] = new Point(x + w, y + ry);
-                if (cw)
-                {
-                    cmds[1] = cmds[3] = cmds[5] = cmds[7] = PathCommand.LineTo;
-                    cmds[2] = cmds[4] = cmds[6] = cmds[8] = PathCommand.CubicTo;
-                    pts[1] = new Point(x + w, y + h - ry);
-                    pts[2] = new Point(x + w, y + h - ry + hr.y); pts[3] = new Point(x + w - rx + hr.x, y + h); pts[4] = new Point(x + w - rx, y + h);
-                    pts[5] = new Point(x + rx, y + h);
-                    pts[6] = new Point(x + rx - hr.x, y + h); pts[7] = new Point(x, y + h - ry + hr.y); pts[8] = new Point(x, y + h - ry);
-                    pts[9] = new Point(x, y + ry);
-                    pts[10] = new Point(x, y + ry - hr.y); pts[11] = new Point(x + rx - hr.x, y); pts[12] = new Point(x + rx, y);
-                    pts[13] = new Point(x + w - rx, y);
-                    pts[14] = new Point(x + w - rx + hr.x, y); pts[15] = new Point(x + w, y + ry - hr.y); pts[16] = new Point(x + w, y + ry);
-                }
-                else
-                {
-                    cmds[1] = cmds[3] = cmds[5] = cmds[7] = PathCommand.CubicTo;
-                    cmds[2] = cmds[4] = cmds[6] = cmds[8] = PathCommand.LineTo;
-                    pts[1] = new Point(x + w, y + ry - hr.y); pts[2] = new Point(x + w - rx + hr.x, y); pts[3] = new Point(x + w - rx, y);
-                    pts[4] = new Point(x + rx, y);
-                    pts[5] = new Point(x + rx - hr.x, y); pts[6] = new Point(x, y + ry - hr.y); pts[7] = new Point(x, y + ry);
-                    pts[8] = new Point(x, y + h - ry);
-                    pts[9] = new Point(x, y + h - ry + hr.y); pts[10] = new Point(x + rx - hr.x, y + h); pts[11] = new Point(x + rx, y + h);
-                    pts[12] = new Point(x + w - rx, y + h);
-                    pts[13] = new Point(x + w - rx + hr.x, y + h); pts[14] = new Point(x + w, y + h - ry + hr.y); pts[15] = new Point(x + w, y + h - ry);
-                    pts[16] = new Point(x + w, y + ry);
-                }
-                rs.path.cmds.count += 10;
-                rs.path.pts.count += 17;
-            }
+            rs.path.AddRect(x, y, w, h, rx, ry, cw);
             pImpl.Mark(RenderUpdateFlag.Path);
             return Result.Success;
         }
 
-        public unsafe Result AppendCircle(float cx, float cy, float rx, float ry, bool cw = true)
+        public Result AppendCircle(float cx, float cy, float rx, float ry, bool cw = true)
         {
-            var rxk = rx * MathConstants.PATH_KAPPA;
-            var ryk = ry * MathConstants.PATH_KAPPA;
-            rs.path.cmds.Grow(6);
-            var cmds = rs.path.cmds.End();
-            cmds[0] = PathCommand.MoveTo;
-            cmds[1] = cmds[2] = cmds[3] = cmds[4] = PathCommand.CubicTo;
-            cmds[5] = PathCommand.Close;
-            rs.path.cmds.count += 6;
-
-            ReadOnlySpan<int> tableCw = stackalloc int[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-            ReadOnlySpan<int> tableCcw = stackalloc int[]{0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 12};
-            var idx = cw ? tableCw : tableCcw;
-
-            rs.path.pts.Grow(13);
-            var pts = rs.path.pts.End();
-            pts[idx[0]] = new Point(cx, cy - ry);
-            pts[idx[1]] = new Point(cx + rxk, cy - ry); pts[idx[2]] = new Point(cx + rx, cy - ryk); pts[idx[3]] = new Point(cx + rx, cy);
-            pts[idx[4]] = new Point(cx + rx, cy + ryk); pts[idx[5]] = new Point(cx + rxk, cy + ry); pts[idx[6]] = new Point(cx, cy + ry);
-            pts[idx[7]] = new Point(cx - rxk, cy + ry); pts[idx[8]] = new Point(cx - rx, cy + ryk); pts[idx[9]] = new Point(cx - rx, cy);
-            pts[idx[10]] = new Point(cx - rx, cy - ryk); pts[idx[11]] = new Point(cx - rxk, cy - ry); pts[idx[12]] = new Point(cx, cy - ry);
-            rs.path.pts.count += 13;
+            rs.path.AddCircle(cx, cy, rx, ry, cw);
             pImpl.Mark(RenderUpdateFlag.Path);
             return Result.Success;
         }

@@ -174,7 +174,7 @@ namespace ThorVG
         /// </summary>
         internal bool Correct(ref float fx, ref float fy, ref float fr)
         {
-            const float PRECISION = 0.01f;
+            const float PRECISION = 0.02f;
             if (r < PRECISION) return false; // too small, treated as solid fill
 
             var dist = TvgMath.PointLength(center, focal);
