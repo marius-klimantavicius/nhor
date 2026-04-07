@@ -42,6 +42,7 @@ struct UserExample : tvgexam::Example
         picture = tvg::Picture::gen();
         picture->origin(0.5f, 0.5f);  //center origin
         picture->translate(w/2, h/2);
+        picture->scale(0.8f);
 
         if (!tvgexam::verify(picture->load(EXAMPLE_DIR"/image/scale.jpg"))) return false;
 
@@ -52,9 +53,7 @@ struct UserExample : tvgexam::Example
 
     bool update(tvg::Canvas* canvas, uint32_t elapsed) override
     {
-        picture->scale(0.8f);
         picture->rotate(tvgexam::progress(elapsed, 4.0f) * 360.0f);
-
         canvas->update();
 
         return true;

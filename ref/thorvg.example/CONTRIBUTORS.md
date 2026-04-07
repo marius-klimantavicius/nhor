@@ -1,17 +1,17 @@
 ## Project Lead
-- Hermet Park <hermetpark@gmail.com>
+- Hermet Park @hermet
 
 ## Core Contributors
-- Junsu Choi <jsuya.choi@samsung.com>
-- Sergii Liebodkin <sergii@lottiefiles.com>
-- Jinny You <jinny@lottiefiles.com>
-- Jay WenJie <jay@lottiefiles.com>
+- Junsu Choi @JSUYA
+- Mira Grudzinska @mgrudzinska
+- Ruiwen Tang @RuiwenTang
+- Sergii Liebodkin @SergeyLebedkin
+- Jinny You @tinyjin
+- Jay WenJie @wenjieshen
 
 ## Contributors
-- Mira Grudzinska <veleveta@gmail.com>
-- Ruiwen Tang <tangruiwen1989@gmail.com>
-- Lucas Niu <hoiyu3twon9@gmail.com>
-- Josh Soref <jsoref@gmail.com>
-- Elliott Sales de Andrade <quantum.analyst@gmail.com>
-- Fabian Blatz <fabianblatz@gmail.com>
-- Jakub Marcowski <chubercikbattle@gmail.com>
+- Lucas Niu @fall2019
+- Josh Soref @jsoref
+- Elliott Sales de Andrade @QuLogic
+- Fabian Blatz @faxe1008
+- Jakub Marcowski @Chubercik

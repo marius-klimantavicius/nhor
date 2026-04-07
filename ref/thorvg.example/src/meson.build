@@ -55,10 +55,11 @@ source_file = [
     'LinearGradient.cpp',
     'Masking.cpp',
     'MaskingMethods.cpp',
+    'ManyImages.cpp',
+    'ManyRects.cpp',
     'MultiCanvas.cpp',
     'Opacity.cpp',
     'Path.cpp',
-    'Particles.cpp',
     'PictureJpg.cpp',
     'PicturePng.cpp',
     'PictureRaw.cpp',
@@ -70,7 +71,7 @@ source_file = [
     'SceneBlending.cpp',
     'SceneTransform.cpp',
     'Shapes.cpp',
-    'Stress.cpp',
+    'SmartRender.cpp',
     'Stroke.cpp',
     'StrokeLine.cpp',
     'StrokeMiterlimit.cpp',
@@ -101,6 +102,7 @@ if cc.links(lottie_example, dependencies : thorvg_dep, include_directories : tho
         'LottieExpressions.cpp',
         'LottieExtension.cpp',
         'LottieInteraction.cpp',
+        'LottieBigSize.cpp',
         'LottieTweening.cpp'
     ]
     message('ThorVG Lottie found. Enabled Lottie examples.')

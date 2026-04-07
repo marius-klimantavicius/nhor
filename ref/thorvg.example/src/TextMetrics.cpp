@@ -48,12 +48,10 @@ struct UserExample : tvgexam::Example
         cursor->unref();
     }
 
+    // This example demonstrates very basic alphabet text typing.
     bool keydown(tvg::Canvas* canvas, int32_t key) override
     {
         auto input = static_cast<char>(key);
-
-        // This example demonstrates very basic alphabet text typing.
-        if (input != '\b' && input != '\r' && (input < 'a' || input > 'z')) return false;
 
         if (Example::lshift) input -= 32;  // capital character
 
@@ -101,7 +99,7 @@ struct UserExample : tvgexam::Example
             // advance
             } else {
                 endPos[curLine - 1] = this->pos.x;
-                pos.x = 0.0f;
+                pos.x = glyphMetric.advance;
             }
             curLine = newLine;
         }
@@ -172,7 +170,7 @@ struct UserExample : tvgexam::Example
         // cursor visual
         cursor = tvg::Shape::gen();
         cursor->ref();
-        cursor->appendRect(0, 0, 15, 3);
+        cursor->appendRect(0, 0, 10, 2);
         cursor->fill(255, 255, 255);
         cursor->translate(pos.x, pos.y);
         group->add(cursor);
