@@ -79,7 +79,7 @@ namespace ThorVG
                 var trimmedPath = new RenderPath();
                 if (rshape.stroke!.trim.Trim(rshape.path, trimmedPath))
                 {
-                    trimmedPath.Optimize(optPath, matrix, out optPathThin);
+                    optPath = trimmedPath;
                 }
                 else
                 {
@@ -88,7 +88,7 @@ namespace ThorVG
             }
             else
             {
-                rshape.path.Optimize(optPath, matrix, out optPathThin);
+                optPath = rshape.path;
             }
         }
 
@@ -166,9 +166,7 @@ namespace ThorVG
             if (!TvgMath.Zero(strokeWidthWorld))
             {
                 var stroker = new Stroker(stroke, strokeWidthWorld, rshape.StrokeCap(), rshape.StrokeJoin(), rshape.StrokeMiterlimit());
-                var dashedPathWorld = new RenderPath();
-                if (rshape.StrokeDash(dashedPathWorld, matrix)) stroker.Run(dashedPathWorld);
-                else stroker.Run(optPath);
+                stroker.Run(optPath);
                 strokeBounds = stroker.Bounds();
                 strokeRenderWidth = strokeWidthWorld;
                 return true;
