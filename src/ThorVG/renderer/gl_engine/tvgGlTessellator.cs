@@ -459,6 +459,7 @@ namespace ThorVG
             uint prevIndex = 0;
             Point firstPt = default;
             Point prevPt = default;
+            var probe = GpuConvexProbe.Create();
             bool contourClosed = false;
 
             mBuffer.vertex.Reserve(ptsCnt * 2);
@@ -473,8 +474,10 @@ namespace ThorVG
                         // finishContour
                         if (prevIndex != 0 && !contourClosed)
                         {
+                            probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
                             contourClosed = true;
                         }
+                        probe.NextContour();
                         firstIndex = PushVertex(pts->x, pts->y);
                         firstPt = prevPt = *pts;
                         prevIndex = 0;
@@ -483,13 +486,16 @@ namespace ThorVG
                     } break;
                     case PathCommand.LineTo:
                     {
+                        var edge = TvgMath.PointSub(*pts, prevPt);
                         if (prevIndex == 0)
                         {
                             prevIndex = PushVertex(pts->x, pts->y);
+                            probe.AddEdge(edge);
                             prevPt = *pts++;
                         }
                         else
                         {
+                            probe.AddEdge(edge);
                             var currIndex = PushVertex(pts->x, pts->y);
                             PushTriangle(firstIndex, prevIndex, currIndex);
                             prevIndex = currIndex;
@@ -499,6 +505,7 @@ namespace ThorVG
                     case PathCommand.CubicTo:
                     {
                         var curve = new Bezier(pts[-1], pts[0], pts[1], pts[2]);
+                        if (probe.convex && GpuCommon.GpuEdgesCross(curve.start, curve.ctrl1, curve.ctrl2, curve.end)) probe.convex = false;
 
                         var stepCount = curve.Segments();
                         if (stepCount <= 1) stepCount = 2;
@@ -508,6 +515,7 @@ namespace ThorVG
                         for (uint s = 1; s <= stepCount; s++)
                         {
                             var pt = curve.At(step * s);
+                            probe.AddEdge(TvgMath.PointSub(pt, curvePrevPt));
                             var currIndex = PushVertex(pt.x, pt.y);
                             curvePrevPt = pt;
                             if (prevIndex == 0) { prevIndex = currIndex; continue; }
@@ -522,6 +530,7 @@ namespace ThorVG
                         // finishContour
                         if (prevIndex != 0 && !contourClosed)
                         {
+                            probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
                             contourClosed = true;
                         }
                     } break;
@@ -531,7 +540,11 @@ namespace ThorVG
             }
 
             // finishContour (final)
-            convex = false;
+            if (prevIndex != 0 && !contourClosed)
+            {
+                probe.AddContourClose(TvgMath.PointSub(firstPt, prevPt));
+            }
+            convex = probe.convex;
         }
 
         public RenderRegion Bounds()
