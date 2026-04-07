@@ -719,6 +719,22 @@ namespace ThorVG
             return Zero(p.x) && Zero(p.y);
         }
 
+        /// <summary>Tests whether line segments (p0-p1) and (p2-p3) cross each other.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool EdgesCross(in Point p0, in Point p1, in Point p2, in Point p3)
+        {
+            static sbyte OrientSign(in Point a, in Point b, in Point c)
+            {
+                var value = Cross(PointSub(b, a), PointSub(c, a));
+                if (Zero(value)) return 0;
+                return value > 0.0f ? (sbyte)1 : (sbyte)-1;
+            }
+
+            var s1 = OrientSign(in p0, in p1, in p2) * OrientSign(in p0, in p1, in p3);
+            var s2 = OrientSign(in p2, in p3, in p0) * OrientSign(in p2, in p3, in p1);
+            return s1 < 0 && s2 < 0;
+        }
+
         /// <summary>Approximate length between two points (alpha-max beta-min).</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float PointLength(Point a, Point b)
@@ -900,6 +916,102 @@ namespace ThorVG
             if (dx < 0) dx = -dx;
             if (dy < 0) dy = -dy;
             return (dx > dy) ? (dx + dy * 0.375f) : (dy + dx * 0.375f);
+        }
+    }
+
+    // =====================================================================
+    //  ConvexProbe — incremental convexity validator for triangle-fan safety
+    // =====================================================================
+    public struct ConvexProbe
+    {
+        public bool convex;
+        sbyte winding;
+        Point firstEdge;
+        Point prevEdge;
+        sbyte prevXDir;
+        sbyte prevYDir;
+        byte xDirChanges;
+        byte yDirChanges;
+        byte reversals;
+        bool contourHasEdges;
+
+        const byte MaxAxisDirChanges = 3;
+        const byte MaxCollinearReversals = 2;
+
+        public static ConvexProbe Create()
+        {
+            return new ConvexProbe { convex = true };
+        }
+
+        public void NextContour()
+        {
+            if (contourHasEdges) convex = false;
+            ResetContour();
+        }
+
+        public void AddEdge(in Point edge)
+        {
+            if (TvgMath.Zero(edge)) return;
+
+            contourHasEdges = true;
+            if (!convex) return;
+
+            if (TvgMath.Zero(firstEdge)) firstEdge = edge;
+
+            UpdateDir(edge.x, ref prevXDir, ref xDirChanges);
+            UpdateDir(edge.y, ref prevYDir, ref yDirChanges);
+            if (!convex) return;
+
+            if (TvgMath.Zero(prevEdge))
+            {
+                prevEdge = edge;
+                return;
+            }
+
+            var turn = TvgMath.Cross(prevEdge, edge);
+            if (TvgMath.Zero(turn))
+            {
+                if (TvgMath.Dot(prevEdge, edge) < 0.0f && ++reversals > MaxCollinearReversals)
+                    convex = false;
+            }
+            else
+            {
+                var sign = turn > 0.0f ? (sbyte)1 : (sbyte)-1;
+                if (winding == 0) winding = sign;
+                else if (sign != winding) convex = false;
+            }
+
+            prevEdge = edge;
+        }
+
+        public void AddContourClose(in Point edge)
+        {
+            AddEdge(in edge);
+            if (convex && !TvgMath.Zero(firstEdge)) AddEdge(in firstEdge);
+        }
+
+        void ResetContour()
+        {
+            firstEdge = default;
+            prevEdge = default;
+            prevXDir = prevYDir = 0;
+            xDirChanges = yDirChanges = 0;
+            reversals = 0;
+            contourHasEdges = false;
+        }
+
+        void UpdateDir(float value, ref sbyte prevDir, ref byte changes)
+        {
+            sbyte dir = 0;
+            if (!TvgMath.Zero(value)) dir = value > 0.0f ? (sbyte)1 : (sbyte)-1;
+            if (dir == 0 || !convex) return;
+
+            if (prevDir != 0 && prevDir != dir && ++changes > MaxAxisDirChanges)
+            {
+                convex = false;
+                return;
+            }
+            prevDir = dir;
         }
     }
 }
