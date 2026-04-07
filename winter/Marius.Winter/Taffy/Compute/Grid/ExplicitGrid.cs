@@ -278,6 +278,23 @@ namespace Marius.Winter.Taffy
             tracks.Add(GridTrack.Gutter(gap));
 
             int autoTrackCount = autoTracks.Count;
+            ushort nonAutoRepeatingTrackCount = 0;
+            if (trackTemplate != null)
+            {
+                foreach (var trackDef in trackTemplate)
+                {
+                    if (trackDef.Kind != GridTemplateComponent.GridTemplateComponentKind.Repeat)
+                    {
+                        nonAutoRepeatingTrackCount += 1;
+                    }
+                    else
+                    {
+                        var rc = trackDef.Repetition!.Count;
+                        if (!rc.IsAuto)
+                            nonAutoRepeatingTrackCount += (ushort)(rc.CountValue * trackDef.Repetition.TrackCount);
+                    }
+                }
+            }
 
             // Create negative implicit tracks
             if (counts.NegativeImplicit > 0)
@@ -314,7 +331,7 @@ namespace Marius.Winter.Taffy
                         var rc = trackComponent.Repetition!.Count;
                         if (rc.IsAuto)
                         {
-                            int autoRepeatedTrackCount = counts.Explicit - (trackTemplate.Count - 1);
+                            int autoRepeatedTrackCount = counts.Explicit - nonAutoRepeatingTrackCount;
                             var repeatTracks = trackComponent.Repetition.Tracks;
                             int repeatTrackCount = repeatTracks.Count;
 
@@ -334,6 +351,21 @@ namespace Marius.Winter.Taffy
                                 tracks.Add(track);
                                 tracks.Add(gutter);
                                 currentTrackIndex += 1;
+                            }
+
+                            // When collapsing auto-fit tracks, we collapse the gutter after collapsed
+                            // tracks but not the gutter before. If the auto-fit repeat is at the very end
+                            // of the track list, iterate backwards and collapse gutters until we find a
+                            // non-collapsed track.
+                            bool isLast = currentTrackIndex == counts.Len();
+                            if (rc.IsAutoFit && isLast)
+                            {
+                                for (int j = tracks.Count - 1; j >= 0; j--)
+                                {
+                                    if (tracks[j].Kind == GridTrackKind.Track && !tracks[j].IsCollapsed)
+                                        break;
+                                    tracks[j].Collapse();
+                                }
                             }
                         }
                         else
