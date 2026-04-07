@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
+ * Copyright (c) 2021 - 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,41 +20,38 @@
  * SOFTWARE.
  */
 
-#include "tvgSwCommon.h"
+#ifndef _TVG_ACCESSOR_H_
+#define _TVG_ACCESSOR_H_
 
-/************************************************************************/
-/* Internal Class Implementation                                        */
-/************************************************************************/
+#include "tvgPaint.h"
 
-static thread_local SwMpool* _pool = nullptr;
-static Array<SwMpool*> _pools;
-static uint32_t _threads = 0;
-static Key _key;
-
-/************************************************************************/
-/* External Class Implementation                                        */
-/************************************************************************/
-
-SwMpool* mpoolReq()
+namespace tvg
 {
-    if (!_pool) {
-        _pool = new SwMpool(_threads);
-        ScopedLock lock(_key);
-        _pools.push(_pool);
+
+struct AccessorEntity
+{
+    uint32_t id;  // for fast access (equal to paint->id)
+    Paint* paint;
+    char* name;
+};
+
+struct AccessorCallback
+{
+    function<bool(const Paint* paint, void* data)> func;
+    void* data;
+};
+
+struct AccessorIterator
+{
+    virtual ~AccessorIterator() {}
+    virtual const Paint* next() = 0;
+
+    static AccessorIterator* iterator(const Paint* paint)
+    {
+        return PAINT(paint)->iterator();
     }
-    return _pool;
+};
+
 }
 
-void mpoolInit(uint32_t threads)
-{
-    _threads = threads;
-}
-
-void mpoolTerm()
-{
-    for (auto p : _pools) {
-        delete p;
-        _pool = nullptr;
-    }
-    _pools.reset();
-}
+#endif //_TVG_ACCESSOR_H_

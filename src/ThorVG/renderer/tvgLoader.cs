@@ -1,7 +1,177 @@
 // Ported from ThorVG/src/renderer/tvgLoader.h and tvgLoader.cpp
 
+using System;
+using System.IO;
+
 namespace ThorVG
 {
+    /// <summary>
+    /// Asset resolver callback. Mirrors C++ AssetResolver struct.
+    /// </summary>
+    public class AssetResolver
+    {
+        public Func<Paint, string, object?, bool>? func;
+        public object? data;
+    }
+
+    /// <summary>
+    /// Base loader operations parameter. Mirrors C++ LoaderOps.
+    /// </summary>
+    public class LoaderOps
+    {
+        public Type caller;
+        public LoaderOps(Type caller) { this.caller = caller; }
+    }
+
+    /// <summary>
+    /// Picture-specific loader operations. Mirrors C++ PictureOps.
+    /// </summary>
+    public class PictureOps : LoaderOps
+    {
+        public AssetResolver? resolver;
+        public string? rpath;
+        public bool accessible;
+
+        public PictureOps(AssetResolver? resolver, string? rpath, bool accessible)
+            : base(Type.Picture)
+        {
+            this.resolver = resolver;
+            this.rpath = rpath;
+            this.accessible = accessible;
+        }
+    }
+
+    /// <summary>
+    /// Base loader. Mirrors C++ tvg::Loader.
+    /// </summary>
+    public abstract class Loader : IInlistNode<Loader>
+    {
+        // IInlistNode implementation
+        public Loader? Prev { get; set; }
+        public Loader? Next { get; set; }
+
+        // Use either hashkey(data) or hashpath(path)
+        public ulong hashkey;
+        public string? hashpath;
+
+        public FileType type;                           // current loader file type
+        public int sharing;                             // reference count (atomic in C++)
+        public bool readied;                            // read done already
+        public bool cached;                             // cached for sharing
+
+        protected Loader(FileType type) { this.type = type; }
+
+        public void Cache(ulong data)
+        {
+            hashkey = data;
+            cached = true;
+        }
+
+        public void Cache(string? data)
+        {
+            hashpath = data;
+            cached = true;
+        }
+
+        public virtual bool Open(string path, LoaderOps? ops = null) => false;
+        public virtual bool Open(byte[] data, uint size, LoaderOps? ops, bool copy) => false;
+        public virtual bool Resize(Paint paint, float w, float h) => false;
+        public virtual void Sync() { }
+
+        public virtual bool Read()
+        {
+            if (readied) return false;
+            readied = true;
+            return true;
+        }
+
+        public virtual bool Close()
+        {
+            if (sharing == 0) return true;
+            --sharing;
+            return false;
+        }
+
+        /// <summary>
+        /// Read a file into a byte array. Mirrors C++ Loader::open(path, size, text).
+        /// </summary>
+        public static byte[]? ReadFile(string path, bool text = false)
+        {
+            try
+            {
+                if (text)
+                {
+                    var content = File.ReadAllText(path);
+                    return System.Text.Encoding.UTF8.GetBytes(content);
+                }
+                return File.ReadAllBytes(path);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Image loader base class. Mirrors C++ tvg::ImageLoader.
+    /// </summary>
+    public class ImageLoader : Loader
+    {
+        /// <summary>Desired color space for image decoding (shared across loaders).</summary>
+        public static ColorSpace cs = ColorSpace.ABGR8888;
+
+        public float w, h;                              // default image size
+        public RenderSurface surface = new RenderSurface();
+
+        public ImageLoader() : base(FileType.Unknown) { }
+        public ImageLoader(FileType type) : base(type) { }
+
+        public virtual bool Animatable() => false;
+        public virtual Paint? GetPaint() => null;
+
+        public virtual unsafe RenderSurface? Bitmap()
+        {
+            if (surface.data != null && surface.data.Length > 0) return surface;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Font metrics for text rendering. Mirrors C++ FontMetrics.
+    /// </summary>
+    public class FontMetrics
+    {
+        public Point size;              // text width, height
+        public float scale;
+        public Point align;
+        public Point box;
+        public Point spacing = new Point(1.0f, 1.0f);
+        public float fontSize;
+        public uint lines = 1;              // line count
+        public TextWrap wrap = TextWrap.None;
+        public object? engine;          // engine extension (TtfMetrics in TTF loader)
+    }
+
+    /// <summary>
+    /// Abstract font loader. Mirrors C++ tvg::FontLoader.
+    /// </summary>
+    public abstract class FontLoader : Loader
+    {
+        public const float DPI = 96.0f / 72.0f;
+        public string? name;
+
+        protected FontLoader(FileType type) : base(type) { }
+
+        public abstract bool Get(FontMetrics fm, string? text, uint len, RenderPath output);
+        public bool Get(FontMetrics fm, string? text, RenderPath output) => Get(fm, text, text != null ? (uint)text.Length : 0, output);
+        public abstract void Transform(Paint paint, FontMetrics fm, float italicShear);
+        public abstract void Release(FontMetrics fm);
+        public abstract void Metrics(FontMetrics fm, out TextMetrics output);
+        public abstract bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output);
+        public abstract void Copy(FontMetrics input, FontMetrics output);
+    }
+
     /// <summary>
     /// Loader manager. Mirrors C++ tvg::LoaderMgr.
     /// Responsible for creating the appropriate loader based on file type,
@@ -10,7 +180,7 @@ namespace ThorVG
     public static class LoaderMgr
     {
         private static readonly Key _key = new Key();
-        private static readonly Inlist<LoadModule> _activeLoaders = new Inlist<LoadModule>();
+        private static readonly Inlist<Loader> _activeLoaders = new Inlist<Loader>();
 
         private static ulong HashKey(byte[] data)
         {
@@ -44,7 +214,7 @@ namespace ThorVG
         /// <summary>
         /// Create a loader for the given file type. Mirrors C++ _find().
         /// </summary>
-        public static LoadModule? Find(FileType type)
+        public static Loader? Find(FileType type)
         {
             switch (type)
             {
@@ -62,7 +232,7 @@ namespace ThorVG
         /// <summary>
         /// Determine file type from extension. Mirrors C++ _findByPath().
         /// </summary>
-        private static LoadModule? FindByPath(string filename)
+        private static Loader? FindByPath(string filename)
         {
             var ext = TvgStr.Fileext(filename);
             if (string.IsNullOrEmpty(ext)) return null;
@@ -100,7 +270,7 @@ namespace ThorVG
         /// <summary>
         /// Find by MIME type. Mirrors C++ _findByType().
         /// </summary>
-        private static LoadModule? FindByType(string? mimeType)
+        private static Loader? FindByType(string? mimeType)
         {
             return Find(Convert(mimeType));
         }
@@ -108,7 +278,7 @@ namespace ThorVG
         /// <summary>
         /// Find from cache by filename. Mirrors C++ _findFromCache(filename).
         /// </summary>
-        private static LoadModule? FindFromCache(string filename)
+        private static Loader? FindFromCache(string filename)
         {
             using var lk = new ScopedLock(_key);
             var loader = _activeLoaders.Head;
@@ -127,7 +297,7 @@ namespace ThorVG
         /// <summary>
         /// Find from cache by data pointer and MIME type. Mirrors C++ _findFromCache(data, size, mimeType).
         /// </summary>
-        private static LoadModule? FindFromCache(byte[] data, uint size, string? mimeType)
+        private static Loader? FindFromCache(byte[] data, uint size, string? mimeType)
         {
             var type = Convert(mimeType);
             if (type == FileType.Unknown) return null;
@@ -151,7 +321,7 @@ namespace ThorVG
         /// <summary>
         /// Retrieve (release) a loader. Mirrors C++ LoaderMgr::retrieve(loader).
         /// </summary>
-        public static bool Retrieve(LoadModule? loader)
+        public static bool Retrieve(Loader? loader)
         {
             if (loader == null) return false;
 
@@ -169,7 +339,7 @@ namespace ThorVG
         /// <summary>
         /// Load from a file path. Mirrors C++ LoaderMgr::loader(filename, invalid).
         /// </summary>
-        public static LoadModule? Loader(string filename, out bool invalid)
+        public static Loader? Loader(string filename, out bool invalid)
         {
             invalid = false;
 
@@ -244,7 +414,7 @@ namespace ThorVG
         /// Load from memory buffer with optional MIME type.
         /// Mirrors C++ LoaderMgr::loader(data, size, mimeType, rpath, copy).
         /// </summary>
-        public static LoadModule? Loader(byte[] data, uint size, string? mimeType, string? rpath, bool copy)
+        public static Loader? Loader(byte[] data, uint size, string? mimeType, LoaderOps? ops, bool copy)
         {
             // Note that users could use the same data pointer with different content.
             // Thus caching is only valid for shareable.
@@ -269,7 +439,7 @@ namespace ThorVG
                 var loader = FindByType(mimeType);
                 if (loader != null)
                 {
-                    if (loader.Open(data, size, rpath, copy))
+                    if (loader.Open(data, size, ops, copy))
                     {
                         if (allowCache)
                         {
@@ -289,7 +459,7 @@ namespace ThorVG
                 var loader = Find((FileType)i);
                 if (loader != null)
                 {
-                    if (loader.Open(data, size, rpath, copy))
+                    if (loader.Open(data, size, ops, copy))
                     {
                         if (allowCache)
                         {
@@ -307,7 +477,7 @@ namespace ThorVG
         /// <summary>
         /// Load raw pixel data. Mirrors C++ LoaderMgr::loader(data, w, h, cs, copy).
         /// </summary>
-        public static LoadModule? Loader(uint[] data, uint w, uint h, ColorSpace cs, bool copy)
+        public static Loader? Loader(uint[] data, uint w, uint h, ColorSpace cs, bool copy)
         {
             // Note that users could use the same data pointer with the different content.
             // Thus caching is only valid for shareable.
@@ -350,7 +520,7 @@ namespace ThorVG
         /// Load font from memory. Loader is cached regardless of copy value.
         /// Mirrors C++ LoaderMgr::loader(name, data, size, mimeType, copy).
         /// </summary>
-        public static LoadModule? Loader(string name, byte[] data, uint size, string? mimeType, bool copy)
+        public static Loader? Loader(string name, byte[] data, uint size, string? mimeType, bool copy)
         {
             // TODO: add check for mimetype?
             var existing = Font(name);
@@ -358,7 +528,7 @@ namespace ThorVG
 
             // function is dedicated for ttf loader (the only supported font loader)
             var loader = new TtfLoader();
-            if (loader.Open(data, size, "", copy))
+            if (loader.Open(data, size, null, copy))
             {
                 loader.name = TvgStr.Duplicate(name);
                 loader.cached = true; // force it
@@ -372,7 +542,7 @@ namespace ThorVG
         /// <summary>
         /// Find a cached font loader by name. Mirrors C++ LoaderMgr::font(name).
         /// </summary>
-        public static LoadModule? Font(string? name)
+        public static Loader? Font(string? name)
         {
             using var lk = new ScopedLock(_key);
             var loader = _activeLoaders.Head;
@@ -396,7 +566,7 @@ namespace ThorVG
         /// <summary>
         /// Find any cached font loader. Mirrors C++ LoaderMgr::anyfont().
         /// </summary>
-        public static LoadModule? AnyFont()
+        public static Loader? AnyFont()
         {
             using var lk = new ScopedLock(_key);
             var loader = _activeLoaders.Head;

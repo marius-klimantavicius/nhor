@@ -30,7 +30,7 @@ namespace ThorVG
                 return Result.Success;
             }
 
-            var it = IteratorAccessor.GetIterator(paint);
+            var it = paint.pImpl.GetIterator();
             if (it != null) AccessChildren(it, func, data);
 
             paint.Unref(false);
@@ -46,7 +46,7 @@ namespace ThorVG
             {
                 if (!func(child, data)) return false;
 
-                var childIt = IteratorAccessor.GetIterator(child);
+                var childIt = child?.pImpl.GetIterator();
                 if (childIt != null)
                 {
                     if (!AccessChildren(childIt, func, data)) return false;

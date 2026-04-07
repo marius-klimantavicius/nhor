@@ -1,16 +1,16 @@
-// Ported from ThorVG/src/renderer/tvgFrameModule.h
+// Ported from ThorVG/src/renderer/tvgAnimLoader.h
 
 namespace ThorVG
 {
     /// <summary>
-    /// Base for animation-capable loaders. Mirrors C++ tvg::FrameModule.
+    /// Base for animation-capable loaders. Mirrors C++ tvg::AnimLoader.
     /// </summary>
-    public abstract class FrameModule : ImageLoader
+    public abstract class AnimLoader : ImageLoader
     {
         public float segmentBegin;
         public float segmentEnd;            // Initialize the value with the total frame number
 
-        protected FrameModule(FileType type) : base(type) { }
+        protected AnimLoader(FileType type) : base(type) { }
 
         public abstract bool Frame(float no);           // set the current frame number
         public abstract float TotalFrame();             // return the total frame count

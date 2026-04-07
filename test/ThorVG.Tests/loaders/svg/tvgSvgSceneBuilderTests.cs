@@ -2,7 +2,7 @@ using Xunit;
 
 namespace ThorVG.Tests
 {
-    public class tvgSvgSceneBuilderTests
+    public class tvgSvgBuilderTests
     {
         private SvgNode MakeNode(SvgNodeType type)
         {
@@ -25,7 +25,7 @@ namespace ThorVG.Tests
             var node = MakeNode(SvgNodeType.Path);
             node.path.path = "M 0 0 L 100 100";
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             Assert.True(path.cmds.count >= 2);
         }
@@ -39,7 +39,7 @@ namespace ThorVG.Tests
             node.rect.w = 100;
             node.rect.h = 50;
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             Assert.True(path.cmds.count >= 4); // MoveTo + 3 LineTo + Close
         }
@@ -55,7 +55,7 @@ namespace ThorVG.Tests
             node.rect.rx = 10;
             node.rect.ry = 10;
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             // Rounded rect has: MoveTo + LineTo + CubicTo (x4) + Close
             Assert.True(path.cmds.count >= 5);
@@ -69,7 +69,7 @@ namespace ThorVG.Tests
             node.circle.cy = 50;
             node.circle.r = 25;
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             // Circle: MoveTo + 4 CubicTo + Close
             Assert.Equal(6u, path.cmds.count);
@@ -84,7 +84,7 @@ namespace ThorVG.Tests
             node.ellipse.rx = 80;
             node.ellipse.ry = 30;
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             Assert.Equal(6u, path.cmds.count); // same as circle
         }
@@ -98,7 +98,7 @@ namespace ThorVG.Tests
             node.line.x2 = 100;
             node.line.y2 = 100;
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             Assert.Equal(2u, path.cmds.count); // MoveTo + LineTo
         }
@@ -109,7 +109,7 @@ namespace ThorVG.Tests
             var node = MakeNode(SvgNodeType.Polygon);
             node.polygon.pts.AddRange(new float[] { 100, 10, 40, 198, 190, 78, 10, 78 });
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             // MoveTo + 3 LineTo + Close
             Assert.Equal(5u, path.cmds.count);
@@ -121,7 +121,7 @@ namespace ThorVG.Tests
             var node = MakeNode(SvgNodeType.Polygon);
             node.polygon.pts.AddRange(new float[] { 100, 10 }); // only 1 point
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.False(result);
         }
 
@@ -131,7 +131,7 @@ namespace ThorVG.Tests
             var node = MakeNode(SvgNodeType.Polyline);
             node.polyline.pts.AddRange(new float[] { 0, 0, 10, 10, 20, 0, 30, 10 });
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.True(result);
             // MoveTo + 3 LineTo (no Close for polyline)
             Assert.Equal(4u, path.cmds.count);
@@ -142,14 +142,14 @@ namespace ThorVG.Tests
         {
             var node = MakeNode(SvgNodeType.G); // group, not a shape
             var path = new RenderPath();
-            var result = SvgSceneBuilder.BuildShape(node, path);
+            var result = SvgBuilder.BuildShape(node, path);
             Assert.False(result);
         }
 
         [Fact]
         public void CollectPaths_EmptyTree()
         {
-            var paths = SvgSceneBuilder.CollectPaths(null);
+            var paths = SvgBuilder.CollectPaths(null);
             Assert.Empty(paths);
         }
 
@@ -161,7 +161,7 @@ namespace ThorVG.Tests
             rect.rect.x = 0; rect.rect.y = 0; rect.rect.w = 100; rect.rect.h = 50;
             root.child.Add(rect);
 
-            var paths = SvgSceneBuilder.CollectPaths(root);
+            var paths = SvgBuilder.CollectPaths(root);
             Assert.Single(paths);
         }
 
@@ -177,7 +177,7 @@ namespace ThorVG.Tests
             circle.circle.cx = 50; circle.circle.cy = 50; circle.circle.r = 25;
             root.child.Add(circle);
 
-            var paths = SvgSceneBuilder.CollectPaths(root);
+            var paths = SvgBuilder.CollectPaths(root);
             Assert.Equal(2, paths.Count);
         }
 
@@ -190,7 +190,7 @@ namespace ThorVG.Tests
             rect.style!.display = false; // hidden
             root.child.Add(rect);
 
-            var paths = SvgSceneBuilder.CollectPaths(root);
+            var paths = SvgBuilder.CollectPaths(root);
             Assert.Empty(paths);
         }
 
@@ -204,7 +204,7 @@ namespace ThorVG.Tests
             group.child.Add(rect);
             root.child.Add(group);
 
-            var paths = SvgSceneBuilder.CollectPaths(root);
+            var paths = SvgBuilder.CollectPaths(root);
             Assert.Single(paths);
         }
 
@@ -215,7 +215,7 @@ namespace ThorVG.Tests
             var root = SvgLoader.Parse(svg);
             Assert.NotNull(root);
 
-            var paths = SvgSceneBuilder.CollectPaths(root);
+            var paths = SvgBuilder.CollectPaths(root);
             Assert.Equal(2, paths.Count);
         }
     }

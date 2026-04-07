@@ -32,7 +32,7 @@ namespace ThorVG
             if (loader == null) return Result.InsufficientCondition;
             if (!loader.Animatable()) return Result.NonSupport;
 
-            if (((FrameModule)loader).Frame(no))
+            if (((AnimLoader)loader).Frame(no))
             {
                 _picture.pImpl.Mark(RenderUpdateFlag.All);
                 return Result.Success;
@@ -47,7 +47,7 @@ namespace ThorVG
             if (loader == null) return 0;
             if (!loader.Animatable()) return 0;
 
-            return ((FrameModule)loader).CurFrame();
+            return ((AnimLoader)loader).CurFrame();
         }
 
         public float TotalFrame()
@@ -57,7 +57,7 @@ namespace ThorVG
             if (loader == null) return 0;
             if (!loader.Animatable()) return 0;
 
-            return ((FrameModule)loader).TotalFrame();
+            return ((AnimLoader)loader).TotalFrame();
         }
 
         public float Duration()
@@ -67,7 +67,7 @@ namespace ThorVG
             if (loader == null) return 0;
             if (!loader.Animatable()) return 0;
 
-            return ((FrameModule)loader).Duration();
+            return ((AnimLoader)loader).Duration();
         }
 
         public Result Segment(float begin, float end)
@@ -76,7 +76,7 @@ namespace ThorVG
             if (loader == null) return Result.InsufficientCondition;
             if (!loader.Animatable()) return Result.NonSupport;
 
-            return ((FrameModule)loader).Segment(begin, end);
+            return ((AnimLoader)loader).Segment(begin, end);
         }
 
         public Result Segment(out float begin, out float end)
@@ -88,7 +88,7 @@ namespace ThorVG
             if (loader == null) return Result.InsufficientCondition;
             if (!loader.Animatable()) return Result.NonSupport;
 
-            ((FrameModule)loader).Segment(out begin, out end);
+            ((AnimLoader)loader).Segment(out begin, out end);
 
             return Result.Success;
         }

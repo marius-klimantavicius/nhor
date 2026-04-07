@@ -21,7 +21,7 @@ namespace ThorVG
 
         public SvgLoaderInstance() : base(FileType.Svg) { }
 
-        public override bool Open(string path)
+        public override bool Open(string path, LoaderOps? ops = null)
         {
             try
             {
@@ -51,7 +51,7 @@ namespace ThorVG
             }
         }
 
-        public override bool Open(byte[] data, uint size, string? rpath, bool copy)
+        public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
             if (data == null || size == 0) return false;
 
@@ -64,7 +64,7 @@ namespace ThorVG
                 if (parsedDoc == null) return false;
 
                 content = text;
-                svgPath = rpath ?? "";
+                svgPath = (ops as PictureOps)?.rpath ?? "";
                 doc = parsedDoc;
                 loaderData = ld;
 
@@ -98,7 +98,7 @@ namespace ThorVG
                 var align = doc.doc.align;
                 var meetOrSlice = doc.doc.meetOrSlice;
 
-                builtScene = SvgSceneBuilder.SvgSceneBuild(
+                builtScene = SvgBuilder.SvgSceneBuild(
                     loaderData, vbox, vw, vh, align, meetOrSlice, svgPath ?? "", viewFlag);
             }
 

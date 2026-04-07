@@ -1,4 +1,4 @@
-// Ported from ThorVG/src/loaders/svg/tvgSvgLoaderCommon.h
+// Ported from ThorVG/src/loaders/svg/tvgSvgCommon.h
 // SVG DOM types: enums, structs, and classes.
 
 using System;

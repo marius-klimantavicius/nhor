@@ -69,7 +69,8 @@ namespace ThorVG
         {
             if (data == null || size <= 0) return Result.InvalidArguments;
             if (vector != null || bitmap != null) return Result.InsufficientCondition;
-            var loader = (ImageLoader?)LoaderMgr.Loader(data, size, mimeType, rpath, copy);
+            var ops = new PictureOps(resolver, rpath, false);
+            var loader = (ImageLoader?)LoaderMgr.Loader(data, size, mimeType, ops, copy);
             if (loader == null) return Result.NonSupport;
             return LoadImpl(loader);
         }
@@ -390,7 +391,6 @@ namespace ThorVG
             }
 
             this.loader = loader;
-            loader.Set(resolver);
             if (!loader.Read()) return Result.Unknown;
 
             this.w = loader.w;

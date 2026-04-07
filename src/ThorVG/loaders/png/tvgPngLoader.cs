@@ -44,7 +44,7 @@ namespace ThorVG
         /* External Implementation                                              */
         /************************************************************************/
 
-        public override bool Open(string path)
+        public override bool Open(string path, LoaderOps? ops = null)
         {
             var fileData = ReadFile(path);
             if (fileData == null || fileData.Length == 0) return false;
@@ -60,7 +60,7 @@ namespace ThorVG
             return true;
         }
 
-        public override bool Open(byte[] data, uint size, string? rpath, bool copy)
+        public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
             if (LodePng.Inspect(data, (int)size, out var width, out var height) != 0)
                 return false;

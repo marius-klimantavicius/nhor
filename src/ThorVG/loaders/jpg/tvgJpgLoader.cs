@@ -51,7 +51,7 @@ namespace ThorVG
         /* External Implementation                                              */
         /************************************************************************/
 
-        public override bool Open(string path)
+        public override bool Open(string path, LoaderOps? ops = null)
         {
             decoder = JpegDecoder.FromFile(path, out var width, out var height);
             if (decoder == null) return false;
@@ -62,7 +62,7 @@ namespace ThorVG
             return true;
         }
 
-        public override bool Open(byte[] data, uint size, string? rpath, bool copy)
+        public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
             if (copy)
             {

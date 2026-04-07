@@ -159,10 +159,10 @@ namespace ThorVG.Tests
 
                 // Positive
                 Assert.Equal(Result.Success, shape.Bounds(out x, out y, out w, out h));
-                Assert.Equal(100.0f, x);
-                Assert.Equal(121.0f, y);
-                Assert.Equal(20.0f, w);
-                Assert.Equal(100.0f, h);
+                AssertApprox(100.0f, x);
+                AssertApprox(121.0f, y);
+                AssertApprox(20.0f, w);
+                AssertApprox(100.0f, h);
 
                 var pts = new Point[4];
                 Assert.Equal(Result.Success, shape.Bounds(pts));

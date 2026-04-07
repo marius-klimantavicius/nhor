@@ -169,7 +169,7 @@ namespace ThorVG.Tests
             scene.Add(s1);
             scene.Add(s2);
 
-            var it = IteratorAccessor.GetIterator(scene);
+            var it = scene?.pImpl.GetIterator();
             Assert.NotNull(it);
             Assert.Equal(2u, it!.Count());
             Assert.Same(s1, it.Next());

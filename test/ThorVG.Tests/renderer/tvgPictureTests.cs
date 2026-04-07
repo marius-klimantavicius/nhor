@@ -77,7 +77,7 @@ namespace ThorVG.Tests
         public void PictureIterator_NullVector()
         {
             var pic = Picture.Gen();
-            var it = IteratorAccessor.GetIterator(pic);
+            var it = pic?.pImpl.GetIterator();
             Assert.NotNull(it);
             Assert.Equal(0u, it!.Count());
             Assert.Null(it.Next());

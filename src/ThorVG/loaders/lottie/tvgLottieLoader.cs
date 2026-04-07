@@ -7,7 +7,7 @@ using System.Text;
 
 namespace ThorVG
 {
-    public class LottieLoader : FrameModule
+    public class LottieLoader : AnimLoader
     {
         public string? content;
         public uint size;
@@ -32,7 +32,7 @@ namespace ThorVG
             builder = new LottieBuilder();
         }
 
-        public override bool Open(string path)
+        public override bool Open(string path, LoaderOps? ops = null)
         {
             // Read file content
             if (!File.Exists(path)) return false;
@@ -52,7 +52,7 @@ namespace ThorVG
             }
         }
 
-        public override bool Open(byte[] data, uint size, string? rpath, bool copy)
+        public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
             if (data == null || data.Length == 0 || size == 0) return false;
 
@@ -70,7 +70,7 @@ namespace ThorVG
                 content = str;
             }
             this.size = size;
-            dirName = rpath ?? ".";
+            dirName = (ops as PictureOps)?.rpath ?? ".";
 
             return Header();
         }

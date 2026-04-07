@@ -1,4 +1,4 @@
-// Ported from ThorVG/src/loaders/svg/tvgSvgSceneBuilder.h and tvgSvgSceneBuilder.cpp
+// Ported from ThorVG/src/loaders/svg/tvgSvgBuilder.h and tvgSvgBuilder.cpp
 // SVG DOM to ThorVG scene conversion.
 
 using System;
@@ -30,10 +30,10 @@ namespace ThorVG
     }
 
     /************************************************************************/
-    /* SvgSceneBuilder                                                      */
+    /* SvgBuilder                                                           */
     /************************************************************************/
 
-    public static class SvgSceneBuilder
+    public static class SvgBuilder
     {
         private static readonly ImageMimeType[] _imageMimeTypes = new ImageMimeType[]
         {
