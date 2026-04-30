@@ -75,6 +75,15 @@ namespace ThorVG
                 _hintedGlyphs[key] = tgm;
                 return tgm;
             }
+            // Glyphs without bytecode stay in font units; do not run them through
+            // the pixel-space hinted conversion path.
+            if (instructions == null || instructions.Length == 0)
+            {
+                if (glyphOffset != 0)
+                    reader.Convert(tgm.path, tgm, glyphOffset, new Point(0, 0), 1);
+                _hintedGlyphs[key] = tgm;
+                return tgm;
+            }
 
             // Run the hinting interpreter
             GlyphPointF[] hintedPts;

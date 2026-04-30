@@ -10,6 +10,7 @@ namespace ThorVG.Tests
     public class testText
     {
         private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string EXAMPLE_FONT_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "thorvg.example", "res", "font"));
 
         [Fact]
         public void TextCreation()
@@ -215,6 +216,56 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, canvas.Add(text));
                 Assert.Equal(Result.Success, canvas.Update());
                 Assert.Equal(Result.Success, canvas.Sync());
+            }
+            Initializer.Term();
+        }
+
+        [Fact]
+        public void TextSmallBoundsStayNearMetrics()
+        {
+            Initializer.Init();
+            {
+                var text = Text.Gen();
+                Assert.NotNull(text);
+
+                Assert.Equal(Result.Success, Text.LoadFont(Path.Combine(TEST_DIR, "PublicSans-Regular.ttf")));
+                Assert.Equal(Result.Success, text.SetFont("PublicSans-Regular"));
+                Assert.Equal(Result.Success, text.SetFontSize(15));
+                Assert.Equal(Result.Success, text.SetText("Top-Left"));
+
+                Assert.Equal(Result.Success, text.GetTextSize(out var textW, out var textH));
+                Assert.Equal(Result.Success, text.GetMetrics(out var metrics));
+                Assert.Equal(Result.Success, text.Bounds(out _, out _, out var boundsW, out var boundsH));
+
+                Assert.InRange(boundsW, 1.0f, textW + metrics.advance);
+                Assert.InRange(boundsH, 1.0f, textH + metrics.advance);
+
+                Paint.Rel(text);
+            }
+            Initializer.Term();
+        }
+
+        [Fact]
+        public void TextHinting_NoInstructionGlyphsStayNearMetrics()
+        {
+            Initializer.Init();
+            {
+                var text = Text.Gen();
+                Assert.NotNull(text);
+
+                Assert.Equal(Result.Success, Text.LoadFont(Path.Combine(EXAMPLE_FONT_DIR, "NOTO-SANS-KR.ttf")));
+                Assert.Equal(Result.Success, text.SetFont("NOTO-SANS-KR"));
+                Assert.Equal(Result.Success, text.SetFontSize(15));
+                Assert.Equal(Result.Success, text.SetText("Top-Left"));
+
+                Assert.Equal(Result.Success, text.GetTextSize(out var textW, out var textH));
+                Assert.Equal(Result.Success, text.GetMetrics(out var metrics));
+                Assert.Equal(Result.Success, text.Bounds(out _, out _, out var boundsW, out var boundsH));
+
+                Assert.InRange(boundsW, 1.0f, textW + metrics.advance);
+                Assert.InRange(boundsH, 1.0f, textH + metrics.advance);
+
+                Paint.Rel(text);
             }
             Initializer.Term();
         }

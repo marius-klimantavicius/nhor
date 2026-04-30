@@ -176,6 +176,8 @@ namespace ThorVG
             }
             catch (InvalidTrueTypeFontException)
             {
+                // Keep a failed hint program from leaking partially moved points.
+                Array.Copy(_points.Original, glyphPoints, glyphPoints.Length);
             }
         }
 

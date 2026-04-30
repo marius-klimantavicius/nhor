@@ -360,7 +360,7 @@ namespace ThorVG
             if (loader == null) return false;
             if (updated)
             {
-                // [Hinting] Always enable TrueType hinting for TTF fonts
+                // [Hinting] Enable TrueType hinting for TTF fonts.
                 if (loader is TtfLoader ttf)
                     ttf._hintingEnabled = true;
 
