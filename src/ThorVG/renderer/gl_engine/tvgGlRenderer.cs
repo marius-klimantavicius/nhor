@@ -399,7 +399,7 @@ namespace ThorVG
 
             Fill.ColorStop[]? stops;
             var stopCnt = Math.Min(fill.GetColorStops(out stops), (uint)GlConstants.MAX_GRADIENT_STOPS);
-            if (stopCnt < 2) return;
+            if (stopCnt < 1) return;
 
             GlRenderTarget? dstCopyFbo;
             var radial = fill.GetFillType() == Type.RadialGradient;
@@ -709,16 +709,18 @@ namespace ThorVG
 
             if (mPrograms[shaderInd] != null) return mPrograms[shaderInd];
 
-            var helpers = "";
+            var lumHelper = "";
+            var satHelper = "";
             if (method == BlendMethod.Hue)
             {
-                helpers = GlShaderSrc.BLEND_FRAG_HUE;
+                lumHelper = GlShaderSrc.BLEND_FRAG_LUM_HELPER;
+                satHelper = GlShaderSrc.BLEND_FRAG_SAT_HELPER;
             }
             else if (method == BlendMethod.Saturation ||
                      method == BlendMethod.Color ||
                      method == BlendMethod.Luminosity)
             {
-                helpers = GlShaderSrc.BLEND_FRAG_LUM;
+                lumHelper = GlShaderSrc.BLEND_FRAG_LUM_HELPER;
             }
 
             string vertShader;
@@ -728,7 +730,7 @@ namespace ThorVG
             {
                 vertShader = GlShaderSrc.BLIT_VERT_SHADER;
                 var header = (source == BlendSource.Scene) ? GlShaderSrc.BLEND_SCENE_FRAG_HEADER : GlShaderSrc.BLEND_IMAGE_FRAG_HEADER;
-                fragShader = string.Concat(header, helpers, shaderFunc[methodInd]);
+                fragShader = string.Concat(header, lumHelper, satHelper, shaderFunc[methodInd]);
                 mPrograms[shaderInd] = new GlProgram(vertShader, fragShader);
                 return mPrograms[shaderInd];
             }
@@ -739,7 +741,8 @@ namespace ThorVG
                 case BlendSource.Solid:
                     fragShader = string.Concat(
                         GlShaderSrc.BLEND_SHAPE_SOLID_FRAG_HEADER,
-                        helpers,
+                        lumHelper,
+                        satHelper,
                         shaderFunc[methodInd]);
                     break;
                 case BlendSource.LinearGradient:
@@ -749,7 +752,8 @@ namespace ThorVG
                         GlShaderSrc.STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
                         GlShaderSrc.STR_LINEAR_GRADIENT_FUNCTIONS,
                         GlShaderSrc.BLEND_SHAPE_LINEAR_FRAG_HEADER,
-                        helpers,
+                        lumHelper,
+                        satHelper,
                         shaderFunc[methodInd]);
                     break;
                 case BlendSource.RadialGradient:
@@ -759,7 +763,8 @@ namespace ThorVG
                         GlShaderSrc.STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
                         GlShaderSrc.STR_RADIAL_GRADIENT_FUNCTIONS,
                         GlShaderSrc.BLEND_SHAPE_RADIAL_FRAG_HEADER,
-                        helpers,
+                        lumHelper,
+                        satHelper,
                         shaderFunc[methodInd]);
                     break;
                 default:

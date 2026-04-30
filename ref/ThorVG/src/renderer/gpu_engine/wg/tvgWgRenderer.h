@@ -24,13 +24,14 @@
 #define _TVG_WG_RENDERER_H_
 
 #include "tvgWgRenderTask.h"
+#include "tvgWgTextureMgr.h"
 
 struct WgRenderer : RenderMethod
 {
     //main features
     bool preUpdate() override;
-    RenderData prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper) override;
-    RenderData prepare(RenderSurface* surface, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags) override;
+    RenderData prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper) override;
+    RenderData prepare(RenderSurface* surface, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags) override;
     bool postUpdate() override;
     bool preRender() override;
     bool renderShape(RenderData data) override;
@@ -89,6 +90,7 @@ private:
     WgRenderDataShapePool mRenderDataShapePool;
     WgRenderDataPicturePool mRenderDataPicturePool;
     WgRenderDataEffectParamsPool mRenderDataEffectParamsPool;
+    WgTextureMgr mTextures;
 
     // rendering context
     WgContext mContext;

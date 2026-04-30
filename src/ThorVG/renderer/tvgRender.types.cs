@@ -245,8 +245,26 @@ namespace ThorVG
     /// <summary>Mirrors C++ RenderPath.</summary>
     public unsafe class RenderPath
     {
+        [ThreadStatic] private static RenderPath[]? s_scratchBuffers;
+        [ThreadStatic] private static int s_scratchIndex;
+
         public Array<PathCommand> cmds;
         public Array<Point> pts;
+
+        public static RenderPath Scratch()
+        {
+            s_scratchBuffers ??= [new RenderPath(), new RenderPath(), new RenderPath()];
+            if (++s_scratchIndex > 2) s_scratchIndex = 0;
+            var path = s_scratchBuffers[s_scratchIndex];
+            path.Clear();
+            return path;
+        }
+
+        public void Dismiss()
+        {
+            cmds.data = null;
+            pts.data = null;
+        }
 
         public bool Empty() => pts.count == 0;
 

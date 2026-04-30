@@ -37,6 +37,7 @@ void WgRenderer::release()
     if (!mContext.queue) return;
 
     disposeObjects();
+    mTextures.clear(mContext);
 
     // clear render data paint pools
     mRenderDataShapePool.release(mContext);
@@ -67,7 +68,9 @@ void WgRenderer::disposeObjects()
         if (renderData->type() == Type::Shape) {
             mRenderDataShapePool.free(mContext, (WgRenderDataShape*)renderData);
         } else {
-            mRenderDataPicturePool.free(mContext, (WgRenderDataPicture*)renderData);
+            auto* renderDataPicture = (WgRenderDataPicture*)renderData;
+            renderDataPicture->releaseTexture(mTextures, mContext);
+            mRenderDataPicturePool.free(mContext, renderDataPicture);
         }
     }
     mDisposeRenderDatas.clear();
@@ -125,8 +128,7 @@ bool WgRenderer::surfaceConfigure(WGPUSurface surface, WgContext& context, uint3
 /* External Class Implementation                                        */
 /************************************************************************/
 
-
-RenderData WgRenderer::prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper)
+RenderData WgRenderer::prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper)
 {
     auto renderDataShape = data ? (WgRenderDataShape*)data : mRenderDataShapePool.allocate(mContext);
 
@@ -175,10 +177,15 @@ RenderData WgRenderer::prepare(const RenderShape& rshape, RenderData data, const
     return renderDataShape;
 }
 
-
-RenderData WgRenderer::prepare(RenderSurface* surface, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags)
+RenderData WgRenderer::prepare(RenderSurface* surface, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags)
 {
     auto renderDataPicture = data ? (WgRenderDataPicture*)data : mRenderDataPicturePool.allocate(mContext);
+    auto cacheStale = renderDataPicture->imageTexture && (renderDataPicture->imageStamp != mTextures.stamp);
+    auto updateGeometry = !data || (flags & (RenderUpdateFlag::Transform | RenderUpdateFlag::Path | RenderUpdateFlag::Image));
+    auto refreshTexture = ((flags & (RenderUpdateFlag::Path | RenderUpdateFlag::Image)) != RenderUpdateFlag::None);
+    auto sourceChanged = (renderDataPicture->imageSource != surface);
+    auto filterChanged = (renderDataPicture->imageFilter != filter);
+    auto needsImage = !renderDataPicture->imageTexture || sourceChanged || filterChanged || refreshTexture || cacheStale;
 
     // update paint settings
     renderDataPicture->viewport = vport;
@@ -188,9 +195,13 @@ RenderData WgRenderer::prepare(RenderSurface* surface, RenderData data, const Ma
     }
 
     // update image data
-    if (!data || (flags & (RenderUpdateFlag::Transform | RenderUpdateFlag::Path | RenderUpdateFlag::Image))) {
-        auto updateTexture = !data || ((flags & (RenderUpdateFlag::Path | RenderUpdateFlag::Image)) != RenderUpdateFlag::None);
-        renderDataPicture->updateSurface(mContext, surface, transform, filter, updateTexture);
+    if (updateGeometry) {
+        renderDataPicture->updateSurface(surface, transform);
+    }
+    if (needsImage) {
+        renderDataPicture->releaseTexture(mTextures, mContext);
+        auto* entry = mTextures.retain(mContext, surface, filter, refreshTexture);
+        renderDataPicture->setImage(entry->texture, entry->bindGroup, surface, filter, mTextures.stamp);
     }
 
     if (flags & RenderUpdateFlag::Clip) renderDataPicture->updateClips(clips);
@@ -264,9 +275,7 @@ bool WgRenderer::postRender()
 
     // clear the render tasks tree
     mSceneTaskStack.pop();
-    assert(mSceneTaskStack.count == 0);
     mRenderTargetStack.pop();
-    assert(mRenderTargetStack.count == 0);
     ARRAY_FOREACH(p, mRenderTaskList) { delete (*p); };
     mRenderTaskList.clear();
     ARRAY_FOREACH(p, mCompositorList) { delete (*p); };

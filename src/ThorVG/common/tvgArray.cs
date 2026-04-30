@@ -107,6 +107,8 @@ namespace ThorVG
         public ref T Last() => ref data[count - 1];
         public ref T First() => ref data[0];
 
+        public ref T Pick() => ref data[--count];
+
         /// <summary>
         /// Grows if full, then returns a ref to the slot at <c>count</c>
         /// and increments count.  Mirrors C++ <c>next()</c>.

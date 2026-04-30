@@ -1052,18 +1052,17 @@ namespace ThorVG
             }
         }
 
-        private static Paint? _textBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath)
+        private static Text? _buildText(SvgTextNode textNode, SvgXmlSpace xmlSpace, Matrix? transform)
         {
-            var textNode = node.text;
             if (textNode.text == null) return null;
 
             var text = Text.Gen();
 
             Matrix textTransform;
-            if (node.transform != null) textTransform = node.transform.Value;
+            if (transform != null) textTransform = transform.Value;
             else textTransform = TvgMath.Identity();
 
-            TvgMath.TranslateR(ref textTransform, new Point(node.text.x, node.text.y - textNode.fontSize));
+            TvgMath.TranslateR(ref textTransform, new Point(textNode.x + textNode.dx, textNode.y + textNode.dy - textNode.fontSize));
             text.Transform(textTransform);
 
             //TODO: handle def values of font and size as used in a system?
@@ -1074,23 +1073,104 @@ namespace ThorVG
             }
             text.SetFontSize(size);
 
-            // Handle xml:space
-            var xmlSpace = node.xmlSpace;
-            var parent = node.parent;
-            while (xmlSpace == SvgXmlSpace.None && parent != null)
-            {
-                xmlSpace = parent.xmlSpace;
-                parent = parent.parent;
-            }
-            if (xmlSpace == SvgXmlSpace.None) xmlSpace = SvgXmlSpace.Default;
             var processedText = _processText(textNode.text, xmlSpace);
             text.SetText(processedText);
 
-            _applyTextFill(node.style!, text, vBox);
+            return text;
+        }
 
-            var p = _applyFilter(ctx, text, node, vBox, svgPath);
-            p = _applyComposition(ctx, p, node, vBox, svgPath);
-            return _applyBlend(p, node);
+        private static bool _hasPositionedTspan(SvgNode node, int depth)
+        {
+            if (depth > 2192) return true;
+            foreach (var child in node.child)
+            {
+                if (child.type != SvgNodeType.Tspan) continue;
+                if (child.text.text != null) return true;
+                if (_hasPositionedTspan(child, depth + 1)) return true;
+            }
+            return false;
+        }
+
+        private static void _buildTspanScene(SvgParserContext ctx, SvgNode node, Scene scene, in Box vBox, string svgPath, int depth)
+        {
+            if (depth > 2192) return;
+            foreach (var child in node.child)
+            {
+                if (child.type != SvgNodeType.Tspan) continue;
+
+                var textNode = new SvgTextNode
+                {
+                    text = child.text.text,
+                    fontFamily = child.text.fontFamily,
+                    x = child.text.x,
+                    y = child.text.y,
+                    dx = child.text.dx,
+                    dy = child.text.dy,
+                    fontSize = child.text.fontSize
+                };
+
+                if (textNode.text != null)
+                {
+                    var xmlSpace = child.xmlSpace;
+                    for (var n = child.parent; n != null; n = n.parent)
+                    {
+                        if (textNode.x == float.MaxValue) textNode.x = n.text.x;
+                        if (textNode.y == float.MaxValue) textNode.y = n.text.y;
+                        if (textNode.fontSize <= 0.0f) textNode.fontSize = n.text.fontSize;
+                        if (textNode.fontFamily == null) textNode.fontFamily = n.text.fontFamily;
+                        if (xmlSpace == SvgXmlSpace.None) xmlSpace = n.xmlSpace;
+                        if (n.type == SvgNodeType.Text) break;
+                    }
+                    if (xmlSpace == SvgXmlSpace.None) xmlSpace = SvgXmlSpace.Default;
+
+                    var text = _buildText(textNode, xmlSpace, null);
+                    if (text != null)
+                    {
+                        text.SetAlign(child.style!.textAnchor, 0.0f);
+                        _applyTextFill(child.style!, text, vBox);
+                        Paint? paint = _applyFilter(ctx, text, child, vBox, svgPath);
+                        paint = _applyComposition(ctx, paint, child, vBox, svgPath);
+                        paint = _applyBlend(paint, child);
+                        if (paint != null) scene.Add(paint);
+                    }
+                }
+                _buildTspanScene(ctx, child, scene, vBox, svgPath, depth + 1);
+            }
+        }
+
+        private static Paint? _textBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath)
+        {
+            var xmlSpace = node.xmlSpace;
+            for (var n = node.parent; xmlSpace == SvgXmlSpace.None && n != null; n = n.parent)
+                xmlSpace = n.xmlSpace;
+            if (xmlSpace == SvgXmlSpace.None) xmlSpace = SvgXmlSpace.Default;
+
+            if (!_hasPositionedTspan(node, 0))
+            {
+                var text = _buildText(node.text, xmlSpace, node.transform);
+                if (text == null) return null;
+                text.SetAlign(node.style!.textAnchor, 0.0f);
+                _applyTextFill(node.style!, text, vBox);
+                var p = _applyFilter(ctx, text, node, vBox, svgPath);
+                p = _applyComposition(ctx, p, node, vBox, svgPath);
+                return _applyBlend(p, node);
+            }
+
+            var scene = Scene.Gen();
+            if (node.transform != null) scene.Transform(node.transform.Value);
+
+            if (_buildText(node.text, xmlSpace, null) is { } baseText)
+            {
+                baseText.SetAlign(node.style!.textAnchor, 0.0f);
+                _applyTextFill(node.style!, baseText, vBox);
+                scene.Add(baseText);
+            }
+
+            _buildTspanScene(ctx, node, scene, vBox, svgPath, 0);
+
+            var paint = _applyFilter(ctx, scene, node, vBox, svgPath);
+            paint = _applyComposition(ctx, paint, node, vBox, svgPath);
+            return _applyBlend(paint, node);
         }
 
         private static Scene? _sceneBuildHelper(SvgParserContext ctx, SvgNode node, in Box vBox, string svgPath, bool mask, int depth)

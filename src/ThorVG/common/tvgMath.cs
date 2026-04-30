@@ -269,8 +269,7 @@ namespace ThorVG
                 stack.Push(this);
                 while (!stack.Empty())
                 {
-                    var current = stack.Last();
-                    stack.Pop();
+                    var current = stack.Pick();
                     if (current.Flatten())
                     {
                         ++segCount;

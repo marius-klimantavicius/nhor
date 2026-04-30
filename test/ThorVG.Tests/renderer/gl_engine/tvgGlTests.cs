@@ -109,6 +109,7 @@ namespace ThorVG.Tests
         [Fact]
         public unsafe void GL_FunctionPointersAreNullBeforeInit()
         {
+            GL.glTerm();
             // Before glInit, function pointers should be null (zero) since they
             // are unmanaged function pointer fields that default-initialize to null.
             // We cannot call glInit in unit tests (no GL context), but we can

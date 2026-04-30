@@ -254,17 +254,17 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void BlendFragHUE_ContainsHslFunctions()
+        public void BlendFragSatHelper_ContainsSetSat()
         {
-            Assert.Contains("rgbToHsl", GlShaderSrc.BLEND_FRAG_HUE);
-            Assert.Contains("hslToRgb", GlShaderSrc.BLEND_FRAG_HUE);
+            Assert.Contains("setSat", GlShaderSrc.BLEND_FRAG_SAT_HELPER);
+            Assert.Contains("sat", GlShaderSrc.BLEND_FRAG_SAT_HELPER);
         }
 
         [Fact]
-        public void BlendFragLUM_ContainsSetLum()
+        public void BlendFragLumHelper_ContainsSetLum()
         {
-            Assert.Contains("setLum", GlShaderSrc.BLEND_FRAG_LUM);
-            Assert.Contains("LUM_W", GlShaderSrc.BLEND_FRAG_LUM);
+            Assert.Contains("setLum", GlShaderSrc.BLEND_FRAG_LUM_HELPER);
+            Assert.Contains("LUM_W", GlShaderSrc.BLEND_FRAG_LUM_HELPER);
         }
 
         // ---- Blend mode fragments ----------------------------------------

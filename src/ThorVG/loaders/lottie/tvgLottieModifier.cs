@@ -9,19 +9,17 @@ namespace ThorVG
         public enum ModifierType : byte { Roundness = 0, Offset, PuckerBloat }
 
         public LottieModifier? next;
-        public RenderPath? buffer;
         public ModifierType type;
 
-        protected LottieModifier(RenderPath? buffer, ModifierType type)
+        protected LottieModifier(ModifierType type)
         {
-            this.buffer = buffer;
             this.type = type;
         }
 
-        public abstract unsafe void Path(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out);
-        public abstract void Polystar(RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness);
-        public abstract void Rect(RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise);
-        public abstract void Ellipse(RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise);
+        public abstract unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform);
+        public abstract void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness);
+        public abstract void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise);
+        public abstract void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise);
 
         public LottieModifier Decorate(LottieModifier next)
         {
@@ -56,6 +54,12 @@ namespace ThorVG
             return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) &&
                    TvgMath.Zero(TvgMath.PointSub(pts[idx + 2], pts[idx + 3]));
         }
+
+        internal static bool SharpCorner(Point[] pts, int idx)
+        {
+            return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) &&
+                   TvgMath.Zero(TvgMath.PointSub(pts[idx + 1], pts[idx + 2]));
+        }
     }
 
     /************************************************************************/
@@ -68,12 +72,12 @@ namespace ThorVG
 
         public float r;
 
-        public LottieRoundnessModifier(RenderPath? buffer, float r) : base(buffer, ModifierType.Roundness)
+        public LottieRoundnessModifier(float r) : base(ModifierType.Roundness)
         {
             this.r = r;
         }
 
-        private Point Rounding(RenderPath @out, Point prev, Point curr, Point nextPt, float r)
+        private Point RoundLineCorner(RenderPath @out, Point prev, Point curr, Point nextPt, float r)
         {
             var lenPrev = TvgMath.PointLength(TvgMath.PointSub(prev, curr));
             var rPrev = lenPrev > 0.0f ? 0.5f * MathF.Min(lenPrev * 0.5f, r) / lenPrev : 0.0f;
@@ -88,13 +92,30 @@ namespace ThorVG
             return ret;
         }
 
-        private unsafe RenderPath Modify(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out)
+        private Point RoundCurveCorner(RenderPath path, Point prev, Point ctrl1, Point curr, Point nextPt, bool rounded, Point roundTo)
         {
-            buffer!.Clear();
+            var lenPrev = TvgMath.PointLength(TvgMath.PointSub(prev, curr));
+            var tPrev = lenPrev > 0.0f ? MathF.Min(lenPrev * 0.5f, r) / lenPrev : 0.0f;
+            var arcStart = TvgMath.Lerp(curr, prev, tPrev);
+            path.CubicTo(rounded ? roundTo : ctrl1, arcStart, arcStart);
 
-            var path = (next != null) ? buffer : @out;
+            var lenNext = TvgMath.PointLength(TvgMath.PointSub(nextPt, curr));
+            var tNext = lenNext > 0.0f ? MathF.Min(lenNext * 0.5f, r) / lenNext : 0.0f;
+            var arcEnd = TvgMath.Lerp(curr, nextPt, tNext);
+            path.CubicTo(TvgMath.Lerp(arcStart, curr, 0.5f), TvgMath.Lerp(arcEnd, curr, 0.5f), arcEnd);
+
+            return arcEnd;
+        }
+
+        private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
+        {
+            var inCmds = @in.cmds.ToArray();
+            var inPts = @in.pts.ToArray();
+            var inCmdsCnt = inCmds.Length;
+
+            var path = (next != null) ? RenderPath.Scratch() : @out;
             path.cmds.Reserve((uint)(inCmdsCnt * 2));
-            path.pts.Reserve((uint)(inPtsCnt * 1.5f));
+            path.pts.Reserve((uint)(inPts.Length * 1.5f));
             var pivot = path.pts.count;
             uint startIndex = 0;
             var rounded = false;
@@ -114,21 +135,33 @@ namespace ThorVG
                     }
                     case PathCommand.CubicTo:
                     {
-                        if (iCmds < inCmdsCnt - 1 && LottieModifierHelpers.Colinear(inPts, iPts - 1))
+                        var hasNext = iCmds < inCmdsCnt - 1;
+                        var nextCmd = hasNext ? inCmds[iCmds + 1] : PathCommand.MoveTo;
+                        if (hasNext)
                         {
-                            var prev = inPts[iPts - 1];
-                            var curr = inPts[iPts + 2];
-                            if (inCmds[iCmds + 1] == PathCommand.CubicTo && LottieModifierHelpers.Colinear(inPts, iPts + 2))
+                            if (LottieModifierHelpers.Colinear(inPts, iPts - 1))
                             {
-                                roundTo = Rounding(path, prev, curr, inPts[iPts + 5], r);
-                                iPts += 3;
-                                rounded = true;
-                                continue;
+                                var prev = inPts[iPts - 1];
+                                var curr = inPts[iPts + 2];
+                                if (nextCmd == PathCommand.CubicTo && TvgMath.Zero(TvgMath.PointSub(inPts[iPts + 2], inPts[iPts + 3])))
+                                {
+                                    roundTo = RoundLineCorner(path, prev, curr, inPts[iPts + 5], r);
+                                    iPts += 3;
+                                    rounded = true;
+                                    continue;
+                                }
+                                else if (nextCmd == PathCommand.Close)
+                                {
+                                    roundTo = RoundLineCorner(path, prev, curr, inPts[2], r);
+                                    path.pts[startIndex] = path.pts.Last();
+                                    iPts += 3;
+                                    rounded = true;
+                                    continue;
+                                }
                             }
-                            else if (inCmds[iCmds + 1] == PathCommand.Close)
+                            else if (nextCmd == PathCommand.CubicTo && LottieModifierHelpers.SharpCorner(inPts, iPts + 1))
                             {
-                                roundTo = Rounding(path, prev, curr, inPts[2], r);
-                                path.pts[startIndex] = path.pts.Last();
+                                roundTo = RoundCurveCorner(path, inPts[iPts - 1], inPts[iPts], inPts[iPts + 2], inPts[iPts + 5], rounded, roundTo);
                                 iPts += 3;
                                 rounded = true;
                                 continue;
@@ -160,19 +193,17 @@ namespace ThorVG
             return path;
         }
 
-        public override unsafe void Path(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out)
+        public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            var result = Modify(inCmds, inCmdsCnt, inPts, inPtsCnt, transform, @out);
-            if (next != null) next.Path(result.cmds.ToArray(), (int)result.cmds.count, result.pts.ToArray(), (int)result.pts.count, null, @out);
+            var result = Modify(@in, @out, transform);
+            if (next != null) next.Path(result, @out, null);
         }
 
-        public override void Polystar(RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
+        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
         {
             const float ROUNDED_POLYSTAR_MAGIC_NUMBER = 0.47829f;
 
-            buffer!.Clear();
-
-            var path = (next != null) ? buffer : @out;
+            var path = (next != null) ? RenderPath.Scratch() : @out;
 
             var len = TvgMath.PointLength(TvgMath.PointSub(@in.pts[1], @in.pts[2]));
             var rr = len > 0.0f ? ROUNDED_POLYSTAR_MAGIC_NUMBER * MathF.Min(len * 0.5f, this.r) / len : 0.0f;
@@ -235,21 +266,19 @@ namespace ThorVG
             if (next != null) next.Polystar(path, @out, outerRoundness, hasRoundness);
         }
 
-        public override unsafe void Rect(RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
+        public override unsafe void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
         {
-            buffer!.Clear();
-
-            var path = (next != null) ? buffer : @out;
+            var path = (next != null) ? RenderPath.Scratch() : @out;
 
             if (r == 0.0f) r = MathF.Min(this.r, MathF.Max(size.x, size.y) * 0.5f);
 
             // we know this is the first request in the chain because other modifiers would not trigger Rect() call
             path.AddRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
 
-            if (next != null) next.Path(path.cmds.ToArray(), (int)path.cmds.count, path.pts.ToArray(), (int)path.pts.count, null, @out);
+            if (next != null) next.Path(path, @out, null);
         }
 
-        public override void Ellipse(RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
+        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
         {
             // bypass because it's already a circle.
             if (next != null) next.Ellipse(@in, @out, center, radius, clockwise);
@@ -280,7 +309,7 @@ namespace ThorVG
         public float miterLimit;
         public StrokeJoin join;
 
-        public LottieOffsetModifier(RenderPath? buffer, float offset, float miter = 4.0f, StrokeJoin join = StrokeJoin.Round) : base(buffer, ModifierType.Offset)
+        public LottieOffsetModifier(float offset, float miter = 4.0f, StrokeJoin join = StrokeJoin.Round) : base(ModifierType.Offset)
         {
             this.offset = offset;
             this.miterLimit = miter;
@@ -483,8 +512,13 @@ namespace ThorVG
             }
         }
 
-        private unsafe RenderPath Modify(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out)
+        private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
         {
+            var inCmds = @in.cmds.ToArray();
+            var inPts = @in.pts.ToArray();
+            var inCmdsCnt = inCmds.Length;
+            var inPtsCnt = inPts.Length;
+
             bool Clockwise(Point[] pts, int n)
             {
                 var area = 0.0f;
@@ -496,9 +530,7 @@ namespace ThorVG
                 return area < 0.0f;
             }
 
-            buffer!.Clear();
-
-            var path = (next != null) ? buffer : @out;
+            var path = (next != null) ? RenderPath.Scratch() : @out;
             path.cmds.Reserve((uint)(inCmdsCnt * 2));
             path.pts.Reserve((uint)(inPtsCnt * (join == StrokeJoin.Round ? 4 : 2)));
 
@@ -551,33 +583,28 @@ namespace ThorVG
             return path;
         }
 
-        public override unsafe void Path(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out)
+        public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            var result = Modify(inCmds, inCmdsCnt, inPts, inPtsCnt, transform, @out);
-            if (next != null) next.Path(result.cmds.ToArray(), (int)result.cmds.count, result.pts.ToArray(), (int)result.pts.count, null, @out);
+            var result = Modify(@in, @out, null);
+            if (next != null) next.Path(result, @out, null);
         }
 
-        public override void Polystar(RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
+        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
         {
-            unsafe
-            {
-                var result = Modify(@in.cmds.ToArray(), (int)@in.cmds.count, @in.pts.ToArray(), (int)@in.pts.count, null, @out);
+            unsafe {
+                var result = Modify(@in, @out, null);
                 if (next != null) next.Polystar(result, @out, outerRoundness, hasRoundness);
             }
         }
 
-        public override void Rect(RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
+        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
         {
-            unsafe
-            {
-                Path(@in.cmds.ToArray(), (int)@in.cmds.count, @in.pts.ToArray(), (int)@in.pts.count, null, @out);
-            }
+            unsafe { Path(@in, @out, null); }
         }
 
-        public override void Ellipse(RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
+        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
         {
-            buffer!.Clear();
-            var path = (next != null) ? buffer : @out;
+            var path = (next != null) ? RenderPath.Scratch() : @out;
             // we know this is the first request in the chain because other modifiers would not trigger Ellipse() call
             path.AddCircle(center.x, center.y, radius.x + offset, radius.y + offset, clockwise);
             if (next != null) next.Ellipse(path, @out, center, radius, clockwise);
@@ -592,7 +619,7 @@ namespace ThorVG
     {
         public float amount;
 
-        public LottiePuckerBloatModifier(RenderPath? buffer, float amount) : base(buffer, ModifierType.PuckerBloat)
+        public LottiePuckerBloatModifier(float amount) : base(ModifierType.PuckerBloat)
         {
             this.amount = amount;
         }
@@ -642,11 +669,14 @@ namespace ThorVG
             return count > 0 ? TvgMath.PointDiv(center, (float)count) : new Point(0, 0);
         }
 
-        public override unsafe void Path(PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, int inPtsCnt, Matrix* transform, RenderPath @out)
+        public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            buffer!.Clear();
+            var inCmds = @in.cmds.ToArray();
+            var inPts = @in.pts.ToArray();
+            var inCmdsCnt = inCmds.Length;
+            var inPtsCnt = inPts.Length;
 
-            var path = next != null ? buffer : @out;
+            var path = next != null ? RenderPath.Scratch() : @out;
 
             // LineTo segments are expanded to CubicTo, so pts capacity can grow up to 3x
             path.cmds.Reserve((uint)inCmdsCnt);
@@ -714,22 +744,22 @@ namespace ThorVG
                 }
             }
 
-            if (next != null) next.Path(path.cmds.ToArray(), (int)path.cmds.count, path.pts.ToArray(), (int)path.pts.count, transform, @out);
+            if (next != null) next.Path(path, @out, transform);
         }
 
-        public override void Polystar(RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
+        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
         {
-            unsafe { Path(@in.cmds.ToArray(), (int)@in.cmds.count, @in.pts.ToArray(), (int)@in.pts.count, null, @out); }
+            unsafe { Path(@in, @out, null); }
         }
 
-        public override void Rect(RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
+        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
         {
-            unsafe { Path(@in.cmds.ToArray(), (int)@in.cmds.count, @in.pts.ToArray(), (int)@in.pts.count, null, @out); }
+            unsafe { Path(@in, @out, null); }
         }
 
-        public override void Ellipse(RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
+        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
         {
-            unsafe { Path(@in.cmds.ToArray(), (int)@in.cmds.count, @in.pts.ToArray(), (int)@in.pts.count, null, @out); }
+            unsafe { Path(@in, @out, null); }
         }
     }
 }

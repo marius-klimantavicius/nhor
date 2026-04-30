@@ -246,7 +246,8 @@ namespace ThorVG
             ("display", HandleDisplayAttr, SvgStyleFlags.Display),
             ("paint-order", HandlePaintOrderAttr, SvgStyleFlags.PaintOrder),
             ("filter", HandleFilterAttr, SvgStyleFlags.Filter),
-            ("mix-blend-mode", HandleMixBlendModeAttr, SvgStyleFlags.BlendMode)
+            ("mix-blend-mode", HandleMixBlendModeAttr, SvgStyleFlags.BlendMode),
+            ("text-anchor", HandleTextAnchorAttr, SvgStyleFlags.TextAnchor)
         };
 
         // --- Blend mode tags ---

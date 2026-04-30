@@ -14,11 +14,12 @@ namespace ThorVG
         /// Optimize path in screen space by collapsing zero length lines
         /// and removing unnecessary cubic beziers. Mirrors C++ gpuOptimize().
         /// </summary>
-        public static void GpuOptimize(in RenderPath @in, RenderPath @out, in Matrix matrix, out bool thin)
+        public static void GpuOptimize(in RenderPath @in, RenderPath @out, in Matrix matrix, out bool thin, out bool skipFill)
         {
             const float PX_TOLERANCE = 0.25f;
 
             thin = false;
+            skipFill = false;
             if (@in.Empty()) return;
 
             @out.cmds.Clear();

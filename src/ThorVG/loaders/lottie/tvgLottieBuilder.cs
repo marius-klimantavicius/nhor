@@ -88,19 +88,19 @@ namespace ThorVG
                     case LottieModifier.ModifierType.Roundness:
                     {
                         var roundness = (LottieRoundnessModifier)m;
-                        Update(new LottieRoundnessModifier(roundness.buffer, roundness.r));
+                        Update(new LottieRoundnessModifier(roundness.r));
                         break;
                     }
                     case LottieModifier.ModifierType.Offset:
                     {
                         var offset = (LottieOffsetModifier)m;
-                        Update(new LottieOffsetModifier(offset.buffer, offset.offset, offset.miterLimit, offset.join));
+                        Update(new LottieOffsetModifier(offset.offset, offset.miterLimit, offset.join));
                         break;
                     }
                     case LottieModifier.ModifierType.PuckerBloat:
                     {
                         var pucker = (LottiePuckerBloatModifier)m;
-                        Update(new LottiePuckerBloatModifier(pucker.buffer, pucker.amount));
+                        Update(new LottiePuckerBloatModifier(pucker.amount));
                         break;
                     }
                 }
@@ -143,7 +143,6 @@ namespace ThorVG
     {
         private LottieExpressions? exps;
         private Tween tween;
-        private RenderPath buffer = new();
         public AssetResolver? resolver;
 
         // Object pools for per-frame allocations
@@ -224,23 +223,59 @@ namespace ThorVG
 
         // --- Static helpers ---
 
+        private static void Dimension3D(LottieTransform transform, float frameNo, ref Matrix m, float angle, Tween tween, LottieExpressions? exps)
+        {
+            var x = TvgMath.Deg2Rad(transform.ddd!.rx.Evaluate(frameNo, tween, exps));
+            var y = TvgMath.Deg2Rad(transform.ddd.ry.Evaluate(frameNo, tween, exps));
+            var z = TvgMath.Deg2Rad(transform.rotation.Evaluate(frameNo, tween, exps)) + angle;
+
+            var sx = MathF.Sin(x); var sy = MathF.Sin(y); var sz = MathF.Sin(z);
+            var cx = MathF.Cos(x); var cy = MathF.Cos(y); var cz = MathF.Cos(z);
+
+            var ri00 = cy * cz;
+            var ri01 = -cy * sz;
+            var ri10 = sx * sy * cz + cx * sz;
+            var ri11 = -sx * sy * sz + cx * cz;
+
+            var o = transform.ddd.orient.Evaluate(frameNo, tween, exps);
+            if (o.x == 0.0f && o.y == 0.0f && o.z == 0.0f)
+            {
+                m.e11 = ri00;
+                m.e12 = ri01;
+                m.e21 = ri10;
+                m.e22 = ri11;
+                return;
+            }
+
+            var ri02 = sy;
+            var ri12 = -sx * cy;
+
+            var ox = TvgMath.Deg2Rad(o.x);
+            var oy = TvgMath.Deg2Rad(o.y);
+            var oz = TvgMath.Deg2Rad(o.z);
+
+            var sox = MathF.Sin(ox); var soy = MathF.Sin(oy); var soz = MathF.Sin(oz);
+            var cox = MathF.Cos(ox); var coy = MathF.Cos(oy); var coz = MathF.Cos(oz);
+
+            var ro00 = coy * coz;
+            var ro01 = -coy * soz;
+            var ro10 = sox * soy * coz + cox * soz;
+            var ro11 = -sox * soy * soz + cox * coz;
+            var ro20 = -cox * soy * coz + sox * soz;
+            var ro21 = cox * soy * soz + sox * coz;
+
+            m.e11 = ri00 * ro00 + ri01 * ro10 + ri02 * ro20;
+            m.e12 = ri00 * ro01 + ri01 * ro11 + ri02 * ro21;
+            m.e21 = ri10 * ro00 + ri11 * ro10 + ri12 * ro20;
+            m.e22 = ri10 * ro01 + ri11 * ro11 + ri12 * ro21;
+        }
+
         private static void Rotate(LottieTransform transform, float frameNo, ref Matrix m, float angle, Tween tween, LottieExpressions? exps)
         {
-            // rotation xyz
-            if (transform.rotationEx != null)
+            if (transform.ddd != null)
             {
-                var radianX = TvgMath.Deg2Rad(transform.rotationEx.x.Evaluate(frameNo, tween, exps));
-                var radianY = TvgMath.Deg2Rad(transform.rotationEx.y.Evaluate(frameNo, tween, exps));
-                var radianZ = TvgMath.Deg2Rad(transform.rotation.Evaluate(frameNo, tween, exps)) + angle;
-                var cx = MathF.Cos(radianX); var sx = MathF.Sin(radianX);
-                var cy = MathF.Cos(radianY); var sy = MathF.Sin(radianY);
-                var cz = MathF.Cos(radianZ); var sz = MathF.Sin(radianZ);
-                m.e11 = cy * cz;
-                m.e12 = -cy * sz;
-                m.e21 = sx * sy * cz + cx * sz;
-                m.e22 = -sx * sy * sz + cx * cz;
+                Dimension3D(transform, frameNo, ref m, angle, tween, exps);
             }
-            // rotation z
             else
             {
                 var degree = transform.rotation.Evaluate(frameNo, tween, exps) + angle;
@@ -1011,19 +1046,19 @@ namespace ThorVG
             var roundedCorner = (LottieRoundedCorner)parent.children[childIdx];
             var r = roundedCorner.radius.Evaluate(frameNo, tween, exps);
             if (r < LottieRoundnessModifier.ROUNDNESS_EPSILON) return;
-            ctx.Update(new LottieRoundnessModifier(buffer, r));
+            ctx.Update(new LottieRoundnessModifier(r));
         }
 
         private void UpdateOffsetPath(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
         {
             var offsetObj = (LottieOffsetPath)parent.children[childIdx];
-            ctx.Update(new LottieOffsetModifier(buffer, offsetObj.offset.Evaluate(frameNo, tween, exps), offsetObj.miterLimit.Evaluate(frameNo, tween, exps), offsetObj.join));
+            ctx.Update(new LottieOffsetModifier(offsetObj.offset.Evaluate(frameNo, tween, exps), offsetObj.miterLimit.Evaluate(frameNo, tween, exps), offsetObj.join));
         }
 
         private void UpdatePuckerBloat(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
         {
             var puckerBloat = (LottiePuckerBloat)parent.children[childIdx];
-            ctx.Update(new LottiePuckerBloatModifier(buffer, puckerBloat.amount.Evaluate(frameNo, tween, exps)));
+            ctx.Update(new LottiePuckerBloatModifier(puckerBloat.amount.Evaluate(frameNo, tween, exps)));
         }
 
         private void UpdateRepeater(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
@@ -1234,16 +1269,25 @@ namespace ThorVG
             paint.SetText(processedText);
             paint.SetLayout(doc.bboxSize.x, doc.bboxSize.y);
             paint.Translate(doc.bboxPos.x, doc.bboxPos.y);
+            if (doc.bboxSize.x > 0.0f) paint.SetWrapping(TextWrap.Word);
 
             // align the text to the base line
             paint.GetMetrics(out var metrics);
             paint.SetAlign(doc.justify, metrics.ascent / (metrics.ascent - metrics.descent));
 
+            var hspacing = (doc.tracking > 0.0f) ? (1.0f + doc.tracking * doc.size / metrics.ascent) : 1.0f;
+            var vspacing = (doc.height > 0.0f && paint.Lines() > 1) ? (doc.height / metrics.advance) : 1.0f;
+            paint.SetSpacing(hspacing, vspacing);
+
             layer.scene!.Add(paint);
 
             // outline
             var strkColor = doc.strokeColor;
-            if (doc.strokeWidth > 0.0f) paint.SetOutline(doc.strokeWidth, (byte)strkColor.r, (byte)strkColor.g, (byte)strkColor.b);
+            if (doc.strokeWidth > 0.0f)
+            {
+                paint.SetOutline(doc.strokeWidth, (byte)strkColor.r, (byte)strkColor.g, (byte)strkColor.b);
+                paint.shape.Order(doc.strokeBelow);
+            }
 
             // text range
             if (text.ranges.Count == 0) return;
@@ -1408,6 +1452,41 @@ namespace ThorVG
             ctx.textScene.Add(shape);
         }
 
+        private static LottieGlyph? SearchGlyph(LottieFont font, string text, int idx, TextDocument doc, out float capScale)
+        {
+            capScale = 1.0f;
+            var codeIdx = idx;
+            string? capCode = null;
+            if (idx < text.Length && text[idx] < 0x80 && doc.caps > 0 && text[idx] >= 'a' && text[idx] <= 'z')
+            {
+                capCode = ((char)(text[idx] + 'A' - 'a')).ToString();
+                if (doc.caps == 2) capScale = 0.7f;
+            }
+
+            foreach (var glyph in font.chars)
+            {
+                var code = capCode ?? text.Substring(codeIdx);
+                if (code.Length >= glyph.len && code.Substring(0, glyph.len) == glyph.code) return glyph;
+            }
+            return null;
+        }
+
+        private static float NextWordWidth(LottieText text, TextDocument doc, string str, int idx)
+        {
+            var w = 0.0f;
+            while (idx < str.Length && str[idx] != ' ' && str[idx] != '\r' && str[idx] != '\x03')
+            {
+                var glyph = SearchGlyph(text.font!, str, idx, doc, out var capScale);
+                if (glyph != null)
+                {
+                    w += (glyph.width + doc.tracking) * capScale;
+                    idx += glyph.len;
+                }
+                else ++idx;
+            }
+            return w;
+        }
+
         private void UpdateLocalFont(LottieLayer layer, float frameNo, LottieText text, TextDocument doc)
         {
             var ctx = new RenderText(text, doc);
@@ -1457,6 +1536,12 @@ namespace ThorVG
                 }
                 if (currentChar == ' ')
                 {
+                    if (doc.bboxSize.x > 0.0f && (ctx.cursor.x + NextWordWidth(text, doc, ctx.text, ctx.pIdx + 1)) * ctx.scale >= doc.bboxSize.x)
+                    {
+                        ++ctx.pIdx;
+                        lineWrapped = true;
+                        continue;
+                    }
                     ++ctx.space;
                     // new text group, single scene for each word
                     if (text.alignOp.group == LottieText.AlignOption.Group.Word)
@@ -1466,43 +1551,25 @@ namespace ThorVG
                         ctx.lineScene.Translate(ctx.cursor.x, ctx.cursor.y);
                     }
                 }
-                ctx.capScale = 1.0f;
-                var code = ctx.text.Substring(ctx.pIdx);
-                string? capCode = null;
-                if ((byte)currentChar < 0x80 && doc.caps > 0)
+                var glyph = SearchGlyph(text.font!, ctx.text, ctx.pIdx, doc, out ctx.capScale);
+
+                // draw matched glyphs
+                if (glyph != null)
                 {
-                    if (currentChar >= 'a' && currentChar <= 'z')
+                    // new text group, single scene for each characters
+                    if (text.alignOp.group == LottieText.AlignOption.Group.Chars || text.alignOp.group == LottieText.AlignOption.Group.All)
                     {
-                        capCode = ((char)(currentChar + 'A' - 'a')).ToString();
-                        if (doc.caps == 2) ctx.capScale = 0.7f;
+                        ctx.textScene.Add(ctx.lineScene);
+                        ctx.lineScene = Scene.Gen();
+                        ctx.lineScene.Translate(ctx.cursor.x, ctx.cursor.y);
                     }
-                }
-                var matchCode = capCode ?? code;
-                // text building
-                var found = false;
-                foreach (var glyph in text.font!.chars)
-                {
-                    // draw matched glyphs
-                    if (matchCode.Length >= glyph.len && matchCode.Substring(0, glyph.len) == glyph.code)
-                    {
-                        // new text group, single scene for each characters
-                        if (text.alignOp.group == LottieText.AlignOption.Group.Chars || text.alignOp.group == LottieText.AlignOption.Group.All)
-                        {
-                            ctx.textScene.Add(ctx.lineScene);
-                            ctx.lineScene = Scene.Gen();
-                            ctx.lineScene.Translate(ctx.cursor.x, ctx.cursor.y);
-                        }
-                        var shape = TextShape(text, frameNo, doc, glyph, ctx);
-                        if (!UpdateTextRange(text, frameNo, shape, doc, ctx)) Commit(glyph, shape, ctx);
-                        if (doc.bboxSize.x > 0.0f && ctx.cursor.x * ctx.scale >= doc.bboxSize.x) lineWrapped = true;
-                        else ctx.cursor.x += (glyph.width + doc.tracking) * ctx.capScale;
-                        ctx.pIdx += glyph.len;
-                        ctx.idx += glyph.len;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
+                    var shape = TextShape(text, frameNo, doc, glyph, ctx);
+                    if (!UpdateTextRange(text, frameNo, shape, doc, ctx)) Commit(glyph, shape, ctx);
+                    if (doc.bboxSize.x > 0.0f && ctx.cursor.x * ctx.scale >= doc.bboxSize.x) lineWrapped = true;
+                    else ctx.cursor.x += (glyph.width + doc.tracking) * ctx.capScale;
+                    ctx.pIdx += glyph.len;
+                    ctx.idx += glyph.len;
+                } else
                 {
                     ++ctx.pIdx;
                     ++ctx.idx;
@@ -1559,7 +1626,7 @@ namespace ThorVG
                     pShape.ResetFull();
                     var compMethod = (method == MaskMethod.Subtract || method == MaskMethod.InvAlpha) ? MaskMethod.InvAlpha : MaskMethod.Alpha;
                     // Cheaper. Replace the masking with a clipper
-                    if (layer.effects.Count == 0 && layer.masks.Count == 1 && compMethod == MaskMethod.Alpha)
+                    if (!layer.effect && layer.masks.Count == 1 && compMethod == MaskMethod.Alpha)
                     {
                         layer.scene!.Opacity(RenderHelper.Multiply(layer.scene.Opacity(), opacity));
                         layer.scene.Clip(pShape);
@@ -1591,7 +1658,7 @@ namespace ThorVG
                     // Masking with Expansion (Offset)
                     else
                     {
-                        var offset = new LottieOffsetModifier(buffer, expand);
+                        var offset = new LottieOffsetModifier(expand);
                         mask.pathset.Evaluate(frameNo, pShape.rs.path, null, tween, exps, offset);
                     }
                 }
@@ -1823,6 +1890,7 @@ namespace ThorVG
                     {
                         layer.children = new List<LottieObject>(assetLayer.children);
                         layer.reqFragment = assetLayer.reqFragment;
+                        layer.effect |= assetLayer.effect;
                     }
                 }
                 else if (layer.layerType == LottieLayer.LayerType.Image)

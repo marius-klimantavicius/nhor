@@ -74,12 +74,13 @@ namespace ThorVG
         public void Prepare(RenderShape rshape)
         {
             optPathThin = false;
+            optPathSkipFill = false;
             if (rshape.Trimpath())
             {
                 var trimmedPath = new RenderPath();
                 if (rshape.stroke!.trim.Trim(rshape.path, trimmedPath))
                 {
-                    GpuCommon.GpuOptimize(trimmedPath, optPath, matrix, out optPathThin);
+                    GpuCommon.GpuOptimize(trimmedPath, optPath, matrix, out optPathThin, out optPathSkipFill);
                 }
                 else
                 {
@@ -88,7 +89,7 @@ namespace ThorVG
             }
             else
             {
-                GpuCommon.GpuOptimize(rshape.path, optPath, matrix, out optPathThin);
+                GpuCommon.GpuOptimize(rshape.path, optPath, matrix, out optPathThin, out optPathSkipFill);
             }
         }
 
@@ -98,6 +99,8 @@ namespace ThorVG
             fillBounds = default;
             fillWorld = true;
             convex = false;
+
+            if (optPathSkipFill) return false;
 
             if (optPathThin && TvgMath.Zero(rshape.StrokeWidth()))
             {
@@ -314,6 +317,7 @@ namespace ThorVG
         private bool inverseMatrixDirty = true;
         public bool fillWorld;
         public bool optPathThin;
+        public bool optPathSkipFill;
         public bool convex;
     }
 

@@ -189,7 +189,7 @@ namespace ThorVG
     {
         public enum PropertyType : byte
         {
-            Invalid = 0, Integer, Float, Scalar, Vector, PathSet, Color, Opacity, ColorStop, TextDoc, Image
+            Invalid = 0, Integer, Float, Scalar, Vector, PathSet, Color, Opacity, ColorStop, TextDoc, Image, Scalar3
         }
 
         public enum Loop : byte
@@ -588,6 +588,73 @@ namespace ThorVG
         }
     }
 
+    public class LottieScalar3 : LottieProperty
+    {
+        public List<LottieScalarFrame<Point3>>? frames;
+        public Point3 value;
+        private bool _nextReady;
+
+        public LottieScalar3(Point3 v = default) : base(PropertyType.Scalar3) { value = v; }
+
+        public void Release() { frames = null; exp = null; }
+        public override uint FrameCnt() => frames != null ? (uint)frames.Count : 1;
+        public override uint Nearest(float frameNo) => LottiePropertyHelper.NearestFrame<LottieScalarFrame<Point3>, ScalarFrameNo<Point3>>(frames, frameNo);
+        public override float FrameNo(int key) => LottiePropertyHelper.GetFrameNo<LottieScalarFrame<Point3>, ScalarFrameNo<Point3>>(frames, key);
+        public override float DoLoop(float frameNo, uint key, Loop mode, float inout) => LottiePropertyHelper.DoLoop<LottieScalarFrame<Point3>, ScalarFrameNo<Point3>>(frames, frameNo, key, mode, inout);
+
+        public LottieScalarFrame<Point3> NewFrame()
+        {
+            frames ??= new List<LottieScalarFrame<Point3>>();
+            if (_nextReady) { _nextReady = false; return frames[^1]; }
+            var f = new LottieScalarFrame<Point3>();
+            frames.Add(f);
+            return f;
+        }
+
+        public LottieScalarFrame<Point3> NextFrame()
+        {
+            frames ??= new List<LottieScalarFrame<Point3>>();
+            var f = new LottieScalarFrame<Point3>();
+            frames.Add(f);
+            _nextReady = true;
+            return f;
+        }
+
+        public Point3 Evaluate(float frameNo, LottieExpressions? exps = null)
+        {
+            if (frames == null || frames.Count == 0) return value;
+            if (frames.Count == 1 || frameNo <= frames[0].no) return frames[0].value;
+            if (frameNo >= frames[^1].no) return frames[^1].value;
+            var key = (int)LottiePropertyHelper.BSearch<LottieScalarFrame<Point3>, ScalarFrameNo<Point3>>(frames, frameNo);
+            var frame = frames[key];
+            var next = frames[key + 1];
+            if (TvgMath.Equal(frame.no, frameNo)) return frame.value;
+            var t = (frameNo - frame.no) / (next.no - frame.no);
+            if (frame.interpolator != null) t = frame.interpolator.Progress(t);
+            if (frame.hold) return (t < 1.0f) ? frame.value : next.value;
+            var a = frame.value;
+            var b = next.value;
+            return new Point3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+        }
+
+        public Point3 Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        {
+            if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
+            var a = Evaluate(frameNo, exps);
+            var b = Evaluate(tween.frameNo, exps);
+            return new Point3(a.x + (b.x - a.x) * tween.progress, a.y + (b.y - a.y) * tween.progress, a.z + (b.z - a.z) * tween.progress);
+        }
+
+        public void CopyFrom(LottieScalar3 rhs, bool shallow = true)
+        {
+            if (Copy(rhs, shallow)) return;
+            if (rhs.frames != null) { if (shallow) { frames = rhs.frames; rhs.frames = null; } else { frames = new List<LottieScalarFrame<Point3>>(rhs.frames); } }
+            else { frames = null; value = rhs.value; }
+        }
+
+        public void Prepare() { }
+    }
+
     // Concrete property: LottieColor
     public class LottieColor : LottieProperty
     {
@@ -783,19 +850,23 @@ namespace ThorVG
             float t;
             if (Dispatch(frameNo, out path, out frameIdx, out t))
             {
-                modifier.Path(path.cmds, path.cmdsCnt, path.pts, path.ptsCnt, transform, @out);
+                var inPath = RenderPath.Scratch();
+                CopyPathSet(path, inPath, null);
+                modifier.Path(inPath, @out, transform);
                 return true;
             }
 
             var fv = frames![frameIdx].value;
             var nv = frames[frameIdx + 1].value;
-            var interpPts = new Point[fv.ptsCnt];
+            var inPath2 = RenderPath.Scratch();
             for (int i = 0; i < fv.ptsCnt; ++i)
             {
-                interpPts[i] = new Point(fv.pts[i].x + (nv.pts[i].x - fv.pts[i].x) * t, fv.pts[i].y + (nv.pts[i].y - fv.pts[i].y) * t);
-                if (transform != null) TvgMath.TransformInPlace(ref interpPts[i], *transform);
+                var pt = new Point(fv.pts[i].x + (nv.pts[i].x - fv.pts[i].x) * t, fv.pts[i].y + (nv.pts[i].y - fv.pts[i].y) * t);
+                if (transform != null) TvgMath.TransformInPlace(ref pt, *transform);
+                inPath2.pts.Push(pt);
             }
-            modifier.Path(fv.cmds, fv.cmdsCnt, interpPts, fv.ptsCnt, null, @out);
+            CopyPathSetCmds(fv, inPath2);
+            modifier.Path(inPath2, @out, null);
             return true;
         }
 
@@ -817,7 +888,7 @@ namespace ThorVG
 
         private unsafe bool Tweening(float frameNo, RenderPath @out, Matrix* transform, LottieModifier? modifier, Tween tween, LottieExpressions? exps)
         {
-            var to = new RenderPath();
+            var to = RenderPath.Scratch();
             var pivot = @out.pts.count;
             if (!Evaluate(frameNo, @out, transform, exps)) return false;
             if (!Evaluate(tween.frameNo, to, transform, exps)) return false;
@@ -828,16 +899,15 @@ namespace ThorVG
             {
                 var fromPt = @out.pts[pivot + i];
                 var toPt = to.pts[i];
-                @out.pts[pivot + i] = new Point(
+                ref var interp = ref (modifier != null ? ref to.pts[i] : ref @out.pts[pivot + i]);
+                interp = new Point(
                     fromPt.x + (toPt.x - fromPt.x) * tween.progress,
                     fromPt.y + (toPt.y - fromPt.y) * tween.progress);
             }
 
             if (modifier == null) return true;
 
-            // Apply modifiers
-            to.Clear();
-            modifier.Path(to.cmds.ToArray(), (int)to.cmds.count, to.pts.ToArray(), (int)to.pts.count, transform, @out);
+            modifier.Path(to, @out, transform);
             return true;
         }
 

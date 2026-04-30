@@ -46,15 +46,15 @@ namespace ThorVG.Tests
         {
             var ver = Initializer.Version(out uint major, out uint minor, out uint micro);
             Assert.NotNull(ver);
-            Assert.Equal(0u, major);
-            Assert.Equal(15u, minor);
-            Assert.Equal(7u, micro);
+            Assert.Equal(1u, major);
+            Assert.Equal(0u, minor);
+            Assert.Equal(0u, micro);
         }
 
         [Fact]
         public void Initializer_VersionString_Constant()
         {
-            Assert.Equal("0.15.7", Initializer.VersionString);
+            Assert.Equal("1.0.0", Initializer.VersionString);
         }
     }
 }

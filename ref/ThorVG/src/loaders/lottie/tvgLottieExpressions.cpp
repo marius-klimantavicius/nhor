@@ -61,6 +61,42 @@ static const char* EXP_VALUE = "value";
 static const char* EXP_INDEX = "index";
 static const char* EXP_EFFECT= "effect";
 
+/**
+ * external magic strings for the per-frame hot path (buildProperty, buildLayer, buildTransform, bm_rt).
+ * magic pool: sorted by length, then lexicographically. packed in a single static blob,
+ *             because 'jerry_register_magic_strings' does not copy the string data.
+ * lengths/count are generated from a single list at compile time; pointers are built once at init.
+ */
+#define TVG_LOTTIE_MAGIC_STRING_LIST(X) \
+    X("key") \
+    X("comp") X("name") X("time") \
+    X("index") X("layer") X("scale") X("speed") X("value") X("width") \
+    X("$bm_rt") X("effect") X("height") X("parent") X("toComp") X("wiggle") \
+    X("content") X("enabled") X("inPoint") X("numKeys") X("opacity") \
+    X("duration") X("hasAudio") X("hasVideo") X("outPoint") X("position") X("rotation") X("thisComp") X("velocity") \
+    X("hasParent") X("numLayers") X("startTime") X("thisLayer") X("timeRemap") X("transform") \
+    X("nearestKey") \
+    X("anchorPoint") X("audioActive") X("speedAtTime") X("valueAtTime") \
+    X("thisProperty") \
+    X("frameDuration") X("propertyIndex") \
+    X("velocityAtTime")
+
+#define TVG_LOTTIE_MAGIC_POOL_ENTRY(str) str
+static constexpr const char _magicPool[] =
+    TVG_LOTTIE_MAGIC_STRING_LIST(TVG_LOTTIE_MAGIC_POOL_ENTRY);
+#undef TVG_LOTTIE_MAGIC_POOL_ENTRY
+
+#define TVG_LOTTIE_MAGIC_LENGTH_ENTRY(str) (jerry_length_t)(sizeof(str) - 1),
+static constexpr jerry_length_t _magicLengths[] = {
+    TVG_LOTTIE_MAGIC_STRING_LIST(TVG_LOTTIE_MAGIC_LENGTH_ENTRY)
+};
+#undef TVG_LOTTIE_MAGIC_LENGTH_ENTRY
+
+#define MAGIC_STRING_COUNT (sizeof(_magicLengths) / sizeof(_magicLengths[0]))
+static const jerry_char_t* _magicStrings[MAGIC_STRING_COUNT];
+
+#undef TVG_LOTTIE_MAGIC_STRING_LIST
+
 static LottieExpressions* exps = nullptr;   //singleton instance engine
 
 
@@ -703,7 +739,7 @@ static jerry_value_t _pointOnPath(const jerry_call_info_t* info, const jerry_val
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
     auto pathset = static_cast<LottiePathSet*>(data->property);
     auto progress = _number(args[0]);
-    RenderPath out;
+    auto& out = RenderPath::scratch();
     (*pathset)(data->frameNo, out, nullptr, nullptr);
     return _point2d(out.point(progress));
 }
@@ -713,7 +749,7 @@ static jerry_value_t _tangentOnPath(const jerry_call_info_t* info, const jerry_v
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
     auto pathset = static_cast<LottiePathSet*>(data->property);
     auto progress = _number(args[0]);
-    RenderPath out;
+    auto& out = RenderPath::scratch();
     (*pathset)(data->frameNo, out, nullptr, nullptr);
 
     auto a = out.point(std::max(0.0f, progress - 0.001f));
@@ -1101,106 +1137,95 @@ static void _buildProperty(float frameNo, jerry_value_t context, LottieExpressio
     jerry_object_set_sz(context, EXP_VALUE, value);
     jerry_value_free(value);
 
-    auto valueAtTime = jerry_function_external(_valueAtTime);
-    jerry_object_set_sz(context, "valueAtTime", valueAtTime);
-    jerry_object_set_native_ptr(valueAtTime, nullptr, exp);
-    jerry_value_free(valueAtTime);
+    //check if functions are already registered. If not (first build), set all functions.
+    //otherwise, update native_ptr and update shared data in ExpContent
+    auto check = jerry_object_get_sz(context, "valueAtTime");
+    auto init = jerry_value_is_undefined(check);
+    jerry_value_free(check);
 
-    auto velocity = jerry_number(0.0f);
-    jerry_object_set_sz(context, "velocity", velocity);
-    jerry_value_free(velocity);
+    //set or update a native function bound to exp
+    auto setFunction = [&context, init, exp](jerry_external_handler_t handler, const char* key) {
+        jerry_value_t obj;
+        if (init) {
+            obj = jerry_function_external(handler);
+            jerry_object_set_sz(context, key, obj);
+        } else {
+            obj = jerry_object_get_sz(context, key);
+        }
+        jerry_object_set_native_ptr(obj, nullptr, exp);
+        jerry_value_free(obj);
+    };
 
-    auto velocityAtTime = jerry_function_external(_velocityAtTime);
-    jerry_object_set_sz(context, "velocityAtTime", velocityAtTime);
-    jerry_object_set_native_ptr(velocityAtTime, nullptr, exp);
-    jerry_value_free(velocityAtTime);
+    //set a float Value
+    auto setValue = [&context](const char* key, float val) {
+        auto obj = jerry_number(val);
+        jerry_object_set_sz(context, key, obj);
+        jerry_value_free(obj);
+    };
 
-    auto speed = jerry_number(0.0f);
-    jerry_object_set_sz(context, "speed", speed);
-    jerry_value_free(speed);
+    //register a new native function with shared data
+    auto addFunction = [&context](jerry_external_handler_t handler, const char* key, ExpContent* data) {
+        auto obj = jerry_function_external(handler);
+        jerry_object_set_sz(context, key, obj);
+        jerry_object_set_native_ptr(obj, &freeCb, data);
+        jerry_value_free(obj);
+    };
 
-    auto speedAtTime = jerry_function_external(_speedAtTime);
-    jerry_object_set_sz(context, "speedAtTime", speedAtTime);
-    jerry_object_set_native_ptr(speedAtTime, nullptr, exp);
-    jerry_value_free(speedAtTime);
+    //update shared ExpContent in-place
+    auto updateContent = [&context, exp, frameNo](const char* key, void* target) {
+        auto obj = jerry_object_get_sz(context, key);
+        auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(obj, &freeCb));
+        if (data) {
+            data->exp = exp;
+            data->frameNo = frameNo;
+            data->data = target;
+        } else {
+            TVGERR("LOTTIE", "ExpContent lost due to function overwrite");
+        }
+        jerry_value_free(obj);
+    };
 
-    auto propertyIndex = jerry_number(exp->property->ix);
-    jerry_object_set_sz(context, "propertyIndex", propertyIndex);
-    jerry_value_free(propertyIndex);
-
-    {
-        auto data =  _expcontent(exp, frameNo, exp->object, 7);
-
-        auto wiggle = jerry_function_external(_wiggle);
-        jerry_object_set_sz(context, "wiggle", wiggle);
-        jerry_object_set_native_ptr(wiggle, &freeCb, data);
-        jerry_value_free(wiggle);
-
-        auto temporalWiggle = jerry_function_external(_temporalWiggle);
-        jerry_object_set_sz(context, "temporalWiggle", temporalWiggle);
-        jerry_object_set_native_ptr(temporalWiggle, &freeCb, data);
-        jerry_value_free(temporalWiggle);
-
-        auto propertyGroup = jerry_function_external(_propertyGroup);
-        jerry_object_set_native_ptr(propertyGroup, &freeCb, data);
-        jerry_object_set_sz(context, "propertyGroup", propertyGroup);
-        jerry_value_free(propertyGroup);
-
-        auto loopIn = jerry_function_external(_loopIn);
-        jerry_object_set_sz(context, "loopIn", loopIn);
-        jerry_object_set_native_ptr(loopIn, &freeCb, data);
-        jerry_value_free(loopIn);
-
-        auto loopOut = jerry_function_external(_loopOut);
-        jerry_object_set_sz(context, "loopOut", loopOut);
-        jerry_object_set_native_ptr(loopOut, &freeCb, data);
-        jerry_value_free(loopOut);
-
-        auto loopInDuration = jerry_function_external(_loopInDuration);
-        jerry_object_set_sz(context, "loopInDuration", loopInDuration);
-        jerry_object_set_native_ptr(loopInDuration, &freeCb, data);
-        jerry_value_free(loopInDuration);
-
-        auto loopOutDuration = jerry_function_external(_loopOutDuration);
-        jerry_object_set_sz(context, "loopOutDuration", loopOutDuration);
-        jerry_object_set_native_ptr(loopOutDuration, &freeCb, data);
-        jerry_value_free(loopOutDuration);
-
-    }
-
-    //smooth(width=.2, samples=5, t=time)
-
-    auto key = jerry_function_external(_key);
-    jerry_object_set_sz(context, "key", key);
-    jerry_object_set_native_ptr(key, nullptr, exp);
-    jerry_value_free(key);
-
+    setFunction(_valueAtTime,    "valueAtTime");
+    setFunction(_velocityAtTime, "velocityAtTime");
+    setFunction(_speedAtTime,    "speedAtTime");
+    setFunction(_key,            "key");
     //key(markerName)
+    setFunction(_nearestKey,     "nearestKey");
 
-    auto nearestKey = jerry_function_external(_nearestKey);
-    jerry_object_set_native_ptr(nearestKey, nullptr, exp);
-    jerry_object_set_sz(context, "nearestKey", nearestKey);
-    jerry_value_free(nearestKey);
+    setValue("velocity", 0.0f);
+    setValue("speed", 0.0f);
+    setValue("propertyIndex", static_cast<float>(exp->property->ix));
+    setValue("numKeys", static_cast<float>(exp->property->frameCnt()));
 
-    auto numKeys = jerry_number((float)exp->property->frameCnt());
-    jerry_object_set_sz(context, "numKeys", numKeys);
-    jerry_value_free(numKeys);
+    if (init) {
+        {
+            auto data =  _expcontent(exp, frameNo, exp->object, 7);
+            addFunction(_wiggle,          "wiggle",          data);
+            addFunction(_temporalWiggle,  "temporalWiggle",  data);
+            addFunction(_propertyGroup,   "propertyGroup",   data);
+            addFunction(_loopIn,          "loopIn",          data);
+            addFunction(_loopOut,         "loopOut",         data);
+            addFunction(_loopInDuration,  "loopInDuration",  data);
+            addFunction(_loopOutDuration, "loopOutDuration", data);
+        }
 
-    //name
+        //smooth(width=.2, samples=5, t=time)
 
-    {
-        auto data = _expcontent(exp, frameNo, exp->layer, 2);
+        //name
 
-        //content("name"), #look for the named property from a layer
-        auto content = jerry_function_external(_content);
-        jerry_object_set_sz(context, EXP_CONTENT, content);
-        jerry_object_set_native_ptr(content, &freeCb, data);
-        jerry_value_free(content);
+        {
+            auto data =  _expcontent(exp, frameNo, exp->layer, 2);
+            //content("name"), #look for the named property from a layer
+            addFunction(_content, EXP_CONTENT, data);
+            addFunction(_effect, EXP_EFFECT, data);
+        }
+    } else {
+        // since they share the same ExpContent, updating one of them is enough.
+        // update _wiggle, _temporalWiggle, _propertyGroup, _loopIn, _loopOut, _loopInDuration, _loopOutDuration
+        updateContent("wiggle",    exp->object);
 
-        auto effect = jerry_function_external(_effect);
-        jerry_object_set_sz(context, EXP_EFFECT, effect);
-        jerry_object_set_native_ptr(effect, &freeCb, data);
-        jerry_value_free(effect);
+        // update _content, _effect since they share the same ExpContent
+        updateContent(EXP_CONTENT, exp->layer);
     }
 
     //expansions per types
@@ -1469,6 +1494,7 @@ jerry_value_t LottieExpressions::evaluate(float frameNo, LottieExpression* exp)
 
     if (jerry_value_is_exception(eval)) {
         TVGERR("LOTTIE", "Failed to dispatch the expressions!");
+        jerry_value_free(eval);
         exp->disabled = true;
         return jerry_undefined();
     }
@@ -1497,6 +1523,15 @@ LottieExpressions::~LottieExpressions()
 LottieExpressions::LottieExpressions()
 {
     jerry_init(JERRY_INIT_EMPTY);
+
+    //build magic string arrays from the magic pool
+    auto p = _magicPool;
+    for (uint32_t i = 0; i < MAGIC_STRING_COUNT; ++i) {
+        _magicStrings[i] = (const jerry_char_t*)p;
+        p += _magicLengths[i];
+    }
+    jerry_register_magic_strings(_magicStrings, MAGIC_STRING_COUNT, _magicLengths);
+
     _buildMath(buildGlobal());
 }
 

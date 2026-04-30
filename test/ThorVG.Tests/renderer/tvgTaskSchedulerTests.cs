@@ -7,6 +7,7 @@ namespace ThorVG.Tests
         [Fact]
         public void TaskScheduler_InitAndTerm()
         {
+            TaskScheduler.Term();
             TaskScheduler.Init(4);
             Assert.Equal(4u, TaskScheduler.Threads());
             TaskScheduler.Term();

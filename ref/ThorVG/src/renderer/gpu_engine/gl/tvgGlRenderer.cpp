@@ -27,7 +27,6 @@
 #include "tvgGlRenderTask.h"
 #include "tvgGlProgram.h"
 #include "tvgGlShaderSrc.h"
-#include "tvgShape.h"
 #include "tvgRender.h"
 
 /************************************************************************/
@@ -121,12 +120,12 @@ void GlRenderer::initShaders()
 #if 1  //for optimization
     #define LINEAR_TOTAL_LENGTH 2831
     #define RADIAL_TOTAL_LENGTH 5315
-    #define BLEND_TOTAL_LENGTH 5369
+    #define BLEND_TOTAL_LENGTH 5096
 #else
     #define COMMON_TOTAL_LENGTH strlen(STR_GRADIENT_FRAG_COMMON_VARIABLES) + strlen(STR_GRADIENT_FRAG_COMMON_FUNCTIONS) + 1
     #define LINEAR_TOTAL_LENGTH strlen(STR_LINEAR_GRADIENT_VARIABLES) + strlen(STR_LINEAR_GRADIENT_FUNCTIONS) + strlen(STR_LINEAR_GRADIENT_MAIN) + COMMON_TOTAL_LENGTH
     #define RADIAL_TOTAL_LENGTH strlen(STR_RADIAL_GRADIENT_VARIABLES) + strlen(STR_RADIAL_GRADIENT_FUNCTIONS) + strlen(STR_RADIAL_GRADIENT_MAIN) + COMMON_TOTAL_LENGTH
-    #define BLEND_TOTAL_LENGTH strlen(BLEND_SCENE_FRAG_HEADER) + (strlen(BLEND_FRAG_HUE) > strlen(BLEND_FRAG_LUM) ? strlen(BLEND_FRAG_HUE) : strlen(BLEND_FRAG_LUM)) + strlen(COLOR_BURN_BLEND_FRAG) + 1
+    #define BLEND_TOTAL_LENGTH strlen(BLEND_SCENE_FRAG_HEADER) + strlen(BLEND_FRAG_LUM_HELPER) + strlen(BLEND_FRAG_SAT_HELPER) + strlen(COLOR_BURN_BLEND_FRAG) + 1
 #endif
 
     char linearGradientFragShader[LINEAR_TOTAL_LENGTH];
@@ -290,7 +289,7 @@ void GlRenderer::drawPrimitive(GlShape& sdata, const Fill* fill, RenderUpdateFla
 
     const Fill::ColorStop* stops = nullptr;
     auto stopCnt = min(fill->colorStops(&stops), static_cast<uint32_t>(MAX_GRADIENT_STOPS));
-    if (stopCnt < 2) return;
+    if (stopCnt < 1) return;
 
     GlRenderTarget* dstCopyFbo = nullptr;
     auto radial = fill->type() == Type::RadialGradient;
@@ -537,9 +536,7 @@ bool GlRenderer::beginComplexBlending(const RenderRegion& vp, RenderRegion bound
 
 void GlRenderer::endBlendingCompose(GlRenderTask* stencilTask)
 {
-    auto blendPass = mRenderPassStack.last();
-    mRenderPassStack.pop();
-    
+    auto blendPass = mRenderPassStack.pick();
     blendPass->setDrawDepth(currentPass()->nextDrawDepth());
 
     auto composeTask = blendPass->endRenderPass<GlComposeTask>(nullptr, currentPass()->getFboId());
@@ -621,11 +618,13 @@ GlProgram* GlRenderer::getBlendProgram(BlendMethod method, BlendSource source)
 
     if (mPrograms[shaderInd]) return mPrograms[shaderInd];
 
-    const char* helpers = "";
+    const char* lumHelper = "";
+    const char* satHelper = "";
     if (method == BlendMethod::Hue) {
-        helpers = BLEND_FRAG_HUE;
+        lumHelper = BLEND_FRAG_LUM_HELPER;
+        satHelper = BLEND_FRAG_SAT_HELPER;
     } else if ((method == BlendMethod::Saturation) || (method == BlendMethod::Color) || (method == BlendMethod::Luminosity)) {
-        helpers = BLEND_FRAG_LUM;
+        lumHelper = BLEND_FRAG_LUM_HELPER;
     }
 
     const char* vertShader;
@@ -634,7 +633,7 @@ GlProgram* GlRenderer::getBlendProgram(BlendMethod method, BlendSource source)
     if (source == BlendSource::Scene || source == BlendSource::Image) {
         vertShader = BLIT_VERT_SHADER;
         const char* header = (source == BlendSource::Scene) ? BLEND_SCENE_FRAG_HEADER : BLEND_IMAGE_FRAG_HEADER;
-        snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s", header, helpers, shaderFunc[methodInd]);
+        snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s", header, lumHelper, satHelper, shaderFunc[methodInd]);
         mPrograms[shaderInd] = new GlProgram(vertShader, fragShader);
         return mPrograms[shaderInd];
     }
@@ -642,29 +641,32 @@ GlProgram* GlRenderer::getBlendProgram(BlendMethod method, BlendSource source)
     vertShader = (source == BlendSource::Solid) ? COLOR_VERT_SHADER : GRADIENT_VERT_SHADER;
     switch (source) {
         case BlendSource::Solid:
-            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s",
+            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s",
                      BLEND_SHAPE_SOLID_FRAG_HEADER,
-                     helpers,
+                     lumHelper,
+                     satHelper,
                      shaderFunc[methodInd]);
             break;
         case BlendSource::LinearGradient:
-            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s%s%s%s",
+            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s%s%s%s%s",
                      STR_GRADIENT_FRAG_COMMON_VARIABLES,
                      STR_LINEAR_GRADIENT_VARIABLES,
                      STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
                      STR_LINEAR_GRADIENT_FUNCTIONS,
                      BLEND_SHAPE_LINEAR_FRAG_HEADER,
-                     helpers,
+                     lumHelper,
+                     satHelper,
                      shaderFunc[methodInd]);
             break;
         case BlendSource::RadialGradient:
-            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s%s%s%s",
+            snprintf(fragShader, BLEND_TOTAL_LENGTH, "%s%s%s%s%s%s%s%s",
                      STR_GRADIENT_FRAG_COMMON_VARIABLES,
                      STR_RADIAL_GRADIENT_VARIABLES,
                      STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
                      STR_RADIAL_GRADIENT_FUNCTIONS,
                      BLEND_SHAPE_RADIAL_FRAG_HEADER,
-                     helpers,
+                     lumHelper,
+                     satHelper,
                      shaderFunc[methodInd]);
             break;
         default:
@@ -738,12 +740,9 @@ void GlRenderer::endRenderPass(RenderCompositor* cmp)
     // setup masking and blending render pass configurations
     if ((glCmp->flags & (tvg::Blending | tvg::Masking)) == (tvg::Blending | tvg::Masking)) {
         // rearrange render tree
-        auto selfPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
-        auto prevPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
-        auto maskPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
+        auto selfPass = mRenderPassStack.pick();
+        auto prevPass = mRenderPassStack.pick();
+        auto maskPass = mRenderPassStack.pick();
         mRenderPassStack.push(prevPass);
         mRenderPassStack.push(maskPass);
         mRenderPassStack.push(selfPass);
@@ -762,12 +761,9 @@ void GlRenderer::endRenderPass(RenderCompositor* cmp)
     };
 
     if (cmp->method != MaskMethod::None) {
-        auto selfPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
-
+        auto selfPass = mRenderPassStack.pick();
         // mask is pushed first
-        auto maskPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
+        auto maskPass = mRenderPassStack.pick();
 
         GlProgram* program = nullptr;
         switch(cmp->method) {
@@ -805,9 +801,7 @@ void GlRenderer::endRenderPass(RenderCompositor* cmp)
         delete(selfPass);
         delete(maskPass);
     } else if (glCmp->blendMethod != BlendMethod::Normal) {
-        auto renderPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
-
+        auto renderPass = mRenderPassStack.pick();
         if (!renderPass->isEmpty()) {
             if (mBlendPool.count < 1) mBlendPool.push(new GlRenderTargetPool(surface.w, surface.h));
             if (mBlendPool.count < 2) mBlendPool.push(new GlRenderTargetPool(surface.w, surface.h));
@@ -846,9 +840,7 @@ void GlRenderer::endRenderPass(RenderCompositor* cmp)
         }
         delete(renderPass);
     } else {
-        auto renderPass = mRenderPassStack.last();
-        mRenderPassStack.pop();
-
+        auto renderPass = mRenderPassStack.pick();
         if (!renderPass->isEmpty()) {
             auto task = renderPass->endRenderPass<GlDrawBlitTask>(mPrograms[RT_Image], currentPass()->getFboId());
             task->setRenderSize(glCmp->bbox.w(), glCmp->bbox.h());
@@ -1064,13 +1056,8 @@ bool GlRenderer::endComposite(RenderCompositor* cmp)
     if (mComposeStack.last() != cmp) return false;
 
     // end current render pass;
-    auto curCmp  = mComposeStack.last();
-    mComposeStack.pop();
-
-    assert(cmp == curCmp);
-
+    auto curCmp = mComposeStack.pick();
     endRenderPass(curCmp);
-
     delete(curCmp);
 
     return true;
@@ -1246,8 +1233,7 @@ void GlRenderer::dispose(RenderData data)
     delete sdata;
 }
 
-
-RenderData GlRenderer::prepare(RenderSurface* image, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags)
+RenderData GlRenderer::prepare(RenderSurface* image, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, FilterMethod filter, RenderUpdateFlag flags)
 {
     //TODO: redefine GlImage.
     if (opacity == 0) return data;
@@ -1290,8 +1276,7 @@ RenderData GlRenderer::prepare(RenderSurface* image, RenderData data, const Matr
     return sdata;
 }
 
-
-RenderData GlRenderer::prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper)
+RenderData GlRenderer::prepare(const RenderShape& rshape, RenderData data, const Matrix& transform, const Array<RenderData>& clips, uint8_t opacity, RenderUpdateFlag flags, bool clipper)
 {
     auto sdata = static_cast<GlShape*>(data);
     if (!sdata) {

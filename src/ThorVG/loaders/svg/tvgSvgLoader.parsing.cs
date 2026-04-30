@@ -170,6 +170,14 @@ namespace ThorVG
             node.style.flags |= SvgStyleFlags.BlendMode;
         }
 
+        private static void HandleTextAnchorAttr(SvgParserContext ctx, SvgNode node, string value)
+        {
+            node.style!.flags |= SvgStyleFlags.TextAnchor;
+            if (SvgHelper.StrAs(value, "middle")) node.style.textAnchor = 0.5f;
+            else if (SvgHelper.StrAs(value, "end")) node.style.textAnchor = 1.0f;
+            else node.style.textAnchor = 0.0f;
+        }
+
         private static void HandleCssClassAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.cssClass = CopyId(value);
@@ -645,6 +653,8 @@ namespace ThorVG
 
             if (SvgHelper.StrAs(key, "x")) { text.x = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
             if (SvgHelper.StrAs(key, "y")) { text.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "dx")) { text.dx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
+            if (SvgHelper.StrAs(key, "dy")) { text.dy = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
             if (SvgHelper.StrAs(key, "font-size")) { text.fontSize = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
 
             if (SvgHelper.StrAs(key, "font-family"))
@@ -1070,6 +1080,15 @@ namespace ThorVG
             return ctx.svgParse.node;
         }
 
+        private static SvgNode? CreateTspanNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        {
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Tspan);
+            ctx.svgParse.node.text.x = float.MaxValue;
+            ctx.svgParse.node.text.y = float.MaxValue;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParseTextNode, ctx);
+            return ctx.svgParse.node;
+        }
+
         private static SvgNode? CreateUseNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
             ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Use);
@@ -1322,6 +1341,7 @@ namespace ThorVG
             if ((child.stroke.flags & SvgStrokeFlags.Cap) == 0) child.stroke.cap = parent.stroke.cap;
             if ((child.stroke.flags & SvgStrokeFlags.Join) == 0) child.stroke.join = parent.stroke.join;
             if ((child.stroke.flags & SvgStrokeFlags.Miterlimit) == 0) child.stroke.miterlimit = parent.stroke.miterlimit;
+            if ((child.flags & SvgStyleFlags.TextAnchor) == 0) child.textAnchor = parent.textAnchor;
         }
 
         private static void StyleCopy(SvgStyleProperty? to, SvgStyleProperty? from)
@@ -1337,6 +1357,7 @@ namespace ThorVG
             if ((from.flags & SvgStyleFlags.PaintOrder) != 0) to.paintOrder = from.paintOrder;
             if ((from.flags & SvgStyleFlags.Display) != 0) to.display = from.display;
             if ((from.flags & SvgStyleFlags.BlendMode) != 0) to.blendMode = from.blendMode;
+            if ((from.flags & SvgStyleFlags.TextAnchor) != 0) to.textAnchor = from.textAnchor;
             // Fill
             to.fill.flags |= from.fill.flags;
             if ((from.fill.flags & SvgFillFlags.Paint) != 0)
@@ -1449,8 +1470,9 @@ namespace ThorVG
                     to.use.isWidthSet = from.use.isWidthSet; to.use.isHeightSet = from.use.isHeightSet;
                     to.use.symbol = from.use.symbol;
                     break;
+                case SvgNodeType.Tspan:
                 case SvgNodeType.Text:
-                    to.text.x = from.text.x; to.text.y = from.text.y; to.text.fontSize = from.text.fontSize;
+                    to.text.x = from.text.x; to.text.y = from.text.y; to.text.dx = from.text.dx; to.text.dy = from.text.dy; to.text.fontSize = from.text.fontSize;
                     to.text.text = from.text.text; to.text.fontFamily = from.text.fontFamily;
                     break;
             }

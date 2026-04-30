@@ -842,10 +842,11 @@ namespace ThorVG
             public LottieFloat y = new();
         }
 
-        public class RotationEx
+        public class Dimension3
         {
-            public LottieFloat x = new();
-            public LottieFloat y = new();
+            public LottieFloat rx = new();
+            public LottieFloat ry = new();
+            public LottieScalar3 orient = new(new Point3(0.0f, 0.0f, 0.0f));
         }
 
         public LottieVector position = new();
@@ -856,7 +857,7 @@ namespace ThorVG
         public LottieFloat skewAngle = new();
         public LottieFloat skewAxis = new();
         public SeparateCoord? coords;
-        public RotationEx? rotationEx;
+        public Dimension3? ddd;
 
         public LottieTransform() { type = ObjectType.Transform; }
         public override bool Mergeable() => true;
@@ -938,6 +939,24 @@ namespace ThorVG
             if (opacity.ix == ix) return opacity;
             return null;
         }
+
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (color.sid == prop.sid)
+            {
+                if (release) color.Release();
+                else backup = new LottieColor(color.value) { sid = color.sid };
+                color.CopyFrom((LottieColor)prop, false);
+            }
+            else if (opacity.sid == prop.sid)
+            {
+                if (release) opacity.Release();
+                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
+                opacity.CopyFrom((LottieOpacity)prop, false);
+            }
+            return backup;
+        }
     }
 
     public class LottieSolidStroke : LottieSolid
@@ -957,38 +976,12 @@ namespace ThorVG
             return base.FindProperty(ix);
         }
 
-        public override LottieProperty? Override(LottieProperty prop, bool release)
-        {
-            LottieProperty? backup = null;
-            if (release) color.Release();
-            else backup = new LottieColor(color.value) { sid = color.sid };
-            color.CopyFrom((LottieColor)prop, false);
-            return backup;
-        }
     }
 
     public class LottieSolidFill : LottieSolid
     {
         public FillRule rule = FillRule.NonZero;
         public LottieSolidFill() { type = ObjectType.SolidFill; }
-
-        public override LottieProperty? Override(LottieProperty prop, bool release)
-        {
-            LottieProperty? backup = null;
-            if (color.sid == prop.sid)
-            {
-                if (release) color.Release();
-                else backup = new LottieColor(color.value) { sid = color.sid };
-                color.CopyFrom((LottieColor)prop, false);
-            }
-            else if (opacity.sid == prop.sid)
-            {
-                if (release) opacity.Release();
-                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
-                opacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            return backup;
-        }
     }
 
     public class LottieGradient : LottieObject
@@ -1038,10 +1031,19 @@ namespace ThorVG
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (release) colorStops.Release();
-            else backup = new LottieColorStop(colorStops);
-            colorStops.CopyFrom((LottieColorStop)prop, false);
-            Prepare();
+            if (colorStops.sid == prop.sid)
+            {
+                if (release) colorStops.Release();
+                else backup = new LottieColorStop(colorStops);
+                colorStops.CopyFrom((LottieColorStop)prop, false);
+                Prepare();
+            }
+            else if (opacity.sid == prop.sid)
+            {
+                if (release) opacity.Release();
+                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
+                opacity.CopyFrom((LottieOpacity)prop, false);
+            }
             return backup;
         }
 
@@ -1469,6 +1471,7 @@ namespace ThorVG
 
         public MaskMethod matteType = MaskMethod.None;
         public LayerType layerType = LayerType.Null;
+        public bool effect;
         public bool autoOrient;
         public bool matteSrc;
 

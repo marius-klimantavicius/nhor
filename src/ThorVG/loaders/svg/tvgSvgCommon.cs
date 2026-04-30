@@ -118,7 +118,8 @@ namespace ThorVG
         StrokeMiterlimit = 0x20000,
         StrokeDashOffset = 0x40000,
         Filter = 0x80000,
-        BlendMode = 0x100000
+        BlendMode = 0x100000,
+        TextAnchor = 0x200000
     }
 
     [Flags]
@@ -288,6 +289,7 @@ namespace ThorVG
         public string? text;
         public string? fontFamily;
         public float x, y;
+        public float dx, dy;
         public float fontSize;
     }
 
@@ -412,6 +414,7 @@ namespace ThorVG
         public int opacity;
         public RGB color;
         public string? cssClass;
+        public float textAnchor;
         public SvgStyleFlags flags;
         public SvgStyleFlags flagsImportance;
         public bool curColorSet;

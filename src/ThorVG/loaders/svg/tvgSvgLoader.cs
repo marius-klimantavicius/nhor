@@ -10,6 +10,23 @@ namespace ThorVG
     {
         // ========== XML Callbacks ==========
 
+        private static void SpliceTspanClose(SvgParserContext ctx)
+        {
+            var cur = ctx.svgParse?.node;
+            if (cur == null || cur.type != SvgNodeType.Tspan) return;
+
+            var t = cur.text;
+            var unpositioned = t.x == float.MaxValue && t.y == float.MaxValue && t.dx == 0.0f && t.dy == 0.0f;
+            var noOverride = t.fontSize <= 0.0f && t.fontFamily == null && cur.xmlSpace == SvgXmlSpace.None && (cur.style!.flags & SvgStyleFlags.TextAnchor) == 0;
+
+            if (t.text != null && unpositioned && noOverride && cur.parent != null)
+            {
+                cur.parent.text.text = (cur.parent.text.text ?? "") + t.text;
+                t.text = null;
+            }
+            ctx.svgParse!.node = cur.parent;
+        }
+
         private static void SvgLoaderParserXmlClose(SvgParserContext ctx, string content, int offset, int length)
         {
             int itrEnd = offset + length;
@@ -26,6 +43,12 @@ namespace ThorVG
             if (ctx.gradientStack.Count > 0 && ctx.gradientStack[ctx.gradientStack.Count - 1] == null)
             {
                 ctx.gradientStack.RemoveAt(ctx.gradientStack.Count - 1);
+                return;
+            }
+
+            if (ctx.openedTag == OpenedTagType.Text && SvgHelper.StrAs(tagName, "tspan"))
+            {
+                SpliceTspanClose(ctx);
                 return;
             }
 
@@ -156,6 +179,12 @@ namespace ThorVG
                     ctx.stack.Add(defs!);
                     ctx.currentGraphicsNode = node;
                 }
+            }
+            else if (ctx.openedTag == OpenedTagType.Text && SvgHelper.StrAs(tagName, "tspan"))
+            {
+                parent = ctx.svgParse!.node;
+                node = CreateTspanNode(ctx, parent, content, attrsOffset, attrsLength, XmlParser.ParseAttributes);
+                if (empty) ctx.svgParse.node = parent;
             }
             else if ((gradientMethod = FindGradientFactory(tagName)) != null)
             {

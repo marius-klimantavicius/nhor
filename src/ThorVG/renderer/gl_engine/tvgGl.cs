@@ -640,6 +640,10 @@ namespace ThorVG
                 _libGL = nint.Zero;
             }
             _loaded = false;
+            glClear = null;
+            glEnable = null;
+            glCreateShader = null;
+            glGenFramebuffers = null;
             return true;
         }
     }

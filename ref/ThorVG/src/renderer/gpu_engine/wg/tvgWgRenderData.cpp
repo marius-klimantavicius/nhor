@@ -26,6 +26,7 @@
 #include "tvgCommon.h"
 #include "tvgWgTessellator.h"
 #include "tvgWgRenderData.h"
+#include "tvgWgTextureMgr.h"
 #include "tvgWgShaderTypes.h"
 
 //***********************************************************************
@@ -40,8 +41,10 @@ void WgImageData::update(WgContext& context, const RenderSurface* surface, Filte
         texFormat = WGPUTextureFormat_RGBA8Unorm;
     if (surface->cs == ColorSpace::Grayscale8)
         texFormat = WGPUTextureFormat_R8Unorm;
+    auto bytesPerRow = surface->stride * CHANNEL_SIZE(surface->cs);
+    auto dataSize = static_cast<uint64_t>(bytesPerRow) * surface->h;
     // allocate new texture handle
-    bool texHandleChanged = context.allocateTexture(texture, surface->w, surface->h, texFormat, surface->data);
+    bool texHandleChanged = context.allocateTexture(texture, surface->w, surface->h, texFormat, surface->data, bytesPerRow, dataSize);
     // update texture view of texture handle was changed
     if (texHandleChanged) {
         context.releaseTextureView(textureView);
@@ -60,7 +63,8 @@ void WgImageData::update(WgContext& context, const Fill* fill)
     WgShaderTypeGradientData gradientData;
     gradientData.update(fill);
     // allocate new texture handle
-    bool texHandleChanged = context.allocateTexture(texture, WG_TEXTURE_GRADIENT_SIZE, 1, WGPUTextureFormat_RGBA8Unorm, gradientData.data);
+    auto bytesPerRow = WG_TEXTURE_GRADIENT_SIZE * sizeof(uint32_t);
+    bool texHandleChanged = context.allocateTexture(texture, WG_TEXTURE_GRADIENT_SIZE, 1, WGPUTextureFormat_RGBA8Unorm, gradientData.data, bytesPerRow, bytesPerRow);
     // update texture view of texture handle was changed
     if (texHandleChanged) {
         context.releaseTextureView(textureView);
@@ -143,12 +147,11 @@ void WgRenderDataPaint::release(WgContext& context)
     clips.clear();
 };
 
-
-void WgRenderDataPaint::updateClips(tvg::Array<tvg::RenderData> &clips) {
+void WgRenderDataPaint::updateClips(const Array<RenderData>& clips)
+{
     this->clips.clear();
-    ARRAY_FOREACH(p, clips) {
-        this->clips.push((WgRenderDataPaint*)(*p));
-    }
+    // RenderData == WgRenderDataPaint*, just copy it.
+    this->clips = *((Array<WgRenderDataPaint*>*)&clips);
 }
 
 //***********************************************************************
@@ -179,38 +182,44 @@ void WgRenderDataShape::updateMeshes(const RenderShape &rshape, RenderUpdateFlag
     renderSettingsStroke.opacityMultiplier = 1.0f;
 
     // optimize path
-    RenderPath optPath;
+    auto& optPath = RenderPath::scratch();
     bool optPathThin = false;
+    bool optPathSkipFill = false;
     if (rshape.trimpath()) {
-        RenderPath trimmedPath;
-        if (rshape.stroke->trim.trim(rshape.path, trimmedPath)) gpuOptimize(trimmedPath, optPath, matrix, optPathThin);
+        auto& trimmed = RenderPath::scratch();
+        if (rshape.stroke->trim.trim(rshape.path, trimmed)) gpuOptimize(trimmed, optPath, matrix, optPathThin, optPathSkipFill);
         else optPath.clear();
     } else {
-        gpuOptimize(rshape.path, optPath, matrix, optPathThin);
+        gpuOptimize(rshape.path, optPath, matrix, optPathThin, optPathSkipFill);
     }
 
     auto updatePath = flag & (RenderUpdateFlag::Transform | RenderUpdateFlag::Path);
 
     // update fill shapes
     if (updatePath || (flag & (RenderUpdateFlag::Color | RenderUpdateFlag::Gradient))) {
-        BBox bbox;
-        // in a case of thin shape we must tesselate it as a stroke with minimal width
-        if (optPathThin && tvg::zero(rshape.strokeWidth())) {
-            WgStroker stroker(&meshShape, MIN_WG_STROKE_WIDTH, StrokeCap::Butt, StrokeJoin::Bevel);
-            stroker.run(optPath);
-            bbox = stroker.getBBox();
-            renderSettingsShape.opacityMultiplier = MIN_WG_STROKE_ALPHA;
-        } else {
-            WgBWTessellator bwTess{&meshShape};
-            bwTess.tessellate(optPath);
-            convex = bwTess.convex;
-            bbox = bwTess.getBBox();
-        }
-        if (meshShape.ibuffer.empty()) {
+        if (optPathSkipFill) {
+            // Too-thin fills are suppressed instead of going through thin fallback.
             meshShape.clear();
         } else {
-            meshShapeBBox.bbox(bbox.min, bbox.max);
-            updateBBox(bbox);
+            BBox bbox;
+            // Drawable thin fills are tessellated as a minimal-width stroke.
+            if (optPathThin && tvg::zero(rshape.strokeWidth())) {
+                WgStroker stroker(&meshShape, MIN_WG_STROKE_WIDTH, StrokeCap::Butt, StrokeJoin::Bevel);
+                stroker.run(optPath);
+                bbox = stroker.getBBox();
+                renderSettingsShape.opacityMultiplier = MIN_WG_STROKE_ALPHA;
+            } else {
+                WgBWTessellator bwTess{&meshShape};
+                bwTess.tessellate(optPath);
+                convex = bwTess.convex;
+                bbox = bwTess.getBBox();
+            }
+            if (meshShape.ibuffer.empty()) {
+                meshShape.clear();
+            } else {
+                meshShapeBBox.bbox(bbox.min, bbox.max);
+                updateBBox(bbox);
+            }
         }
     }
     // update strokes shapes
@@ -223,8 +232,8 @@ void WgRenderDataShape::updateMeshes(const RenderShape &rshape, RenderUpdateFlag
         //run stroking only if it's valid
         if (!tvg::zero(strokeWidthWorld)) {
             WgStroker stroker(&meshStrokes, strokeWidthWorld, rshape.strokeCap(), rshape.strokeJoin(), rshape.strokeMiterlimit());
-            RenderPath dashedPathWorld;
-            if (gpuStrokeDash(rshape, dashedPathWorld, &matrix)) stroker.run(dashedPathWorld);
+            auto& dashed = RenderPath::scratch();
+            if (gpuStrokeDash(rshape, dashed, &matrix)) stroker.run(dashed);
             else stroker.run(optPath);
             renderSettingsStroke.opacityMultiplier = 1.0f;
             if (meshStrokes.ibuffer.empty()) {
@@ -246,7 +255,10 @@ void WgRenderDataShape::updateMeshes(const RenderShape &rshape, RenderUpdateFlag
 void WgRenderDataShape::releaseMeshes()
 {
     meshStrokes.clear();
+    meshStrokesBBox.clear();
     meshShape.clear();
+    meshShapeBBox.clear();
+    meshBBox.clear();
     bbox.min = {FLT_MAX, FLT_MAX};
     bbox.max = {0.0f, 0.0f};
     aabb = {{0, 0}, {0, 0}};
@@ -270,8 +282,7 @@ WgRenderDataShape* WgRenderDataShapePool::allocate(WgContext& context)
 {
     WgRenderDataShape* renderData{};
     if (mPool.count > 0) {
-        renderData = mPool.last();
-        mPool.pop();
+        renderData = mPool.pick();
     } else {
         renderData = new WgRenderDataShape();
         mList.push(renderData);
@@ -302,17 +313,39 @@ void WgRenderDataShapePool::release(WgContext& context)
 // WgRenderDataPicture
 //***********************************************************************
 
-void WgRenderDataPicture::updateSurface(WgContext& context, const RenderSurface* surface, const Matrix& transform, FilterMethod filter, bool updateTexture)
+void WgRenderDataPicture::updateSurface(const RenderSurface* surface, const Matrix& transform)
 {
     meshData.imageBox(surface->w, surface->h, transform);
-    if (updateTexture) imageData.update(context, surface, filter);
 }
 
+void WgRenderDataPicture::setImage(WGPUTexture texture, WGPUBindGroup bindGroup, const RenderSurface* surface, FilterMethod filter, uint16_t stamp)
+{
+    imageTexture = texture;
+    imageBindGroup = bindGroup;
+    imageSource = texture ? surface : nullptr;
+    imageFilter = filter;
+    imageStamp = texture ? stamp : 0;
+}
+
+void WgRenderDataPicture::releaseTexture(WgTextureMgr& textures, WgContext& context)
+{
+    if (imageTexture && imageStamp == textures.stamp) textures.release(context, imageSource, imageFilter, imageTexture);
+    clearImage();
+}
+
+void WgRenderDataPicture::clearImage()
+{
+    imageTexture = nullptr;
+    imageBindGroup = nullptr;
+    imageSource = nullptr;
+    imageFilter = FilterMethod::Bilinear;
+    imageStamp = 0;
+}
 
 void WgRenderDataPicture::release(WgContext& context)
 {
     renderSettings.release(context);
-    imageData.release(context);
+    clearImage();
     WgRenderDataPaint::release(context);
 }
 
@@ -324,8 +357,7 @@ WgRenderDataPicture* WgRenderDataPicturePool::allocate(WgContext& context)
 {
     WgRenderDataPicture* renderData{};
     if (mPool.count > 0) {
-        renderData = mPool.last();
-        mPool.pop();
+        renderData = mPool.pick();
     } else {
         renderData = new WgRenderDataPicture();
         mList.push(renderData);
@@ -426,8 +458,7 @@ WgRenderDataEffectParams* WgRenderDataEffectParamsPool::allocate(WgContext& cont
 {
     WgRenderDataEffectParams* renderData{};
     if (mPool.count > 0) {
-        renderData = mPool.last();
-        mPool.pop();
+        renderData = mPool.pick();
     } else {
         renderData = new WgRenderDataEffectParams();
         mList.push(renderData);

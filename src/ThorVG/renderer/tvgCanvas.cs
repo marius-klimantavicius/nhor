@@ -23,6 +23,7 @@ namespace ThorVG
         internal Scene scene;
         internal RenderMethod? renderer;
         internal RenderRegion vport = new RenderRegion(0, 0, int.MaxValue, int.MaxValue);
+        internal ValueList<object?> clips = new();
         internal CanvasStatus status = CanvasStatus.Synced;
 
         protected Canvas()
@@ -76,13 +77,14 @@ namespace ThorVG
             if (status == CanvasStatus.Updating) return Result.Success;
             if (status == CanvasStatus.Drawing) return Result.InsufficientCondition;
 
-            var clips = new ValueList<object?>();
             var flag = RenderUpdateFlag.None;
 
             // TODO: All is too harsh, can be optimized.
             if (status == CanvasStatus.Damaged) flag = RenderUpdateFlag.All;
 
             if (renderer == null || !renderer.PreUpdate()) return Result.InsufficientCondition;
+
+            clips.Clear();
 
             var m = TvgMath.Identity();
             scene.pImpl.Update(renderer, m, ref clips, 255, flag);

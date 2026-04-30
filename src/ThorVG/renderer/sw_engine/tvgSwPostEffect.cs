@@ -509,8 +509,8 @@ namespace ThorVG
                         var tmp = ALPHA_BLEND(color, a);
                         *dst = tmp + ALPHA_BLEND(*dst, (uint)(255 - a));
                     }
-                    dbuffer += cmp.image.stride;
-                    sbuffer += cmp.recoverSfc.stride;
+                    dbuffer += cmp.recoverSfc.stride;
+                    sbuffer += cmp.image.stride;
                 }
                 cmp.valid = true;
             }
@@ -563,8 +563,8 @@ namespace ThorVG
                         if (p.intensity < 255) val = INTERPOLATE(val, *src, p.intensity);
                         *dst = INTERPOLATE(val, *dst, (byte)MULTIPLY(opacity, A(*src)));
                     }
-                    dbuffer += cmp.image.stride;
-                    sbuffer += cmp.recoverSfc.stride;
+                    dbuffer += cmp.recoverSfc.stride;
+                    sbuffer += cmp.image.stride;
                 }
                 cmp.valid = true;
             }
@@ -644,8 +644,8 @@ namespace ThorVG
                             *dst = INTERPOLATE(INTERPOLATE(*src, _tritone(shadow, midtone, highlight, luma!((byte*)src)), p.blender), *dst, (byte)MULTIPLY(opacity, A(*src)));
                         }
                     }
-                    dbuffer += cmp.image.stride;
-                    sbuffer += cmp.recoverSfc.stride;
+                    dbuffer += cmp.recoverSfc.stride;
+                    sbuffer += cmp.image.stride;
                 }
                 cmp.valid = true;
             }

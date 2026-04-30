@@ -27,6 +27,8 @@
 #include "tvgWgGeometry.h"
 #include "tvgWgShaderTypes.h"
 
+struct WgTextureMgr;
+
 struct WgImageData {
     WGPUTexture texture{};
     WGPUTextureView textureView{};
@@ -72,7 +74,7 @@ struct WgRenderDataPaint
     virtual void release(WgContext& context);
     virtual Type type() { return Type::Undefined; };
 
-    void updateClips(tvg::Array<tvg::RenderData> &clips);
+    void updateClips(const Array<RenderData>& clips);
 };
 
 struct WgRenderDataShape: public WgRenderDataPaint
@@ -111,10 +113,17 @@ public:
 struct WgRenderDataPicture: public WgRenderDataPaint
 {
     WgRenderSettings renderSettings{};
-    WgImageData imageData{};
+    WGPUTexture imageTexture{};
+    WGPUBindGroup imageBindGroup{};
+    const RenderSurface* imageSource = nullptr;
+    FilterMethod imageFilter = FilterMethod::Bilinear;
+    uint16_t imageStamp = 0;
     WgMeshData meshData{};
 
-    void updateSurface(WgContext& context, const RenderSurface* surface, const Matrix& transform, FilterMethod filter, bool updateTexture);
+    void updateSurface(const RenderSurface* surface, const Matrix& transform);
+    void setImage(WGPUTexture texture, WGPUBindGroup bindGroup, const RenderSurface* surface, FilterMethod filter, uint16_t stamp);
+    void releaseTexture(WgTextureMgr& textures, WgContext& context);
+    void clearImage();
     void release(WgContext& context) override;
     Type type() override { return Type::Picture; };
 };

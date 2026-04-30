@@ -340,6 +340,21 @@ namespace ThorVG
             return true;
         }
 
+        private bool GetValue(ref Point3 pt)
+        {
+            if (PeekType() == kNullType) return false;
+            if (PeekType() == kArrayType)
+            {
+                EnterArray();
+                if (!NextArrayValue()) return false;
+            }
+            pt.x = GetFloat();
+            pt.y = GetFloat();
+            pt.z = GetFloat();
+            while (NextArrayValue()) GetFloat(); // drop
+            return true;
+        }
+
         private bool GetValue(ref RGB32 color)
         {
             if (PeekType() == kArrayType)
@@ -529,6 +544,63 @@ namespace ThorVG
         }
 
         private void ParseProperty(LottieScalar prop, LottieObject? obj = null)
+        {
+            EnterObject();
+            string? key;
+            while ((key = NextObjectKey()) != null)
+            {
+                if (key == "k") ParsePropertyInternal(prop);
+                else if (ParseCommon(obj, prop, key)) continue;
+                else Skip();
+            }
+        }
+
+        // --- LottieScalar3 ---
+        private void ParseKeyFrame(LottieScalar3 prop)
+        {
+            Point inTangent = default, outTangent = default;
+            string? interpolatorKey = null;
+            var frame = prop.NewFrame();
+            var interpolator = false;
+
+            EnterObject();
+            string? key;
+            while ((key = NextObjectKey()) != null)
+            {
+                switch (key)
+                {
+                    case "i": interpolator = true; GetInterpolatorPoint(ref inTangent); break;
+                    case "o": GetInterpolatorPoint(ref outTangent); break;
+                    case "n":
+                        if (PeekType() == kStringType) interpolatorKey = GetString();
+                        else { EnterArray(); while (NextArrayValue()) { if (interpolatorKey == null) interpolatorKey = GetString(); else Skip(); } }
+                        break;
+                    case "t": frame.no = GetFloat(); break;
+                    case "s": GetValue(ref frame.value); break;
+                    case "e": var frame2 = prop.NextFrame(); GetValue(ref frame2.value); break;
+                    case "h": frame.hold = GetInt() != 0; break;
+                    default: Skip(); break;
+                }
+            }
+            if (interpolator) frame.interpolator = GetInterpolator(interpolatorKey, inTangent, outTangent);
+        }
+
+        private void ParsePropertyInternal(LottieScalar3 prop)
+        {
+            if (PeekType() == kNumberType) { GetValue(ref prop.value); }
+            else
+            {
+                EnterArray();
+                while (NextArrayValue())
+                {
+                    if (PeekType() == kObjectType) ParseKeyFrame(prop);
+                    else if (GetValue(ref prop.value)) break;
+                }
+                prop.Prepare();
+            }
+        }
+
+        private void ParseProperty(LottieScalar3 prop, LottieObject? obj = null)
         {
             EnterObject();
             string? key;
@@ -935,7 +1007,7 @@ namespace ThorVG
 
             if (ddd)
             {
-                transform.rotationEx = new LottieTransform.RotationEx();
+                transform.ddd = new LottieTransform.Dimension3();
                 TvgCommon.TVGLOG("LOTTIE", "3D transform(ddd) is not totally compatible.");
             }
 
@@ -968,9 +1040,10 @@ namespace ThorVG
                 else if (key == "s") ParseProperty(transform.scale, transform);
                 else if (key == "r") ParseProperty(transform.rotation, transform);
                 else if (key == "o") ParseProperty(transform.opacity, transform);
-                else if (transform.rotationEx != null && key == "rx") ParseProperty(transform.rotationEx.x);
-                else if (transform.rotationEx != null && key == "ry") ParseProperty(transform.rotationEx.y);
-                else if (transform.rotationEx != null && key == "rz") ParseProperty(transform.rotation);
+                else if (transform.ddd != null && key == "rx") ParseProperty(transform.ddd.rx);
+                else if (transform.ddd != null && key == "ry") ParseProperty(transform.ddd.ry);
+                else if (transform.ddd != null && key == "rz") ParseProperty(transform.rotation);
+                else if (transform.ddd != null && key == "or") ParseProperty(transform.ddd.orient);
                 else if (key == "sk") ParseProperty(transform.skewAngle, transform);
                 else if (key == "sa") ParseProperty(transform.skewAxis, transform);
                 else Skip();
@@ -1952,6 +2025,8 @@ namespace ThorVG
             }
 
             layer.Prepare(color);
+            layer.effect = layer.effects.Count > 0;
+            if (precomp != null) precomp.effect |= layer.effect;
             return layer;
         }
 

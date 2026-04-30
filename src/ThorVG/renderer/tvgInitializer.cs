@@ -7,7 +7,7 @@ namespace ThorVG
     /// </summary>
     public static class Initializer
     {
-        public const string VersionString = "0.15.7";
+        public const string VersionString = "1.0.0";
 
         private static ushort _version;
 
