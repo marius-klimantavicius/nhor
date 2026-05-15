@@ -28,11 +28,13 @@ namespace ThorVG
     }
 
     /// <summary>Rendering engine behavior options.</summary>
+    [System.Flags]
     public enum EngineOption : byte
     {
         None = 0,
         Default = 1 << 0,
-        SmartRender = 1 << 1
+        SmartRender = 1 << 1,
+        Aliased = 1 << 2
     }
 
     /// <summary>Path drawing commands.</summary>

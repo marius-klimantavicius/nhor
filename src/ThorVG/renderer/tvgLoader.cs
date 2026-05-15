@@ -150,7 +150,7 @@ namespace ThorVG
         public float fontSize;
         public uint lines = 1;              // line count
         public TextWrap wrap = TextWrap.None;
-        public object? engine;          // engine extension (TtfMetrics in TTF loader)
+        public object? engine;          // engine extension (TtfMetrics in SFNT loader)
     }
 
     /// <summary>
@@ -198,7 +198,7 @@ namespace ThorVG
             while (loader != null)
             {
                 var next = loader.Next;
-                if (loader.type != FileType.Ttf)
+                if (loader.type != FileType.Sfnt)
                 {
                     loader = next;
                     continue;
@@ -223,7 +223,7 @@ namespace ThorVG
                 case FileType.Webp: return null; // WebP loader removed for now
                 case FileType.Raw: return new RawLoader();
                 case FileType.Lot: return new LottieLoader();
-                case FileType.Ttf: return new TtfLoader();
+                case FileType.Sfnt: return new TtfLoader();
                 case FileType.Svg: return new SvgLoaderInstance();
                 default: return null;
             }
@@ -244,8 +244,8 @@ namespace ThorVG
             if (ext == "png") return Find(FileType.Png);
             if (ext == "jpg") return Find(FileType.Jpg);
             if (ext == "webp") return Find(FileType.Webp);
-            if (ext == "ttf" || ext == "ttc") return Find(FileType.Ttf);
-            if (ext == "otf" || ext == "otc") return Find(FileType.Ttf);
+            if (ext == "ttf" || ext == "ttc") return Find(FileType.Sfnt);
+            if (ext == "otf" || ext == "otc") return Find(FileType.Sfnt);
             return null;
         }
 
@@ -257,7 +257,7 @@ namespace ThorVG
             if (string.IsNullOrEmpty(mimeType)) return FileType.Unknown;
 
             if (mimeType == "svg" || mimeType == "svg+xml") return FileType.Svg;
-            if (mimeType == "ttf" || mimeType == "otf") return FileType.Ttf;
+            if (mimeType == "ttf" || mimeType == "otf") return FileType.Sfnt;
             if (mimeType == "lot" || mimeType == "lottie+json") return FileType.Lot;
             if (mimeType == "raw") return FileType.Raw;
             if (mimeType == "png") return FileType.Png;
@@ -526,7 +526,7 @@ namespace ThorVG
             var existing = Font(name);
             if (existing != null) return existing;
 
-            // function is dedicated for ttf loader (the only supported font loader)
+            // function is dedicated for sfnt loader (the only supported font loader)
             var loader = new TtfLoader();
             if (loader.Open(data, size, null, copy))
             {
@@ -548,7 +548,7 @@ namespace ThorVG
             var loader = _activeLoaders.Head;
             while (loader != null)
             {
-                if (loader.type != FileType.Ttf)
+                if (loader.type != FileType.Sfnt)
                 {
                     loader = loader.Next;
                     continue;
@@ -572,7 +572,7 @@ namespace ThorVG
             var loader = _activeLoaders.Head;
             while (loader != null)
             {
-                if (loader.cached && loader.type == FileType.Ttf)
+                if (loader.cached && loader.type == FileType.Sfnt)
                 {
                     ++loader.sharing;
                     return loader;

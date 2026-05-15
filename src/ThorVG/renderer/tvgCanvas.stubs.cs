@@ -84,9 +84,13 @@ namespace ThorVG
         {
             if (TvgCommon.engineInit <= 0) return null;
 
-            if (op == EngineOption.SmartRender)
+            if ((op & EngineOption.SmartRender) != 0)
             {
                 TvgCommon.TVGLOG("RENDERER", "GlCanvas doesn't support Smart Rendering");
+            }
+            if ((op & EngineOption.Aliased) != 0)
+            {
+                TvgCommon.TVGLOG("RENDERER", "GlCanvas doesn't support Aliased");
             }
 
             var r = GlRenderer.Gen(TaskScheduler.Threads(), op);

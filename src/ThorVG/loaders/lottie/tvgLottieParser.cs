@@ -1430,19 +1430,18 @@ namespace ThorVG
 
             var external = false;
 
-            if (embedded && data.StartsWith("data:"))
+            if (embedded && data.StartsWith("data:image/", StringComparison.Ordinal))
             {
                 var mimeTypeStart = 11;
                 var semicolonIdx = data.IndexOf(';', mimeTypeStart);
-                if (semicolonIdx > 0) image.bitmap.mimeType = data.Substring(mimeTypeStart, semicolonIdx - mimeTypeStart);
+                if (semicolonIdx <= 0) return;
+                image.bitmap.mimeType = data.Substring(mimeTypeStart, semicolonIdx - mimeTypeStart);
 
                 var commaIdx = data.IndexOf(',');
-                if (commaIdx > 0)
-                {
-                    var b64Str = data.Substring(commaIdx + 1);
-                    image.bitmap.b64Data = TvgCompressor.B64Decode(b64Str);
-                    image.bitmap.size = (uint)image.bitmap.b64Data.Length;
-                }
+                if (commaIdx <= 0) return;
+                var b64Str = data.Substring(commaIdx + 1);
+                image.bitmap.b64Data = TvgCompressor.B64Decode(b64Str);
+                image.bitmap.size = (uint)image.bitmap.b64Data.Length;
             }
             //remote image resource (https:// or http://)
             else if (data.StartsWith("https://") || data.StartsWith("http://"))
@@ -1505,11 +1504,17 @@ namespace ThorVG
         {
             if (data == null) return;
 
-            if (data.StartsWith("data:font/"))
+            if (data.StartsWith("data:font/", StringComparison.Ordinal))
             {
                 var fontData = data.Substring("data:font/".Length);
-                if (fontData.StartsWith("ttf"))
+                if (fontData.StartsWith("ttf", StringComparison.OrdinalIgnoreCase))
                 {
+                    font.mime = "ttf";
+                    fontData = fontData.Substring(3);
+                }
+                else if (fontData.StartsWith("otf", StringComparison.OrdinalIgnoreCase))
+                {
+                    font.mime = "otf";
                     fontData = fontData.Substring(3);
                 }
                 else
@@ -1517,10 +1522,10 @@ namespace ThorVG
                     TvgCommon.TVGLOG("LOTTIE", "TODO: Support a new font type!");
                     return;
                 }
-                var b64Start = ";base64,".Length;
-                if (fontData.Length > b64Start)
+                var comma = fontData.IndexOf(',');
+                if (comma >= 0 && comma + 1 < fontData.Length)
                 {
-                    var b64Str = fontData.Substring(b64Start);
+                    var b64Str = fontData.Substring(comma + 1);
                     font.b64src = b64Str;
                     font.size = (uint)b64Str.Length;
                 }

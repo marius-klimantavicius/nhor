@@ -502,7 +502,7 @@ namespace ThorVG
             }
         }
 
-        public static bool shapeGenStrokeRle(SwShape shape, RenderShape rshape, in Matrix transform, in RenderRegion clipBox, ref RenderRegion renderBox, SwMpool mpool, uint tid)
+        public static bool shapeGenStrokeRle(SwShape shape, RenderShape rshape, in Matrix transform, in RenderRegion clipBox, ref RenderRegion renderBox, SwMpool mpool, uint tid, bool antiAlias)
         {
             SwOutline* shapeOutline = null;
 
@@ -536,7 +536,7 @@ namespace ThorVG
             var ret = SwMath.mathUpdateOutlineBBox(strokeOutline, clipBox, ref renderBox, false);
             if (ret)
             {
-                shape.hasStrokeRle = SwRleOps.rleRender(ref shape.strokeRle, strokeOutline, renderBox, mpool, tid, true);
+                shape.hasStrokeRle = SwRleOps.rleRender(ref shape.strokeRle, strokeOutline, renderBox, mpool, tid, antiAlias);
             }
 
             return ret;
@@ -584,36 +584,35 @@ namespace ThorVG
         /// </summary>
         public static bool shapeStrokeBBox(SwShape shape, RenderShape rshape, Point[] pt4, in Matrix m, SwMpool mpool)
         {
+            if (rshape.StrokeWidth() <= 0.0f) return false;
+
             var outline = _genOutline(shape, rshape, m, mpool, 0, false, rshape.Trimpath());
             if (outline == null) return false;
 
-            if (rshape.StrokeWidth() > 0.0f)
+            if (shape.stroke == null) shape.stroke = new SwStroke();
+            SwStrokeOps.strokeReset(shape.stroke, rshape, m, mpool, 0);
+            SwStrokeOps.strokeParseOutline(shape.stroke, *outline, mpool, 0);
+
+            var min = new SwPoint(int.MaxValue, int.MaxValue);
+            var max = new SwPoint(int.MinValue, int.MinValue);
+
+            for (int side = 0; side < 2; ++side)
             {
-                if (shape.stroke == null) shape.stroke = new SwStroke();
-                SwStrokeOps.strokeReset(shape.stroke, rshape, m, mpool, 0);
-                SwStrokeOps.strokeParseOutline(shape.stroke, *outline, mpool, 0);
-
-                var min = new SwPoint(int.MaxValue, int.MaxValue);
-                var max = new SwPoint(int.MinValue, int.MinValue);
-
-                for (int side = 0; side < 2; ++side)
+                var border = shape.stroke.borders[side];
+                for (uint i = 0; i < border.pts.count; i++)
                 {
-                    var border = shape.stroke.borders[side];
-                    for (uint i = 0; i < border.pts.count; i++)
-                    {
-                        var pts = border.pts[i];
-                        if (pts.x < min.x) min.x = pts.x;
-                        if (pts.x > max.x) max.x = pts.x;
-                        if (pts.y < min.y) min.y = pts.y;
-                        if (pts.y > max.y) max.y = pts.y;
-                    }
+                    var pts = border.pts[i];
+                    if (pts.x < min.x) min.x = pts.x;
+                    if (pts.x > max.x) max.x = pts.x;
+                    if (pts.y < min.y) min.y = pts.y;
+                    if (pts.y > max.y) max.y = pts.y;
                 }
-
-                pt4[0] = min.ToPoint();
-                pt4[1] = new SwPoint(max.x, min.y).ToPoint();
-                pt4[2] = max.ToPoint();
-                pt4[3] = new SwPoint(min.x, max.y).ToPoint();
             }
+
+            pt4[0] = min.ToPoint();
+            pt4[1] = new SwPoint(max.x, min.y).ToPoint();
+            pt4[2] = max.ToPoint();
+            pt4[3] = new SwPoint(min.x, max.y).ToPoint();
 
             shapeDelOutline(shape, mpool, 0);
 

@@ -576,14 +576,14 @@ static constexpr struct
 
 
 static bool _isValidImageMimeTypeAndEncoding(const char** href, const char** mimetype, imageMimeTypeEncoding* encoding) {
-    if (strncmp(*href, "image/", sizeof("image/") - 1)) return false; //not allowed mime type
+    if (strncasecmp(*href, "image/", sizeof("image/") - 1)) return false;  // not allowed mime type
     *href += sizeof("image/") - 1;
 
     //RFC2397 data:[<mediatype>][;base64],<data>
     //mediatype  := [ type "/" subtype ] *( ";" parameter )
     //parameter  := attribute "=" value
     for (unsigned int i = 0; i < sizeof(imageMimeTypes) / sizeof(imageMimeTypes[0]); i++) {
-        if (strncmp(*href, imageMimeTypes[i].name, imageMimeTypes[i].sz - 1)) continue;
+        if (strncasecmp(*href, imageMimeTypes[i].name, imageMimeTypes[i].sz - 1)) continue;
         *href += imageMimeTypes[i].sz  - 1;
         *mimetype = imageMimeTypes[i].name;
 
@@ -593,14 +593,14 @@ static bool _isValidImageMimeTypeAndEncoding(const char** href, const char** mim
             ++(*href);
 
             if (imageMimeTypes[i].encoding & imageMimeTypeEncoding::base64) {
-                if (!strncmp(*href, "base64,", sizeof("base64,") - 1)) {
+                if (!strncasecmp(*href, "base64,", sizeof("base64,") - 1)) {
                     *href += sizeof("base64,") - 1;
                     *encoding = imageMimeTypeEncoding::base64;
                     return true; //valid base64
                 }
             }
             if (imageMimeTypes[i].encoding & imageMimeTypeEncoding::utf8) {
-                if (!strncmp(*href, "utf8,", sizeof("utf8,") - 1)) {
+                if (!strncasecmp(*href, "utf8,", sizeof("utf8,") - 1)) {
                     *href += sizeof("utf8,") - 1;
                     *encoding = imageMimeTypeEncoding::utf8;
                     return true; //valid utf8
@@ -1072,33 +1072,32 @@ static void _loadFonts(Array<FontFace>& fonts)
 {
     if (fonts.empty()) return;
 
-    static constexpr struct {
-        const char* prefix;
-        size_t len;
-    } prefixes[] = {
-        {"data:font/ttf;base64,", sizeof("data:font/ttf;base64,") - 1},
-        {"data:application/font-ttf;base64,", sizeof("data:application/font-ttf;base64,") - 1}
-    };
-
+    constexpr size_t MAX_SCAN = 40;
+    constexpr size_t KEY_LEN = 10;  // "ttf;base64" / "otf;base64"
 
     ARRAY_FOREACH(p, fonts) {
         if (!p->name) continue;
 
         size_t shift = 0;
-        for (const auto& prefix : prefixes) {
-            if (p->srcLen > prefix.len && !memcmp(p->src, prefix.prefix, prefix.len)) {
-                shift = prefix.len;
+        const char* type = nullptr;
+        auto limit = (p->srcLen < MAX_SCAN) ? p->srcLen : MAX_SCAN;
+
+        for (size_t i = 0; i + KEY_LEN <= limit; ++i) {
+            if (!memcmp(p->src + i, "ttf;base64", KEY_LEN)) {
+                shift = i + KEY_LEN + 1;  // skip ","
+                type = "ttf";
+                break;
+            }
+            if (!memcmp(p->src + i, "otf;base64", KEY_LEN)) {
+                shift = i + KEY_LEN + 1;
+                type = "otf";
                 break;
             }
         }
-        if (shift == 0) {
-            TVGLOG("SVG", "The embedded font \"%s\" data not loaded properly.", p->name);
-            continue;
+        if (type) {
+            auto size = b64Decode(p->src + shift, p->srcLen - shift, &p->decoded);
+            Text::load(p->name, p->decoded, size, type);
         }
-
-        auto size = b64Decode(p->src + shift, p->srcLen - shift, &p->decoded);
-
-        if (Text::load(p->name, p->decoded, size) != Result::Success) TVGERR("SVG", "Error while loading the ttf font named \"%s\".", p->name);
     }
 }
 

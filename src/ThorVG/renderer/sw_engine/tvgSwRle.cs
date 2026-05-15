@@ -129,8 +129,6 @@ namespace ThorVG
 
             if (coverage == 0) return;
 
-            if (x >= short.MaxValue || y >= short.MaxValue) return;
-
             if (!rw.antiAlias) coverage = 255;
 
             // see whether we can add this span to the current list
@@ -142,7 +140,7 @@ namespace ThorVG
                     int xOver = 0;
                     if (x + aCount >= rw.cellMax.x) xOver -= (x + aCount - rw.cellMax.x);
                     if (x < rw.cellMin.x) xOver -= (rw.cellMin.x - x);
-                    span.len = (ushort)(span.len + aCount + xOver);
+                    span.len += aCount + xOver;
                     return;
                 }
             }
@@ -159,9 +157,9 @@ namespace ThorVG
             if (aCount + xo <= 0) return;
 
             ref var newSpan = ref rw.rle.spans.Next();
-            newSpan.x = (ushort)x;
-            newSpan.y = (ushort)y;
-            newSpan.len = (ushort)(aCount + xo);
+            newSpan.x = x;
+            newSpan.y = y;
+            newSpan.len = aCount + xo;
             newSpan.coverage = (byte)coverage;
         }
 
@@ -670,13 +668,13 @@ namespace ThorVG
             rle.spans.Reserve(bbox.H());
             rle.spans.count = bbox.H();
 
-            var x = (ushort)bbox.min.x;
-            var y = (ushort)bbox.min.y;
-            var len = (ushort)bbox.W();
+            var x = bbox.min.x;
+            var y = bbox.min.y;
+            var len = (int)bbox.W();
 
             for (uint i = 0; i < rle.spans.count; i++)
             {
-                rle.spans[i] = new SwSpan { x = x, y = (ushort)(y + i), len = len, coverage = 255 };
+                rle.spans[i] = new SwSpan { x = x, y = y + (int)i, len = len, coverage = 255 };
             }
 
             return rle;
@@ -707,7 +705,7 @@ namespace ThorVG
             }
 
             SwSpan* cend;
-            var cspans = clip.Fetch(spans->y, (uint)(end - 1)->y, out cend);
+                var cspans = clip.Fetch(spans->y, (end - 1)->y, out cend);
 
             while (spans < end && cspans < cend)
             {
@@ -727,9 +725,9 @@ namespace ThorVG
                     if (len > 0)
                     {
                         ref var ns = ref output.Next();
-                        ns.x = (ushort)x;
+                        ns.x = x;
                         ns.y = temp->y;
-                        ns.len = (ushort)len;
+                        ns.len = len;
                         ns.coverage = (byte)(((int)spans->coverage * temp->coverage + 0xff) >> 8);
                     }
                     ++temp;
@@ -758,16 +756,16 @@ namespace ThorVG
                     ++p;
                     continue;
                 }
-                ushort x, len;
+                int x, len;
                 if (p->x < clip.min.x)
                 {
-                    x = (ushort)clip.min.x;
-                    len = Math.Min((ushort)(p->len - (x - p->x)), (ushort)(clip.max.x - x));
+                    x = clip.min.x;
+                    len = Math.Min(p->len - (x - p->x), clip.max.x - x);
                 }
                 else
                 {
                     x = p->x;
-                    len = Math.Min(p->len, (ushort)(clip.max.x - x));
+                    len = Math.Min(p->len, clip.max.x - x);
                 }
                 if (len > 0)
                 {

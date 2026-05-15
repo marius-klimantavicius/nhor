@@ -371,15 +371,15 @@ namespace ThorVG
 
     public struct SwSpan
     {
-        public ushort x, y;
-        public ushort len;
+        public int x, y;
+        public int len;
         public byte coverage;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Fetch(in RenderRegion bbox, out int ox, out int olen)
         {
-            ox = Math.Max((int)x, bbox.min.x);
-            olen = Math.Min((int)(x + len), bbox.max.x) - ox;
+            ox = Math.Max(x, bbox.min.x);
+            olen = Math.Min(x + len, bbox.max.x) - ox;
             return olen > 0;
         }
     }
@@ -394,10 +394,10 @@ namespace ThorVG
 
         public SwSpan* Fetch(in RenderRegion bbox, out SwSpan* end)
         {
-            return Fetch(bbox.min.y, (uint)(bbox.max.y - 1), out end);
+            return Fetch(bbox.min.y, bbox.max.y - 1, out end);
         }
 
-        public SwSpan* Fetch(int min, uint max, out SwSpan* end)
+        public SwSpan* Fetch(int min, int max, out SwSpan* end)
         {
             SwSpan* begin;
 
@@ -416,7 +416,7 @@ namespace ThorVG
             }
             else
             {
-                end = UpperBound(spans.Begin(), spans.End(), (int)max);
+                end = UpperBound(spans.Begin(), spans.End(), max);
             }
 
             return begin;

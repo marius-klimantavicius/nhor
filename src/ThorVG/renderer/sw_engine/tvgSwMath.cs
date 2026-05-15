@@ -234,7 +234,7 @@ namespace ThorVG
 
         public static unsafe bool mathUpdateOutlineBBox(SwOutline* outline, in RenderRegion clipBox, ref RenderRegion renderBox, bool fastTrack)
         {
-            if (outline == null || outline->pts.Empty() || outline->cntrs.Empty())
+            if (outline == null || outline->pts.Empty())
             {
                 renderBox.Reset();
                 return false;

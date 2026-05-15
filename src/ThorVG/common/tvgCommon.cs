@@ -12,7 +12,7 @@ namespace ThorVG
         Webp,
         Svg,
         Lot,
-        Ttf,
+        Sfnt,
         Raw,
         Gif,
         Unknown

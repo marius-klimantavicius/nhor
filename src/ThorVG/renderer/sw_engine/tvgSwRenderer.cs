@@ -66,9 +66,11 @@ namespace ThorVG
         public SwShape shape = new SwShape();
         public RenderShape? rshape;
         public bool clipper;
+        public bool antiAlias = true;
 
         private bool Antialiasing(float strokeWidth)
         {
+            if (!antiAlias) return false;
             return strokeWidth < 2.0f || (rshape?.stroke?.dashCount > 0) || (rshape?.stroke?.first == true) || (rshape?.Trimpath() == true) || (rshape?.stroke?.color.a < 255);
         }
 
@@ -143,7 +145,7 @@ namespace ThorVG
                 if (strokeWidth > 0.0f)
                 {
                     SwShapeOps.shapeResetStroke(shape, rshape!, transform, mpool!, tid);
-                    if (!SwShapeOps.shapeGenStrokeRle(shape, rshape!, transform, clipBox, ref curBox, mpool!, tid)) goto err;
+                    if (!SwShapeOps.shapeGenStrokeRle(shape, rshape!, transform, clipBox, ref curBox, mpool!, tid, antiAlias)) goto err;
                     if (rshape!.StrokeFillGradient() is Fill strokeFill)
                     {
                         var ctable = (flags[0] & RenderUpdateFlag.GradientStroke) != 0;
@@ -267,6 +269,7 @@ namespace ThorVG
         private SwMpool? mpool;
         private RenderDirtyRegion dirtyRegion = new RenderDirtyRegion();
         private bool fulldraw;
+        private bool antiAlias = true;
         private List<SwTask> tasks = new List<SwTask>();
         private List<SwSurface> compositors = new List<SwSurface>();
 
@@ -283,7 +286,8 @@ namespace ThorVG
 
             mpool = SwMemPool.mpoolReq();
 
-            if (op == EngineOption.None) dirtyRegion.support = false;
+            dirtyRegion.support = op == EngineOption.Default || (op & EngineOption.SmartRender) != 0;
+            antiAlias = op == EngineOption.Default || (op & EngineOption.Aliased) == 0;
 
             ++rendererCnt;
         }
@@ -946,6 +950,7 @@ namespace ThorVG
             }
 
             task.clipper = clipper;
+            task.antiAlias = antiAlias;
 
             return PrepareCommon(task, transform, ref clips, opacity, flags, opacity == 0 && !clipper);
         }
@@ -968,4 +973,3 @@ namespace ThorVG
 
     }
 }
-

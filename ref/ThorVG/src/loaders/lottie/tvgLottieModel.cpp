@@ -301,7 +301,7 @@ void LottieFont::prepare()
 {
     if (!b64src) return;
 
-    Text::load(name, b64src, size, "ttf", false);
+    Text::load(name, b64src, size, mime, false);
 }
 
 
@@ -619,19 +619,13 @@ void LottieLayer::prepare(RGB32* color)
         return;
     }
 
-    //prepare the viewport clipper
-    if (type == LottieLayer::Precomp) {
-        auto clipper = Shape::gen();
-        clipper->appendRect(0.0f, 0.0f, w, h);
-        clipper->ref();
-        statical.pooler.push(clipper);
-    //prepare solid fill in advance if it is a layer type.
-    } else if (color && type == LottieLayer::Solid) {
-        auto solidFill = Shape::gen();
-        solidFill->appendRect(0, 0, static_cast<float>(w), static_cast<float>(h));
-        solidFill->fill(color->r, color->g, color->b);
-        solidFill->ref();
-        statical.pooler.push(solidFill);
+    // prepare the viewport clipper or a solid fill in advance if it is a layer type.
+    if (type == LottieLayer::Precomp || (color && type == LottieLayer::Solid)) {
+        auto obj = Shape::gen();
+        obj->appendRect(0.0f, 0.0f, w, h);
+        obj->ref();
+        if (color && type == LottieLayer::Solid) obj->fill(color->r, color->g, color->b);
+        statical.pooler.push(obj);
     }
 
     LottieGroup::prepare(LottieObject::Layer);

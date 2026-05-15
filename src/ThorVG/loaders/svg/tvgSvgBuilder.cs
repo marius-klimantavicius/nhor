@@ -683,7 +683,7 @@ namespace ThorVG
 
             const string imagePrefix = "image/";
             if (pos + imagePrefix.Length > href.Length ||
-                href.Substring(pos, imagePrefix.Length) != imagePrefix) return false;
+                !href.AsSpan(pos, imagePrefix.Length).Equals(imagePrefix, StringComparison.OrdinalIgnoreCase)) return false;
             pos += imagePrefix.Length;
 
             //RFC2397 data:[<mediatype>][;base64],<data>
@@ -691,7 +691,7 @@ namespace ThorVG
             {
                 var name = _imageMimeTypes[i].name;
                 if (pos + name.Length > href.Length ||
-                    href.Substring(pos, name.Length) != name) continue;
+                    !href.AsSpan(pos, name.Length).Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
                 pos += name.Length;
                 mimetype = name;
 
@@ -705,7 +705,7 @@ namespace ThorVG
                     {
                         const string base64Prefix = "base64,";
                         if (pos + base64Prefix.Length <= href.Length &&
-                            href.Substring(pos, base64Prefix.Length) == base64Prefix)
+                            href.AsSpan(pos, base64Prefix.Length).Equals(base64Prefix, StringComparison.OrdinalIgnoreCase))
                         {
                             pos += base64Prefix.Length;
                             encoding = ImageMimeTypeEncoding.Base64;
@@ -716,7 +716,7 @@ namespace ThorVG
                     {
                         const string utf8Prefix = "utf8,";
                         if (pos + utf8Prefix.Length <= href.Length &&
-                            href.Substring(pos, utf8Prefix.Length) == utf8Prefix)
+                            href.AsSpan(pos, utf8Prefix.Length).Equals(utf8Prefix, StringComparison.OrdinalIgnoreCase))
                         {
                             pos += utf8Prefix.Length;
                             encoding = ImageMimeTypeEncoding.Utf8;

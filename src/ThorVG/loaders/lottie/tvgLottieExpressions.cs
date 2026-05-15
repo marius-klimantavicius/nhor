@@ -761,6 +761,8 @@ namespace ThorVG
         private void BuildGlobal(Engine engine, float frameNo, LottieExpression exp)
         {
             engine.SetValue(EXP_INDEX, (double)exp.layer!.ix);
+            engine.SetValue("inPoint", new JsNumber(exp.comp != null ? exp.layer.inFrame / exp.comp.frameRate : 0));
+            engine.SetValue("outPoint", new JsNumber(exp.comp != null ? exp.layer.outFrame / exp.comp.frameRate : 0));
 
             // comp(name) function
             engine.SetValue("comp", new ClrFunction(engine, "comp", (_, args) =>
@@ -1046,8 +1048,8 @@ namespace ThorVG
             ctx.Set(EXP_INDEX, new JsNumber(layer.ix));
 
             ctx.Set("hasParent", layer.parent != null ? JsBoolean.True : JsBoolean.False);
-            ctx.Set("inPoint", new JsNumber(layer.inFrame));
-            ctx.Set("outPoint", new JsNumber(layer.outFrame));
+            ctx.Set("inPoint", new JsNumber(exp.comp != null ? layer.inFrame / exp.comp.frameRate : 0));
+            ctx.Set("outPoint", new JsNumber(exp.comp != null ? layer.outFrame / exp.comp.frameRate : 0));
             ctx.Set("startTime", new JsNumber(exp.comp != null ? exp.comp.TimeAtFrame(layer.startFrame) : 0));
             ctx.Set("hasVideo", JsBoolean.False);
             ctx.Set("hasAudio", JsBoolean.False);

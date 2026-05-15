@@ -1210,7 +1210,7 @@ namespace ThorVG
         {
             if (layer.children.Count == 0) return;
 
-            var image = (LottieImage)layer.children[0];
+            if (layer.children[0] is not LottieImage image) return;
             var picture = image.bitmap.picture;
             if (picture == null) return;
 

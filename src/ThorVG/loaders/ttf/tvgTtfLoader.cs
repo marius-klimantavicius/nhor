@@ -36,7 +36,7 @@ namespace ThorVG
         public TtfReader reader = new TtfReader();
         public Dictionary<uint, TtfGlyphMetrics> glyphs = new Dictionary<uint, TtfGlyphMetrics>();
 
-        public TtfLoader() : base(FileType.Ttf)
+        public TtfLoader() : base(FileType.Sfnt)
         {
         }
 

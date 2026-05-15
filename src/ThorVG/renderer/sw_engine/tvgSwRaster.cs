@@ -648,7 +648,7 @@ namespace ThorVG
                 var dst = &surface.buf32[span->y * surface.stride + span->x];
                 var cmp = &surface.compositor.image.buf8[(span->y * surface.compositor.image.stride + span->x) * csize];
                 var a = (byte)MULTIPLY(span->coverage, opacity);
-                for (uint x = span->x; x < span->x + span->len; ++x, ++dst, cmp += csize)
+                for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst, cmp += csize)
                 {
                     var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                     if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
@@ -683,7 +683,7 @@ namespace ThorVG
                 var a = (byte)MULTIPLY(span->coverage, opacity);
                 if (a == 255)
                 {
-                    for (uint x = span->x; x < span->x + span->len; ++x, ++dst)
+                    for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
                         var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
@@ -693,7 +693,7 @@ namespace ThorVG
                 }
                 else
                 {
-                    for (uint x = span->x; x < span->x + span->len; ++x, ++dst)
+                    for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
                         var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
@@ -726,7 +726,7 @@ namespace ThorVG
 
                 var dst = &surface.buf32[span->y * surface.stride + span->x];
                 var a = (byte)MULTIPLY(span->coverage, opacity);
-                for (uint x = span->x; x < span->x + span->len; ++x, ++dst)
+                for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                 {
                     var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                     if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
@@ -1332,7 +1332,7 @@ namespace ThorVG
             for (uint i = 0; i < rle.Size(); ++i, ++span)
             {
                 var cmp = &cbuffer[span->y * cstride + span->x];
-                fillFn(fill, cmp, (uint)span->y, span->x, span->len, maskOp, span->coverage);
+                fillFn(fill, cmp, (uint)span->y, (uint)span->x, (uint)span->len, maskOp, span->coverage);
             }
             return _compositeMaskImage(surface, surface.compositor.image, surface.compositor.bbox);
         }
@@ -1348,7 +1348,7 @@ namespace ThorVG
             {
                 var cmp = &cbuffer[span->y * cstride + span->x];
                 var dst = &dbuffer[span->y * surface.stride + span->x];
-                fillFn(fill, dst, (uint)span->y, span->x, span->len, cmp, maskOp, span->coverage);
+                fillFn(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, cmp, maskOp, span->coverage);
             }
             return true;
         }
@@ -1374,7 +1374,7 @@ namespace ThorVG
             {
                 var dst = &surface.buf32[span->y * surface.stride + span->x];
                 var cmp = &cbuffer[(span->y * surface.compositor.image.stride + span->x) * csize];
-                fillFn(fill, dst, (uint)span->y, span->x, span->len, cmp, alpha!, csize, span->coverage);
+                fillFn(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, cmp, alpha!, csize, span->coverage);
             }
             return true;
         }
@@ -1386,7 +1386,7 @@ namespace ThorVG
             for (uint i = 0; i < rle.Size(); ++i, ++span)
             {
                 var dst = &surface.buf32[span->y * surface.stride + span->x];
-                fillFn(fill, dst, (uint)span->y, span->x, span->len, opBlendPreNormal, surface.blender!, span->coverage);
+                fillFn(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, opBlendPreNormal, surface.blender!, span->coverage);
             }
             return true;
         }
@@ -1401,8 +1401,8 @@ namespace ThorVG
                 for (uint i = 0; i < rle.Size(); ++i, ++span)
                 {
                     var dst = &surface.buf32[span->y * surface.stride + span->x];
-                    if (span->coverage == 255) TGrad.Fill<BlendPreNormal>(fill, dst, (uint)span->y, span->x, span->len, 255);
-                    else TGrad.Fill<BlendNormal>(fill, dst, (uint)span->y, span->x, span->len, span->coverage);
+                    if (span->coverage == 255) TGrad.Fill<BlendPreNormal>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, 255);
+                    else TGrad.Fill<BlendNormal>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, span->coverage);
                 }
             }
             // 8 bits
@@ -1411,7 +1411,7 @@ namespace ThorVG
                 for (uint i = 0; i < rle.Size(); ++i, ++span)
                 {
                     var dst = &surface.buf8[span->y * surface.stride + span->x];
-                    TGrad.FillMask<MaskAdd>(fill, dst, (uint)span->y, span->x, span->len, span->coverage);
+                    TGrad.FillMask<MaskAdd>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, span->coverage);
                 }
             }
             return true;
@@ -1427,8 +1427,8 @@ namespace ThorVG
                 for (uint i = 0; i < rle.Size(); ++i, ++span)
                 {
                     var dst = &surface.buf32[span->y * surface.stride + span->x];
-                    if (span->coverage == 255) TGrad.Fill<BlendSrcOver>(fill, dst, (uint)span->y, span->x, span->len, 255);
-                    else TGrad.Fill<BlendInterp>(fill, dst, (uint)span->y, span->x, span->len, span->coverage);
+                    if (span->coverage == 255) TGrad.Fill<BlendSrcOver>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, 255);
+                    else TGrad.Fill<BlendInterp>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, span->coverage);
                 }
             }
             // 8 bits
@@ -1437,8 +1437,8 @@ namespace ThorVG
                 for (uint i = 0; i < rle.Size(); ++i, ++span)
                 {
                     var dst = &surface.buf8[span->y * surface.stride + span->x];
-                    if (span->coverage == 255) TGrad.FillMask<MaskNone>(fill, dst, (uint)span->y, span->x, span->len, 255);
-                    else TGrad.FillMask<MaskAdd>(fill, dst, (uint)span->y, span->x, span->len, span->coverage);
+                    if (span->coverage == 255) TGrad.FillMask<MaskNone>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, 255);
+                    else TGrad.FillMask<MaskAdd>(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, span->coverage);
                 }
             }
             return true;

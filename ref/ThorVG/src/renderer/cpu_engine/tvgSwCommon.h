@@ -114,8 +114,8 @@ struct SwOutline
 
 struct SwSpan
 {
-    uint16_t x, y;
-    uint16_t len;
+    int32_t x, y;
+    int32_t len;
     uint8_t coverage;
 
     bool fetch(const RenderRegion& bbox, int32_t& x, int32_t& len) const
@@ -135,7 +135,7 @@ struct SwRle
         return fetch(bbox.min.y, bbox.max.y - 1, end);
     }
 
-    const SwSpan* fetch(int32_t min, uint32_t max, const SwSpan** end) const
+    const SwSpan* fetch(int32_t min, int32_t max, const SwSpan** end) const
     {
         const SwSpan* begin;
 
@@ -682,7 +682,7 @@ int64_t mathDiff(int64_t angle1, int64_t angle2);
 int64_t mathLength(const SwPoint& pt);
 int mathCubicAngle(const SwPoint* base, int64_t& angleIn, int64_t& angleMid, int64_t& angleOut);
 int64_t mathMean(int64_t angle1, int64_t angle2);
-SwPoint mathTransform(const Point* to, const Matrix& transform);
+SwPoint mathTransform(const Point& to, const Matrix& transform);
 bool mathUpdateOutlineBBox(const SwOutline* outline, const RenderRegion& clipBox, RenderRegion& renderBox, bool fastTrack);
 
 void shapeReset(SwShape& shape);
@@ -690,7 +690,7 @@ bool shapePrepare(SwShape& shape, const RenderShape* rshape, const Matrix& trans
 bool shapeGenRle(SwShape& shape, const RenderRegion& bbox, SwMpool* mpool, unsigned tid, bool antiAlias);
 void shapeDelOutline(SwShape& shape, SwMpool* mpool, uint32_t tid);
 void shapeResetStroke(SwShape& shape, const RenderShape* rshape, const Matrix& transform, SwMpool* mpool, unsigned tid);
-bool shapeGenStrokeRle(SwShape& shape, const RenderShape* rshape, const Matrix& transform, const RenderRegion& clipBox, RenderRegion& renderBox, SwMpool* mpool, unsigned tid);
+bool shapeGenStrokeRle(SwShape& shape, const RenderShape* rshape, const Matrix& transform, const RenderRegion& clipBox, RenderRegion& renderBox, SwMpool* mpool, unsigned tid, bool antiAlias);
 void shapeFree(SwShape& shape);
 void shapeDelStroke(SwShape& shape);
 bool shapeGenFillColors(SwShape& shape, const Fill* fill, const Matrix& transform, SwSurface* surface, uint8_t opacity, bool ctable);

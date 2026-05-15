@@ -433,6 +433,7 @@ namespace ThorVG
         public string? name;
         public string? family;
         public string? style;
+        public string? mime;
         public uint size;      // string length of b64src
         public float ascent;
         public Origin origin = Origin.Local;
@@ -444,7 +445,7 @@ namespace ThorVG
             try
             {
                 var decoded = System.Convert.FromBase64String(b64src);
-                Text.LoadFont(name!, decoded, (uint)decoded.Length, "ttf", false);
+                Text.LoadFont(name!, decoded, (uint)decoded.Length, mime ?? "ttf", false);
             }
             catch (FormatException)
             {

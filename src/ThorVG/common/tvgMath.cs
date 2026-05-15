@@ -65,6 +65,12 @@ namespace ThorVG
             min = new Point(float.MaxValue, float.MaxValue);
             max = new Point(-float.MaxValue, -float.MaxValue);
         }
+
+        public readonly bool Zero() => max.x == 0.0f && max.y == 0.0f;
+
+        public readonly float W() => max.x - min.x;
+
+        public readonly float H() => max.y - min.y;
     }
 
     // =====================================================================
