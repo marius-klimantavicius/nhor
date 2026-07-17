@@ -265,15 +265,12 @@ SfntGlyphMetrics* SfntLoader::request(uint32_t code)
     if (code == 0) return nullptr;
 
     auto it = glyphs.find(code);
-    if (it == glyphs.end()) {
-        auto it = glyphs.emplace(code, SfntGlyphMetrics{}).first;
-        auto rtgm = &it->second;
-        if (reader->convert(*rtgm, code, rtgm->path)) return rtgm;
-        TVGERR("SFNT", "invalid glyph id, codepoint(0x%x)", code);
-        glyphs.erase(it);
-        return nullptr;
-    }
-    return &it->second;
+    if (it) return &it->val;
+    auto& rtgm = glyphs[code];
+    if (reader->convert(rtgm, code, rtgm.path)) return &rtgm;
+
+    TVGERR("SFNT", "invalid glyph id, codepoint(0x%x)", code);
+    return nullptr;
 }
 
 void SfntLoader::wrapNone(FontMetrics& fm, const Point& box, const char* utf8, const char* end, RenderPath& out)
@@ -486,24 +483,21 @@ void SfntLoader::wrapEllipsis(FontMetrics& fm, const Point& box, const char* utf
 
 SfntReader* SfntLoader::gen(uint8_t* data, uint32_t size)
 {
-    // type checking
-    auto type = uint32_t(data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3]);
-
-    if (type == 0x00010000 || type == 0x74727565) {  // ttf (scalable font)
+    if (size > 4) {
+        auto type = uint32_t(data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3]);
+        if (type == 0x00010000 || type == 0x74727565) {  // ttf (scalable font)
 #ifdef THORVG_TTF_LOADER_SUPPORT
-        return new TtfReader(data, size);
-#else
-        TVGLOG("SFNT", "TrueType (TTF) is not supported");
+            return new TtfReader(data, size);
 #endif
-    } else if (type == 0x4F54544F) {  // otf (OTTO)
+            TVGLOG("SFNT", "TrueType (TTF) is not supported");
+        } else if (type == 0x4F54544F) {  // otf (OTTO)
 #ifdef THORVG_OTF_LOADER_SUPPORT
-        return new OtfReader(data, size);
-#else
-        TVGLOG("SFNT", "OpenType (OTF) is not supported");
+            return new OtfReader(data, size);
 #endif
-    } else {
-        TVGERR("SFNT", "Invalid SFNT format!");
+            TVGLOG("SFNT", "OpenType (OTF) is not supported");
+        }
     }
+    TVGERR("SFNT", "Invalid SFNT format!");
     return nullptr;
 }
 
@@ -595,8 +589,10 @@ void SfntLoader::copy(const FontMetrics& in, FontMetrics& out)
 {
     release(out);
     out = in;
-    if (in.engine) out.engine = tvg::calloc<SfntMetrics>(1, sizeof(SfntMetrics));
-    *static_cast<SfntMetrics*>(out.engine) = *static_cast<SfntMetrics*>(in.engine);
+    if (in.engine) {
+        out.engine = tvg::calloc<SfntMetrics>(1, sizeof(SfntMetrics));
+        *static_cast<SfntMetrics*>(out.engine) = *static_cast<SfntMetrics*>(in.engine);
+    }
 }
 
 void SfntLoader::metrics(const FontMetrics& fm, TextMetrics& out)
@@ -609,7 +605,7 @@ void SfntLoader::metrics(const FontMetrics& fm, TextMetrics& out)
     out.linegap = reader->metrics.hhea.linegap * scale;
 }
 
-bool SfntLoader::metrics(const FontMetrics& fm, const char* ch, GlyphMetrics& out)
+bool SfntLoader::metrics(const FontMetrics& fm, const char* ch, GlyphMetrics& out, const char** next)
 {
     auto code = _codepoints(&ch, ch + strlen(ch));
     auto glyph = request(code);
@@ -621,14 +617,16 @@ bool SfntLoader::metrics(const FontMetrics& fm, const char* ch, GlyphMetrics& ou
 
     // if no info, calculate it manually
     if (glyph->bbox.zero()) {
-        glyph->bbox.init();
-        glyph->path.bounds(nullptr, glyph->bbox);
-        // convert y since sfnt y coordinates origin is reverted
-        auto temp = glyph->bbox.min.y;
-        glyph->bbox.min.y = -glyph->bbox.max.y;
-        glyph->bbox.max.y = -temp;
+        if (glyph->path.bounds(nullptr, glyph->bbox)) {
+            // convert y since sfnt y coordinates origin is reverted
+            auto temp = glyph->bbox.min.y;
+            glyph->bbox.min.y = -glyph->bbox.max.y;
+            glyph->bbox.max.y = -temp;
+        }
     }
     out.min = glyph->bbox.min * scale;
     out.max = glyph->bbox.max * scale;
+
+    if (next) *next = ch;
     return true;
 }

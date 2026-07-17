@@ -313,7 +313,7 @@ namespace ThorVG.Tests
         public void Bezier_Flatten_StraightLine()
         {
             var bz = new Bezier(new Point(0, 0), new Point(1, 0), new Point(2, 0), new Point(3, 0));
-            Assert.True(bz.Flatten());
+            Assert.True(bz.Flatten(0.01f));
         }
 
         [Fact]

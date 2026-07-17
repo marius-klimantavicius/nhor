@@ -166,6 +166,49 @@ namespace ThorVG.Tests
             Assert.False(loader.Read());
         }
 
+        [Fact]
+        public void GeneratedSlot_AppliesResetsAndDeletesParsedProperty()
+        {
+            const string sid = "fill-color";
+            const string json = "{\"fill-color\":{\"p\":{\"a\":0,\"k\":[1,0,0]}}}";
+            var fill = new LottieSolidFill();
+            fill.color.value = new RGB32(0, 0, 255);
+            fill.color.sid = TvgCompressor.Djb2Encode(sid);
+
+            var loader = new LottieLoader { comp = new LottieComposition() };
+            loader.comp.slots.Add(new LottieSlot(null, null, fill.color.sid, fill, LottieProperty.PropertyType.Color));
+
+            var code = loader.GenSlot(json);
+            Assert.Equal((uint)TvgCompressor.Djb2Encode(json), code);
+            Assert.NotEqual(0u, code);
+            Assert.Equal(0, fill.color.value.r);
+            Assert.Equal(Result.Success, loader.ApplySlot(code));
+            Assert.Equal(255, fill.color.value.r);
+            Assert.Equal(0, fill.color.value.b);
+
+            Assert.Equal(Result.Success, loader.ApplySlot(0));
+            Assert.Equal(0, fill.color.value.r);
+            Assert.Equal(255, fill.color.value.b);
+
+            Assert.Equal(Result.Success, loader.ApplySlot(code));
+            Assert.Equal(255, fill.color.value.r);
+            Assert.Equal(Result.Success, loader.DelSlot(code));
+            Assert.Equal(0, fill.color.value.r);
+            Assert.Equal(255, fill.color.value.b);
+            Assert.Equal(Result.InvalidArguments, loader.ApplySlot(code));
+        }
+
+        [Fact]
+        public void GeneratedSlot_RequiresAValidTargetProperty()
+        {
+            var loader = new LottieLoader { comp = new LottieComposition() };
+            var fill = new LottieSolidFill();
+            loader.comp.slots.Add(new LottieSlot(null, null, TvgCompressor.Djb2Encode("known"), fill, LottieProperty.PropertyType.Color));
+
+            Assert.Equal(0u, loader.GenSlot("{\"unknown\":{\"p\":{\"a\":0,\"k\":[1,0,0]}}}"));
+            Assert.Equal(0u, loader.GenSlot("not json"));
+        }
+
         // ---- Frame control ----
 
         [Fact]

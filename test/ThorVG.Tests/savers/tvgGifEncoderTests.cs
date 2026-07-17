@@ -325,6 +325,13 @@ namespace ThorVG.Tests
         }
 
         [Fact]
+        public void GifSaver_Save_AnimationWithNullFilenameReturnsFalse()
+        {
+            var saver = new GifSaver();
+            Assert.False(saver.Save(Animation.Gen(), null, null!, 100, 30));
+        }
+
+        [Fact]
         public void GifSaver_Close_ReturnsTrue()
         {
             var saver = new GifSaver();

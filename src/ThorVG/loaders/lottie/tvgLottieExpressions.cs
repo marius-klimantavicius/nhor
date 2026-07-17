@@ -28,6 +28,8 @@ namespace ThorVG
         private const string EXP_VALUE = "value";
         private const string EXP_INDEX = "index";
         private const string EXP_EFFECT = "effect";
+        private const string EXP_SIZE = "size";
+        private const string EXP_POSITION = "position";
 
         private const int LOOP_OUT_OFFSET = 4;
 
@@ -276,7 +278,7 @@ namespace ThorVG
             }
             else
             {
-                outVal = (byte)TvgMath.Clamp((int)ToFloat(bm_rt), 0, 255);
+                outVal = (byte)TvgMath.Clamp((int)(ToFloat(bm_rt) * 2.55f), 0, 255);
             }
             return true;
         }
@@ -323,7 +325,7 @@ namespace ThorVG
 
         private object? Evaluate(float frameNo, LottieExpression exp)
         {
-            if (exp.disabled && exp.writables.Count == 0) return null;
+            if (exp.disabled) return null;
             if (exp.code == null) return null;
 
             try
@@ -346,9 +348,6 @@ namespace ThorVG
                 // Transform context
                 if (exp.obj?.type == LottieObject.ObjectType.Transform)
                     BuildTransformGlobal(_engine, frameNo, (LottieTransform)exp.obj);
-
-                // Writable values
-                BuildWritables(_engine, exp);
 
                 // time
                 _engine.SetValue(EXP_TIME, (double)_currentTime);
@@ -541,7 +540,7 @@ namespace ThorVG
                 case LottieProperty.PropertyType.Color:
                     return MakeColorObj(engine, ((LottieColor)property).Evaluate(frameNo));
                 case LottieProperty.PropertyType.Opacity:
-                    return new JsNumber(((LottieOpacity)property).Evaluate(frameNo));
+                    return new JsNumber(((LottieOpacity)property).Evaluate(frameNo) / 2.55f);
                 default:
                     TvgCommon.TVGERR("LOTTIE", "Non supported type for value? = {0}", (int)property.type);
                     break;
@@ -663,6 +662,24 @@ namespace ThorVG
             return 0;
         }
 
+        private static bool Number(JsValue value, out Point result)
+        {
+            result = default;
+            if (value.IsNumber())
+            {
+                result.x = (float)value.AsNumber();
+                return true;
+            }
+            if (!value.IsObject()) return true;
+            var obj = value.AsObject();
+            var x = obj.Get("0");
+            var y = obj.Get("1");
+            result.x = x.IsUndefined() ? 0.0f : (float)x.AsNumber();
+            if (y.IsUndefined()) return true;
+            result.y = (float)y.AsNumber();
+            return false;
+        }
+
         private JsValue DoAddSub(Engine engine, JsValue a, JsValue b, float addsub)
         {
             // string + string
@@ -671,38 +688,26 @@ namespace ThorVG
                 return new JsString(a.ToString() + b.ToString());
             }
 
-            var n1 = a.IsNumber();
-            var n2 = b.IsNumber();
+            var n1 = Number(a, out var v1);
+            var n2 = Number(b, out var v2);
 
             // 1d + 1d
-            if (n1 && n2) return new JsNumber(JsToNumber(a) + addsub * JsToNumber(b));
-
-            var pt = JsToPoint(n1 ? b : a);
-
-            // 2d + 1d
-            if (n1 || n2)
+            if (n1 && n2) return new JsNumber(v1.x + addsub * v2.x);
+            if (!n1 && !n2) return MakePoint2d(engine, TvgMath.PointAdd(v1, TvgMath.PointMul(v2, addsub)));
+            if (n1)
             {
-                var secondary = n1 ? 0 : 1;
-                var val3 = JsToNumber(secondary == 0 ? a : b);
-                if (secondary == 0) pt.x = (pt.x * addsub) + val3;
-                else pt.x += (addsub * val3);
+                v2.x = v1.x + addsub * v2.x;
+                return MakePoint2d(engine, v2);
             }
-            else
-            {
-                // 2d + 2d
-                var pt2 = JsToPoint(b);
-                pt.x += pt2.x * addsub;
-                pt.y += pt2.y * addsub;
-            }
-
-            return MakePoint2d(engine, pt);
+            v1.x += addsub * v2.x;
+            return MakePoint2d(engine, v1);
         }
 
         private JsValue DoMulDiv(Engine engine, JsValue arg1, float arg2)
         {
-            if (arg1.IsNumber()) return new JsNumber(JsToNumber(arg1) * arg2);
-            var pt = JsToPoint(arg1);
-            return MakePoint2d(engine, TvgMath.PointMul(pt, arg2));
+            var scalar = Number(arg1, out var value);
+            if (scalar) return new JsNumber(value.x * arg2);
+            return MakePoint2d(engine, TvgMath.PointMul(value, arg2));
         }
 
         private JsValue DoInterp(Engine engine, float t, JsValue[] args, int offset)
@@ -867,18 +872,8 @@ namespace ThorVG
             transformObj.Set("position", MakePointWithValue(engine, transform.position.Evaluate(frameNo)));
             transformObj.Set("scale", MakePointWithValue(engine, transform.scale.Evaluate(frameNo)));
             transformObj.Set("rotation", new JsNumber(transform.rotation.Evaluate(frameNo)));
-            transformObj.Set("opacity", new JsNumber(transform.opacity.Evaluate(frameNo)));
+            transformObj.Set("opacity", new JsNumber(transform.opacity.Evaluate(frameNo) / 2.55f));
             engine.SetValue("transform", transformObj);
-        }
-
-        private void BuildWritables(Engine engine, LottieExpression exp)
-        {
-            if (exp.writables.Count == 0) return;
-            foreach (var w in exp.writables)
-            {
-                if (w.var_ != null)
-                    engine.SetValue(w.var_, (double)w.val);
-            }
         }
 
         // ================================================================
@@ -1080,7 +1075,7 @@ namespace ThorVG
                 transformObj.Set("position", MakePointWithValue(engine, layer.transform.position.Evaluate(frameNo)));
                 transformObj.Set("scale", MakePointWithValue(engine, layer.transform.scale.Evaluate(frameNo)));
                 transformObj.Set("rotation", new JsNumber(layer.transform.rotation.Evaluate(frameNo)));
-                transformObj.Set("opacity", new JsNumber(layer.transform.opacity.Evaluate(frameNo)));
+                transformObj.Set("opacity", new JsNumber(layer.transform.opacity.Evaluate(frameNo) / 2.55f));
                 ctx.Set("transform", transformObj);
             }
 
@@ -1126,7 +1121,7 @@ namespace ThorVG
                             transformObj.Set("position", MakePointWithValue(engine, tr.position.Evaluate(frameNo)));
                             transformObj.Set("scale", MakePointWithValue(engine, tr.scale.Evaluate(frameNo)));
                             transformObj.Set("rotation", new JsNumber(tr.rotation.Evaluate(frameNo)));
-                            transformObj.Set("opacity", new JsNumber(tr.opacity.Evaluate(frameNo)));
+                            transformObj.Set("opacity", new JsNumber(tr.opacity.Evaluate(frameNo) / 2.55f));
                             obj.Set("transform", transformObj);
                             break;
                         }
@@ -1160,6 +1155,23 @@ namespace ThorVG
                     obj.Set("outerRoundness", new JsNumber(polystar.outerRoundness.Evaluate(frameNo)));
                     obj.Set("rotation", new JsNumber(polystar.rotation.Evaluate(frameNo)));
                     obj.Set("points", new JsNumber(polystar.ptsCnt.Evaluate(frameNo)));
+                    return obj;
+                }
+                case LottieObject.ObjectType.Rect:
+                {
+                    var rect = (LottieRect)target;
+                    var obj = new Jint.Native.JsObject(engine);
+                    obj.Set(EXP_SIZE, BuildValue(engine, frameNo, rect.size));
+                    obj.Set(EXP_POSITION, BuildValue(engine, frameNo, rect.position));
+                    obj.Set("roundness", new JsNumber(rect.radius.Evaluate(frameNo)));
+                    return obj;
+                }
+                case LottieObject.ObjectType.Ellipse:
+                {
+                    var ellipse = (LottieEllipse)target;
+                    var obj = new Jint.Native.JsObject(engine);
+                    obj.Set(EXP_SIZE, BuildValue(engine, frameNo, ellipse.size));
+                    obj.Set(EXP_POSITION, BuildValue(engine, frameNo, ellipse.position));
                     return obj;
                 }
                 case LottieObject.ObjectType.Trimpath:

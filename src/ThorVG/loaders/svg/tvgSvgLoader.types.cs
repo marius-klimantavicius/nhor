@@ -667,7 +667,7 @@ namespace ThorVG
                 }
                 s_val = Math.Clamp(s_val, 0.0f, 1.0f);
                 l_val = Math.Clamp(l_val, 0.0f, 1.0f);
-                TvgColor.Hsl2Rgb(h_val, s_val, l_val, out r, out g, out b);
+                SvgUtil.HslToRgb(h_val, s_val, l_val, out r, out g, out b);
                 return true;
             }
             else

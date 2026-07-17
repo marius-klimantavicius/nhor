@@ -125,8 +125,13 @@ namespace ThorVG
 
         public bool Intersects(int x, int y, int w = 1, int h = 1)
         {
+            return Intersects(x, y, w, h, false);
+        }
+
+        public bool Intersects(int x, int y, int w, int h, bool visibleOnly)
+        {
             if (w <= 0 || h <= 0) return false;
-            return pImpl.Intersects(new RenderRegion(x, y, x + w, y + h));
+            return pImpl.Intersects(new RenderRegion(x, y, x + w, y + h), visibleOnly);
         }
 
         public abstract Type PaintType();
@@ -139,7 +144,7 @@ namespace ThorVG
         internal virtual bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => false;
         internal virtual RenderRegion PaintBoundsVirt() => default;
         internal virtual bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => false;
-        internal virtual bool IntersectsVirt(in RenderRegion region) => false;
+        internal virtual bool IntersectsVirt(in RenderRegion region, bool visibleOnly) => false;
 
         public static void Rel(Paint? paint)
         {
@@ -485,10 +490,11 @@ namespace ThorVG
         //  Mirrors C++ Paint::Impl::intersects(const RenderRegion&)
         // =====================================================================
 
-        internal bool Intersects(in RenderRegion region)
+        internal bool Intersects(in RenderRegion region, bool visibleOnly)
         {
+            if (visibleOnly && hidden) return false;
             if (renderer == null) return false;
-            return paint.IntersectsVirt(region);
+            return paint.IntersectsVirt(region, visibleOnly);
         }
 
         // =====================================================================

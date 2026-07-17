@@ -38,13 +38,14 @@ void JpgLoader::clear()
 
 void JpgLoader::run(unsigned tid)
 {
-    surface.cs = ImageLoader::cs;
-    surface.buf8 = jpgdDecompress(decoder, surface.cs);
+    surface.cs = ColorSpace::ABGR8888;
+    surface.buf8 = jpgdDecompress(decoder);
     surface.stride = static_cast<uint32_t>(w);
     surface.w = static_cast<uint32_t>(w);
     surface.h = static_cast<uint32_t>(h);
     surface.channelSize = sizeof(uint32_t);
     surface.premultiplied = true;
+    surface.alphaIgnored = true;
 
     clear();
 }

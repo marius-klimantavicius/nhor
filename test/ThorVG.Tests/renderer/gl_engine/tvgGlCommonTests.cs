@@ -1,9 +1,104 @@
 using Xunit;
+using System;
+using System.Runtime.CompilerServices;
 
 namespace ThorVG.Tests
 {
     public class tvgGlCommonTests
     {
+        private static RenderShape DashedSquare(float[] pattern)
+        {
+            var shape = new RenderShape
+            {
+                stroke = new RenderStroke
+                {
+                    dashPattern = pattern,
+                    dashCount = (uint)pattern.Length,
+                    dashLength = Sum(pattern),
+                    cap = StrokeCap.Butt
+                }
+            };
+            shape.path.MoveTo(new Point(0, 0));
+            shape.path.LineTo(new Point(10, 0));
+            shape.path.LineTo(new Point(10, 10));
+            shape.path.LineTo(new Point(0, 10));
+            shape.path.Close();
+            return shape;
+        }
+
+        private static float Sum(float[] values)
+        {
+            var sum = 0.0f;
+            foreach (var value in values) sum += value;
+            return sum;
+        }
+
+        [Fact]
+        public void GpuStrokeDash_JoinsClosedDashAcrossContourStart()
+        {
+            var input = DashedSquare([15, 3]);
+            var output = new RenderPath();
+
+            Assert.True(GpuCommon.GpuStrokeDash(input, output, null));
+
+            Assert.Equal(2, CountCommands(output, PathCommand.MoveTo));
+            Assert.Equal(PathCommand.MoveTo, output.cmds[0]);
+            Assert.Equal(0.0f, output.pts[0].x, 4);
+            Assert.Equal(4.0f, output.pts[0].y, 4);
+            Assert.Equal(new Point(0, 0), output.pts[1]);
+            Assert.Equal(new Point(10, 0), output.pts[2]);
+            Assert.DoesNotContain(PathCommand.Close, Commands(output));
+
+            output.cmds.Dispose();
+            output.pts.Dispose();
+            input.path.cmds.Dispose();
+            input.path.pts.Dispose();
+        }
+
+        [Fact]
+        public void GpuStrokeDash_ClosesSinglePieceLoop()
+        {
+            var input = DashedSquare([100, 10]);
+            var output = new RenderPath();
+
+            Assert.True(GpuCommon.GpuStrokeDash(input, output, null));
+
+            Assert.Equal(1, CountCommands(output, PathCommand.MoveTo));
+            Assert.Equal(PathCommand.Close, output.cmds.Last());
+
+            output.cmds.Dispose();
+            output.pts.Dispose();
+            input.path.cmds.Dispose();
+            input.path.pts.Dispose();
+        }
+
+        [Fact]
+        public void GlRenderer_TargetResultPreservesValidationResults()
+        {
+            var renderer = (GlRenderer)RuntimeHelpers.GetUninitializedObject(typeof(GlRenderer));
+
+            Assert.Equal(Result.NonSupport, renderer.TargetResult(0, 0, 0, 0, 1, 1, ColorSpace.ARGB8888));
+            Assert.Equal(Result.InvalidArguments, renderer.TargetResult(0, 0, 0, 0, 1, 1, ColorSpace.ABGR8888S));
+            Assert.Equal(Result.InvalidArguments, renderer.TargetResult(0, 0, 1, 0, 0, 1, ColorSpace.ABGR8888S));
+
+            GC.SuppressFinalize(renderer);
+        }
+
+        private static int CountCommands(RenderPath path, PathCommand command)
+        {
+            var count = 0;
+            for (uint i = 0; i < path.cmds.count; ++i)
+                if (path.cmds[i] == command) ++count;
+            return count;
+        }
+
+        private static PathCommand[] Commands(RenderPath path)
+        {
+            var commands = new PathCommand[(int)path.cmds.count];
+            for (uint i = 0; i < path.cmds.count; ++i) commands[i] = path.cmds[i];
+            return commands;
+        }
+
         // ---- GlConstants -------------------------------------------
 
         [Fact]
@@ -202,6 +297,39 @@ namespace ThorVG.Tests
 
             var bounds = geo.GetBounds();
             Assert.True(bounds.Invalid());
+        }
+
+        [Fact]
+        public void GlGeometry_ImageIntersection()
+        {
+            var geometry = new GlGeometry();
+            geometry.SetMatrix(TvgMath.Identity());
+            geometry.TesselateImage(new RenderSurface { w = 20, h = 30 });
+
+            var image = new GlShape { validFill = true, geometry = geometry };
+            var intersector = new GlIntersector();
+
+            Assert.True(intersector.IntersectImage(new RenderRegion(5, 5, 6, 6), image));
+            Assert.True(intersector.IntersectImage(new RenderRegion(19, 29, 21, 31), image));
+            Assert.False(intersector.IntersectImage(new RenderRegion(21, 31, 25, 35), image));
+        }
+
+        [Fact]
+        public void GlIntersector_RespectsShapeVisibilityGeometry()
+        {
+            var geometry = new GlGeometry();
+            geometry.fill.vertex.Push(0); geometry.fill.vertex.Push(0);
+            geometry.fill.vertex.Push(20); geometry.fill.vertex.Push(0);
+            geometry.fill.vertex.Push(20); geometry.fill.vertex.Push(20);
+            geometry.fill.vertex.Push(0); geometry.fill.vertex.Push(20);
+            geometry.fill.index.Push(0); geometry.fill.index.Push(1); geometry.fill.index.Push(2);
+            geometry.fill.index.Push(0); geometry.fill.index.Push(2); geometry.fill.index.Push(3);
+            geometry.fillWorld = true;
+
+            var shape = new GlShape { validFill = true, geometry = geometry };
+            var intersector = new GlIntersector();
+            Assert.True(intersector.IntersectShape(new RenderRegion(10, 10, 11, 11), shape));
+            Assert.False(intersector.IntersectShape(new RenderRegion(25, 25, 26, 26), shape));
         }
 
         // ---- GlShape ----------------------------------------------------

@@ -42,6 +42,7 @@ namespace ThorVG
         internal float w, h;
         internal FilterMethod filter = FilterMethod.Bilinear;
         internal bool resizing;
+        public bool accessible;
 
         protected Picture() { }
 
@@ -56,7 +57,8 @@ namespace ThorVG
             if (vector != null || bitmap != null) return Result.InsufficientCondition;
 
             bool invalid;
-            var loader = (ImageLoader?)LoaderMgr.Loader(filename, out invalid);
+            var ops = new PictureOps(resolver, null, accessible);
+            var loader = LoaderMgr.Loader(filename, out invalid, ops) as ImageLoader;
             if (loader == null)
             {
                 if (invalid) return Result.InvalidArguments;
@@ -69,8 +71,8 @@ namespace ThorVG
         {
             if (data == null || size <= 0) return Result.InvalidArguments;
             if (vector != null || bitmap != null) return Result.InsufficientCondition;
-            var ops = new PictureOps(resolver, rpath, false);
-            var loader = (ImageLoader?)LoaderMgr.Loader(data, size, mimeType, ops, copy);
+            var ops = new PictureOps(resolver, rpath, accessible);
+            var loader = LoaderMgr.Loader(data, size, mimeType, ops, copy) as ImageLoader;
             if (loader == null) return Result.NonSupport;
             return LoadImpl(loader);
         }
@@ -78,9 +80,9 @@ namespace ThorVG
         public Result Load(uint[] data, uint w, uint h, ColorSpace cs, bool copy = false)
         {
             if (data == null || w <= 0 || h <= 0 || cs == ColorSpace.Unknown) return Result.InvalidArguments;
-            if (vector != null || bitmap != null) return Result.InsufficientCondition;
+            if (vector != null) return Result.InsufficientCondition;
 
-            var loader = (ImageLoader?)LoaderMgr.Loader(data, w, h, cs, copy);
+            var loader = LoaderMgr.Loader(data, w, h, cs, copy) as ImageLoader;
             if (loader == null) return Result.FailedAllocation;
 
             return LoadImpl(loader);
@@ -148,6 +150,8 @@ namespace ThorVG
 
         public Paint? FindPaint(uint id)
         {
+            if (accessible) return Access(id)?.paint;
+
             Paint? ret = null;
 
             var accessor = Accessor.Gen();
@@ -162,6 +166,16 @@ namespace ThorVG
             }, id);
 
             return ret;
+        }
+
+        internal AccessorEntity? Access(uint id)
+        {
+            return loader?.Access(id);
+        }
+
+        internal void Access(Func<Paint, object?, bool> callback, object? data)
+        {
+            loader?.Access(callback, data);
         }
 
         public uint[]? Data(out uint w, out uint h)
@@ -199,6 +213,11 @@ namespace ThorVG
 
             if (bitmap != null)
             {
+                if (bitmap.cs == ColorSpace.Unknown)
+                {
+                    TvgCommon.TVGERR("RENDERER", "Unknown colorspace picture data");
+                    return false;
+                }
                 // Overriding Transformation by the desired image size
                 var sx = w / loader!.w;
                 var sy = h / loader.h;
@@ -264,22 +283,16 @@ namespace ThorVG
             return default;
         }
 
-        internal bool Intersects(in RenderRegion region)
+        internal bool Intersects(in RenderRegion region, bool visibleOnly)
         {
             if (pImpl.renderer == null) return false;
             InternalLoad();
             if (pImpl.rd != null) return pImpl.renderer.IntersectsImage(pImpl.rd, region);
             else if (vector != null)
             {
-                // Cast to Scene to check intersections
-                if (vector is Scene scene) return SceneIntersects(scene, region);
+                return vector.pImpl.Intersects(region, visibleOnly);
             }
             return false;
-        }
-
-        private static bool SceneIntersects(Scene scene, in RenderRegion region)
-        {
-            return scene.Intersects(region);
         }
 
         internal Paint DuplicatePicture(Paint? ret)
@@ -330,7 +343,7 @@ namespace ThorVG
         internal override bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => PaintRender(renderer, flag);
         internal override RenderRegion PaintBoundsVirt() => PaintBounds();
         internal override bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => GeometricBounds(pt4, m, obb);
-        internal override bool IntersectsVirt(in RenderRegion region) => Intersects(region);
+        internal override bool IntersectsVirt(in RenderRegion region, bool visibleOnly) => Intersects(region, visibleOnly);
 
         // --- Private helpers ---
 
@@ -383,6 +396,7 @@ namespace ThorVG
             if (this.loader == loader)
             {
                 this.loader.sharing--; // make it sure the reference counting.
+                if (bitmap != null) pImpl.Mark(RenderUpdateFlag.Image);
                 return Result.Success;
             }
             else if (this.loader != null)

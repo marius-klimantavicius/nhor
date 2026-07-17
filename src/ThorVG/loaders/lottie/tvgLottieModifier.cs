@@ -6,7 +6,7 @@ namespace ThorVG
 {
     public abstract class LottieModifier
     {
-        public enum ModifierType : byte { Roundness = 0, Offset, PuckerBloat }
+        public enum ModifierType : byte { Roundness = 0, Offset, PuckerBloat, ZigZag }
 
         public LottieModifier? next;
         public ModifierType type;
@@ -761,5 +761,156 @@ namespace ThorVG
         {
             unsafe { Path(@in, @out, null); }
         }
+    }
+
+    public class LottieZigZagModifier : LottieModifier
+    {
+        public enum PointType : byte { Corner = 1, Smooth = 2 }
+
+        private struct Vertex
+        {
+            public Point v;
+            public Point @in;
+            public Point @out;
+        }
+
+        public float amp;
+        public int freq;
+        public PointType point;
+
+        public LottieZigZagModifier(float amp, int freq, PointType point) : base(ModifierType.ZigZag)
+        {
+            this.amp = amp;
+            this.freq = freq;
+            this.point = point;
+        }
+
+        private Vertex Ridge(Point at, Point dir, float sign, float inAmp, float outAmp)
+        {
+            var len = TvgMath.PointLength(dir);
+            if (len < 1.1920929e-7f) return new Vertex { v = at, @in = at, @out = at };
+            var pos = TvgMath.PointAdd(at, TvgMath.PointMul(TvgMath.Normal(default, dir), sign * amp));
+            var unit = TvgMath.PointDiv(dir, len);
+            return new Vertex { v = pos, @in = TvgMath.PointSub(pos, TvgMath.PointMul(unit, inAmp)), @out = TvgMath.PointAdd(pos, TvgMath.PointMul(unit, outAmp)) };
+        }
+
+        private void Corner(uint cur, float sign, Array<Point> verts, Array<Vertex> ridges)
+        {
+            var curIdx = cur % verts.count;
+            var prevIdx = curIdx == 0 ? verts.count - 1 : curIdx - 1;
+            var nextIdx = (curIdx + 1) % verts.count;
+            var dir = TvgMath.PointSub(verts[nextIdx], verts[prevIdx]);
+            var inAmp = 0.0f;
+            var outAmp = 0.0f;
+            if (point == PointType.Smooth)
+            {
+                outAmp = TvgMath.PointLength(TvgMath.PointSub(verts[nextIdx], verts[curIdx])) / ((freq + 1) * 2);
+                inAmp = TvgMath.PointLength(TvgMath.PointSub(verts[prevIdx], verts[curIdx])) / ((freq + 1) * 2);
+            }
+            ridges.Push(Ridge(verts[curIdx], dir, sign, inAmp, outAmp));
+        }
+
+        private float Segment(uint idx, float sign, Array<Point> verts, Array<Point> ins, Array<Point> outs, Array<Vertex> ridges)
+        {
+            if (freq == 0) return sign;
+            var i1 = (idx + 1) % verts.count;
+            var p0 = verts[idx];
+            var p1 = outs[idx];
+            var p2 = ins[i1];
+            var p3 = verts[i1];
+            var smoothAmp = point == PointType.Smooth ? TvgMath.PointLength(TvgMath.PointSub(p3, p0)) / ((freq + 1) * 2) : 0.0f;
+            var bz = new Bezier(p0, p1, p2, p3);
+            for (var k = 0; k < freq; ++k)
+            {
+                var t = (float)(k + 1) / (freq + 1);
+                var mt = 1.0f - t;
+                var tangent = TvgMath.PointAdd(TvgMath.PointMul(TvgMath.PointSub(p1, p0), 3.0f * mt * mt),
+                    TvgMath.PointAdd(TvgMath.PointMul(TvgMath.PointSub(p2, p1), 6.0f * mt * t), TvgMath.PointMul(TvgMath.PointSub(p3, p2), 3.0f * t * t)));
+                ridges.Push(Ridge(bz.At(t), tangent, sign, smoothAmp, smoothAmp));
+                sign = -sign;
+            }
+            return sign;
+        }
+
+        private void Flush(bool closed, Array<Point> verts, Array<Point> ins, Array<Point> outs, Array<Vertex> ridges, RenderPath dst)
+        {
+            if (verts.count == 0) return;
+            if (closed && verts.count > 1 && TvgMath.Zero(TvgMath.PointSub(verts.Last(), verts[0])))
+            {
+                ins[0] = ins.Last();
+                verts.Pop();
+                ins.Pop();
+                outs.Pop();
+            }
+            if (verts.count < 2) return;
+            var segmentCount = closed ? verts.count : verts.count - 1;
+            ridges.Clear();
+            ridges.Reserve((segmentCount + 1) * (uint)(freq + 1));
+            var sign = 1.0f;
+            Corner(0, sign, verts, ridges);
+            for (uint i = 0; i < segmentCount; ++i)
+            {
+                sign = Segment(i, -sign, verts, ins, outs, ridges);
+                Corner(i + 1, sign, verts, ridges);
+            }
+            if (ridges.count == 0) return;
+            dst.MoveTo(ridges[0].v);
+            for (uint i = 1; i < ridges.count; ++i) dst.CubicTo(ridges[i - 1].@out, ridges[i].@in, ridges[i].v);
+            if (closed) dst.Close();
+        }
+
+        private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
+        {
+            var path = next != null ? RenderPath.Scratch() : @out;
+            var pivot = path.pts.count;
+            path.cmds.Reserve(path.cmds.count + @in.cmds.count * (uint)(freq + 2));
+            path.pts.Reserve(path.pts.count + @in.pts.count * (uint)(freq + 2));
+            var verts = new Array<Point>();
+            var ins = new Array<Point>();
+            var outs = new Array<Point>();
+            var ridges = new Array<Vertex>();
+            var closed = false;
+            for (uint iCmd = 0, iPt = 0; iCmd < @in.cmds.count; ++iCmd)
+            {
+                switch (@in.cmds[iCmd])
+                {
+                    case PathCommand.MoveTo:
+                        Flush(closed, verts, ins, outs, ridges, path);
+                        verts.Clear(); ins.Clear(); outs.Clear(); closed = false;
+                        var first = @in.pts[iPt++];
+                        verts.Push(first); ins.Push(first); outs.Push(first);
+                        break;
+                    case PathCommand.CubicTo:
+                        outs.Last() = @in.pts[iPt];
+                        ins.Push(@in.pts[iPt + 1]);
+                        verts.Push(@in.pts[iPt + 2]);
+                        outs.Push(@in.pts[iPt + 2]);
+                        iPt += 3;
+                        break;
+                    case PathCommand.LineTo:
+                        outs.Last() = verts.Last();
+                        ins.Push(@in.pts[iPt]); verts.Push(@in.pts[iPt]); outs.Push(@in.pts[iPt]);
+                        ++iPt;
+                        break;
+                    case PathCommand.Close:
+                        closed = true;
+                        break;
+                }
+            }
+            Flush(closed, verts, ins, outs, ridges, path);
+            if (transform != null)
+                for (var i = pivot; i < path.pts.count; ++i) TvgMath.TransformInPlace(ref path.pts[i], *transform);
+            return path;
+        }
+
+        public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
+        {
+            var result = Modify(@in, @out, transform);
+            if (next != null) next.Path(result, @out, null);
+        }
+
+        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness) { unsafe { Path(@in, @out, null); } }
+        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise) { unsafe { Path(@in, @out, null); } }
+        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise) { unsafe { Path(@in, @out, null); } }
     }
 }

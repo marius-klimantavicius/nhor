@@ -75,12 +75,15 @@ namespace ThorVG
         {
             optPathThin = false;
             optPathSkipFill = false;
+            optStrokePath.Clear();
+            var strokeWidth = rshape.StrokeWidth();
+            RenderPath? localOut = float.IsFinite(strokeWidth) && !TvgMath.Zero(strokeWidth) ? optStrokePath : null;
             if (rshape.Trimpath())
             {
                 var trimmedPath = new RenderPath();
                 if (rshape.stroke!.trim.Trim(rshape.path, trimmedPath))
                 {
-                    GpuCommon.GpuOptimize(trimmedPath, optPath, matrix, out optPathThin, out optPathSkipFill);
+                    GpuCommon.GpuOptimize(trimmedPath, optPath, localOut, matrix, out optPathThin, out optPathSkipFill);
                 }
                 else
                 {
@@ -89,7 +92,7 @@ namespace ThorVG
             }
             else
             {
-                GpuCommon.GpuOptimize(rshape.path, optPath, matrix, out optPathThin, out optPathSkipFill);
+                GpuCommon.GpuOptimize(rshape.path, optPath, localOut, matrix, out optPathThin, out optPathSkipFill);
             }
         }
 
@@ -152,31 +155,19 @@ namespace ThorVG
             strokeBounds = default;
             strokeRenderWidth = 0.0f;
 
-            var strokeWidth = 0.0f;
-            if (float.IsInfinity(matrix.e11))
-            {
-                strokeWidth = rshape.StrokeWidth() * TvgMath.Scaling(matrix);
-                if (strokeWidth <= GlConstants.MIN_GL_STROKE_WIDTH) strokeWidth = GlConstants.MIN_GL_STROKE_WIDTH;
-                strokeWidth = strokeWidth / matrix.e11;
-            }
-            else
-            {
-                strokeWidth = rshape.StrokeWidth();
-            }
-            var strokeWidthWorld = strokeWidth * TvgMath.Scaling(matrix);
-            if (!float.IsFinite(strokeWidthWorld)) strokeWidthWorld = strokeWidth;
+            var strokeWidth = rshape.StrokeWidth();
+            if (!float.IsFinite(strokeWidth) || TvgMath.Zero(strokeWidth)) return false;
+            var qualityScale = TvgMath.Scaling(matrix);
+            if (!float.IsFinite(qualityScale) || TvgMath.Zero(qualityScale)) return false;
+            strokeRenderWidth = strokeWidth * qualityScale;
+            if (!float.IsFinite(strokeRenderWidth)) return false;
 
-            if (!TvgMath.Zero(strokeWidthWorld))
-            {
-                var stroker = new Stroker(stroke, strokeWidthWorld, rshape.StrokeCap(), rshape.StrokeJoin(), rshape.StrokeMiterlimit());
-                var dashedPathWorld = new RenderPath();
-                if (GpuCommon.GpuStrokeDash(rshape, dashedPathWorld, matrix)) stroker.Run(dashedPathWorld);
-                else stroker.Run(optPath);
-                strokeBounds = stroker.Bounds();
-                strokeRenderWidth = strokeWidthWorld;
-                return true;
-            }
-            return false;
+            var stroker = new Stroker(stroke, strokeWidth, rshape.StrokeCap(), rshape.StrokeJoin(), rshape.StrokeMiterlimit(), qualityScale);
+            var dashedPath = new RenderPath();
+            if (GpuCommon.GpuStrokeDash(rshape, dashedPath, null)) stroker.Run(dashedPath);
+            else stroker.Run(optStrokePath);
+            strokeBounds = stroker.Bounds();
+            return true;
         }
 
         public void TesselateImage(RenderSurface image)
@@ -206,7 +197,7 @@ namespace ThorVG
             fill.index.Push(1);
             fill.index.Push(3);
 
-            fillBounds = TransformBounds(new RenderRegion(0, 0, (int)image.w, (int)image.h), matrix);
+            fillBounds = GpuCommon.GpuTransformBounds(new RenderRegion(0, 0, (int)image.w, (int)image.h), matrix);
         }
 
         private void AppendImageVertex(Point pt, float u, float v)
@@ -217,13 +208,16 @@ namespace ThorVG
             fill.vertex.Push(v);
         }
 
-        public bool Draw(GlRenderTask task, GlStageBuffer gpuBuffer, RenderUpdateFlag flag)
+        public bool Drawable(RenderUpdateFlag flag)
         {
             if (flag == RenderUpdateFlag.None) return false;
-
             var buffer = ((flag & RenderUpdateFlag.Stroke) != 0 || (flag & RenderUpdateFlag.GradientStroke) != 0) ? stroke : fill;
-            if (buffer.index.Empty()) return false;
+            return !buffer.index.Empty();
+        }
 
+        public void Draw(GlRenderTask task, GlStageBuffer gpuBuffer, RenderUpdateFlag flag)
+        {
+            var buffer = ((flag & RenderUpdateFlag.Stroke) != 0 || (flag & RenderUpdateFlag.GradientStroke) != 0) ? stroke : fill;
             var vertexOffset = gpuBuffer.Push(buffer.vertex.data, buffer.vertex.count * sizeof(float));
             var indexOffset = gpuBuffer.PushIndex(buffer.index.data, buffer.index.count * sizeof(uint));
 
@@ -238,7 +232,6 @@ namespace ThorVG
                 task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = vertexOffset });
             }
             task.SetDrawRange(indexOffset, buffer.index.count);
-            return true;
         }
 
         public GlStencilMode GetStencilMode(RenderUpdateFlag flag)
@@ -261,7 +254,7 @@ namespace ThorVG
 
             if (!fill.index.Empty())
             {
-                var fillR = fillWorld ? fillBounds : TransformBounds(fillBounds, matrix);
+                var fillR = fillWorld ? fillBounds : GpuCommon.GpuTransformBounds(fillBounds, matrix);
                 if (fillR.Valid())
                 {
                     bounds = fillR;
@@ -271,7 +264,7 @@ namespace ThorVG
 
             if (!stroke.index.Empty())
             {
-                var strokeR = strokeBounds;
+                var strokeR = GpuCommon.GpuTransformBounds(strokeBounds, matrix);
                 if (strokeR.Valid())
                 {
                     if (hasBounds) bounds.AddWith(strokeR);
@@ -287,23 +280,6 @@ namespace ThorVG
             return default;
         }
 
-        private static RenderRegion TransformBounds(in RenderRegion bounds, in Matrix mat)
-        {
-            if (bounds.Invalid()) return bounds;
-
-            var lt = TvgMath.Transform(new Point(bounds.min.x, bounds.min.y), mat);
-            var lb = TvgMath.Transform(new Point(bounds.min.x, bounds.max.y), mat);
-            var rt = TvgMath.Transform(new Point(bounds.max.x, bounds.min.y), mat);
-            var rb = TvgMath.Transform(new Point(bounds.max.x, bounds.max.y), mat);
-
-            var left = MathF.Min(MathF.Min(lt.x, lb.x), MathF.Min(rt.x, rb.x));
-            var top = MathF.Min(MathF.Min(lt.y, lb.y), MathF.Min(rt.y, rb.y));
-            var right = MathF.Max(MathF.Max(lt.x, lb.x), MathF.Max(rt.x, rb.x));
-            var bottom = MathF.Max(MathF.Max(lt.y, lb.y), MathF.Max(rt.y, rb.y));
-
-            return new RenderRegion((int)MathF.Floor(left), (int)MathF.Floor(top), (int)MathF.Ceiling(right), (int)MathF.Ceiling(bottom));
-        }
-
         public GlGeometryBuffer fill = new GlGeometryBuffer();
         public GlGeometryBuffer stroke = new GlGeometryBuffer();
         public Matrix matrix;
@@ -312,6 +288,7 @@ namespace ThorVG
         public RenderRegion strokeBounds;
         public FillRule fillRule = FillRule.NonZero;
         public RenderPath optPath = new RenderPath();
+        public RenderPath optStrokePath = new RenderPath();
         public float strokeRenderWidth;
         private Matrix cachedInverseMatrix;
         private bool inverseMatrixDirty = true;
@@ -327,6 +304,7 @@ namespace ThorVG
         public float viewWd;
         public float viewHt;
         public uint opacity;
+        public RenderUpdateFlag deferredFlags;
         public uint texId;
         public RenderSurface? texSource;
         public FilterMethod texFilter = FilterMethod.Bilinear;
@@ -341,16 +319,6 @@ namespace ThorVG
 
     public class GlIntersector
     {
-        public bool IsPointInTriangle(Point p, Point a, Point b, Point c)
-        {
-            var d1 = TvgMath.Cross(TvgMath.PointSub(p, a), TvgMath.PointSub(p, b));
-            var d2 = TvgMath.Cross(TvgMath.PointSub(p, b), TvgMath.PointSub(p, c));
-            var d3 = TvgMath.Cross(TvgMath.PointSub(p, c), TvgMath.PointSub(p, a));
-            var hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-            var hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-            return !(hasNeg && hasPos);
-        }
-
         public bool IsPointInImage(Point p, GlGeometryBuffer mesh, in Matrix tr)
         {
             for (uint i = 0; i < mesh.index.count; i += 3)
@@ -358,19 +326,19 @@ namespace ThorVG
                 var p0 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 0] * 4 + 0], mesh.vertex[mesh.index[i + 0] * 4 + 1]), tr);
                 var p1 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 1] * 4 + 0], mesh.vertex[mesh.index[i + 1] * 4 + 1]), tr);
                 var p2 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 2] * 4 + 0], mesh.vertex[mesh.index[i + 2] * 4 + 1]), tr);
-                if (IsPointInTriangle(p, p0, p1, p2)) return true;
+                if (GpuCommon.GpuPointInTriangle(p, p0, p1, p2)) return true;
             }
             return false;
         }
 
-        public bool IsPointInTris(Point p, GlGeometryBuffer mesh, in Matrix tr)
+        public bool IsPointInTris(Point p, GlGeometryBuffer mesh)
         {
             for (uint i = 0; i < mesh.index.count; i += 3)
             {
-                var p0 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 0] * 2 + 0], mesh.vertex[mesh.index[i + 0] * 2 + 1]), tr);
-                var p1 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 1] * 2 + 0], mesh.vertex[mesh.index[i + 1] * 2 + 1]), tr);
-                var p2 = TvgMath.Transform(new Point(mesh.vertex[mesh.index[i + 2] * 2 + 0], mesh.vertex[mesh.index[i + 2] * 2 + 1]), tr);
-                if (IsPointInTriangle(p, p0, p1, p2)) return true;
+                var p0 = new Point(mesh.vertex[mesh.index[i + 0] * 2 + 0], mesh.vertex[mesh.index[i + 0] * 2 + 1]);
+                var p1 = new Point(mesh.vertex[mesh.index[i + 1] * 2 + 0], mesh.vertex[mesh.index[i + 1] * 2 + 1]);
+                var p2 = new Point(mesh.vertex[mesh.index[i + 2] * 2 + 0], mesh.vertex[mesh.index[i + 2] * 2 + 1]);
+                if (GpuCommon.GpuPointInTriangle(p, p0, p1, p2)) return true;
             }
             return false;
         }
@@ -406,8 +374,15 @@ namespace ThorVG
             {
                 var clip = (GlShape?)clips[i];
                 if (clip == null) continue;
-                var id = TvgMath.Identity();
-                if (!IsPointInMesh(pt, clip.geometry.fill, clip.geometry.fillWorld ? id : clip.geometry.matrix)) return false;
+                if (clip.validFill)
+                {
+                    var id = TvgMath.Identity();
+                    if (!IsPointInMesh(pt, clip.geometry.fill, clip.geometry.fillWorld ? id : clip.geometry.matrix)) return false;
+                }
+                else if (clip.validStroke)
+                {
+                    if (!IsPointInTris(TvgMath.Transform(pt, clip.geometry.InverseMatrix()), clip.geometry.stroke)) return false;
+                }
             }
             return true;
         }
@@ -428,7 +403,7 @@ namespace ThorVG
                     if (IntersectClips(pt, ref shape.clips))
                     {
                         if (shape.validFill && IsPointInMesh(pt, shape.geometry.fill, shape.geometry.fillWorld ? id : shape.geometry.matrix)) return true;
-                        if (shape.validStroke && IsPointInTris(pt, shape.geometry.stroke, id)) return true;
+                        if (shape.validStroke && IsPointInTris(TvgMath.Transform(pt, shape.geometry.InverseMatrix()), shape.geometry.stroke)) return true;
                     }
                 }
             }

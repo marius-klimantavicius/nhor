@@ -70,16 +70,19 @@ namespace ThorVG
 
     public unsafe class GlRenderTask
     {
-        private GlProgram? mProgram;
-        private RenderRegion mViewport;
-        private uint mIndexOffset;
-        private uint mIndexCount;
-        private Array<GlVertexLayout> mVertexLayout;
-        private Array<GlBindingResource> mBindingResources;
-        private float mDrawDepth;
-        private Matrix mViewMatrix;
-        private bool mUseViewMatrix;
-        private bool mUseVertexColor;
+        internal GlProgram? mProgram;
+        internal RenderRegion mViewport;
+        internal uint mIndexOffset;
+        internal uint mIndexCount;
+        internal uint mArrayMode = GL.GL_TRIANGLES;
+        internal uint mArrayOffset;
+        internal Array<GlVertexLayout> mVertexLayout;
+        internal Array<GlBindingResource> mBindingResources;
+        internal float mDrawDepth;
+        internal Matrix mViewMatrix;
+        internal bool mUseViewMatrix;
+        internal bool mUseVertexColor;
+        internal bool mUseDrawArrays;
         private float mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3;
 
         public GlRenderTask(GlProgram? program)
@@ -171,7 +174,8 @@ namespace ThorVG
                 }
             }
 
-            GL.glDrawElements(GL.GL_TRIANGLES, (int)mIndexCount, GL.GL_UNSIGNED_INT, (void*)(nuint)mIndexOffset);
+            if (mUseDrawArrays) GL.glDrawArrays(mArrayMode, (int)mArrayOffset, (int)mIndexCount);
+            else GL.glDrawElements(GL.GL_TRIANGLES, (int)mIndexCount, GL.GL_UNSIGNED_INT, (void*)(nuint)mIndexOffset);
 
             // disable attribute layout
             for (uint i = 0; i < mVertexLayout.count; i++)
@@ -204,6 +208,7 @@ namespace ThorVG
 
         public void SetDrawRange(uint offset, uint count)
         {
+            mUseDrawArrays = false;
             mIndexOffset = offset;
             mIndexCount = count;
         }
@@ -233,15 +238,15 @@ namespace ThorVG
 
     public unsafe class GlStencilCoverTask : GlRenderTask
     {
-        private GlRenderTask mStencilTask;
-        private GlRenderTask mCoverTask;
-        private GlStencilMode mStencilMode;
+        internal List<GlRenderTask> mStencilTasks = new List<GlRenderTask>();
+        internal List<GlRenderTask> mCoverTasks = new List<GlRenderTask>();
+        internal GlStencilMode mStencilMode;
 
         public GlStencilCoverTask(GlRenderTask stencil, GlRenderTask cover, GlStencilMode mode)
             : base(null)
         {
-            mStencilTask = stencil;
-            mCoverTask = cover;
+            mStencilTasks.Add(stencil);
+            mCoverTasks.Add(cover);
             mStencilMode = mode;
         }
 
@@ -264,7 +269,7 @@ namespace ThorVG
             }
             GL.glColorMask(0, 0, 0, 0);
 
-            mStencilTask.Run();
+            for (int i = 0; i < mStencilTasks.Count; ++i) mStencilTasks[i].Run();
 
             if (mStencilMode == GlStencilMode.FillEvenOdd)
             {
@@ -279,15 +284,15 @@ namespace ThorVG
 
             GL.glColorMask(1, 1, 1, 1);
 
-            mCoverTask.Run();
+            for (int i = 0; i < mCoverTasks.Count; ++i) mCoverTasks[i].Run();
 
             GL.glDisable(GL.GL_STENCIL_TEST);
         }
 
         public override void NormalizeDrawDepth(int maxDepth)
         {
-            mCoverTask.NormalizeDrawDepth(maxDepth);
-            mStencilTask.NormalizeDrawDepth(maxDepth);
+            for (int i = 0; i < mCoverTasks.Count; ++i) mCoverTasks[i].NormalizeDrawDepth(maxDepth);
+            for (int i = 0; i < mStencilTasks.Count; ++i) mStencilTasks[i].NormalizeDrawDepth(maxDepth);
         }
     }
 
@@ -689,6 +694,7 @@ namespace ThorVG
             GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
 
             GL.glDisable(GL.GL_BLEND);
+            GL.glDepthFunc(GL.GL_ALWAYS);
             if (effect!.direction == 0)
             {
                 GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
@@ -717,6 +723,7 @@ namespace ThorVG
                 vertTask.AddBindResource(new GlBindingResource(0, dstCopyTexId0, vertSrcTextureLoc));
                 vertTask.Run();
             }
+            GL.glDepthFunc(GL.GL_GREATER);
             GL.glEnable(GL.GL_BLEND);
         }
     }
@@ -775,6 +782,7 @@ namespace ThorVG
             GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
 
             GL.glDisable(GL.GL_BLEND);
+            GL.glDepthFunc(GL.GL_ALWAYS);
             // when sigma is 0, no blur is applied
             if (!TvgMath.Zero(effect!.sigma))
             {
@@ -796,6 +804,7 @@ namespace ThorVG
             // run drop shadow effect
             GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
             base.Run();
+            GL.glDepthFunc(GL.GL_GREATER);
             GL.glEnable(GL.GL_BLEND);
         }
     }
@@ -835,7 +844,9 @@ namespace ThorVG
 
             // run transform
             GL.glDisable(GL.GL_BLEND);
+            GL.glDepthFunc(GL.GL_ALWAYS);
             base.Run();
+            GL.glDepthFunc(GL.GL_GREATER);
             GL.glEnable(GL.GL_BLEND);
         }
     }

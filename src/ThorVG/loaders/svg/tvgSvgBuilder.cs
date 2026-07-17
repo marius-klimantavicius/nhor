@@ -58,41 +58,18 @@ namespace ThorVG
         //a stroke width should be ignored for bounding box calculations
         private static unsafe Box _bounds(Paint paint)
         {
-            // Compute bounds from the paint's path data (for shapes) or from child paints (for scenes).
-            // This mirrors C++ paint->bounds(&x, &y, &w, &h) which returns untransformed local bounds.
-            if (paint is Shape shape)
-            {
-                var box = new BBox();
-                box.Init();
-                shape.rs.path.Bounds(null, ref box);
-                if (box.min.x > box.max.x || box.min.y > box.max.y)
-                    return new Box(0, 0, 0, 0);
-                return new Box(box.min.x, box.min.y, box.max.x - box.min.x, box.max.y - box.min.y);
-            }
-            else if (paint is Scene scene)
-            {
-                var minX = float.MaxValue;
-                var minY = float.MaxValue;
-                var maxX = -float.MaxValue;
-                var maxY = -float.MaxValue;
-                foreach (var child in scene.paints)
-                {
-                    var cb = _bounds(child);
-                    if (cb.x < minX) minX = cb.x;
-                    if (cb.y < minY) minY = cb.y;
-                    if (cb.x + cb.w > maxX) maxX = cb.x + cb.w;
-                    if (cb.y + cb.h > maxY) maxY = cb.y + cb.h;
-                }
-                if (minX > maxX) return new Box(0, 0, 0, 0);
-                return new Box(minX, minY, maxX - minX, maxY - minY);
-            }
-            else if (paint is Text)
-            {
-                // Text bounds are not reliably available without font loading; return zero box
-                return new Box(0, 0, 0, 0);
-            }
+            if (paint.Bounds(out var x, out var y, out var w, out var h) == Result.Success)
+                return new Box(x, y, w, h);
             return new Box(0, 0, 0, 0);
         }
+
+        private static Box _objectBoundingBox(in Box ratio, in Box bounds)
+        {
+            return new Box(bounds.x + ratio.x * bounds.w, bounds.y + ratio.y * bounds.h,
+                           ratio.w * bounds.w, ratio.h * bounds.h);
+        }
+
+        private static bool _validBox(in Box box) => box.w > 0.0f && box.h > 0.0f;
 
         private static void _transformMultiply(in Matrix mBBox, ref Matrix gradTransf)
         {
@@ -105,7 +82,7 @@ namespace ThorVG
             gradTransf.e21 *= mBBox.e22;
         }
 
-        private static LinearGradient _applyLinearGradientProperty(SvgStyleGradient g, Box vBox, int opacity)
+        private static LinearGradient _applyLinearGradientProperty(SvgStyleGradient g, Box vBox, Box viewport, int opacity)
         {
             var fillGrad = LinearGradient.Gen();
             var isTransform = (g.transform != null);
@@ -114,7 +91,10 @@ namespace ThorVG
 
             if (g.userSpace)
             {
-                fillGrad.Linear(g.linear!.x1 * vBox.w, g.linear.y1 * vBox.h, g.linear.x2 * vBox.w, g.linear.y2 * vBox.h);
+                fillGrad.Linear(g.linear!.x1 * (g.linear.isX1Percentage ? vBox.w : viewport.w),
+                                g.linear.y1 * (g.linear.isY1Percentage ? vBox.h : viewport.h),
+                                g.linear.x2 * (g.linear.isX2Percentage ? vBox.w : viewport.w),
+                                g.linear.y2 * (g.linear.isY2Percentage ? vBox.h : viewport.h));
             }
             else
             {
@@ -148,7 +128,7 @@ namespace ThorVG
             return fillGrad;
         }
 
-        private static RadialGradient _applyRadialGradientProperty(SvgStyleGradient g, Box vBox, int opacity)
+        private static RadialGradient _applyRadialGradientProperty(SvgStyleGradient g, Box vBox, Box viewport, int opacity)
         {
             var fillGrad = RadialGradient.Gen();
             var isTransform = (g.transform != null);
@@ -160,7 +140,13 @@ namespace ThorVG
                 //The radius scaling is done according to the Units section:
                 //https://www.w3.org/TR/2015/WD-SVG2-20150915/coords.html
                 var diag = MathF.Sqrt(MathF.Pow(vBox.w, 2.0f) + MathF.Pow(vBox.h, 2.0f)) / MathF.Sqrt(2.0f);
-                fillGrad.Radial(g.radial!.cx * vBox.w, g.radial.cy * vBox.h, g.radial.r * diag, g.radial.fx * vBox.w, g.radial.fy * vBox.h, g.radial.fr * diag);
+                var viewportDiag = MathF.Sqrt(MathF.Pow(viewport.w, 2.0f) + MathF.Pow(viewport.h, 2.0f)) / MathF.Sqrt(2.0f);
+                fillGrad.Radial(g.radial!.cx * (g.radial.isCxPercentage ? vBox.w : viewport.w),
+                                g.radial.cy * (g.radial.isCyPercentage ? vBox.h : viewport.h),
+                                g.radial.r * (g.radial.isRPercentage ? diag : viewportDiag),
+                                g.radial.fx * (g.radial.isFxPercentage ? vBox.w : viewport.w),
+                                g.radial.fy * (g.radial.isFyPercentage ? vBox.h : viewport.h),
+                                g.radial.fr * (g.radial.isFrPercentage ? diag : viewportDiag));
             }
             else
             {
@@ -285,7 +271,8 @@ namespace ThorVG
             {
                 m = TvgMath.Multiply(m, compNode.transform.Value);
             }
-            if (!compNode.clip.userSpace)
+            var userSpace = type == SvgNodeType.Mask ? compNode.maskNode.maskContentUserSpace : compNode.clip.userSpace;
+            if (!userSpace)
             {
                 var bbox = _bounds(paint);
                 m = TvgMath.Multiply(m, new Matrix(bbox.w, 0, bbox.x, 0, bbox.h, bbox.y, 0, 0, 1));
@@ -369,7 +356,8 @@ namespace ThorVG
                 var mask = _sceneBuildHelper(ctx, maskNode, vBox, svgPath, true, 0);
                 if (mask != null)
                 {
-                    if (!maskNode.maskNode.userSpace)
+                    var maskData = maskNode.maskNode;
+                    if (!maskData.maskContentUserSpace)
                     {
                         var finalTransform = _compositionTransform(paint, node, maskNode, SvgNodeType.Mask);
                         mask.Transform(finalTransform);
@@ -378,7 +366,20 @@ namespace ThorVG
                     {
                         mask.Transform(node.transform.Value);
                     }
-                    scene.SetMask(mask, maskNode.maskNode.type == SvgMaskType.Luminance ? MaskMethod.Luma : MaskMethod.Alpha);
+                    var bbox = _bounds(paint);
+                    var clipper = Shape.Gen();
+                    if (maskData.userSpace)
+                    {
+                        clipper.AppendRect(maskData.box.x, maskData.box.y, maskData.box.w, maskData.box.h);
+                        if (node.transform != null) clipper.Transform(node.transform.Value);
+                    }
+                    else
+                    {
+                        var box = _objectBoundingBox(maskData.box, bbox);
+                        clipper.AppendRect(box.x, box.y, box.w, box.h);
+                    }
+                    mask.Clip(clipper);
+                    scene.SetMask(mask, maskData.type == SvgMaskType.Luminance ? MaskMethod.Luma : MaskMethod.Alpha);
                 }
 
                 node.style.mask.applying = false;
@@ -398,8 +399,7 @@ namespace ThorVG
             var bbox = _bounds(paint);
             var clipBox = filter.filterUserSpace
                 ? filter.box
-                : new Box(bbox.x + filter.box.x * bbox.w, bbox.y + filter.box.y * bbox.h,
-                          filter.box.w * bbox.w, filter.box.h * bbox.h);
+                : _objectBoundingBox(filter.box, bbox);
             var primitiveUserSpace = filter.primitiveUserSpace;
             var sx = paint.Transform().e11;
             var sy = paint.Transform().e22;
@@ -475,11 +475,29 @@ namespace ThorVG
                 var bBox = style.fill.paint.gradient.userSpace ? vBox : _bounds(vg);
                 if (style.fill.paint.gradient.type == SvgGradientType.Linear)
                 {
-                    vg.SetFill(_applyLinearGradientProperty(style.fill.paint.gradient, bBox, style.fill.opacity));
+                    vg.SetFill(_applyLinearGradientProperty(style.fill.paint.gradient, bBox, ctx.svgParse!.global, style.fill.opacity));
                 }
                 else if (style.fill.paint.gradient.type == SvgGradientType.Radial)
                 {
-                    vg.SetFill(_applyRadialGradientProperty(style.fill.paint.gradient, bBox, style.fill.opacity));
+                    vg.SetFill(_applyRadialGradientProperty(style.fill.paint.gradient, bBox, ctx.svgParse!.global, style.fill.opacity));
+                }
+            }
+            else if (style.fill.paint.pattern != null)
+            {
+                var patternPaint = _applyPatternProperty(ctx, vg, node, style.fill.paint.pattern, vBox, svgPath);
+                if (patternPaint != null)
+                {
+                    vg.SetFillRule(style.fill.fillRule);
+                    vg.Order(!style.paintOrder);
+                    _applyStroke(style, vg, vBox, ctx.svgParse!.global);
+                    var patternScene = Scene.Gen();
+                    patternScene.Add(patternPaint);
+                    patternScene.Add(vg);
+                    patternScene.Opacity((byte)style.opacity);
+                    if (node.transform != null && !clip) patternScene.Transform(node.transform.Value);
+                    Paint? patternResult = _applyFilter(ctx, patternScene, node, vBox, svgPath);
+                    patternResult = _applyComposition(ctx, patternResult, node, vBox, svgPath);
+                    return _applyBlend(patternResult, node);
                 }
             }
             else if (style.fill.paint.url != null)
@@ -507,7 +525,18 @@ namespace ThorVG
                 return vg;
             }
 
-            //Apply the stroke style property
+            _applyStroke(style, vg, vBox, ctx.svgParse!.global);
+
+            //apply transform after the local space shape bbox for gradient acquisition
+            if (node.transform != null && !clip) vg.Transform(node.transform.Value);
+
+            var p = _applyFilter(ctx, vg, node, vBox, svgPath);
+            p = _applyComposition(ctx, p, node, vBox, svgPath);
+            return _applyBlend(p, node);
+        }
+
+        private static void _applyStroke(SvgStyleProperty style, Shape vg, in Box vBox, in Box viewport)
+        {
             vg.StrokeWidth(style.stroke.width);
             vg.StrokeCap(style.stroke.cap);
             vg.StrokeJoin(style.stroke.join);
@@ -531,11 +560,11 @@ namespace ThorVG
                 var bBox = style.stroke.paint.gradient.userSpace ? vBox : _bounds(vg);
                 if (style.stroke.paint.gradient.type == SvgGradientType.Linear)
                 {
-                    vg.StrokeFill(_applyLinearGradientProperty(style.stroke.paint.gradient, bBox, style.stroke.opacity));
+                    vg.StrokeFill(_applyLinearGradientProperty(style.stroke.paint.gradient, bBox, viewport, style.stroke.opacity));
                 }
                 else if (style.stroke.paint.gradient.type == SvgGradientType.Radial)
                 {
-                    vg.StrokeFill(_applyRadialGradientProperty(style.stroke.paint.gradient, bBox, style.stroke.opacity));
+                    vg.StrokeFill(_applyRadialGradientProperty(style.stroke.paint.gradient, bBox, viewport, style.stroke.opacity));
                 }
             }
             else if (style.stroke.paint.url != null)
@@ -554,12 +583,6 @@ namespace ThorVG
                 vg.StrokeFill(style.stroke.paint.color.r, style.stroke.paint.color.g, style.stroke.paint.color.b, (byte)style.stroke.opacity);
             }
 
-            //apply transform after the local space shape bbox for gradient acquisition
-            if (node.transform != null && !clip) vg.Transform(node.transform.Value);
-
-            var p = _applyFilter(ctx, vg, node, vBox, svgPath);
-            p = _applyComposition(ctx, p, node, vBox, svgPath);
-            return _applyBlend(p, node);
         }
 
         private static bool _recognizeShape(SvgNode node, Shape shape)
@@ -966,7 +989,7 @@ namespace ThorVG
             return scene;
         }
 
-        private static void _applyTextFill(SvgStyleProperty style, Text text, in Box vBox)
+        private static void _applyTextFill(SvgStyleProperty style, Text text, in Box vBox, in Box viewport)
         {
             //If fill property is nullptr then do nothing
             if (style.fill.paint.none)
@@ -978,11 +1001,11 @@ namespace ThorVG
                 var bBox = style.fill.paint.gradient.userSpace ? vBox : _bounds(text);
                 if (style.fill.paint.gradient.type == SvgGradientType.Linear)
                 {
-                    text.shape.SetFill(_applyLinearGradientProperty(style.fill.paint.gradient, bBox, style.fill.opacity));
+                    text.shape.SetFill(_applyLinearGradientProperty(style.fill.paint.gradient, bBox, viewport, style.fill.opacity));
                 }
                 else if (style.fill.paint.gradient.type == SvgGradientType.Radial)
                 {
-                    text.shape.SetFill(_applyRadialGradientProperty(style.fill.paint.gradient, bBox, style.fill.opacity));
+                    text.shape.SetFill(_applyRadialGradientProperty(style.fill.paint.gradient, bBox, viewport, style.fill.opacity));
                 }
             }
             else if (style.fill.paint.url != null)
@@ -1058,13 +1081,6 @@ namespace ThorVG
 
             var text = Text.Gen();
 
-            Matrix textTransform;
-            if (transform != null) textTransform = transform.Value;
-            else textTransform = TvgMath.Identity();
-
-            TvgMath.TranslateR(ref textTransform, new Point(textNode.x + textNode.dx, textNode.y + textNode.dy - textNode.fontSize));
-            text.Transform(textTransform);
-
             //TODO: handle def values of font and size as used in a system?
             var size = textNode.fontSize * 0.75f; //1 pt = 1/72; 1 in = 96 px; -> 72/96 = 0.75
             if (text.SetFont(textNode.fontFamily) != Result.Success)
@@ -1076,7 +1092,29 @@ namespace ThorVG
             var processedText = _processText(textNode.text, xmlSpace);
             text.SetText(processedText);
 
+            text.GetMetrics(out var metrics);
+            var textTransform = transform ?? TvgMath.Identity();
+            TvgMath.TranslateR(ref textTransform, new Point(textNode.x + textNode.dx, textNode.y + textNode.dy - metrics.ascent));
+            text.Transform(textTransform);
+
             return text;
+        }
+
+        private static void _updatePos(Text text, SvgTextNode textNode, float anchor, ref Point textPos)
+        {
+            var advance = 0.0f;
+            var value = text.GetText();
+            if (value != null)
+            {
+                for (int i = 0; i < value.Length;)
+                {
+                    if (text.GetMetrics(value.Substring(i), out var metrics, out var length) != Result.Success || length <= 0) break;
+                    advance += metrics.advance;
+                    i += length;
+                }
+            }
+            textPos.x = textNode.x + textNode.dx + (1.0f - anchor) * advance;
+            textPos.y = textNode.y + textNode.dy;
         }
 
         private static bool _hasPositionedTspan(SvgNode node, int depth)
@@ -1091,7 +1129,7 @@ namespace ThorVG
             return false;
         }
 
-        private static void _buildTspanScene(SvgParserContext ctx, SvgNode node, Scene scene, in Box vBox, string svgPath, int depth)
+        private static void _buildTspanScene(SvgParserContext ctx, SvgNode node, Scene scene, in Box vBox, string svgPath, int depth, ref Point textPos)
         {
             if (depth > 2192) return;
             foreach (var child in node.child)
@@ -1114,8 +1152,6 @@ namespace ThorVG
                     var xmlSpace = child.xmlSpace;
                     for (var n = child.parent; n != null; n = n.parent)
                     {
-                        if (textNode.x == float.MaxValue) textNode.x = n.text.x;
-                        if (textNode.y == float.MaxValue) textNode.y = n.text.y;
                         if (textNode.fontSize <= 0.0f) textNode.fontSize = n.text.fontSize;
                         if (textNode.fontFamily == null) textNode.fontFamily = n.text.fontFamily;
                         if (xmlSpace == SvgXmlSpace.None) xmlSpace = n.xmlSpace;
@@ -1123,18 +1159,22 @@ namespace ThorVG
                     }
                     if (xmlSpace == SvgXmlSpace.None) xmlSpace = SvgXmlSpace.Default;
 
+                    if (textNode.x == float.MaxValue) textNode.x = textPos.x;
+                    if (textNode.y == float.MaxValue) textNode.y = textPos.y;
+
                     var text = _buildText(textNode, xmlSpace, null);
                     if (text != null)
                     {
                         text.SetAlign(child.style!.textAnchor, 0.0f);
-                        _applyTextFill(child.style!, text, vBox);
+                        _updatePos(text, textNode, child.style.textAnchor, ref textPos);
+                        _applyTextFill(child.style!, text, vBox, ctx.svgParse!.global);
                         Paint? paint = _applyFilter(ctx, text, child, vBox, svgPath);
                         paint = _applyComposition(ctx, paint, child, vBox, svgPath);
                         paint = _applyBlend(paint, child);
                         if (paint != null) scene.Add(paint);
                     }
                 }
-                _buildTspanScene(ctx, child, scene, vBox, svgPath, depth + 1);
+                _buildTspanScene(ctx, child, scene, vBox, svgPath, depth + 1, ref textPos);
             }
         }
 
@@ -1150,7 +1190,7 @@ namespace ThorVG
                 var text = _buildText(node.text, xmlSpace, node.transform);
                 if (text == null) return null;
                 text.SetAlign(node.style!.textAnchor, 0.0f);
-                _applyTextFill(node.style!, text, vBox);
+                _applyTextFill(node.style!, text, vBox, ctx.svgParse!.global);
                 var p = _applyFilter(ctx, text, node, vBox, svgPath);
                 p = _applyComposition(ctx, p, node, vBox, svgPath);
                 return _applyBlend(p, node);
@@ -1158,15 +1198,17 @@ namespace ThorVG
 
             var scene = Scene.Gen();
             if (node.transform != null) scene.Transform(node.transform.Value);
+            var textPos = new Point(node.text.x, node.text.y);
 
             if (_buildText(node.text, xmlSpace, null) is { } baseText)
             {
                 baseText.SetAlign(node.style!.textAnchor, 0.0f);
-                _applyTextFill(node.style!, baseText, vBox);
+                _updatePos(baseText, node.text, node.style.textAnchor, ref textPos);
+                _applyTextFill(node.style!, baseText, vBox, ctx.svgParse!.global);
                 scene.Add(baseText);
             }
 
-            _buildTspanScene(ctx, node, scene, vBox, svgPath, 0);
+            _buildTspanScene(ctx, node, scene, vBox, svgPath, 0, ref textPos);
 
             var paint = _applyFilter(ctx, scene, node, vBox, svgPath);
             paint = _applyComposition(ctx, paint, node, vBox, svgPath);
@@ -1196,32 +1238,36 @@ namespace ThorVG
 
             foreach (var child in node.child)
             {
-                if (child.type == SvgNodeType.ClipPath || child.type == SvgNodeType.Filter) continue;
+                if (child.type == SvgNodeType.ClipPath || child.type == SvgNodeType.Filter || child.type == SvgNodeType.Pattern) continue;
+                Paint? paint = null;
                 if (_isGroupType(child.type))
                 {
                     if (child.type == SvgNodeType.Use)
                     {
-                        var usePaint = _useBuildHelper(ctx, child, vBox, svgPath, depth + 1);
-                        if (usePaint != null) scene.Add(usePaint);
+                        paint = _useBuildHelper(ctx, child, vBox, svgPath, depth + 1);
                     }
                     else if (!(child.type == SvgNodeType.Symbol && node.type != SvgNodeType.Use))
                     {
-                        var childScene = _sceneBuildHelper(ctx, child, vBox, svgPath, false, depth + 1);
-                        if (childScene != null) scene.Add(childScene);
+                        paint = _sceneBuildHelper(ctx, child, vBox, svgPath, false, depth + 1);
                     }
-                    if (child.id != null) scene.id = (uint)TvgCompressor.Djb2Encode(child.id);
                 }
                 else
                 {
-                    Paint? paint = null;
                     if (child.type == SvgNodeType.Image) paint = _imageBuildHelper(ctx, child, vBox, svgPath);
                     else if (child.type == SvgNodeType.Text) paint = _textBuildHelper(ctx, child, vBox, svgPath);
                     else if (child.type != SvgNodeType.Mask) paint = _shapeBuildHelper(ctx, child, vBox, svgPath);
-                    if (paint != null)
+                }
+                if (paint != null)
+                {
+                    if (child.id != null)
                     {
-                        if (child.id != null) paint.id = (uint)TvgCompressor.Djb2Encode(child.id);
-                        scene.Add(paint);
+                        paint.id = (uint)TvgCompressor.Djb2Encode(child.id);
+                        if (ctx.accessible)
+                        {
+                            ctx.access.Add(new AccessorEntity { id = paint.id, paint = paint, name = child.id });
+                        }
                     }
+                    scene.Add(paint);
                 }
             }
             scene.Opacity((byte)node.style.opacity);
@@ -1229,6 +1275,134 @@ namespace ThorVG
             var p = _applyFilter(ctx, scene, node, vBox, svgPath);
             p = _applyComposition(ctx, p, node, vBox, svgPath);
             return (Scene?)_applyBlend(p, node);
+        }
+
+        private static Paint? _buildPatternChild(SvgParserContext ctx, SvgNode child, in Box vBox, string svgPath)
+        {
+            if (child.type == SvgNodeType.ClipPath || child.type == SvgNodeType.Filter || child.type == SvgNodeType.Pattern) return null;
+            if (_isGroupType(child.type))
+            {
+                if (child.type == SvgNodeType.Use) return _useBuildHelper(ctx, child, vBox, svgPath, 0);
+                if (child.type != SvgNodeType.Symbol) return _sceneBuildHelper(ctx, child, vBox, svgPath, false, 0);
+                return null;
+            }
+            if (child.type == SvgNodeType.Image) return _imageBuildHelper(ctx, child, vBox, svgPath);
+            if (child.type == SvgNodeType.Text) return _textBuildHelper(ctx, child, vBox, svgPath);
+            if (child.type == SvgNodeType.Mask) return null;
+            return _shapeBuildHelper(ctx, child, vBox, svgPath);
+        }
+
+        private static Paint? _buildBaseTile(SvgParserContext ctx, SvgNode patternNode, in Box vBox, string svgPath)
+        {
+            Paint? paint = null;
+            Scene? tileScene = null;
+            foreach (var patternChild in patternNode.child)
+            {
+                var child = _buildPatternChild(ctx, patternChild, vBox, svgPath);
+                if (child == null) continue;
+                if (paint == null && tileScene == null)
+                {
+                    paint = child;
+                    continue;
+                }
+                if (tileScene == null)
+                {
+                    tileScene = Scene.Gen();
+                    tileScene.Add(paint!);
+                    paint = null;
+                }
+                tileScene.Add(child);
+            }
+            return tileScene ?? paint;
+        }
+
+        private static bool _patternCellRect(SvgPatternNode pattern, in Box bbox, out Box cell)
+        {
+            cell = pattern.patternUserSpace ? pattern.box : _objectBoundingBox(pattern.box, bbox);
+            return _validBox(cell);
+        }
+
+        private static Matrix _patternContentTransform(SvgPatternNode pattern, in Box bbox, in Box cell)
+        {
+            if (pattern.hasViewBox)
+            {
+                var sx = cell.w / pattern.vbox.w;
+                var sy = cell.h / pattern.vbox.h;
+                return new Matrix(sx, 0, -pattern.vbox.x * sx, 0, sy, -pattern.vbox.y * sy, 0, 0, 1);
+            }
+            if (!pattern.contentUserSpace) return new Matrix(bbox.w, 0, 0, 0, bbox.h, 0, 0, 0, 1);
+            return TvgMath.Identity();
+        }
+
+        private static Box _transformBounds(in Box bounds, in Matrix matrix)
+        {
+            var lt = TvgMath.Transform(new Point(bounds.x, bounds.y), matrix);
+            var lb = TvgMath.Transform(new Point(bounds.x, bounds.y + bounds.h), matrix);
+            var rt = TvgMath.Transform(new Point(bounds.x + bounds.w, bounds.y), matrix);
+            var rb = TvgMath.Transform(new Point(bounds.x + bounds.w, bounds.y + bounds.h), matrix);
+            var minX = MathF.Min(MathF.Min(lt.x, lb.x), MathF.Min(rt.x, rb.x));
+            var minY = MathF.Min(MathF.Min(lt.y, lb.y), MathF.Min(rt.y, rb.y));
+            var maxX = MathF.Max(MathF.Max(lt.x, lb.x), MathF.Max(rt.x, rb.x));
+            var maxY = MathF.Max(MathF.Max(lt.y, lb.y), MathF.Max(rt.y, rb.y));
+            return new Box(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        private static void _patternTileGrid(in Box cell, in Box bbox, Matrix? transform,
+                                             out float startX, out float startY, out int cols, out int rows)
+        {
+            var box = bbox;
+            if (transform.HasValue && TvgMath.Inverse(transform.Value, out var inverse)) box = _transformBounds(bbox, inverse);
+            startX = cell.x + MathF.Floor((box.x - cell.x) / cell.w) * cell.w;
+            startY = cell.y + MathF.Floor((box.y - cell.y) / cell.h) * cell.h;
+            cols = (int)MathF.Ceiling((box.x + box.w - startX) / cell.w);
+            rows = (int)MathF.Ceiling((box.y + box.h - startY) / cell.h);
+        }
+
+        private static Paint? _applyPatternProperty(SvgParserContext ctx, Shape vg, SvgNode node, SvgNode patternNode,
+                                                    in Box vBox, string svgPath)
+        {
+            if (patternNode.child.Count == 0) return null;
+            var pattern = patternNode.pattern;
+            if (pattern.applying) return null;
+
+            var bbox = _bounds(vg);
+            if (!_validBox(bbox) || !_patternCellRect(pattern, bbox, out var cell)) return null;
+
+            _patternTileGrid(cell, bbox, pattern.transform, out var startX, out var startY, out var cols, out var rows);
+            var contentTransform = _patternContentTransform(pattern, bbox, cell);
+            pattern.applying = true;
+
+            var baseTile = _buildBaseTile(ctx, patternNode, vBox, svgPath);
+            var tilesScene = Scene.Gen();
+            if (baseTile != null)
+            {
+                for (int row = 0; row < rows; ++row)
+                {
+                    for (int col = 0; col < cols; ++col)
+                    {
+                        var copy = baseTile.Duplicate();
+                        var tileTransform = TvgMath.Multiply(
+                            new Matrix(1, 0, startX + col * cell.w, 0, 1, startY + row * cell.h, 0, 0, 1),
+                            contentTransform);
+                        if (pattern.transform.HasValue) tileTransform = TvgMath.Multiply(pattern.transform.Value, tileTransform);
+                        copy.Transform(TvgMath.Multiply(tileTransform, copy.Transform()));
+                        tilesScene.Add(copy);
+                    }
+                }
+                Paint.Rel(baseTile);
+            }
+
+            var clipper = Shape.Gen();
+            if (!_recognizeShape(node, clipper))
+            {
+                pattern.applying = false;
+                Paint.Rel(tilesScene);
+                Paint.Rel(clipper);
+                return null;
+            }
+            tilesScene.Clip(clipper);
+            pattern.applying = false;
+            return tilesScene;
         }
 
         private static void _updateInvalidViewSize(Scene scene, ref Box vBox, ref float w, ref float h, SvgViewFlag viewFlag)

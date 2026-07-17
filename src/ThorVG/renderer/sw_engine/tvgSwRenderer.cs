@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using static ThorVG.SwHelper;
-using static ThorVG.SwBlendOps;
+using static ThorVG.SwBlendOp;
 using static ThorVG.SwRaster;
 
 namespace ThorVG
@@ -38,8 +38,8 @@ namespace ThorVG
 
         public void Invisible()
         {
-            curBox.Reset();
-            if (!nodirty) dirtyRegion?.Add(prvBox, curBox);
+            valid = false;
+            if (!nodirty) dirtyRegion?.Add(prvBox, default);
         }
 
         public bool Ready(bool condition)
@@ -59,6 +59,11 @@ namespace ThorVG
         public virtual void DisposeTask() { }
         public virtual bool Clip(ref SwRle target) { return false; }
         public void Done() { /* synchronous - no-op */ }
+        public bool Complete()
+        {
+            prvBox = valid ? curBox : default;
+            return true;
+        }
     }
 
     public class SwShapeTask : SwTask
@@ -100,12 +105,7 @@ namespace ThorVG
         {
             var strokeWidth = ValidStrokeWidth(clipper);
             var updateShape = (flags[0] & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform | RenderUpdateFlag.Clip)) != 0;
-            var updateFill = (flags[0] & (RenderUpdateFlag.Color | RenderUpdateFlag.Gradient)) != 0;
-
-            // Gradient fill parameters depend on the transform, so recompute when transform changes.
-            // Also handles shapes that were previously fully clipped (shape.fill == null).
-            if (!updateFill && updateShape && rshape!.fill != null)
-                updateFill = true;
+            var updateFill = (flags[0] & (RenderUpdateFlag.Color | RenderUpdateFlag.Gradient | RenderUpdateFlag.Transform)) != 0;
 
             // Shape
             if (updateShape)
@@ -131,35 +131,26 @@ namespace ThorVG
             // Fill
             if (updateFill)
             {
-                if (rshape!.fill != null)
-                {
-                    var ctable = (flags[0] & RenderUpdateFlag.Gradient) != 0;
-                    if (shape.fill == null) ctable = true; // first time: need full color table init
-                    if (ctable) SwShapeOps.shapeResetFill(shape);
-                    if (!SwShapeOps.shapeGenFillColors(shape, rshape.fill, transform, surface!, opacity, ctable)) goto err;
-                }
+                if (!SwShapeOps.shapeGenFillColors(ref shape.fill, rshape!.fill, transform, surface!, opacity, (flags[0] & RenderUpdateFlag.Gradient) != 0)) goto err;
             }
             // Stroke
-            if (updateShape || (flags[0] & RenderUpdateFlag.Stroke) != 0)
+            if (strokeWidth > 0.0f)
             {
-                if (strokeWidth > 0.0f)
+                var updateStroke = updateShape || (flags[0] & RenderUpdateFlag.Stroke) != 0;
+                if (updateStroke)
                 {
-                    SwShapeOps.shapeResetStroke(shape, rshape!, transform, mpool!, tid);
                     if (!SwShapeOps.shapeGenStrokeRle(shape, rshape!, transform, clipBox, ref curBox, mpool!, tid, antiAlias)) goto err;
-                    if (rshape!.StrokeFillGradient() is Fill strokeFill)
-                    {
-                        var ctable = (flags[0] & RenderUpdateFlag.GradientStroke) != 0;
-                        if (ctable) SwShapeOps.shapeResetStrokeFill(shape);
-                        if (!SwShapeOps.shapeGenStrokeFillColors(shape, strokeFill, transform, surface!, opacity, ctable)) goto err;
-                    }
                 }
-                else
+                var ctable = (flags[0] & RenderUpdateFlag.GradientStroke) != 0;
+                if (ctable || (flags[0] & RenderUpdateFlag.Transform) != 0)
                 {
-                    SwShapeOps.shapeDelStroke(shape);
+                    var strokeFill = rshape!.StrokeFillGradient();
+                    if (!SwShapeOps.shapeGenFillColors(ref shape.stroke!.fill, strokeFill, transform, surface!, opacity, ctable)) goto err;
                 }
             }
+            else SwShapeOps.shapeDelStroke(shape);
 
-            SwShapeOps.shapeDelOutline(shape, mpool!, tid);
+            SwShapeOps.shapeDelOutline(shape);
 
             // Clip Path
             foreach (var p in clips)
@@ -181,7 +172,6 @@ namespace ThorVG
             SwShapeOps.shapeReset(shape);
             SwLcdSubpixel.ResetLcdRle(shape); // [LCD Subpixel]
             if (shape.hasStrokeRle) { SwRleOps.rleReset(ref shape.strokeRle); }
-            SwShapeOps.shapeDelOutline(shape, mpool!, tid);
             Invisible();
         }
 
@@ -212,6 +202,7 @@ namespace ThorVG
             image.h = source.h;
             image.stride = source.stride;
             image.channelSize = source.channelSize;
+            image.alphaIgnored = source.alphaIgnored;
 
             var updateImage = (flags[0] & (RenderUpdateFlag.Image | RenderUpdateFlag.Clip | RenderUpdateFlag.Transform)) != 0;
             var updateColor = (flags[0] & RenderUpdateFlag.Color) != 0;
@@ -227,7 +218,6 @@ namespace ThorVG
                     if (!SwImageOps.imageGenRle(image, curBox, mpool!, tid, false)) goto err;
                     if (image.hasRle)
                     {
-                        SwImageOps.imageDelOutline(image, mpool!, tid);
                         foreach (var p in clips)
                         {
                             if (p is SwTask clipTask)
@@ -249,7 +239,6 @@ namespace ThorVG
             curBox.Reset();
             SwImageOps.imageReset(image);
         end:
-            SwImageOps.imageDelOutline(image, mpool!, tid);
             if (!nodirty) dirtyRegion?.Add(prvBox, curBox);
         }
 
@@ -263,7 +252,7 @@ namespace ThorVG
     //  SwRenderer
     // =====================================================================
 
-    public unsafe class SwRenderer : RenderMethod
+    public unsafe class SwRenderer : RenderMethod, ISwTargetResult
     {
         private SwSurface? surface;
         private SwMpool? mpool;
@@ -327,13 +316,18 @@ namespace ThorVG
 
         // --- Target ---
         public bool Target(uint* data, uint stride, uint w, uint h, ColorSpace cs)
+            => TargetResult(data, stride, w, h, cs) == Result.Success;
+
+        public Result TargetResult(uint* data, uint stride, uint w, uint h, ColorSpace cs)
         {
-            if (data == null || stride == 0 || w == 0 || h == 0 || w > stride) return false;
+            if (data == null || stride == 0 || w == 0 || h == 0 || w > stride) return Result.InvalidArguments;
 
             ClearCompositors();
 
             if (surface == null) surface = new SwSurface();
 
+            surface.Unpin();
+            surface.data = null;
             surface.buf32 = data;
             surface.stride = stride;
             surface.w = w;
@@ -351,8 +345,15 @@ namespace ThorVG
 
         // Overload accepting managed array
         public bool Target(uint[] data, uint stride, uint w, uint h, ColorSpace cs)
+            => TargetResult(data, stride, w, h, cs) == Result.Success;
+
+        public Result TargetResult(uint[] data, uint stride, uint w, uint h, ColorSpace cs)
         {
-            if (data == null || data.Length == 0 || stride == 0 || w == 0 || h == 0 || w > stride) return false;
+            if (data == null || stride == 0 || w == 0 || h == 0 || w > stride ||
+                (ulong)data.LongLength < (ulong)stride * h)
+            {
+                return Result.InvalidArguments;
+            }
 
             ClearCompositors();
 
@@ -454,8 +455,7 @@ namespace ThorVG
                 // full scene rendering
                 RasterImage(surface!, task.image, task.transform, task.curBox, task.opacity);
             }
-            task.prvBox = task.curBox;
-            return true;
+            return task.Complete();
         }
 
         private bool RasterImage(SwSurface surface, SwImage image, in Matrix transform, in RenderRegion bbox, byte opacity)
@@ -553,8 +553,7 @@ namespace ThorVG
                     strokeShape(task, surface!, task.curBox);
                 }
             }
-            task.prvBox = task.curBox;
-            return true;
+            return task.Complete();
         }
 
         // --- Blend ---
@@ -565,22 +564,22 @@ namespace ThorVG
 
             surface.blender = method switch
             {
-                BlendMethod.Multiply => opBlendMultiply,
-                BlendMethod.Screen => opBlendScreen,
-                BlendMethod.Overlay => opBlendOverlay,
-                BlendMethod.Darken => opBlendDarken,
-                BlendMethod.Lighten => opBlendLighten,
-                BlendMethod.ColorDodge => opBlendColorDodge,
-                BlendMethod.ColorBurn => opBlendColorBurn,
-                BlendMethod.HardLight => opBlendHardLight,
-                BlendMethod.SoftLight => opBlendSoftLight,
-                BlendMethod.Difference => opBlendDifference,
-                BlendMethod.Exclusion => opBlendExclusion,
-                BlendMethod.Hue => opBlendHue,
-                BlendMethod.Saturation => opBlendSaturation,
-                BlendMethod.Color => opBlendColor,
-                BlendMethod.Luminosity => opBlendLuminosity,
-                BlendMethod.Add => opBlendAdd,
+                BlendMethod.Multiply => BlendMultiply,
+                BlendMethod.Screen => BlendScreen,
+                BlendMethod.Overlay => BlendOverlay,
+                BlendMethod.Darken => BlendDarken,
+                BlendMethod.Lighten => BlendLighten,
+                BlendMethod.ColorDodge => BlendColorDodge,
+                BlendMethod.ColorBurn => BlendColorBurn,
+                BlendMethod.HardLight => BlendHardLight,
+                BlendMethod.SoftLight => BlendSoftLight,
+                BlendMethod.Difference => BlendDifference,
+                BlendMethod.Exclusion => BlendExclusion,
+                BlendMethod.Hue => BlendHue,
+                BlendMethod.Saturation => BlendSaturation,
+                BlendMethod.Color => BlendColor,
+                BlendMethod.Luminosity => BlendLuminosity,
+                BlendMethod.Add => BlendAdd,
                 _ => null
             };
             return true;

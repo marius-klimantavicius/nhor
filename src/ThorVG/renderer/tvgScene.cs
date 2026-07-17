@@ -370,7 +370,7 @@ namespace ThorVG
         }
 
         /// <summary>Renderer-based intersection test. Mirrors C++ SceneImpl::intersects().</summary>
-        internal bool Intersects(in RenderRegion region)
+        internal bool Intersects(in RenderRegion region, bool visibleOnly)
         {
             if (pImpl.renderer == null) return false;
 
@@ -378,7 +378,7 @@ namespace ThorVG
             {
                 foreach (var paint in paints)
                 {
-                    if (paint.pImpl.Intersects(region)) return true;
+                    if (paint.pImpl.Intersects(region, visibleOnly)) return true;
                 }
             }
             return false;
@@ -516,6 +516,6 @@ namespace ThorVG
         internal override bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => PaintRender(renderer, flag);
         internal override RenderRegion PaintBoundsVirt() => PaintBounds();
         internal override bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => GeometricBounds(pt4, m, obb);
-        internal override bool IntersectsVirt(in RenderRegion region) => Intersects(region);
+        internal override bool IntersectsVirt(in RenderRegion region, bool visibleOnly) => Intersects(region, visibleOnly);
     }
 }

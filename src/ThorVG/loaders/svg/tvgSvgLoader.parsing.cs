@@ -364,6 +364,8 @@ namespace ThorVG
         {
             var node = ctx.svgParse!.node!;
 
+            if (ParseBox(key, value, ref node.maskNode.box, node.maskNode.isPercentage)) return true;
+
             if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
             else if (SvgHelper.StrAs(key, "transform"))
@@ -372,9 +374,13 @@ namespace ThorVG
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
                 HandleCssClassAttr(ctx, node, value);
+            else if (SvgHelper.StrAs(key, "maskUnits"))
+            {
+                if (SvgHelper.StrAs(value, "userSpaceOnUse")) node.maskNode.userSpace = true;
+            }
             else if (SvgHelper.StrAs(key, "maskContentUnits"))
             {
-                if (SvgHelper.StrAs(value, "objectBoundingBox")) node.maskNode.userSpace = false;
+                if (SvgHelper.StrAs(value, "objectBoundingBox")) node.maskNode.maskContentUserSpace = false;
             }
             else if (SvgHelper.StrAs(key, "mask-type"))
                 node.maskNode.type = ToMaskType(value);
@@ -985,9 +991,13 @@ namespace ThorVG
         private static SvgNode? CreateMaskNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
             ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Mask);
-            ctx.svgParse.node.maskNode.userSpace = true;
-            ctx.svgParse.node.maskNode.type = SvgMaskType.Luminance;
+            var mask = ctx.svgParse.node.maskNode;
+            mask.maskContentUserSpace = true;
+            mask.type = SvgMaskType.Luminance;
+            mask.box = new Box(-0.1f, -0.1f, 1.2f, 1.2f);
+            Array.Fill(mask.isPercentage, true);
             func?.Invoke(buf, bufOffset, bufLength, AttrParseMaskNode, ctx);
+            if (mask.userSpace) RecalcBox(ctx, ref mask.box, mask.isPercentage);
             return ctx.svgParse.node;
         }
 
@@ -1118,6 +1128,66 @@ namespace ThorVG
             return ctx.svgParse.node;
         }
 
+        private static bool ParseBox(string key, string value, ref Box box, bool[] isPercentage)
+        {
+            int index;
+            if (SvgHelper.StrAs(key, "x")) index = 0;
+            else if (SvgHelper.StrAs(key, "y")) index = 1;
+            else if (SvgHelper.StrAs(key, "width")) index = 2;
+            else if (SvgHelper.StrAs(key, "height")) index = 3;
+            else return false;
+
+            bool percentage = false;
+            var parsed = GradientToFloat(null, value, ref percentage);
+            isPercentage[index] = percentage;
+            switch (index)
+            {
+                case 0: box.x = parsed; break;
+                case 1: box.y = parsed; break;
+                case 2: box.w = parsed; break;
+                default: box.h = parsed; break;
+            }
+            return true;
+        }
+
+        private static bool AttrParsePatternNode(SvgParserContext ctx, string key, string value)
+        {
+            var node = ctx.svgParse!.node!;
+            var pattern = node.pattern;
+
+            if (ParseBox(key, value, ref pattern.box, pattern.isPercentage)) return true;
+
+            if (SvgHelper.StrAs(key, "id")) node.id = CopyId(value);
+            else if (SvgHelper.StrAs(key, "patternUnits"))
+            {
+                if (SvgHelper.StrAs(value, "userSpaceOnUse")) pattern.patternUserSpace = true;
+            }
+            else if (SvgHelper.StrAs(key, "patternContentUnits"))
+            {
+                if (SvgHelper.StrAs(value, "objectBoundingBox")) pattern.contentUserSpace = false;
+            }
+            else if (SvgHelper.StrAs(key, "viewBox"))
+            {
+                int pos = 0;
+                if (!ParseNumber(value, ref pos, out pattern.vbox.x) || !ParseNumber(value, ref pos, out pattern.vbox.y)) return false;
+                if (!ParseNumber(value, ref pos, out pattern.vbox.w) || !ParseNumber(value, ref pos, out pattern.vbox.h)) return false;
+                if (pattern.vbox.w > 0.0f && pattern.vbox.h > 0.0f) pattern.hasViewBox = true;
+            }
+            else if (SvgHelper.StrAs(key, "patternTransform")) pattern.transform = ParseTransformationMatrix(value);
+            return true;
+        }
+
+        private static SvgNode? CreatePatternNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
+        {
+            ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Pattern);
+            var pattern = ctx.svgParse.node.pattern;
+            ctx.svgParse.node.style!.display = false;
+            pattern.contentUserSpace = true;
+            func?.Invoke(buf, bufOffset, bufLength, AttrParsePatternNode, ctx);
+            if (pattern.patternUserSpace) RecalcBox(ctx, ref pattern.box, pattern.isPercentage);
+            return ctx.svgParse.node;
+        }
+
         private static void CreateFontFace(SvgParserContext ctx, string buf, int bufOffset, int bufLength, ParseAttributesFunc func)
         {
             ctx.fonts.Add(new FontFace());
@@ -1155,7 +1225,8 @@ namespace ThorVG
             ("clipPath", CreateClipPathNode!),
             ("style", CreateCssStyleNode!),
             ("symbol", CreateSymbolNode!),
-            ("filter", CreateFilterNode!)
+            ("filter", CreateFilterNode!),
+            ("pattern", CreatePatternNode!)
         };
 
         private static readonly (string tag, GradientFactoryMethod handler)[] GradientTags = {
@@ -1469,6 +1540,16 @@ namespace ThorVG
                     to.use.x = from.use.x; to.use.y = from.use.y; to.use.w = from.use.w; to.use.h = from.use.h;
                     to.use.isWidthSet = from.use.isWidthSet; to.use.isHeightSet = from.use.isHeightSet;
                     to.use.symbol = from.use.symbol;
+                    break;
+                case SvgNodeType.Pattern:
+                    to.pattern.box = from.pattern.box;
+                    to.pattern.vbox = from.pattern.vbox;
+                    to.pattern.transform = from.pattern.transform;
+                    Array.Copy(from.pattern.isPercentage, to.pattern.isPercentage, 4);
+                    to.pattern.patternUserSpace = from.pattern.patternUserSpace;
+                    to.pattern.contentUserSpace = from.pattern.contentUserSpace;
+                    to.pattern.hasViewBox = from.pattern.hasViewBox;
+                    to.pattern.applying = false;
                     break;
                 case SvgNodeType.Tspan:
                 case SvgNodeType.Text:

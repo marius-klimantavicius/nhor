@@ -209,7 +209,7 @@ namespace ThorVG.Tests
             var jpg = CreateTestJpeg(4, 4);
             var decoder = JpegDecoder.FromData(jpg, jpg.Length, out _, out _);
             Assert.NotNull(decoder);
-            var pixels = decoder!.Decompress(ColorSpace.ABGR8888);
+            var pixels = decoder!.Decompress();
             Assert.NotNull(pixels);
             Assert.Equal(16, pixels!.Length);
         }

@@ -2168,10 +2168,10 @@ namespace ThorVG
 
         /// <summary>
         /// Decompress JPEG data into a pixel buffer.
-        /// Returns pixel data in either ARGB8888 or ABGR8888 format depending on the requested color space.
-        /// Mirrors C++ jpgdDecompress(decoder, cs).
+        /// Returns pixel data in ABGR8888 format.
+        /// Mirrors C++ jpgdDecompress(decoder).
         /// </summary>
-        public uint[]? Decompress(ColorSpace cs)
+        public uint[]? Decompress()
         {
             if (!valid) return null;
 
@@ -2179,7 +2179,6 @@ namespace ThorVG
             {
                 if (_decoder.begin_decoding() != (int)jpgd_status.JPGD_SUCCESS) return null;
 
-                bool bgra = (cs == ColorSpace.ABGR8888S || cs == ColorSpace.ABGR8888);
                 int channel = 4;
                 int w = _decoder.get_width();
                 int h = _decoder.get_height();
@@ -2196,22 +2195,8 @@ namespace ThorVG
 
                     if (_decoder.get_num_components() == 3)
                     {
-                        if (bgra)
-                        {
-                            Array.Copy(src, 0, ret, dstOfs, stride);
-                            dstOfs += stride;
-                        }
-                        else
-                        {
-                            int sOfs = 0;
-                            for (int x = 0; x < w; x++, sOfs += 4, dstOfs += 4)
-                            {
-                                ret[dstOfs] = src[sOfs + 2];
-                                ret[dstOfs + 1] = src[sOfs + 1];
-                                ret[dstOfs + 2] = src[sOfs];
-                                ret[dstOfs + 3] = 255;
-                            }
-                        }
+                        Array.Copy(src, 0, ret, dstOfs, stride);
+                        dstOfs += stride;
                     }
                     else if (_decoder.get_num_components() == 1)
                     {

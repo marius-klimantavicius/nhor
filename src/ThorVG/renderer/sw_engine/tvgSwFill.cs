@@ -432,7 +432,7 @@ namespace ThorVG
             }
         }
 
-        public static void fillRadial(SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a)
+        public static void fillRadial(SwSurface surface, SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a)
         {
             if (fill.radial.a < RADIAL_A_THRESHOLD)
             {
@@ -446,7 +446,7 @@ namespace ThorVG
                     {
                         var x0 = 0.5f * (rx * rx + ry * ry - radial.fr * radial.fr) / (radial.dr * radial.fr + rx * radial.dx + ry * radial.dy);
                         var tmp = op(_pixel(fill, x0), *dst, 255);
-                        *dst = op2(tmp, *dst);
+                        *dst = op2(surface, tmp, *dst);
                         rx += radial.a11;
                         ry += radial.a21;
                     }
@@ -457,7 +457,7 @@ namespace ThorVG
                     {
                         var x0 = 0.5f * (rx * rx + ry * ry - radial.fr * radial.fr) / (radial.dr * radial.fr + rx * radial.dx + ry * radial.dy);
                         var tmp = op(_pixel(fill, x0), *dst, 255);
-                        var tmp2 = op2(tmp, *dst);
+                        var tmp2 = op2(surface, tmp, *dst);
                         *dst = INTERPOLATE(tmp2, *dst, a);
                         rx += radial.a11;
                         ry += radial.a21;
@@ -472,7 +472,7 @@ namespace ThorVG
                     for (uint i = 0; i < len; ++i, ++dst)
                     {
                         var tmp = op(_pixel(fill, MathF.Sqrt(det) - b), *dst, 255);
-                        *dst = op2(tmp, *dst);
+                        *dst = op2(surface, tmp, *dst);
                         det += deltaDet;
                         deltaDet += deltaDeltaDet;
                         b += deltaB;
@@ -483,7 +483,7 @@ namespace ThorVG
                     for (uint i = 0; i < len; ++i, ++dst)
                     {
                         var tmp = op(_pixel(fill, MathF.Sqrt(det) - b), *dst, 255);
-                        var tmp2 = op2(tmp, *dst);
+                        var tmp2 = op2(surface, tmp, *dst);
                         *dst = INTERPOLATE(tmp2, *dst, a);
                         det += deltaDet;
                         deltaDet += deltaDeltaDet;
@@ -719,7 +719,7 @@ namespace ThorVG
             }
         }
 
-        public static void fillLinear(SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a)
+        public static void fillLinear(SwSurface surface, SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a)
         {
             float rx = x + 0.5f;
             float ry = y + 0.5f;
@@ -734,7 +734,7 @@ namespace ThorVG
                     for (uint i = 0; i < len; ++i, ++dst)
                     {
                         var tmp = op(color, *dst, a);
-                        *dst = op2(tmp, *dst);
+                        *dst = op2(surface, tmp, *dst);
                     }
                 }
                 else
@@ -742,7 +742,7 @@ namespace ThorVG
                     for (uint i = 0; i < len; ++i, ++dst)
                     {
                         var tmp = op(color, *dst, a);
-                        var tmp2 = op2(tmp, *dst);
+                        var tmp2 = op2(surface, tmp, *dst);
                         *dst = INTERPOLATE(tmp2, *dst, a);
                     }
                 }
@@ -762,7 +762,7 @@ namespace ThorVG
                     for (uint j = 0; j < len; ++j, ++dst)
                     {
                         var tmp = op(_fixedPixel(fill, t2), *dst, 255);
-                        *dst = op2(tmp, *dst);
+                        *dst = op2(surface, tmp, *dst);
                         t2 += inc2i;
                     }
                 }
@@ -772,7 +772,7 @@ namespace ThorVG
                     while (counter++ < len)
                     {
                         var tmp = op(_pixel(fill, t / SwConstants.SW_COLOR_TABLE), *dst, 255);
-                        *dst = op2(tmp, *dst);
+                        *dst = op2(surface, tmp, *dst);
                         ++dst;
                         t += inc2;
                     }
@@ -787,7 +787,7 @@ namespace ThorVG
                     for (uint j = 0; j < len; ++j, ++dst)
                     {
                         var tmp = op(_fixedPixel(fill, t2), *dst, 255);
-                        var tmp2 = op2(tmp, *dst);
+                        var tmp2 = op2(surface, tmp, *dst);
                         *dst = INTERPOLATE(tmp2, *dst, a);
                         t2 += inc2i;
                     }
@@ -798,7 +798,7 @@ namespace ThorVG
                     while (counter++ < len)
                     {
                         var tmp = op(_pixel(fill, t / SwConstants.SW_COLOR_TABLE), *dst, 255);
-                        var tmp2 = op2(tmp, *dst);
+                        var tmp2 = op2(surface, tmp, *dst);
                         *dst = INTERPOLATE(tmp2, *dst, a);
                         ++dst;
                         t += inc2;

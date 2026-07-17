@@ -1,6 +1,7 @@
 // Ported from ThorVG/src/renderer/gpu_engine/tvgGpuCommon.h and tvgGpuCommon.cpp
 
 using System;
+using System.Collections.Generic;
 
 namespace ThorVG
 {
@@ -10,42 +11,165 @@ namespace ThorVG
 
     public static unsafe class GpuCommon
     {
+        private sealed class ThinPathTracker
+        {
+            private const float Tolerance = 0.25f;
+            private const float CoverageQuantum = 1.0f / 256.0f;
+            private const float MaxPixelSpan = 1.41421356237f;
+            private readonly List<Point> pending = new List<Point>();
+            private Point axisStart;
+            private Point axisVec;
+            private float axisLen;
+            private float axisLenInv;
+            private float axisLenSqInv;
+            private float minT;
+            private float maxT;
+            private float minDist;
+            private float maxDist;
+            public bool ready;
+            public bool candidate = true;
+
+            public void Disable()
+            {
+                candidate = false;
+                ready = false;
+                pending.Clear();
+            }
+
+            public void TrackLine(in Point start, in Point end, bool closed)
+            {
+                if (!candidate) return;
+                if (!ready)
+                {
+                    if (closed) pending.Add(start);
+                    else InitAxis(start, end);
+                    return;
+                }
+                Update(end);
+            }
+
+            public void TrackClosedCubic(in Point start, in Point ctrl1, in Point ctrl2, in Point end)
+            {
+                if (!candidate) return;
+                if (!ready)
+                {
+                    pending.Add(start);
+                    pending.Add(ctrl1);
+                    pending.Add(ctrl2);
+                    return;
+                }
+                Update(ctrl1);
+                Update(ctrl2);
+                Update(end);
+            }
+
+            public void TrackFlatCubic(in Point start, in Point ctrl1, in Point ctrl2, in Point end)
+            {
+                if (!candidate) return;
+                if (!ready) InitAxis(start, end);
+                else Update(end);
+                Update(ctrl1);
+                Update(ctrl2);
+            }
+
+            public void TrackClose(in Point start, in Point end, bool closed)
+            {
+                if (!candidate) return;
+                if (!ready)
+                {
+                    if (closed) pending.Add(start);
+                    else InitAxis(start, end);
+                    return;
+                }
+                Update(end);
+            }
+
+            public bool TooThin()
+            {
+                var span = (maxT - minT) * axisLen;
+                var thickness = maxDist - minDist;
+                return thickness * MathF.Min(span, MaxPixelSpan) < CoverageQuantum;
+            }
+
+            private void InitAxis(in Point start, in Point end)
+            {
+                axisStart = start;
+                axisVec = TvgMath.PointSub(end, start);
+                var lenSq = TvgMath.Dot(axisVec, axisVec);
+                axisLen = MathF.Sqrt(lenSq);
+                axisLenInv = 1.0f / axisLen;
+                axisLenSqInv = 1.0f / lenSq;
+                minT = minDist = maxDist = 0.0f;
+                maxT = 1.0f;
+                ready = true;
+                for (int i = 0; i < pending.Count && candidate; ++i) Update(pending[i]);
+                pending.Clear();
+            }
+
+            private void Update(in Point point)
+            {
+                var offset = TvgMath.PointSub(point, axisStart);
+                var signedDist = TvgMath.Cross(axisVec, offset) * axisLenInv;
+                if (MathF.Abs(signedDist) > Tolerance)
+                {
+                    Disable();
+                    return;
+                }
+                var t = TvgMath.Dot(offset, axisVec) * axisLenSqInv;
+                if (t < minT) minT = t;
+                if (t > maxT) maxT = t;
+                if (signedDist < minDist) minDist = signedDist;
+                if (signedDist > maxDist) maxDist = signedDist;
+            }
+        }
+
         /// <summary>
         /// Optimize path in screen space by collapsing zero length lines
         /// and removing unnecessary cubic beziers. Mirrors C++ gpuOptimize().
         /// </summary>
-        public static void GpuOptimize(in RenderPath @in, RenderPath @out, in Matrix matrix, out bool thin, out bool skipFill)
+        public static void GpuOptimize(in RenderPath @in, RenderPath @out, RenderPath? localOut, in Matrix matrix, out bool thin, out bool skipFill)
         {
-            const float PX_TOLERANCE = 0.25f;
-
+            const float Tolerance = 0.25f;
             thin = false;
             skipFill = false;
+            @out.Clear();
+            localOut?.Clear();
             if (@in.Empty()) return;
 
-            @out.cmds.Clear();
-            @out.pts.Clear();
             @out.cmds.Reserve(@in.cmds.count);
             @out.pts.Reserve(@in.pts.count);
+            localOut?.cmds.Reserve(@in.cmds.count);
+            localOut?.pts.Reserve(@in.pts.count);
 
-            var cmds = @in.cmds.data;
-            var cmdCnt = @in.cmds.count;
             var pts = @in.pts.data;
+            Point lastOutT = default, lastInT = default, subpathStartT = default;
+            uint drawableSubpathCnt = 0;
+            bool subpathOpen = false, subpathHasSegment = false;
+            var tracker = new ThinPathTracker();
 
-            Point lastOutT = default;
-            Point subpathStartT = default;
-            Point thinLineStart = default;
-            Point thinLineVec = default;
-            var drawableSubpathCnt = 0u;
-            var thinLineVecLen = 0.0f;
-            var thinCandidate = true;
-            var thinLineReady = false;
-            var subpathOpen = false;
-            var subpathHasSegment = false;
-
-            // Local helper: project point onto line (start, start+vec), update maxDist/minT/maxT
-            static void Point2Line(in Point point, in Point start, in Point vec, float vecLen, ref float maxDist, ref float minT, ref float maxT)
+            void FinalizeSubpath()
             {
-                var offset = new Point(point.x - start.x, point.y - start.y);
+                if (!subpathHasSegment) return;
+                if (++drawableSubpathCnt > 1) tracker.Disable();
+                subpathHasSegment = false;
+            }
+
+            static void ValidateCubic(in Point start, in Point ctrl1, in Point ctrl2, in Point end,
+                out float maxDist, out float minT, out float maxT, out float vecLen)
+            {
+                var vec = TvgMath.PointSub(end, start);
+                vecLen = MathF.Sqrt(vec.x * vec.x + vec.y * vec.y);
+                maxDist = 0.0f;
+                minT = float.MaxValue;
+                maxT = float.MinValue;
+                Point2Line(ctrl1, start, vec, vecLen, ref maxDist, ref minT, ref maxT);
+                Point2Line(ctrl2, start, vec, vecLen, ref maxDist, ref minT, ref maxT);
+            }
+
+            static void Point2Line(in Point point, in Point start, in Point vec, float vecLen,
+                ref float maxDist, ref float minT, ref float maxT)
+            {
+                var offset = TvgMath.PointSub(point, start);
                 var dist = MathF.Abs(TvgMath.Cross(vec, offset)) / vecLen;
                 if (dist > maxDist) maxDist = dist;
                 var t = TvgMath.Dot(offset, vec) / (vecLen * vecLen);
@@ -53,70 +177,38 @@ namespace ThorVG
                 if (t > maxT) maxT = t;
             }
 
-            for (uint i = 0; i < cmdCnt; i++)
+            void AddLine(in Point local, in Point transformed)
             {
-                switch (cmds[i])
+                @out.LineTo(transformed);
+                localOut?.LineTo(local);
+                lastOutT = transformed;
+            }
+
+            for (uint i = 0; i < @in.cmds.count; ++i)
+            {
+                switch (@in.cmds[i])
                 {
                     case PathCommand.MoveTo:
                     {
-                        // finalizeSubpath
-                        if (subpathHasSegment)
-                        {
-                            ++drawableSubpathCnt;
-                            if (drawableSubpathCnt > 1) thinCandidate = false;
-                            subpathHasSegment = false;
-                        }
-
-                        var ptT = TvgMath.Transform(*pts, matrix);
-                        @out.cmds.Push(PathCommand.MoveTo);
-                        @out.pts.Push(ptT);
-                        lastOutT = ptT;
-                        subpathStartT = ptT;
+                        FinalizeSubpath();
+                        var point = *pts++;
+                        var transformed = TvgMath.Transform(point, matrix);
+                        @out.MoveTo(transformed);
+                        localOut?.MoveTo(point);
+                        lastOutT = lastInT = subpathStartT = transformed;
                         subpathOpen = true;
-                        pts++;
                         break;
                     }
                     case PathCommand.LineTo:
                     {
-                        var startT = lastOutT;
-                        var ptT = TvgMath.Transform(*pts, matrix);
-                        if (TvgMath.Closed(startT, ptT, PX_TOLERANCE))
-                        {
-                            pts++;
-                            break;
-                        }
-                        // addLineCmd
-                        @out.cmds.Push(PathCommand.LineTo);
-                        @out.pts.Push(ptT);
-                        lastOutT = ptT;
-                        // collectThinSegment(startT, ptT)
-                        subpathHasSegment = true;
-                        if (thinCandidate)
-                        {
-                            if (!thinLineReady)
-                            {
-                                if (!TvgMath.Closed(startT, ptT, PX_TOLERANCE))
-                                {
-                                    thinLineStart = startT;
-                                    thinLineVec = new Point(ptT.x - startT.x, ptT.y - startT.y);
-                                    thinLineVecLen = MathF.Sqrt(thinLineVec.x * thinLineVec.x + thinLineVec.y * thinLineVec.y);
-                                    if (!TvgMath.Zero(thinLineVecLen)) thinLineReady = true;
-                                }
-                            }
-                            else
-                            {
-                                // checkThinPoint(startT)
-                                var dist0 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(startT.x - thinLineStart.x, startT.y - thinLineStart.y))) / thinLineVecLen;
-                                if (dist0 > PX_TOLERANCE) thinCandidate = false;
-                                if (thinCandidate)
-                                {
-                                    // checkThinPoint(ptT)
-                                    var dist1 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(ptT.x - thinLineStart.x, ptT.y - thinLineStart.y))) / thinLineVecLen;
-                                    if (dist1 > PX_TOLERANCE) thinCandidate = false;
-                                }
-                            }
-                        }
-                        pts++;
+                        var point = *pts;
+                        var transformed = TvgMath.Transform(point, matrix);
+                        var closedIn = TvgMath.Closed(lastInT, transformed, Tolerance);
+                        if (!closedIn) subpathHasSegment = true;
+                        tracker.TrackLine(lastInT, transformed, closedIn);
+                        lastInT = transformed;
+                        if (!TvgMath.Closed(lastOutT, transformed, Tolerance)) AddLine(point, transformed);
+                        ++pts;
                         break;
                     }
                     case PathCommand.CubicTo:
@@ -124,115 +216,94 @@ namespace ThorVG
                         var ctrl1T = TvgMath.Transform(pts[0], matrix);
                         var ctrl2T = TvgMath.Transform(pts[1], matrix);
                         var endT = TvgMath.Transform(pts[2], matrix);
-                        var startT3 = lastOutT;
-
-                        if (!TvgMath.Closed(startT3, endT, PX_TOLERANCE))
+                        if (TvgMath.Closed(lastInT, endT, Tolerance)) tracker.TrackClosedCubic(lastInT, ctrl1T, ctrl2T, endT);
+                        else
                         {
-                            // validateCubic
-                            var vec3 = new Point(endT.x - startT3.x, endT.y - startT3.y);
-                            var vecLen3 = MathF.Sqrt(vec3.x * vec3.x + vec3.y * vec3.y);
-                            float maxDist3 = 0.0f;
-                            float minT3 = float.MaxValue;
-                            float maxT3 = float.MinValue;
-                            Point2Line(ctrl1T, startT3, vec3, vecLen3, ref maxDist3, ref minT3, ref maxT3);
-                            Point2Line(ctrl2T, startT3, vec3, vecLen3, ref maxDist3, ref minT3, ref maxT3);
+                            ValidateCubic(lastInT, ctrl1T, ctrl2T, endT, out var maxDist, out var minT, out var maxT, out var vecLen);
+                            var tEps = Tolerance / vecLen;
+                            if (maxDist <= Tolerance && minT >= -tEps && maxT <= 1.0f + tEps)
+                                tracker.TrackFlatCubic(lastInT, ctrl1T, ctrl2T, endT);
+                            else tracker.Disable();
+                        }
 
-                            var flat = maxDist3 <= PX_TOLERANCE;
-                            var tEps3 = PX_TOLERANCE / vecLen3;
-                            var inSpan = minT3 >= -tEps3 && maxT3 <= 1.0f + tEps3;
-
-                            if (flat && inSpan)
-                            {
-                                // addLineCmd(startT3, endT)
-                                @out.cmds.Push(PathCommand.LineTo);
-                                @out.pts.Push(endT);
-                                lastOutT = endT;
-                                // collectThinSegment(startT3, endT)
-                                subpathHasSegment = true;
-                                if (thinCandidate)
-                                {
-                                    if (!thinLineReady)
-                                    {
-                                        if (!TvgMath.Closed(startT3, endT, PX_TOLERANCE))
-                                        {
-                                            thinLineStart = startT3;
-                                            thinLineVec = new Point(endT.x - startT3.x, endT.y - startT3.y);
-                                            thinLineVecLen = MathF.Sqrt(thinLineVec.x * thinLineVec.x + thinLineVec.y * thinLineVec.y);
-                                            if (!TvgMath.Zero(thinLineVecLen)) thinLineReady = true;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        var dist0 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(startT3.x - thinLineStart.x, startT3.y - thinLineStart.y))) / thinLineVecLen;
-                                        if (dist0 > PX_TOLERANCE) thinCandidate = false;
-                                        if (thinCandidate)
-                                        {
-                                            var dist1 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(endT.x - thinLineStart.x, endT.y - thinLineStart.y))) / thinLineVecLen;
-                                            if (dist1 > PX_TOLERANCE) thinCandidate = false;
-                                        }
-                                    }
-                                }
-                            }
+                        if (!TvgMath.Closed(lastOutT, endT, Tolerance))
+                        {
+                            ValidateCubic(lastOutT, ctrl1T, ctrl2T, endT, out var maxDist, out var minT, out var maxT, out var vecLen);
+                            var tEps = Tolerance / vecLen;
+                            subpathHasSegment = true;
+                            if (maxDist <= Tolerance && minT >= -tEps && maxT <= 1.0f + tEps) AddLine(pts[2], endT);
                             else
                             {
-                                @out.cmds.Push(PathCommand.CubicTo);
-                                @out.pts.Push(ctrl1T);
-                                @out.pts.Push(ctrl2T);
-                                @out.pts.Push(endT);
+                                @out.CubicTo(ctrl1T, ctrl2T, endT);
+                                localOut?.CubicTo(pts[0], pts[1], pts[2]);
                                 lastOutT = endT;
-                                subpathHasSegment = true;
-                                thinCandidate = false;
+                                tracker.Disable();
                             }
                         }
+                        lastInT = endT;
                         pts += 3;
                         break;
                     }
                     case PathCommand.Close:
                     {
-                        if (subpathOpen && !TvgMath.Closed(lastOutT, subpathStartT, PX_TOLERANCE))
+                        if (subpathOpen)
                         {
-                            // collectThinSegment(lastOutT, subpathStartT)
-                            subpathHasSegment = true;
-                            if (thinCandidate)
-                            {
-                                if (!thinLineReady)
-                                {
-                                    if (!TvgMath.Closed(lastOutT, subpathStartT, PX_TOLERANCE))
-                                    {
-                                        thinLineStart = lastOutT;
-                                        thinLineVec = new Point(subpathStartT.x - lastOutT.x, subpathStartT.y - lastOutT.y);
-                                        thinLineVecLen = MathF.Sqrt(thinLineVec.x * thinLineVec.x + thinLineVec.y * thinLineVec.y);
-                                        if (!TvgMath.Zero(thinLineVecLen)) thinLineReady = true;
-                                    }
-                                }
-                                else
-                                {
-                                    var dist0 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(lastOutT.x - thinLineStart.x, lastOutT.y - thinLineStart.y))) / thinLineVecLen;
-                                    if (dist0 > PX_TOLERANCE) thinCandidate = false;
-                                    if (thinCandidate)
-                                    {
-                                        var dist1 = MathF.Abs(TvgMath.Cross(thinLineVec, new Point(subpathStartT.x - thinLineStart.x, subpathStartT.y - thinLineStart.y))) / thinLineVecLen;
-                                        if (dist1 > PX_TOLERANCE) thinCandidate = false;
-                                    }
-                                }
-                            }
+                            var closedIn = TvgMath.Closed(lastInT, subpathStartT, Tolerance);
+                            if (!closedIn) subpathHasSegment = true;
+                            tracker.TrackClose(lastInT, subpathStartT, closedIn);
                         }
-                        @out.cmds.Push(PathCommand.Close);
-                        lastOutT = subpathStartT;
+                        @out.Close();
+                        localOut?.Close();
+                        lastOutT = lastInT = subpathStartT;
                         break;
                     }
-                    default: break;
                 }
             }
 
-            // finalizeSubpath (final)
-            if (subpathHasSegment)
+            FinalizeSubpath();
+            thin = tracker.candidate && tracker.ready && drawableSubpathCnt == 1;
+            if (thin && tracker.TooThin())
             {
-                ++drawableSubpathCnt;
-                if (drawableSubpathCnt > 1) thinCandidate = false;
+                thin = false;
+                skipFill = true;
             }
+        }
 
-            thin = thinCandidate && thinLineReady && (drawableSubpathCnt == 1);
+        public static void GpuOptimize(in RenderPath @in, RenderPath @out, in Matrix matrix, out bool thin, out bool skipFill)
+        {
+            GpuOptimize(@in, @out, null, matrix, out thin, out skipFill);
+        }
+
+        public static uint GpuArcSegmentsCnt(float arcAngle, float pixelRadius)
+        {
+            if (pixelRadius < MathConstants.FLOAT_EPSILON) return 2;
+            const float PxTolerance = 0.25f;
+            var segmentAngle = 2.0f * MathF.Sqrt(2.0f * PxTolerance / pixelRadius);
+            return (uint)MathF.Ceiling(MathF.Abs(arcAngle) / segmentAngle) + 1;
+        }
+
+        public static bool GpuPointInTriangle(in Point p, in Point a, in Point b, in Point c)
+        {
+            var d1 = TvgMath.Cross(TvgMath.PointSub(p, a), TvgMath.PointSub(p, b));
+            var d2 = TvgMath.Cross(TvgMath.PointSub(p, b), TvgMath.PointSub(p, c));
+            var d3 = TvgMath.Cross(TvgMath.PointSub(p, c), TvgMath.PointSub(p, a));
+            var hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+            var hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+            return !(hasNeg && hasPos);
+        }
+
+        public static RenderRegion GpuTransformBounds(in RenderRegion bounds, in Matrix matrix)
+        {
+            if (bounds.Invalid()) return bounds;
+            var lt = TvgMath.Transform(new Point(bounds.min.x, bounds.min.y), matrix);
+            var lb = TvgMath.Transform(new Point(bounds.min.x, bounds.max.y), matrix);
+            var rt = TvgMath.Transform(new Point(bounds.max.x, bounds.min.y), matrix);
+            var rb = TvgMath.Transform(new Point(bounds.max.x, bounds.max.y), matrix);
+            var minX = MathF.Min(MathF.Min(lt.x, lb.x), MathF.Min(rt.x, rb.x));
+            var minY = MathF.Min(MathF.Min(lt.y, lb.y), MathF.Min(rt.y, rb.y));
+            var maxX = MathF.Max(MathF.Max(lt.x, lb.x), MathF.Max(rt.x, rb.x));
+            var maxY = MathF.Max(MathF.Max(lt.y, lb.y), MathF.Max(rt.y, rb.y));
+            return new RenderRegion((int)MathF.Floor(minX), (int)MathF.Floor(minY), (int)MathF.Ceiling(maxX), (int)MathF.Ceiling(maxY));
         }
 
         /// <summary>
@@ -386,6 +457,27 @@ namespace ThorVG
 
     internal struct StrokeDashPath
     {
+        struct DashPatternState
+        {
+            public int idx;
+            public float offset;
+            public bool gap;
+        }
+
+        struct DashSubpathState
+        {
+            public bool closed;
+            public bool closeEndsAtStart;
+        }
+
+        struct PieceRange
+        {
+            public uint cmdBegin;
+            public uint cmdEnd;
+            public uint ptBegin;
+            public uint ptEnd;
+        }
+
         float[] dashPattern;
         int dashCnt;
         float dashOffset;
@@ -399,6 +491,7 @@ namespace ThorVG
         bool applyTransform;
 
         const float MIN_CURR_LEN_THRESHOLD = 0.1f;
+        const float DASH_ENDPOINT_TOLERANCE = RenderHelper.DASH_PATTERN_THRESHOLD;
 
         public StrokeDashPath(float[] pattern, int count, float offset, float length)
         {
@@ -430,32 +523,164 @@ namespace ThorVG
             @out.LineTo(Map(p));
         }
 
+        DashPatternState PatternState()
+        {
+            var state = new DashPatternState { offset = dashOffset };
+            if (TvgMath.Zero(dashOffset)) return state;
+
+            var length = (dashCnt % 2 != 0) ? dashLength * 2 : dashLength;
+            state.offset %= length;
+            if (state.offset < 0) state.offset += length;
+
+            for (uint i = 0; i < (uint)dashCnt * (uint)(dashCnt % 2 + 1); ++i, ++state.idx)
+            {
+                var curPattern = dashPattern[i % (uint)dashCnt];
+                if (state.offset < curPattern) break;
+                state.offset -= curPattern;
+                state.gap = !state.gap;
+            }
+            state.idx %= dashCnt;
+            return state;
+        }
+
+        void BeginSubpath(Point start, in DashPatternState state)
+        {
+            curIdx = state.idx;
+            curLen = dashPattern[state.idx] - state.offset;
+            opGap = state.gap;
+            move = true;
+            curPos = start;
+        }
+
+        static void AppendCommand(RenderPath dst, RenderPath src, PathCommand cmd, ref uint ptIdx, bool skipMoveTo)
+        {
+            switch (cmd)
+            {
+                case PathCommand.MoveTo:
+                    var pt = src.pts[ptIdx++];
+                    if (!skipMoveTo) dst.MoveTo(pt);
+                    break;
+                case PathCommand.LineTo:
+                    dst.LineTo(src.pts[ptIdx++]);
+                    break;
+                case PathCommand.CubicTo:
+                    dst.CubicTo(src.pts[ptIdx], src.pts[ptIdx + 1], src.pts[ptIdx + 2]);
+                    ptIdx += 3;
+                    break;
+            }
+        }
+
+        static void AppendPiece(RenderPath dst, RenderPath src, in PieceRange piece, bool skipMoveTo)
+        {
+            var ptIdx = piece.ptBegin;
+            for (var i = piece.cmdBegin; i < piece.cmdEnd; ++i)
+            {
+                AppendCommand(dst, src, src.cmds[i], ref ptIdx, skipMoveTo && i == piece.cmdBegin);
+            }
+        }
+
+        static void CollectPieces(RenderPath subOut, List<PieceRange> pieces)
+        {
+            uint ptIdx = 0;
+            uint pieceCmdBegin = uint.MaxValue;
+            uint piecePtBegin = 0;
+            var pieceHasDraw = false;
+
+            for (uint i = 0; i < subOut.cmds.count; ++i)
+            {
+                if (subOut.cmds[i] == PathCommand.MoveTo)
+                {
+                    if (pieceCmdBegin != uint.MaxValue && pieceHasDraw)
+                    {
+                        pieces.Add(new PieceRange { cmdBegin = pieceCmdBegin, cmdEnd = i, ptBegin = piecePtBegin, ptEnd = ptIdx });
+                    }
+                    pieceCmdBegin = i;
+                    piecePtBegin = ptIdx;
+                    pieceHasDraw = false;
+                }
+                else pieceHasDraw = true;
+
+                if (subOut.cmds[i] == PathCommand.CubicTo) ptIdx += 3;
+                else if (subOut.cmds[i] != PathCommand.Close) ++ptIdx;
+            }
+
+            if (pieceCmdBegin != uint.MaxValue && pieceHasDraw)
+            {
+                pieces.Add(new PieceRange { cmdBegin = pieceCmdBegin, cmdEnd = subOut.cmds.count, ptBegin = piecePtBegin, ptEnd = ptIdx });
+            }
+        }
+
+        static void ResetSubpath(RenderPath subOut, ref DashSubpathState state)
+        {
+            subOut.Clear();
+            state = default;
+        }
+
+        static bool PreparePieces(RenderPath subOut, ref DashSubpathState state, List<PieceRange> pieces)
+        {
+            pieces.Clear();
+            if (subOut.cmds.count == 0)
+            {
+                ResetSubpath(subOut, ref state);
+                return false;
+            }
+
+            CollectPieces(subOut, pieces);
+            if (pieces.Count > 0) return true;
+            ResetSubpath(subOut, ref state);
+            return false;
+        }
+
+        static bool AppendClosedSubpath(RenderPath @out, RenderPath subOut, List<PieceRange> pieces,
+            Point mappedStart, in DashSubpathState state)
+        {
+            if (!state.closed) return false;
+
+            var first = pieces[0];
+            var last = pieces[^1];
+            var wrapsStart = TvgMath.Closed(subOut.pts[first.ptBegin], mappedStart, DASH_ENDPOINT_TOLERANCE) &&
+                TvgMath.Closed(subOut.pts[last.ptEnd - 1], mappedStart, DASH_ENDPOINT_TOLERANCE);
+            if (!wrapsStart) return false;
+
+            if (pieces.Count == 1)
+            {
+                AppendPiece(@out, subOut, first, false);
+                @out.Close();
+                return true;
+            }
+
+            if (!state.closeEndsAtStart) return false;
+
+            AppendPiece(@out, subOut, last, false);
+            AppendPiece(@out, subOut, first, true);
+            for (var i = 1; i + 1 < pieces.Count; ++i) AppendPiece(@out, subOut, pieces[i], false);
+            return true;
+        }
+
+        static void AppendSubpath(RenderPath @out, RenderPath subOut, Point mappedStart,
+            ref DashSubpathState state, List<PieceRange> pieces)
+        {
+            if (!PreparePieces(subOut, ref state, pieces)) return;
+
+            if (!AppendClosedSubpath(@out, subOut, pieces, mappedStart, state))
+            {
+                uint ptIdx = 0;
+                for (uint i = 0; i < subOut.cmds.count; ++i)
+                    AppendCommand(@out, subOut, subOut.cmds[i], ref ptIdx, false);
+            }
+            ResetSubpath(subOut, ref state);
+        }
+
         public unsafe bool Gen(RenderPath @in, RenderPath @out, bool allowDot, in Matrix? transform)
         {
             this.transform = transform;
             this.applyTransform = transform.HasValue && !TvgMath.IsIdentity(transform.Value);
-
-            int idx = 0;
-            var offset = dashOffset;
-            var gap = false;
-            if (!TvgMath.Zero(dashOffset))
-            {
-                var length = (dashCnt % 2 != 0) ? dashLength * 2 : dashLength;
-                offset = offset % length;
-                if (offset < 0) offset += length;
-
-                for (uint i = 0; i < (uint)dashCnt * (uint)(dashCnt % 2 + 1); ++i, ++idx)
-                {
-                    var curPattern = dashPattern[i % (uint)dashCnt];
-                    if (offset < curPattern) break;
-                    offset -= curPattern;
-                    gap = !gap;
-                }
-                idx = idx % dashCnt;
-            }
-
+            var initialState = PatternState();
             var pts = @in.pts.data;
             Point start = default;
+            var subOut = new RenderPath();
+            var subpathState = new DashSubpathState();
+            var pieces = new List<PieceRange>();
 
             for (uint ci = 0; ci < @in.cmds.count; ci++)
             {
@@ -463,35 +688,38 @@ namespace ThorVG
                 {
                     case PathCommand.Close:
                     {
-                        LineTo(@out, start, allowDot);
+                        var prevPtCount = subOut.pts.count;
+                        LineTo(subOut, start, allowDot);
+                        subpathState.closed = true;
+                        subpathState.closeEndsAtStart = subOut.pts.count > prevPtCount &&
+                            TvgMath.Closed(subOut.pts.Last(), Map(start), DASH_ENDPOINT_TOLERANCE);
                         break;
                     }
                     case PathCommand.MoveTo:
                     {
-                        // reset the dash state
-                        curIdx = idx;
-                        curLen = dashPattern[idx] - offset;
-                        opGap = gap;
-                        move = true;
-                        start = curPos = *pts;
-                        pts++;
+                        AppendSubpath(@out, subOut, Map(start), ref subpathState, pieces);
+                        start = *pts++;
+                        BeginSubpath(start, initialState);
                         break;
                     }
                     case PathCommand.LineTo:
                     {
-                        LineTo(@out, *pts, allowDot);
+                        LineTo(subOut, *pts, allowDot);
                         pts++;
                         break;
                     }
                     case PathCommand.CubicTo:
                     {
-                        CubicTo(@out, pts[0], pts[1], pts[2], allowDot);
+                        CubicTo(subOut, pts[0], pts[1], pts[2], allowDot);
                         pts += 3;
                         break;
                     }
                     default: break;
                 }
             }
+            AppendSubpath(@out, subOut, Map(start), ref subpathState, pieces);
+            subOut.cmds.Dispose();
+            subOut.pts.Dispose();
             return true;
         }
 

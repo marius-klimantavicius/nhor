@@ -9,6 +9,32 @@ namespace ThorVG
 {
     public class LottieLoader : AnimLoader
     {
+        private sealed class LottieCustomSlot
+        {
+            public sealed class Pair
+            {
+                public LottieProperty prop = null!;
+                public LottieSlot target = null!;
+            }
+
+            public readonly List<Pair> props = new();
+            public readonly uint code;
+
+            public LottieCustomSlot(uint code)
+            {
+                this.code = code;
+            }
+
+            public void Release()
+            {
+                foreach (var pair in props)
+                {
+                    if (pair.prop is LottieBitmap bitmap) bitmap.Release();
+                }
+                props.Clear();
+            }
+        }
+
         public string? content;
         public uint size;
         public float frameNo;
@@ -18,8 +44,7 @@ namespace ThorVG
         public LottieBuilder builder;
         public LottieComposition? comp;
         public uint curSlot;
-        private uint _nextSlotId = 1;
-        private Dictionary<uint, string> _slots = new();
+        private readonly List<LottieCustomSlot> _slots = new();
 
         public string? dirName;
         #pragma warning disable CS0414
@@ -93,7 +118,9 @@ namespace ThorVG
             // Mirrors C++ LottieLoader::prepare() lines: gen(parser.slots) → apply → del
             if (parser.slots != null)
             {
-                ApplyDefaultSlots(parser.slots);
+                var slotcode = GenSlot(parser.slots, true);
+                ApplySlot(slotcode, true);
+                DelSlot(slotcode, true);
             }
 
             w = (uint)comp.w;
@@ -164,13 +191,17 @@ namespace ThorVG
             no = Shorten(no);
 
             // Skip update if frame diff is too small (and not tweening)
-            if (!builder.Tweening() && MathF.Abs(this.frameNo - no) <= 0.0009f) return false;
+            if (!builder.tween.active && MathF.Abs(this.frameNo - no) <= 0.0009f) return false;
 
             this.frameNo = no;
 
-            builder.OffTween();
+            builder.tween.Off();
 
             if (comp != null) comp.Clear();
+
+            // The native loader dispatches its update task here. Run it
+            // synchronously so resolver state changes are visible on return.
+            Sync();
 
             return true;
         }
@@ -248,25 +279,47 @@ namespace ThorVG
         {
             if (comp == null) return false;
 
+            builder.tween.Off();
+
             // Tweening is not necessary at boundary
             if (TvgMath.Zero(progress)) return Frame(from);
             else if (TvgMath.Equal(progress, 1.0f)) return Frame(to);
 
             frameNo = Shorten(from);
 
-            builder.OnTween(Shorten(to), progress);
+            progress = Shorten(progress);
+            builder.tween.On(Shorten(to), progress);
 
             if (comp != null) comp.Clear();
 
             return true;
         }
 
-        private void ApplyDefaultSlots(string slotsJson)
+        public bool TweenTo(float to)
         {
-            if (comp == null || comp.slots.Count == 0) return;
+            if (comp == null) return false;
+            builder.tween.On(Shorten(to));
+            return true;
+        }
 
-            var slotParser = new LottieParser(slotsJson, dirName, builder.Expressions());
+        public bool Tween(float progress)
+        {
+            if (comp == null || !builder.tween.active || builder.tween.legacy) return false;
+            progress = Shorten(progress);
+            if (TvgMath.Equal(progress, builder.tween.progress)) return true;
+            if (TvgMath.Equal(progress, 1.0f)) frameNo = builder.tween.to;
+            builder.tween.progress = progress;
+            comp.Clear();
+            return true;
+        }
+
+        private uint GenSlot(string? slotJson, bool byDefault)
+        {
+            if (slotJson == null || comp == null || comp.slots.Count == 0) return 0;
+
+            var slotParser = new LottieParser(slotJson, dirName, builder.Expressions());
             slotParser.comp = comp;
+            var custom = new LottieCustomSlot((uint)TvgCompressor.Djb2Encode(slotJson));
 
             var idx = 0;
             string? sid;
@@ -280,7 +333,7 @@ namespace ThorVG
                     var prop = slotParser.Parse(slot);
                     if (prop != null)
                     {
-                        slot.Apply(prop, byDefault: true);
+                        custom.props.Add(new LottieCustomSlot.Pair { prop = prop, target = slot });
                     }
                     found = true;
                     break;
@@ -288,45 +341,73 @@ namespace ThorVG
                 if (!found) slotParser.Skip();
                 idx++;
             }
+
+            if (custom.props.Count == 0) return 0;
+            _slots.Add(custom);
+            return custom.code;
         }
 
         public uint GenSlot(string? slotJson)
         {
-            if (comp == null) return 0;
-            if (string.IsNullOrEmpty(slotJson)) return 0;
-            var id = _nextSlotId++;
-            _slots[id] = slotJson!;
-            return id;
+            return GenSlot(slotJson, false);
+        }
+
+        private bool ApplySlot(uint id, bool byDefault)
+        {
+            if (curSlot == id) return true;
+            if (comp == null || comp.slots.Count == 0) return false;
+
+            var applied = false;
+            if (id == 0)
+            {
+                foreach (var slot in comp.slots) slot.Reset();
+                applied = true;
+            }
+            else
+            {
+                foreach (var slot in _slots)
+                {
+                    if (slot.code != id) continue;
+                    foreach (var pair in slot.props) pair.target.Apply(pair.prop, byDefault);
+                    applied = true;
+                    break;
+                }
+            }
+
+            curSlot = id;
+            if (applied) _build = true;
+            return applied;
         }
 
         public Result ApplySlot(uint id)
         {
-            if (comp == null) return Result.InsufficientCondition;
-            if (id == 0)
+            return ApplySlot(id, false) ? Result.Success : Result.InvalidArguments;
+        }
+
+        private bool DelSlot(uint id, bool byDefault)
+        {
+            if (comp == null || comp.slots.Count == 0 || id == 0) return false;
+
+            for (var i = 0; i < _slots.Count; ++i)
             {
-                curSlot = 0;
-                _build = true;
-                return Result.Success;
+                var slot = _slots[i];
+                if (slot.code != id) continue;
+                if (!byDefault)
+                {
+                    foreach (var pair in slot.props) pair.target.Reset();
+                    _build = true;
+                }
+                slot.Release();
+                _slots.RemoveAt(i);
+                if (curSlot == id) curSlot = 0;
+                break;
             }
-            if (!_slots.ContainsKey(id)) return Result.InvalidArguments;
-            curSlot = id;
-            _build = true;
-            return Result.Success;
+            return true;
         }
 
         public Result DelSlot(uint id)
         {
-            if (id == 0) return Result.InvalidArguments;
-            if (!_slots.Remove(id)) return Result.InsufficientCondition;
-            if (curSlot == id) curSlot = 0;
-            return Result.Success;
-        }
-
-        public bool Assign(string layer, uint ix, string var_, float val)
-        {
-            if (comp == null || !comp.expressions) return false;
-            comp.root?.Assign(layer, ix, var_, val);
-            return true;
+            return DelSlot(id, false) ? Result.Success : Result.InvalidArguments;
         }
 
         public bool SetQuality(byte value)
@@ -338,6 +419,12 @@ namespace ThorVG
                 _build = true;
             }
             return true;
+        }
+
+        public void Resolver(Action<LottieAudioResolver, object?>? func, object? data)
+        {
+            builder.audioResolver = func;
+            builder.audioResolverData = data;
         }
 
         private bool Header()
@@ -436,6 +523,9 @@ namespace ThorVG
 
         private void Clear()
         {
+            foreach (var slot in _slots) slot.Release();
+            _slots.Clear();
+            curSlot = 0;
             comp = null;
             content = null;
             size = 0;

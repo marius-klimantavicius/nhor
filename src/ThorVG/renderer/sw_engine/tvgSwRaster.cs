@@ -16,7 +16,7 @@ namespace ThorVG
     internal unsafe delegate void GradientFillMatted(SwFill fill, uint* dst, uint y, uint x, uint len, byte* cmp, SwAlpha alpha, byte csize, byte opacity);
     internal unsafe delegate void GradientFillMaskedComposite(SwFill fill, byte* dst, uint y, uint x, uint len, SwMask op, byte a);
     internal unsafe delegate void GradientFillMaskedDirect(SwFill fill, byte* dst, uint y, uint x, uint len, byte* cmp, SwMask op, byte a);
-    internal unsafe delegate void GradientFillBlending(SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a);
+    internal unsafe delegate void GradientFillBlending(SwSurface surface, SwFill fill, uint* dst, uint y, uint x, uint len, SwBlenderA op, SwBlender op2, byte a);
 
     public static unsafe partial class SwRaster
     {
@@ -332,7 +332,7 @@ namespace ThorVG
                 var dst = &buffer[y * surface.stride];
                 for (uint x = 0; x < bbox.W(); ++x, ++dst)
                 {
-                    *dst = surface.blender!(color, *dst);
+                    *dst = surface.blender!(surface, color, *dst);
                 }
             }
             return true;
@@ -516,14 +516,14 @@ namespace ThorVG
                 {
                     for (var xi = 0; xi < len; ++xi, ++dst)
                     {
-                        *dst = surface.blender!(color, *dst);
+                        *dst = surface.blender!(surface, color, *dst);
                     }
                 }
                 else
                 {
                     for (var xi = 0; xi < len; ++xi, ++dst)
                     {
-                        *dst = INTERPOLATE(surface.blender!(color, *dst), *dst, span->coverage);
+                        *dst = INTERPOLATE(surface.blender!(surface, color, *dst), *dst, span->coverage);
                     }
                 }
             }
@@ -625,6 +625,7 @@ namespace ThorVG
 
         private static bool _rasterScaledMattedRleImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
         {
+            if (surface.channelSize == sizeof(byte)) return false;
             var csize = surface.compositor!.image.channelSize;
             var alpha = surface.Alpha(surface.compositor.method);
             ScaleMethod scaleMethod = _scaleMethod(image);
@@ -662,6 +663,7 @@ namespace ThorVG
 
         private static bool _rasterScaledBlendingRleImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
         {
+            if (surface.channelSize == sizeof(byte)) return false;
             ScaleMethod scaleMethod = _scaleMethod(image);
             var sampleSize = (int)_sampleSize(image.scale);
             int miny = 0, maxy = 0;
@@ -688,7 +690,7 @@ namespace ThorVG
                         var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                        *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(src), *dst), *dst, A(src));
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, A(src));
                     }
                 }
                 else
@@ -698,7 +700,7 @@ namespace ThorVG
                         var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                        *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(a, A(src)));
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(a, A(src)));
                     }
                 }
             }
@@ -724,15 +726,29 @@ namespace ThorVG
                     maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
                 }
 
-                var dst = &surface.buf32[span->y * surface.stride + span->x];
                 var a = (byte)MULTIPLY(span->coverage, opacity);
-                for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
+                if (surface.channelSize == sizeof(uint))
                 {
-                    var sx = x * itransform.e11 + itransform.e13 - 0.49f;
-                    if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
-                    var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                    if (a < 255) src = ALPHA_BLEND(src, a);
-                    *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    var dst = &surface.buf32[span->y * surface.stride + span->x];
+                    for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
+                    {
+                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        if (a < 255) src = ALPHA_BLEND(src, a);
+                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    }
+                }
+                else if (surface.channelSize == sizeof(byte))
+                {
+                    var dst = &surface.buf8[span->y * surface.stride + span->x];
+                    for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
+                    {
+                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = (byte)MULTIPLY(A(src), a);
+                    }
                 }
             }
             return true;
@@ -794,14 +810,14 @@ namespace ThorVG
                 {
                     for (var xi = 0; xi < len; ++xi, ++dst, ++src)
                     {
-                        *dst = surface.blender!(rasterUnpremultiply(*src), *dst);
+                        *dst = surface.blender!(surface, rasterUnpremultiply(*src), *dst);
                     }
                 }
                 else
                 {
                     for (var xi = 0; xi < len; ++xi, ++dst, ++src)
                     {
-                        *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(*src), *dst), *dst, (byte)MULTIPLY(a, A(*src)));
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(*src), *dst), *dst, (byte)MULTIPLY(a, A(*src)));
                     }
                 }
             }
@@ -905,7 +921,7 @@ namespace ThorVG
                     var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                     if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                     var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                    *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(opacity, A(src)));
+                    *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(opacity, A(src)));
                 }
             }
             return true;
@@ -937,8 +953,19 @@ namespace ThorVG
                         var sx = x * itransform.e11 + itransform.e13 - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                        if (opacity < 255) src = ALPHA_BLEND(src, opacity);
-                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                        if (opacity == 255)
+                        {
+                            *dst = image.alphaIgnored ? src : src + ALPHA_BLEND(*dst, IA(src));
+                        }
+                        else if (image.alphaIgnored)
+                        {
+                            *dst = INTERPOLATE(src, *dst, opacity);
+                        }
+                        else
+                        {
+                            src = ALPHA_BLEND(src, opacity);
+                            *dst = src + ALPHA_BLEND(*dst, IA(src));
+                        }
                     }
                 }
             }
@@ -1064,14 +1091,14 @@ namespace ThorVG
                 {
                     for (var dst = dbuffer; dst < dbuffer + w; dst++, src++)
                     {
-                        *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(*src), *dst), *dst, A(*src));
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(*src), *dst), *dst, A(*src));
                     }
                 }
                 else
                 {
                     for (var dst = dbuffer; dst < dbuffer + w; dst++, src++)
                     {
-                        *dst = INTERPOLATE(surface.blender!(rasterUnpremultiply(*src), *dst), *dst, (byte)MULTIPLY(opacity, A(*src)));
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(*src), *dst), *dst, (byte)MULTIPLY(opacity, A(*src)));
                     }
                 }
             }
@@ -1088,7 +1115,8 @@ namespace ThorVG
                 var dbuffer = &surface.buf32[bbox.min.y * surface.stride + bbox.min.x];
                 for (var y = 0; y < h; ++y, dbuffer += surface.stride, sbuffer += image.stride)
                 {
-                    rasterTranslucentPixel32(dbuffer, sbuffer, (uint)w, opacity);
+                    if (image.alphaIgnored) rasterPixel32(dbuffer, sbuffer, (uint)w, opacity);
+                    else rasterTranslucentPixel32(dbuffer, sbuffer, (uint)w, opacity);
                 }
             }
             // 8bit grayscale
@@ -1135,14 +1163,14 @@ namespace ThorVG
                 {
                     for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
                     {
-                        *dst = INTERPOLATE(surface.blender!(*src, *dst), *dst, (byte)MULTIPLY(A(*src), alpha!(cmp)));
+                        *dst = INTERPOLATE(surface.blender!(surface, *src, *dst), *dst, (byte)MULTIPLY(A(*src), alpha!(cmp)));
                     }
                 }
                 else
                 {
                     for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
                     {
-                        *dst = INTERPOLATE(surface.blender!(*src, *dst), *dst, (byte)MULTIPLY(MULTIPLY(A(*src), alpha!(cmp)), opacity));
+                        *dst = INTERPOLATE(surface.blender!(surface, *src, *dst), *dst, (byte)MULTIPLY(MULTIPLY(A(*src), alpha!(cmp)), opacity));
                     }
                 }
                 cbuffer += compositor.image.stride * csize;
@@ -1216,14 +1244,14 @@ namespace ThorVG
             {
                 for (uint y = 0; y < bbox.H(); ++y)
                 {
-                    fillFn(fill, buffer + y * surface.stride, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), opBlendPreNormal, surface.blender!, 255);
+                    fillFn(surface, fill, buffer + y * surface.stride, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), opBlendPreNormal, surface.blender!, 255);
                 }
             }
             else
             {
                 for (uint y = 0; y < bbox.H(); ++y)
                 {
-                    fillFn(fill, buffer + y * surface.stride, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), opBlendSrcOver, surface.blender!, 255);
+                    fillFn(surface, fill, buffer + y * surface.stride, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), opBlendSrcOver, surface.blender!, 255);
                 }
             }
             return true;
@@ -1386,7 +1414,7 @@ namespace ThorVG
             for (uint i = 0; i < rle.Size(); ++i, ++span)
             {
                 var dst = &surface.buf32[span->y * surface.stride + span->x];
-                fillFn(fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, opBlendPreNormal, surface.blender!, span->coverage);
+                fillFn(surface, fill, dst, (uint)span->y, (uint)span->x, (uint)span->len, opBlendPreNormal, surface.blender!, span->coverage);
             }
             return true;
         }
@@ -1522,7 +1550,7 @@ namespace ThorVG
                 cRasterPixels(dst, val, offset, len);
         }
 
-        public static bool rasterCompositor(SwSurface surface)
+        public static Result rasterCompositor(SwSurface surface)
         {
             // See MaskMethod: Alpha:1, InvAlpha:2, Luma:3, InvLuma:4
             surface.alphas[0] = _alpha;
@@ -1542,9 +1570,9 @@ namespace ThorVG
             }
             else
             {
-                return false;
+                return Result.NonSupport;
             }
-            return true;
+            return Result.Success;
         }
 
         public static bool rasterClear(SwSurface surface, uint x, uint y, uint w, uint h)
@@ -1676,8 +1704,6 @@ namespace ThorVG
 
         public static bool rasterScaledRleImage(SwSurface surface, SwImage image, in Matrix transform, in RenderRegion bbox, byte opacity)
         {
-            if (surface.channelSize == sizeof(byte)) return false;
-
             if (!TvgMath.Inverse(transform, out var itransform)) return true;
 
             if (_compositing(surface))
@@ -1853,10 +1879,5 @@ namespace ThorVG
             }
         }
 
-        public static void rasterRGB2HSL(byte r, byte g, byte b, out float h, out float s, out float l)
-        {
-            // Delegates to SwHelper which already has this implementation
-            SwHelper.rasterRGB2HSL(r, g, b, out h, out s, out l);
-        }
     }
 }

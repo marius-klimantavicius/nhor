@@ -14,6 +14,7 @@ namespace ThorVG
         private GlRenderPass? pass;
         private GlRenderTask? task;
         private GlShape? shape;
+        private RenderRegion viewBounds;
         private RGBA color;
         private RenderUpdateFlag flag = RenderUpdateFlag.None;
         private int depth;
@@ -27,6 +28,7 @@ namespace ThorVG
             pass = null;
             task = null;
             shape = null;
+            viewBounds = default;
             color = default;
             flag = RenderUpdateFlag.None;
             depth = 0;
@@ -36,7 +38,7 @@ namespace ThorVG
             promoted = false;
         }
 
-        public void Draw(GlRenderer renderer, GlShape sdata, in RGBA c, int depth, in RenderRegion viewRegion)
+        public void Draw(GlRenderer renderer, GlShape sdata, in RGBA c, int depth, in RenderRegion viewRegion, in RenderRegion viewBounds)
         {
             var currentPass = renderer.CurrentPass();
             var buffer = sdata.geometry.fill;
@@ -45,9 +47,15 @@ namespace ThorVG
             var iCount = buffer.index.count;
             if (vCount == 0 || iCount == 0) return;
 
-            if (!Appendable(renderer, currentPass, viewRegion))
+            if (!Appendable(renderer, currentPass, viewBounds))
             {
-                EmitSingle(renderer, currentPass!, sdata, c, depth, viewRegion, vCount, iCount);
+                if (task != null)
+                {
+                    var viewport = task.GetViewport();
+                    viewport.IntersectWith(this.viewBounds);
+                    task.SetViewport(viewport);
+                }
+                EmitSingle(renderer, currentPass!, sdata, c, depth, viewRegion, viewBounds, vCount, iCount);
                 return;
             }
 
@@ -55,33 +63,32 @@ namespace ThorVG
             if (!promoted)
             {
                 if (Promote(renderer, currentPass!, batchColor, depth, viewRegion, buffer, vCount, iCount)) return;
-                EmitSingle(renderer, currentPass!, sdata, c, depth, viewRegion, vCount, iCount);
+                var viewport = task!.GetViewport();
+                viewport.IntersectWith(this.viewBounds);
+                task.SetViewport(viewport);
+                EmitSingle(renderer, currentPass!, sdata, c, depth, viewRegion, viewBounds, vCount, iCount);
                 return;
             }
 
             Append(renderer, batchColor, viewRegion, buffer, vCount, iCount, depth);
         }
 
-        private bool Appendable(GlRenderer renderer, GlRenderPass? pass, in RenderRegion viewRegion)
+        private bool Appendable(GlRenderer renderer, GlRenderPass? pass, in RenderRegion viewBounds)
         {
             if (this.pass != pass) return false;
             if (pass!.LastTask() != task) return false;
             if (task!.GetProgram() != renderer.mPrograms[(int)GlRenderer.RenderTypes.RT_Color]) return false;
-            if (!(task.GetViewport() == viewRegion)) return false;
+            if (!(this.viewBounds == viewBounds)) return false;
             return true;
         }
 
-        private void EmitSingle(GlRenderer renderer, GlRenderPass pass, GlShape sdata, in RGBA c, int depth, in RenderRegion viewRegion, uint vertexCount, uint indexCount)
+        private void EmitSingle(GlRenderer renderer, GlRenderPass pass, GlShape sdata, in RGBA c, int depth, in RenderRegion viewRegion, in RenderRegion viewBounds, uint vertexCount, uint indexCount)
         {
             var drawTask = new GlRenderTask(renderer.mPrograms[(int)GlRenderer.RenderTypes.RT_Color]);
             drawTask.SetViewMatrix(pass.GetViewMatrix());
             drawTask.SetDrawDepth(depth);
 
-            if (!sdata.geometry.Draw(drawTask, renderer.mGpuBuffer, RenderUpdateFlag.Color))
-            {
-                Clear();
-                return;
-            }
+            sdata.geometry.Draw(drawTask, renderer.mGpuBuffer, RenderUpdateFlag.Color);
 
             var taskColor = SolidColor(sdata, c, RenderUpdateFlag.Color);
             drawTask.SetVertexColor(taskColor.r / 255f, taskColor.g / 255f, taskColor.b / 255f, taskColor.a / 255f);
@@ -91,6 +98,7 @@ namespace ThorVG
             this.pass = pass;
             task = drawTask;
             shape = sdata;
+            this.viewBounds = viewBounds;
             color = c;
             flag = RenderUpdateFlag.Color;
             this.depth = depth;

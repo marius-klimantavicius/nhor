@@ -17,17 +17,19 @@ namespace ThorVG
         private GlGeometryBuffer mBuffer;
         private float mWidth;
         private float mMiterLimit;
+        private float mQualityScale;
         private StrokeCap mCap;
         private StrokeJoin mJoin;
         private State mState;
         private Point mLeftTop;
         private Point mRightBottom;
 
-        public Stroker(GlGeometryBuffer buffer, float strokeWidth, StrokeCap cap, StrokeJoin join, float miterLimit = 4.0f)
+        public Stroker(GlGeometryBuffer buffer, float strokeWidth, StrokeCap cap, StrokeJoin join, float miterLimit = 4.0f, float qualityScale = 1.0f)
         {
             mBuffer = buffer;
             mWidth = strokeWidth;
             mMiterLimit = miterLimit;
+            mQualityScale = qualityScale;
             mCap = cap;
             mJoin = join;
         }
@@ -172,7 +174,12 @@ namespace ThorVG
         {
             var curve = new Bezier(mState.prevPt, cnt1, cnt2, end);
 
-            var count = curve.Segments();
+            var scaled = new Bezier(
+                TvgMath.PointMul(curve.start, mQualityScale),
+                TvgMath.PointMul(curve.ctrl1, mQualityScale),
+                TvgMath.PointMul(curve.ctrl2, mQualityScale),
+                TvgMath.PointMul(curve.end, mQualityScale));
+            var count = scaled.Segments();
             var step = 1f / count;
 
             for (uint i = 0; i <= count; i++)
@@ -256,7 +263,7 @@ namespace ThorVG
             }
 
             var arcAngle = endAngle - startAngle;
-            var count = TvgMath.ArcSegmentsCnt(arcAngle, Radius());
+            var count = GpuCommon.GpuArcSegmentsCnt(arcAngle, Radius() * mQualityScale);
 
             var ci = PushVertex(ref mBuffer.vertex, center.x, center.y);
             var pi = PushVertex(ref mBuffer.vertex, prev.x, prev.y);
@@ -283,7 +290,7 @@ namespace ThorVG
 
         private void RoundPoint(Point p)
         {
-            var count = TvgMath.ArcSegmentsCnt(2.0f * MathConstants.MATH_PI, Radius());
+            var count = GpuCommon.GpuArcSegmentsCnt(2.0f * MathConstants.MATH_PI, Radius() * mQualityScale);
             var ci = PushVertex(ref mBuffer.vertex, p.x, p.y);
             var step = 2.0f * MathConstants.MATH_PI / (count - 1);
 

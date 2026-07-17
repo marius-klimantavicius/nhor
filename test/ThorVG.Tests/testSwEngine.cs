@@ -5,7 +5,7 @@ namespace ThorVG.Tests
 {
     public class testSwEngine
     {
-        private static readonly string TEST_DIR = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
 
         private static Shape CreateMask()
         {
@@ -117,7 +117,7 @@ namespace ThorVG.Tests
 
             // Raw image
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -264,7 +264,7 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_250x375.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var rawData = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, rawData, 0, bytes.Length);
@@ -278,6 +278,34 @@ namespace ThorVG.Tests
             Assert.Equal(Result.Success, canvas.Draw(true));
             Assert.Equal(Result.Success, canvas.Sync());
 
+            Assert.Equal(Result.Success, Initializer.Term());
+        }
+
+        [Fact]
+        public void Intersection()
+        {
+            Assert.Equal(Result.Success, Initializer.Init());
+            {
+                var canvas = SwCanvas.Gen();
+                var buffer = new uint[200 * 200];
+                Assert.Equal(Result.Success, canvas.Target(buffer, 200, 200, 200, ColorSpace.ARGB8888));
+
+                var shape = Shape.Gen();
+                Assert.Equal(Result.Success, shape.AppendRect(50, 50, 100, 100));
+                Assert.Equal(Result.Success, shape.SetFill(255, 0, 0, 255));
+                Assert.Equal(Result.Success, canvas.Add(shape));
+                Assert.Equal(Result.Success, canvas.Draw());
+
+                Assert.True(shape.Intersects(0, 0, 200, 200, true));
+                Assert.True(shape.Intersects(25, 25, 50, 50, false));
+                Assert.True(shape.Intersects(125, 125, 50, 50, false));
+
+                Assert.Equal(Result.Success, shape.Visible(false));
+                Assert.False(shape.Intersects(49, 49, 2, 2, true));
+                Assert.True(shape.Intersects(149, 149, 2, 2, false));
+                Assert.False(shape.Intersects(0, 0, 25, 25, true));
+                Assert.False(shape.Intersects(175, 175, 25, 25, true));
+            }
             Assert.Equal(Result.Success, Initializer.Term());
         }
     }

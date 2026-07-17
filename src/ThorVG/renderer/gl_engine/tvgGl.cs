@@ -240,6 +240,7 @@ namespace ThorVG
 
         // GL_VERSION_1_1
         public static delegate* unmanaged[Cdecl]<uint, int, uint, void*, void> glDrawElements;
+        public static delegate* unmanaged[Cdecl]<uint, int, int, void> glDrawArrays;
         public static delegate* unmanaged[Cdecl]<uint, uint, void> glBindTexture;
         public static delegate* unmanaged[Cdecl]<int, uint*, void> glDeleteTextures;
         public static delegate* unmanaged[Cdecl]<int, uint*, void> glGenTextures;
@@ -327,6 +328,8 @@ namespace ThorVG
         // ============================================================
         private static nint _libGL;
         private static bool _loaded;
+        private enum ContextApi : byte { Unknown, Wgl, Glx, Cgl }
+        private static ContextApi _contextApi;
 
         // ============================================================
         //  LoadFunction helper — returns raw pointer as nint
@@ -392,6 +395,115 @@ namespace ThorVG
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate nint WglGetProcAddressDelegate([MarshalAs(UnmanagedType.LPStr)] string procName);
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate nint WglGetCurrentContextDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate nint WglGetCurrentDcDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WglMakeCurrentDelegate(nint deviceContext, nint context);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint GlXGetCurrentContextDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint GlXGetCurrentDisplayDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nuint GlXGetCurrentDrawableDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int GlXMakeCurrentDelegate(nint display, nuint drawable, nint context);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint CglGetCurrentContextDelegate();
+
+        internal static bool TryGetCurrentTarget(out nint display, out nint surface, out nint context)
+        {
+            display = surface = context = 0;
+            if (!_loaded) return false;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+                NativeLibrary.TryGetExport(_libGL, "wglGetCurrentContext", out var getPtr) &&
+                NativeLibrary.TryGetExport(_libGL, "wglGetCurrentDC", out var getDcPtr))
+            {
+                context = Marshal.GetDelegateForFunctionPointer<WglGetCurrentContextDelegate>(getPtr)();
+                surface = Marshal.GetDelegateForFunctionPointer<WglGetCurrentDcDelegate>(getDcPtr)();
+                if (context == 0 || surface == 0) return false;
+                _contextApi = ContextApi.Wgl;
+                return true;
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
+                NativeLibrary.TryGetExport(_libGL, "glXGetCurrentContext", out var glxGetPtr) &&
+                NativeLibrary.TryGetExport(_libGL, "glXGetCurrentDisplay", out var displayPtr) &&
+                NativeLibrary.TryGetExport(_libGL, "glXGetCurrentDrawable", out var drawablePtr))
+            {
+                context = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentContextDelegate>(glxGetPtr)();
+                display = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentDisplayDelegate>(displayPtr)();
+                var drawable = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentDrawableDelegate>(drawablePtr)();
+                surface = unchecked((nint)drawable);
+                if (context == 0 || display == 0 || surface == 0) return false;
+                _contextApi = ContextApi.Glx;
+                return true;
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
+                NativeLibrary.TryGetExport(_libGL, "CGLGetCurrentContext", out var cglGetPtr))
+            {
+                context = Marshal.GetDelegateForFunctionPointer<CglGetCurrentContextDelegate>(cglGetPtr)();
+                if (context == 0) return false;
+                _contextApi = ContextApi.Cgl;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool MakeCurrent(nint display, nint surface, nint context)
+        {
+            if (!_loaded || context == 0) return false;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                if (_contextApi != ContextApi.Wgl) return false;
+                if (!NativeLibrary.TryGetExport(_libGL, "wglGetCurrentContext", out var getPtr) ||
+                    !NativeLibrary.TryGetExport(_libGL, "wglGetCurrentDC", out var getDcPtr) ||
+                    !NativeLibrary.TryGetExport(_libGL, "wglMakeCurrent", out var makePtr)) return false;
+                var getCurrent = Marshal.GetDelegateForFunctionPointer<WglGetCurrentContextDelegate>(getPtr);
+                var getCurrentDc = Marshal.GetDelegateForFunctionPointer<WglGetCurrentDcDelegate>(getDcPtr);
+                if (getCurrent() == context && getCurrentDc() == surface) return true;
+                if (surface == 0) return false;
+                var makeCurrent = Marshal.GetDelegateForFunctionPointer<WglMakeCurrentDelegate>(makePtr);
+                return makeCurrent(surface, context) != 0;
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                if (_contextApi != ContextApi.Glx) return false;
+                if (!NativeLibrary.TryGetExport(_libGL, "glXGetCurrentContext", out var getPtr) ||
+                    !NativeLibrary.TryGetExport(_libGL, "glXGetCurrentDrawable", out var getDrawablePtr) ||
+                    !NativeLibrary.TryGetExport(_libGL, "glXMakeCurrent", out var makePtr)) return false;
+                var getCurrent = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentContextDelegate>(getPtr);
+                var getCurrentDrawable = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentDrawableDelegate>(getDrawablePtr);
+                if (getCurrent() == context && getCurrentDrawable() == unchecked((nuint)surface)) return true;
+                if (display == 0 || surface == 0) return false;
+                var makeCurrent = Marshal.GetDelegateForFunctionPointer<GlXMakeCurrentDelegate>(makePtr);
+                return makeCurrent(display, unchecked((nuint)surface), context) != 0;
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
+                _contextApi == ContextApi.Cgl &&
+                NativeLibrary.TryGetExport(_libGL, "CGLGetCurrentContext", out var cglGetPtr))
+            {
+                var getCurrent = Marshal.GetDelegateForFunctionPointer<CglGetCurrentContextDelegate>(cglGetPtr);
+                return getCurrent() == context;
+            }
+
+            return false;
+        }
 
         // ============================================================
         //  glInit — loads the GL library and all function pointers
@@ -482,6 +594,8 @@ namespace ThorVG
             // GL_VERSION_1_1
             if (!RequireFunction("glDrawElements", out p)) return false;
             glDrawElements = (delegate* unmanaged[Cdecl]<uint, int, uint, void*, void>)p;
+            if (!RequireFunction("glDrawArrays", out p)) return false;
+            glDrawArrays = (delegate* unmanaged[Cdecl]<uint, int, int, void>)p;
             if (!RequireFunction("glBindTexture", out p)) return false;
             glBindTexture = (delegate* unmanaged[Cdecl]<uint, uint, void>)p;
             if (!RequireFunction("glDeleteTextures", out p)) return false;
@@ -640,6 +754,8 @@ namespace ThorVG
                 _libGL = nint.Zero;
             }
             _loaded = false;
+            _contextApi = ContextApi.Unknown;
+            glDrawArrays = null;
             glClear = null;
             glEnable = null;
             glCreateShader = null;

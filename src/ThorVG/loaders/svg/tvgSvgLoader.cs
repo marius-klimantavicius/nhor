@@ -17,14 +17,28 @@ namespace ThorVG
 
             var t = cur.text;
             var unpositioned = t.x == float.MaxValue && t.y == float.MaxValue && t.dx == 0.0f && t.dy == 0.0f;
-            var noOverride = t.fontSize <= 0.0f && t.fontFamily == null && cur.xmlSpace == SvgXmlSpace.None && (cur.style!.flags & SvgStyleFlags.TextAnchor) == 0;
+            var noOverride = t.fontSize <= 0.0f && t.fontFamily == null && cur.xmlSpace == SvgXmlSpace.None &&
+                             cur.style!.flags == SvgStyleFlags.None && cur.style.fill.flags == SvgFillFlags.None;
+            var splice = t.text != null && unpositioned && noOverride && cur.parent != null &&
+                         cur.child.Count == 0 && !HasTspanChild(cur.parent, cur);
 
-            if (t.text != null && unpositioned && noOverride && cur.parent != null)
+            if (splice)
             {
-                cur.parent.text.text = (cur.parent.text.text ?? "") + t.text;
+                var parent = cur.parent!;
+                parent.text.text = (parent.text.text ?? "") + t.text;
                 t.text = null;
             }
             ctx.svgParse!.node = cur.parent;
+        }
+
+        private static bool HasTspanChild(SvgNode node, SvgNode? exclude = null)
+        {
+            foreach (var child in node.child)
+            {
+                if (child == exclude) continue;
+                if (child.type == SvgNodeType.Tspan && (child.text.text != null || child.child.Count > 0)) return true;
+            }
+            return false;
         }
 
         private static void SvgLoaderParserXmlClose(SvgParserContext ctx, string content, int offset, int length)
@@ -206,7 +220,16 @@ namespace ThorVG
 
         private static void SvgLoaderParserText(SvgParserContext ctx, string content, int offset, int length)
         {
-            var text = ctx.svgParse!.node!.text;
+            var node = ctx.svgParse!.node!;
+            if (HasTspanChild(node))
+            {
+                var run = CreateNode(node, SvgNodeType.Tspan);
+                run.text.x = float.MaxValue;
+                run.text.y = float.MaxValue;
+                run.text.text = content.Substring(offset, Math.Min(length, content.Length - offset));
+                return;
+            }
+            var text = node.text;
             text.text = (text.text ?? "") + content.Substring(offset, Math.Min(length, content.Length - offset));
         }
 
@@ -405,6 +428,18 @@ namespace ThorVG
             }
         }
 
+        private static void UpdatePattern(SvgNode? node, SvgNode? root, SvgNode? defs)
+        {
+            if (node == null) return;
+            var fill = node.style!.fill.paint;
+            if (fill.url != null && fill.gradient == null && fill.pattern == null)
+            {
+                var pattern = FindNodeById(defs, fill.url) ?? FindNodeById(root, fill.url);
+                if (pattern?.type == SvgNodeType.Pattern) fill.pattern = pattern;
+            }
+            foreach (var child in node.child) UpdatePattern(child, root, defs);
+        }
+
         /// <summary>
         /// Recursively checks whether cloneNode is a descendant of node, to prevent circular references.
         /// </summary>
@@ -594,9 +629,11 @@ namespace ThorVG
             // Update passes
             UpdateComposite(ctx.doc, ctx.doc);
             if (defs != null) UpdateComposite(ctx.doc, defs);
+            if (defs != null) UpdateComposite(defs, defs);
 
             UpdateFilter(ctx.doc, ctx.doc);
             if (defs != null) UpdateFilter(ctx.doc, defs);
+            if (defs != null) UpdateFilter(defs, defs);
 
             UpdateStyle(ctx.doc, null);
             if (defs != null) UpdateStyle(defs, null);
@@ -605,6 +642,13 @@ namespace ThorVG
                 UpdateGradient(ctx, ctx.doc, ctx.gradients);
             if (defs != null)
                 UpdateGradient(ctx, ctx.doc, defs.defs.gradients);
+            if (defs != null && ctx.gradients.Count > 0)
+                UpdateGradient(ctx, defs, ctx.gradients);
+            if (defs != null)
+                UpdateGradient(ctx, defs, defs.defs.gradients);
+
+            UpdatePattern(ctx.doc, ctx.doc, defs);
+            if (defs != null) UpdatePattern(defs, ctx.doc, defs);
 
             ctxOut = ctx;
             return ctx.doc;

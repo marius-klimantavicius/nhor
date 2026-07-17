@@ -1,11 +1,12 @@
 using System;
+using System.IO;
 using Xunit;
 
 namespace ThorVG.Tests
 {
     public class testAccessor
     {
-        private static readonly string TEST_DIR = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
 
         [Fact]
         public void AccessorCreation()
@@ -30,13 +31,10 @@ namespace ThorVG.Tests
 
             var picture = Picture.Gen();
             Assert.NotNull(picture);
+            picture.accessible = true;
 
-            var svgPath = System.IO.Path.Combine(TEST_DIR, "test0.svg");
-            if (!System.IO.File.Exists(svgPath))
-            {
-                Initializer.Term();
-                return;
-            }
+            var svgPath = Path.Combine(TEST_DIR, "test0.svg");
+            Assert.True(File.Exists(svgPath), $"Required test resource is missing: {svgPath}");
 
             Assert.Equal(Result.Success, picture.Load(svgPath));
 
@@ -46,29 +44,23 @@ namespace ThorVG.Tests
             // Case 1: null callback
             Assert.Equal(Result.InvalidArguments, accessor.Set(picture, null!));
 
-            // Case 2: find white shapes and change their color
-            Shape? ret = null;
-
+            Shape? found = null;
             Func<Paint, object?, bool> f = (paint, data) =>
             {
-                if (paint.PaintType() == Type.Shape)
+                var currentAccessor = Assert.IsType<Accessor>(data);
+                if (currentAccessor.Name(paint.id) == "path42")
                 {
-                    var shape = (Shape)paint;
-                    shape.GetFillColor(out var r, out var g, out var b, out _);
-                    if (r == 255 && g == 255 && b == 255)
-                    {
-                        shape.SetFill(0, 0, 255);
-                        shape.id = Accessor.Id("TestAccessor");
-                        ret = shape;
-                        return false;
-                    }
+                    var shape = Assert.IsType<Shape>(paint);
+                    Assert.Equal(Result.Success, shape.SetFill(0, 0, 255));
+                    found = shape;
+                    return false;
                 }
                 return true;
             };
 
-            Assert.Equal(Result.Success, accessor.Set(picture, f));
-            Assert.NotNull(ret);
-            Assert.Equal(Accessor.Id("TestAccessor"), ret!.id);
+            Assert.Equal(Result.Success, accessor.Set(picture, f, accessor));
+            Assert.NotNull(found);
+            Assert.Same(found, picture.FindPaint(Accessor.Id("path42")));
 
             Paint.Rel(picture);
 

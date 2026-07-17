@@ -30,7 +30,7 @@
 #include "tvgRender.h"
 #include "tvgLottieProperty.h"
 #include "tvgLottieRenderPooler.h"
-
+#include "tvgLottieTween.h"
 
 struct LottieComposition;
 
@@ -273,7 +273,9 @@ struct LottieObject
         RoundedCorner,
         OffsetPath,
         PuckerBloat,
-        TextRange
+        ZigZag,
+        TextRange,
+        Audio
     };
 
     virtual ~LottieObject()
@@ -299,15 +301,16 @@ struct LottieGlyph
 {
     Array<LottieObject*> children;   //glyph shapes.
     float width;
-    char* code;
+    char* code = nullptr;
     char* family = nullptr;
     char* style = nullptr;
     uint16_t size;
     uint8_t len;
 
-    void prepare()
+    bool prepare()
     {
-        len = strlen(code);
+        len = code ? strlen(code) : 0;
+        return len > 0;
     }
 
     ~LottieGlyph()
@@ -374,7 +377,7 @@ struct LottieTextRange : LottieObject
 
     float factor(float frameNo, float totalLen, float idx);
 
-    void color(float frameNo, RGB32& fillColor, RGB32& strokeColor, float factor, Tween& tween, LottieExpressions* exps)
+    void color(float frameNo, RGB32& fillColor, RGB32& strokeColor, float factor, LottieTween& tween, LottieExpressions* exps)
     {
         if (style.flags.fillColor) {
             auto color = style.fillColor(frameNo, tween, exps);
@@ -449,6 +452,7 @@ struct LottieFont
 
     ~LottieFont()
     {
+        if (b64src) Text::unload(name);
         ARRAY_FOREACH(p, chars) delete(*p);
         tvg::free(style);
         tvg::free(family);
@@ -498,6 +502,7 @@ private:
     float totalLen;
     float currentLen;
     Point split(float dLen, float lenSearched, float& angle);
+    void rewind();
 
 public:
     LottieFloat firstMargin = 0.0f;
@@ -505,7 +510,7 @@ public:
     int8_t maskIdx = -1;
 
     Point position(float lenSearched, float& angle);
-    float prepare(LottieMask* mask, float frameNo, float scale, Tween& tween, LottieExpressions* exps);
+    float prepare(LottieMask* mask, float frameNo, float scale, LottieTween& tween, LottieExpressions* exps);
 };
 
 
@@ -574,7 +579,7 @@ struct LottieTrimpath : LottieObject
         return nullptr;
     }
 
-    void segment(float frameNo, float& start, float& end, Tween& tween, LottieExpressions* exps);
+    void segment(float frameNo, float& start, float& end, LottieTween& tween, LottieExpressions* exps);
 
     LottieFloat start = 0.0f;
     LottieFloat end = 100.0f;
@@ -896,7 +901,7 @@ struct LottieGradient : LottieObject
     }
 
     uint32_t populate(ColorStop& color, size_t count);
-    Fill* fill(float frameNo, uint8_t opacity, Tween& tween, LottieExpressions* exps);
+    Fill* fill(float frameNo, uint8_t opacity, LottieTween& tween, LottieExpressions* exps);
 
     LottieScalar start = Point{0.0f, 0.0f};
     LottieScalar end = Point{0.0f, 0.0f};
@@ -957,6 +962,25 @@ struct LottieImage : LottieObject
 };
 
 
+struct LottieAudio : LottieObject
+{
+    union {
+        char* data = nullptr;
+        char* path;
+    };
+    char* mimeType = nullptr;
+    uint32_t size = 0;
+
+    LottieAudio() { LottieObject::type = LottieObject::Audio; }
+
+    ~LottieAudio()
+    {
+        tvg::free(data);
+        tvg::free(mimeType);
+    }
+};
+
+
 struct LottieRepeater : LottieObject
 {
     LottieRepeater()
@@ -1013,6 +1037,18 @@ struct LottiePuckerBloat : LottieObject
     LottieFloat amount = 0.0f;
 };
 
+struct LottieZigZag : LottieObject
+{
+    LottieZigZag()
+    {
+        LottieObject::type = LottieObject::ZigZag;
+    }
+
+    LottieFloat amplitude = 0.0f;
+    LottieInteger frequency = 0;
+    LottieInteger point = 1; //1: corner, 2: smooth
+};
+
 struct LottieGroup : LottieObject, LottieRenderPooler<tvg::Shape>
 {
     LottieGroup();
@@ -1054,7 +1090,7 @@ struct LottieGroup : LottieObject, LottieRenderPooler<tvg::Shape>
 
 struct LottieLayer : LottieGroup
 {
-    enum Type : uint8_t {Precomp = 0, Solid, Image, Null, Shape, Text};
+    enum Type : uint8_t {Precomp = 0, Solid, Image, Null, Shape, Text, Audio};
 
     LottieLayer();
     ~LottieLayer();
@@ -1063,7 +1099,6 @@ struct LottieLayer : LottieGroup
     void prepare(RGB32* color = nullptr);
     float remap(LottieComposition* comp, float frameNo, LottieExpressions* exp);
     LottieProperty* property(uint16_t ix) override;
-    bool assign(const char* layer, uint32_t ix, const char* var, float val);
 
     char* name = nullptr;
     LottieLayer* parent = nullptr;
@@ -1081,6 +1116,13 @@ struct LottieLayer : LottieGroup
     float inFrame = 0.0f;
     float outFrame = 0.0f;
     float startFrame = 0.0f;
+
+    struct AudioControl {
+        LottieFloat volume = 100.0f;
+        float prevVolume = -1.0f;
+        bool prevActive = false;
+    } *audioCtrl = nullptr;
+
     unsigned long rid = 0;      //pre-composition reference id.
     int16_t mix = -1;           //index of the matte layer.
     int16_t pix = -1;           //index of the parent layer.
@@ -1097,6 +1139,12 @@ struct LottieLayer : LottieGroup
     bool effect : 1;        // true if any effect is activated in its tree
     bool autoOrient : 1;
     bool matteSrc : 1;
+
+    AudioControl* audio()
+    {
+        if (!audioCtrl) audioCtrl = new AudioControl;
+        return audioCtrl;
+    }
 
     LottieEffect* effectById(unsigned long id)
     {
@@ -1206,8 +1254,8 @@ struct LottieComposition
     LottieLayer* asset(unsigned long id)
     {
         ARRAY_FOREACH(p, assets) {
-            auto layer = static_cast<LottieLayer*>(*p);
-            if (layer->id == id) return layer;
+            auto obj = *p;
+            if (obj->id == id && obj->type == LottieObject::Layer) return static_cast<LottieLayer*>(obj);
         }
         return nullptr;
     }

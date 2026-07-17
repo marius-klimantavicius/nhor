@@ -143,18 +143,11 @@ namespace ThorVG
     // Expression support type
     public class LottieExpression
     {
-        public class Writable
-        {
-            public string? var_;
-            public float val;
-        }
-
         public string? code;
         public LottieComposition? comp;
         public LottieLayer? layer;
         public LottieObject? obj;
         public LottieProperty? property;
-        public List<Writable> writables = new();
         public bool disabled;
 
         public LottieExpression() { }
@@ -169,19 +162,6 @@ namespace ThorVG
             disabled = rhs.disabled;
         }
 
-        public bool Assign(string var_, float val)
-        {
-            foreach (var w in writables)
-            {
-                if (TvgStr.Equal(var_, w.var_))
-                {
-                    w.val = val;
-                    return true;
-                }
-            }
-            writables.Add(new Writable { var_ = var_, val = val });
-            return true;
-        }
     }
 
     // Property base
@@ -351,10 +331,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolateFloat(frames[key], frames[key + 1], frameNo);
         }
 
-        public float Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public float Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            return TvgMath.Lerp(Evaluate(frameNo, exps), Evaluate(tween.frameNo, exps), tween.progress);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieFloat rhs, bool shallow = true)
@@ -415,12 +396,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolateSByte(frames[key], frames[key + 1], frameNo);
         }
 
-        public sbyte Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public sbyte Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            var a = Evaluate(frameNo, exps);
-            var b = Evaluate(tween.frameNo, exps);
-            return (sbyte)TvgMath.Clamp((int)(a + (b - a) * tween.progress), sbyte.MinValue, sbyte.MaxValue);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieInteger rhs, bool shallow = true)
@@ -481,12 +461,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolatePoint(frames[key], frames[key + 1], frameNo);
         }
 
-        public Point Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public Point Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            var a = Evaluate(frameNo, exps);
-            var b = Evaluate(tween.frameNo, exps);
-            return new Point(a.x + (b.x - a.x) * tween.progress, a.y + (b.y - a.y) * tween.progress);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieScalar rhs, bool shallow = true)
@@ -547,12 +526,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolateVectorPoint(frames[key], frames[key + 1], frameNo);
         }
 
-        public Point Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public Point Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            var a = Evaluate(frameNo, exps);
-            var b = Evaluate(tween.frameNo, exps);
-            return new Point(a.x + (b.x - a.x) * tween.progress, a.y + (b.y - a.y) * tween.progress);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public float GetAngle(float frameNo)
@@ -564,10 +542,12 @@ namespace ThorVG
             return ScalarFrameHelper.VectorPointAngle(frames[key], frames[key + 1], frameNo);
         }
 
-        public float GetAngle(float frameNo, Tween tween)
+        public float GetAngle(float frameNo, LottieTween tween)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return GetAngle(frameNo);
-            return TvgMath.Lerp(GetAngle(frameNo), GetAngle(tween.frameNo), tween.progress);
+            const byte angleChannel = 1;
+            if (!tween.Inited(this, frameNo, angleChannel)) tween.Capture(this, frameNo, GetAngle(frameNo), angleChannel);
+            return tween.Run(this, frameNo, GetAngle(tween.to), angleChannel);
         }
 
         public void CopyFrom(LottieVector rhs, bool shallow = true)
@@ -637,12 +617,11 @@ namespace ThorVG
             return new Point3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
         }
 
-        public Point3 Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public Point3 Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            var a = Evaluate(frameNo, exps);
-            var b = Evaluate(tween.frameNo, exps);
-            return new Point3(a.x + (b.x - a.x) * tween.progress, a.y + (b.y - a.y) * tween.progress, a.z + (b.z - a.z) * tween.progress);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieScalar3 rhs, bool shallow = true)
@@ -703,10 +682,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolateRGB32(frames[key], frames[key + 1], frameNo);
         }
 
-        public RGB32 Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public RGB32 Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            return RGB32.Lerp(Evaluate(frameNo, exps), Evaluate(tween.frameNo, exps), tween.progress);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieColor rhs, bool shallow = true)
@@ -767,12 +747,11 @@ namespace ThorVG
             return ScalarFrameHelper.InterpolateByte(frames[key], frames[key + 1], frameNo);
         }
 
-        public byte Evaluate(float frameNo, Tween tween, LottieExpressions? exps)
+        public byte Evaluate(float frameNo, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, exps);
-            var a = Evaluate(frameNo, exps);
-            var b = Evaluate(tween.frameNo, exps);
-            return (byte)TvgMath.Clamp((int)(a + (b - a) * tween.progress), 0, 255);
+            if (!tween.Inited(this, frameNo)) tween.Capture(this, frameNo, Evaluate(frameNo, exps));
+            return tween.Run(this, frameNo, Evaluate(tween.to, exps));
         }
 
         public void CopyFrom(LottieOpacity rhs, bool shallow = true)
@@ -880,34 +859,18 @@ namespace ThorVG
             return DefaultPath(frameNo, @out, transform);
         }
 
-        public unsafe bool Evaluate(float frameNo, RenderPath @out, Matrix* transform, Tween tween, LottieExpressions? exps, LottieModifier? modifier = null)
+        public unsafe bool Evaluate(float frameNo, RenderPath @out, Matrix* transform, LottieTween tween, LottieExpressions? exps, LottieModifier? modifier = null)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, @out, transform, exps, modifier);
-            return Tweening(frameNo, @out, transform, modifier, tween, exps);
-        }
-
-        private unsafe bool Tweening(float frameNo, RenderPath @out, Matrix* transform, LottieModifier? modifier, Tween tween, LottieExpressions? exps)
-        {
-            var to = RenderPath.Scratch();
-            var pivot = @out.pts.count;
-            if (!Evaluate(frameNo, @out, transform, exps)) return false;
-            if (!Evaluate(tween.frameNo, to, transform, exps)) return false;
-
-            var fromCount = @out.pts.count - pivot;
-
-            for (uint i = 0; i < Math.Min(to.pts.count, fromCount); ++i)
+            if (!tween.Inited(this, frameNo))
             {
-                var fromPt = @out.pts[pivot + i];
-                var toPt = to.pts[i];
-                ref var interp = ref (modifier != null ? ref to.pts[i] : ref @out.pts[pivot + i]);
-                interp = new Point(
-                    fromPt.x + (toPt.x - fromPt.x) * tween.progress,
-                    fromPt.y + (toPt.y - fromPt.y) * tween.progress);
+                var from = RenderPath.Scratch();
+                Evaluate(frameNo, from, transform, exps);
+                tween.Capture(this, frameNo, from);
             }
-
-            if (modifier == null) return true;
-
-            modifier.Path(to, @out, transform);
+            var to = RenderPath.Scratch();
+            Evaluate(tween.to, to, transform, exps);
+            tween.Run(this, frameNo, to, @out, modifier);
             return true;
         }
 
@@ -1006,41 +969,17 @@ namespace ThorVG
             return fill.SetColorStops(result, count);
         }
 
-        public Result Evaluate(float frameNo, Fill fill, Tween tween, LottieExpressions? exps)
+        public Result Evaluate(float frameNo, Fill fill, LottieTween tween, LottieExpressions? exps)
         {
             if (!tween.active || frames == null || frames.Count <= 1) return Evaluate(frameNo, fill, exps);
-            return Tweening(frameNo, fill, tween, exps);
-        }
-
-        private Result Tweening(float frameNo, Fill fill, Tween tween, LottieExpressions? exps)
-        {
-            // Step 1: Evaluate at frameNo
-            Evaluate(frameNo, fill, exps);
-
-            // Step 2: Get color stops from the fill after first evaluation
-            var cnt1 = fill.GetColorStops(out var stops1);
-            if (stops1 == null || cnt1 == 0) return Result.Success;
-
-            // Step 3: Evaluate at tween.frameNo into a temporary fill
-            var tmpFill = fill is LinearGradient ? (Fill)LinearGradient.Gen() : (Fill)RadialGradient.Gen();
-            Evaluate(tween.frameNo, tmpFill, exps);
-
-            var cnt2 = tmpFill.GetColorStops(out var stops2);
-            if (stops2 == null || cnt2 == 0) return Result.Success;
-
-            // Step 4: Lerp each color stop by tween.progress
-            var cnt = Math.Min(cnt1, cnt2);
-            var result = new Fill.ColorStop[cnt];
-            for (int i = 0; i < cnt; ++i)
+            if (!tween.Inited(this, frameNo))
             {
-                result[i] = new Fill.ColorStop(
-                    TvgMath.Lerp(stops1[i].offset, stops2[i].offset, tween.progress),
-                    TvgMath.Lerp(stops1[i].r, stops2[i].r, tween.progress),
-                    TvgMath.Lerp(stops1[i].g, stops2[i].g, tween.progress),
-                    TvgMath.Lerp(stops1[i].b, stops2[i].b, tween.progress),
-                    TvgMath.Lerp(stops1[i].a, stops2[i].a, tween.progress));
+                Evaluate(frameNo, fill, exps);
+                tween.Capture(this, frameNo, fill);
             }
-            return fill.SetColorStops(result, cnt);
+            Evaluate(tween.to, fill, exps);
+            tween.Run(this, frameNo, fill);
+            return Result.Success;
         }
 
         public void CopyFrom(LottieColorStop rhs, bool shallow = true)
@@ -1159,7 +1098,22 @@ namespace ThorVG
         public LottieBitmap() : base(PropertyType.Image) { }
         public LottieBitmap(LottieBitmap rhs) : base(PropertyType.Image) { CopyFrom(rhs, false); }
 
-        public void Release() { picture = null; data = null; mimeType = null; }
+        ~LottieBitmap()
+        {
+            Release();
+        }
+
+        public void Release()
+        {
+            if (picture != null)
+            {
+                picture.Unref();
+                picture = null;
+            }
+            data = null;
+            b64Data = null;
+            mimeType = null;
+        }
 
         public override uint FrameCnt() => 0;
         public override uint Nearest(float frameNo) => 0;

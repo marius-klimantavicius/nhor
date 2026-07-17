@@ -154,7 +154,6 @@ namespace ThorVG
             var glyphOffset = reader.Glyph(code, tgm);
             if (!reader.Convert(tgm.path, tgm, glyphOffset, new Point(0.0f, 0.0f), 1))
             {
-                glyphs.Remove(code);
                 return null;
             }
             return tgm;
@@ -421,12 +420,14 @@ namespace ThorVG
         /// <summary>Open from raw data buffer (with resource path).</summary>
         public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
+            if (data == null || size > data.Length) return false;
             return Open(data, size, copy);
         }
 
         /// <summary>Open from raw data buffer.</summary>
         public bool Open(byte[] rawData, uint dataSize, bool copy)
         {
+            if (rawData == null || dataSize > rawData.Length || dataSize <= 4) return false;
             if (copy)
             {
                 reader.data = new byte[dataSize];
@@ -498,7 +499,13 @@ namespace ThorVG
 
         public override bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output)
         {
+            return GlyphMetrics(fm, ch, out output, out _);
+        }
+
+        public override unsafe bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output, out int next)
+        {
             output = default;
+            next = 0;
             if (string.IsNullOrEmpty(ch)) return false;
             int idx = 0;
             var code = DecodeCodepoint(ch, ref idx, ch.Length);
@@ -507,8 +514,26 @@ namespace ThorVG
             var scale = (fm.fontSize * DPI) / reader.metrics.unitsPerEm;
             output.advance = glyph.advance * scale;
             output.bearing = glyph.lsb * scale;
-            output.min = new Point(glyph.x * scale, glyph.y * scale);
-            output.max = new Point((glyph.w + glyph.x - 1) * scale, (glyph.h + glyph.y - 1) * scale);
+
+            var min = new Point(glyph.x, glyph.y);
+            var max = glyph.w == 0.0f && glyph.h == 0.0f
+                ? min
+                : new Point(glyph.w + glyph.x - 1.0f, glyph.h + glyph.y - 1.0f);
+            if (TvgMath.Zero(min.x) && TvgMath.Zero(min.y) && TvgMath.Zero(max.x) && TvgMath.Zero(max.y))
+            {
+                var bounds = new BBox();
+                if (glyph.path.Bounds(null, ref bounds))
+                {
+                    min = bounds.min;
+                    max = bounds.max;
+                    var y = min.y;
+                    min.y = -max.y;
+                    max.y = -y;
+                }
+            }
+            output.min = new Point(min.x * scale, min.y * scale);
+            output.max = new Point(max.x * scale, max.y * scale);
+            next = idx;
             return true;
         }
 

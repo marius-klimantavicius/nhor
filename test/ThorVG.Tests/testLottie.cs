@@ -25,7 +25,9 @@ namespace ThorVG.Tests
                     "test9.lot",
                     "test10.lot",
                     "test11.lot",
-                    "test12.lot"
+                    "test12.lot",
+                    "test13.lot",
+                    "test14.lot"
                 };
 
                 var animation = Animation.Gen();
@@ -165,11 +167,18 @@ namespace ThorVG.Tests
                 // Get marker count
                 Assert.Equal(3u, animation.MarkersCnt());
 
-                // Get marker name by index
-                Assert.Equal("sectionB", animation.Marker(1));
+                Assert.Equal("sectionA", animation.Marker(0, out var markerBegin, out var markerEnd));
+                Assert.Equal(0.0f, markerBegin);
+                Assert.Equal(22.0f, markerEnd);
+                Assert.Equal("sectionB", animation.Marker(1, out markerBegin, out markerEnd));
+                Assert.Equal(22.0f, markerBegin);
+                Assert.Equal(33.0f, markerEnd);
+                Assert.Equal("sectionC", animation.Marker(2, out markerBegin, out markerEnd));
+                Assert.Equal(33.0f, markerBegin);
+                Assert.Equal(63.0f, markerEnd);
 
                 // Get marker name by invalid index
-                Assert.Null(animation.Marker(uint.MaxValue));
+                Assert.Null(animation.Marker(uint.MaxValue, out _, out _));
 
                 Assert.Equal(Result.Success, animation.Segment((string?)null));
             }
@@ -186,24 +195,27 @@ namespace ThorVG.Tests
 
                 var picture = animation.GetPicture();
 
-                Assert.Equal(Result.InsufficientCondition, animation.Tween(0.0f, 10.0f, 0.5f));
+                Assert.Equal(Result.InsufficientCondition, animation.TweenTo(10.0f));
+                Assert.Equal(Result.InsufficientCondition, animation.Tween(0.5f));
 
-                Assert.Equal(Result.Success, picture.Load(Path.Combine(TEST_DIR, "test.lot")));
+                var tweenPath = Path.Combine(TEST_DIR, "tween.lot");
+                Assert.True(File.Exists(tweenPath), $"Required test resource is missing: {tweenPath}");
+                Assert.Equal(Result.Success, picture.Load(tweenPath));
 
-                // Set initial frame to avoid frame difference being too small
+                Assert.Equal(Result.InsufficientCondition, animation.Tween(0.5f));
                 Assert.Equal(Result.Success, animation.Frame(5.0f));
+                Assert.Equal(Result.Success, animation.TweenTo(20.0f));
+                Assert.Equal(Result.Success, animation.Tween(0.0f));
+                Assert.Equal(Result.Success, animation.Tween(0.5f));
+                Assert.Equal(Result.Success, animation.Tween(1.0f));
 
-                // Tween between frames with different progress values
+                Assert.Equal(Result.Success, animation.TweenTo(30.0f));
+                Assert.Equal(Result.Success, animation.Frame(10.0f));
+                Assert.Equal(Result.InsufficientCondition, animation.Tween(0.5f));
+
+                Assert.Equal(Result.Success, animation.TweenTo(40.0f));
                 Assert.Equal(Result.Success, animation.Tween(0.0f, 10.0f, 0.5f));
-                Assert.Equal(Result.Success, animation.Tween(10.0f, 20.0f, 0.0f));
-                Assert.Equal(Result.Success, animation.Tween(20.0f, 30.0f, 1.0f));
-
-                // Tween with different frame ranges
-                Assert.Equal(Result.Success, animation.Tween(10.0f, 50.0f, 0.25f));
-                Assert.Equal(Result.Success, animation.Tween(50.0f, 100.0f, 0.75f));
-
-                // Tween between distant frames
-                Assert.Equal(Result.Success, animation.Tween(0.0f, 100.0f, 0.5f));
+                Assert.Equal(Result.InsufficientCondition, animation.Tween(0.75f));
             }
             Assert.Equal(Result.Success, Initializer.Term());
         }
@@ -281,6 +293,61 @@ namespace ThorVG.Tests
                 // Test that setting/unsetting resolver after load
                 Assert.Equal(Result.InsufficientCondition, picture.Resolver(resolver, null));
                 Assert.Equal(Result.InsufficientCondition, picture.Resolver(null, null));
+            }
+            Assert.Equal(Result.Success, Initializer.Term());
+        }
+
+        [Fact]
+        public void LottieAudioLayer()
+        {
+            Assert.Equal(Result.Success, Initializer.Init());
+            {
+                var animation = LottieAnimation.Gen();
+                var picture = animation.GetPicture();
+                var callCount = 0;
+                var received = default(LottieAudioResolver);
+
+                void Resolver(LottieAudioResolver info, object? data)
+                {
+                    callCount++;
+                    received = info;
+                }
+
+                Assert.Equal(Result.InsufficientCondition, animation.Resolver(Resolver));
+
+                var audioPath = Path.Combine(TEST_DIR, "audio_layer.json");
+                Assert.True(File.Exists(audioPath), $"Required test resource is missing: {audioPath}");
+                Assert.Equal(Result.Success, picture.Load(audioPath));
+                Assert.Equal(Result.Success, animation.Frame(15));
+
+                Assert.Equal(Result.Success, animation.Resolver(Resolver));
+                Assert.Equal(Result.Success, animation.Frame(1));
+                Assert.Equal(1, callCount);
+                Assert.True(received.active);
+                Assert.True(received.offset >= 0.0f);
+                Assert.InRange(received.volume, 99.9f, 100.1f);
+                Assert.False(received.embedded);
+                Assert.NotNull(received.src);
+                Assert.Equal(0u, received.size);
+                Assert.Null(received.mimeType);
+
+                callCount = 0;
+                Assert.Equal(Result.Success, animation.Frame(5));
+                Assert.Equal(0, callCount);
+
+                Assert.Equal(Result.Success, animation.Frame(20));
+                Assert.Equal(1, callCount);
+                Assert.False(received.active);
+                Assert.NotNull(received.src);
+
+                Assert.Equal(Result.Success, animation.Frame(6));
+                Assert.True(received.active);
+                Assert.InRange(received.offset, 0.09f, 0.11f);
+
+                Assert.Equal(Result.Success, animation.Resolver(null));
+                callCount = 0;
+                Assert.Equal(Result.Success, animation.Frame(25));
+                Assert.Equal(0, callCount);
             }
             Assert.Equal(Result.Success, Initializer.Term());
         }

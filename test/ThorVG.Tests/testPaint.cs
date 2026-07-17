@@ -214,20 +214,20 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, canvas.Update());
 
                 Assert.Equal(Result.Success, shape.Bounds(out x, out y, out w, out h));
-                Assert.Equal(4.0f, x);
-                Assert.Equal(4.0f, y);
-                Assert.Equal(12.0f, h);
-                Assert.Equal(192.0f, w);
+                AssertApprox(4.0f, x);
+                AssertApprox(4.0f, y);
+                AssertApprox(12.0f, h);
+                AssertApprox(192.0f, w);
 
                 Assert.Equal(Result.Success, shape.Bounds(pts));
-                Assert.Equal(4.0f, pts[0].x);
-                Assert.Equal(4.0f, pts[3].x);
-                Assert.Equal(4.0f, pts[0].y);
-                Assert.Equal(4.0f, pts[1].y);
-                Assert.Equal(196.0f, pts[1].x);
-                Assert.Equal(196.0f, pts[2].x);
-                Assert.Equal(16.0f, pts[2].y);
-                Assert.Equal(16.0f, pts[3].y);
+                AssertApprox(4.0f, pts[0].x);
+                AssertApprox(4.0f, pts[3].x);
+                AssertApprox(4.0f, pts[0].y);
+                AssertApprox(4.0f, pts[1].y);
+                AssertApprox(196.0f, pts[1].x);
+                AssertApprox(196.0f, pts[2].x);
+                AssertApprox(16.0f, pts[2].y);
+                AssertApprox(16.0f, pts[3].y);
 
                 // Text (TTF loader support)
                 Assert.Equal(Result.Success, Text.LoadFont(TEST_DIR + "/PublicSans-Regular.ttf"));
@@ -283,42 +283,6 @@ namespace ThorVG.Tests
                 AssertApprox(8.533333f, pts[1].y);
                 AssertApprox(40.533333f, pts[2].y);
                 AssertApprox(40.533333f, pts[3].y);
-            }
-            Assert.Equal(Result.Success, Initializer.Term());
-        }
-
-        [Fact]
-        public void Intersection()
-        {
-            Assert.Equal(Result.Success, Initializer.Init());
-            {
-                var canvas = SwCanvas.Gen();
-
-                var buffer = new uint[200 * 200];
-                canvas.Target(buffer, 200, 200, 200, ColorSpace.ARGB8888);
-
-                var shape = Shape.Gen();
-                Assert.NotNull(shape);
-                Assert.Equal(Result.Success, shape.AppendRect(50, 50, 100, 100));
-                Assert.Equal(Result.Success, shape.SetFill(255, 0, 0, 255));
-
-                Assert.Equal(Result.Success, canvas.Add(shape));
-                Assert.Equal(Result.Success, canvas.Draw());
-
-                // Case1. Fully contained
-                Assert.True(shape.Intersects(0, 0, 200, 200));
-
-                // Case2. Partially overlapping
-                Assert.True(shape.Intersects(25, 25, 50, 50));
-                Assert.True(shape.Intersects(125, 125, 50, 50));
-
-                // Case3. Edge-touching
-                Assert.True(shape.Intersects(49, 49, 2, 2));
-                Assert.True(shape.Intersects(149, 149, 2, 2));
-
-                // Case4. Fully separated
-                Assert.False(shape.Intersects(0, 0, 25, 25));
-                Assert.False(shape.Intersects(175, 175, 25, 25));
             }
             Assert.Equal(Result.Success, Initializer.Term());
         }

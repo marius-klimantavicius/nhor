@@ -37,6 +37,7 @@ namespace ThorVG
                 svgPath = path;
                 doc = parsedDoc;
                 loaderData = ld;
+                loaderData.accessible = (ops as PictureOps)?.accessible ?? false;
 
                 // Extract dimensions from the parsed SVG
                 var (vbox, vw, vh, viewFlag) = SvgLoader.GetViewInfo(doc);
@@ -67,6 +68,7 @@ namespace ThorVG
                 svgPath = (ops as PictureOps)?.rpath ?? "";
                 doc = parsedDoc;
                 loaderData = ld;
+                loaderData.accessible = (ops as PictureOps)?.accessible ?? false;
 
                 // Extract dimensions from the parsed SVG
                 var (vbox, vw, vh, viewFlag) = SvgLoader.GetViewInfo(doc);
@@ -103,6 +105,27 @@ namespace ThorVG
             }
 
             return builtScene;
+        }
+
+        public override AccessorEntity? Access(uint id)
+        {
+            GetPaint();
+            if (loaderData == null) return null;
+            foreach (var entity in loaderData.access)
+            {
+                if (entity.id == id) return entity;
+            }
+            return null;
+        }
+
+        public override void Access(Func<Paint, object?, bool> callback, object? data)
+        {
+            GetPaint();
+            if (loaderData == null) return;
+            foreach (var entity in loaderData.access)
+            {
+                if (!callback(entity.paint, data)) return;
+            }
         }
 
         public override bool Resize(Paint paint, float w, float h)

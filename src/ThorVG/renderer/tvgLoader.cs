@@ -50,8 +50,9 @@ namespace ThorVG
         public Loader? Prev { get; set; }
         public Loader? Next { get; set; }
 
-        // Use either hashkey(data) or hashpath(path)
+        // Use either hashdata(data) or hashpath(path). hashkey is retained for compatibility.
         public ulong hashkey;
+        public object? hashdata;
         public string? hashpath;
 
         public FileType type;                           // current loader file type
@@ -61,16 +62,41 @@ namespace ThorVG
 
         protected Loader(FileType type) { this.type = type; }
 
-        public void Cache(ulong data)
+        public bool AllowCache()
         {
-            hashkey = data;
-            cached = true;
+            return type != FileType.Lot && type != FileType.Gif;
         }
 
-        public void Cache(string? data)
+        public bool Cache(ulong data)
         {
+            if (!AllowCache()) return false;
+            hashkey = data;
+            cached = true;
+            return true;
+        }
+
+        public bool Cache(byte[] data)
+        {
+            if (!AllowCache()) return false;
+            hashdata = data;
+            cached = true;
+            return true;
+        }
+
+        public bool Cache(uint[] data)
+        {
+            if (!AllowCache()) return false;
+            hashdata = data;
+            cached = true;
+            return true;
+        }
+
+        public bool Cache(string data)
+        {
+            if (!AllowCache()) return false;
             hashpath = data;
             cached = true;
+            return true;
         }
 
         public virtual bool Open(string path, LoaderOps? ops = null) => false;
@@ -129,6 +155,8 @@ namespace ThorVG
 
         public virtual bool Animatable() => false;
         public virtual Paint? GetPaint() => null;
+        public virtual AccessorEntity? Access(uint id) => null;
+        public virtual void Access(Func<Paint, object?, bool> callback, object? data) { }
 
         public virtual unsafe RenderSurface? Bitmap()
         {
@@ -169,6 +197,13 @@ namespace ThorVG
         public abstract void Release(FontMetrics fm);
         public abstract void Metrics(FontMetrics fm, out TextMetrics output);
         public abstract bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output);
+        public virtual bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output, out int next)
+        {
+            next = 0;
+            if (!GlyphMetrics(fm, ch, out output)) return false;
+            next = ch.Length > 1 && char.IsSurrogatePair(ch, 0) ? 2 : 1;
+            return true;
+        }
         public abstract void Copy(FontMetrics input, FontMetrics output);
     }
 
@@ -181,13 +216,6 @@ namespace ThorVG
     {
         private static readonly Key _key = new Key();
         private static readonly Inlist<Loader> _activeLoaders = new Inlist<Loader>();
-
-        private static ulong HashKey(byte[] data)
-        {
-            // Mirrors C++ HASH_KEY which uses reinterpret_cast<uintptr_t>(data)
-            // In C# we use the hash code of the array reference as a stable identity
-            return (ulong)System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(data);
-        }
 
         public static bool Init() => true;
 
@@ -302,13 +330,11 @@ namespace ThorVG
             var type = Convert(mimeType);
             if (type == FileType.Unknown) return null;
 
-            var key = HashKey(data);
-
             using var lk = new ScopedLock(_key);
             var loader = _activeLoaders.Head;
             while (loader != null)
             {
-                if (loader.type == type && loader.hashkey == key)
+                if (loader.type == type && loader.cached && ReferenceEquals(loader.hashdata, data))
                 {
                     ++loader.sharing;
                     return loader;
@@ -339,33 +365,20 @@ namespace ThorVG
         /// <summary>
         /// Load from a file path. Mirrors C++ LoaderMgr::loader(filename, invalid).
         /// </summary>
-        public static Loader? Loader(string filename, out bool invalid)
+        public static Loader? Loader(string filename, out bool invalid, LoaderOps? ops = null)
         {
             invalid = false;
 
-            // TODO: make lottie sharable.
-            var allowCache = true;
-            var ext = TvgStr.Fileext(filename);
-            if (!string.IsNullOrEmpty(ext))
-            {
-                var extLower = ext.ToLowerInvariant();
-                if (extLower == "json" || extLower == "lot") allowCache = false;
-            }
-
-            if (allowCache)
-            {
-                var cached = FindFromCache(filename);
-                if (cached != null) return cached;
-            }
+            var cached = FindFromCache(filename);
+            if (cached != null) return cached;
 
             var loader = FindByPath(filename);
             if (loader != null)
             {
-                if (loader.Open(filename))
+                if (loader.Open(filename, ops))
                 {
-                    if (allowCache)
+                    if (loader.Cache(filename))
                     {
-                        loader.Cache(TvgStr.Duplicate(filename));
                         using (var lk = new ScopedLock(_key))
                         {
                             _activeLoaders.Back(loader);
@@ -377,16 +390,15 @@ namespace ThorVG
             }
 
             // Unknown MimeType. Try with the candidates in the order
-            for (int i = 0; i < (int)FileType.Raw; i++)
+            for (int i = 0; i < (int)FileType.Unknown; i++)
             {
                 loader = Find((FileType)i);
                 if (loader != null)
                 {
-                    if (loader.Open(filename))
+                    if (loader.Open(filename, ops))
                     {
-                        if (allowCache)
+                        if (loader.Cache(filename))
                         {
-                            loader.Cache(TvgStr.Duplicate(filename));
                             using (var lk = new ScopedLock(_key))
                             {
                                 _activeLoaders.Back(loader);
@@ -418,16 +430,7 @@ namespace ThorVG
         {
             // Note that users could use the same data pointer with different content.
             // Thus caching is only valid for shareable.
-            var allowCache = !copy;
-
-            // TODO: make lottie shareable.
-            if (allowCache)
-            {
-                var type = Convert(mimeType);
-                if (type == FileType.Lot) allowCache = false;
-            }
-
-            if (allowCache)
+            if (!copy)
             {
                 var cached = FindFromCache(data, size, mimeType);
                 if (cached != null) return cached;
@@ -441,9 +444,8 @@ namespace ThorVG
                 {
                     if (loader.Open(data, size, ops, copy))
                     {
-                        if (allowCache)
+                        if (!copy && loader.Cache(data))
                         {
-                            loader.Cache(HashKey(data));
                             using var lk = new ScopedLock(_key);
                             _activeLoaders.Back(loader);
                         }
@@ -454,16 +456,15 @@ namespace ThorVG
             }
 
             // Unknown MimeType. Try with the candidates in the order
-            for (int i = 0; i < (int)FileType.Raw; i++)
+            for (int i = 0; i < (int)FileType.Unknown; i++)
             {
                 var loader = Find((FileType)i);
                 if (loader != null)
                 {
                     if (loader.Open(data, size, ops, copy))
                     {
-                        if (allowCache)
+                        if (!copy && loader.Cache(data))
                         {
-                            loader.Cache(HashKey(data));
                             using var lk = new ScopedLock(_key);
                             _activeLoaders.Back(loader);
                         }
@@ -484,14 +485,12 @@ namespace ThorVG
             if (!copy)
             {
                 // TODO: should we check premultiplied??
-                // Use the array reference hash as cache key
-                var key = (ulong)System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(data);
                 using (var lk = new ScopedLock(_key))
                 {
                     var existing = _activeLoaders.Head;
                     while (existing != null)
                     {
-                        if (existing.type == FileType.Raw && existing.hashkey == key)
+                        if (existing.type == FileType.Raw && existing.cached && ReferenceEquals(existing.hashdata, data))
                         {
                             ++existing.sharing;
                             return existing;
@@ -505,9 +504,8 @@ namespace ThorVG
             var loader = new RawLoader();
             if (loader.Open(data, w, h, cs, copy))
             {
-                if (!copy)
+                if (!copy && loader.Cache(data))
                 {
-                    loader.Cache((ulong)System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(data));
                     using var lk = new ScopedLock(_key);
                     _activeLoaders.Back(loader);
                 }

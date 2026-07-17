@@ -84,11 +84,13 @@ enum struct SvgNodeType : uint16_t
     Symbol,
     Filter,
     GaussianBlur,
+    Pattern,
     Unknown
 };
 
 enum struct SvgFillFlags : uint8_t
 {
+    None = 0x0,
     Paint = 0x01,
     Opacity = 0x02,
     Gradient = 0x04,
@@ -148,6 +150,7 @@ enum struct SvgGradientType : uint8_t
 
 enum struct SvgStyleFlags
 {
+    None = 0x0,
     Color = 0x01,
     Fill = 0x02,
     FillRule = 0x04,
@@ -383,8 +386,11 @@ struct SvgClipNode
 
 struct SvgMaskNode
 {
+    Box box;
+    bool isPercentage[4];
     SvgMaskType type;
     bool userSpace;
+    bool maskContentUserSpace;
 };
 
 struct SvgCssStyleNode
@@ -417,6 +423,18 @@ struct SvgFilterNode
     bool primitiveUserSpace;
 };
 
+struct SvgPatternNode
+{
+    Box box;
+    Box vbox;
+    Matrix* transform;
+    bool isPercentage[4];
+    bool patternUserSpace;
+    bool contentUserSpace;
+    bool hasViewBox;
+    bool applying;
+};
+
 struct SvgLinearGradient
 {
     float x1, y1, x2, y2;
@@ -447,6 +465,7 @@ struct SvgComposite
 struct SvgPaint
 {
     SvgStyleGradient* gradient;
+    SvgNode* pattern;
     char *url;
     SvgColor color;
     bool none;
@@ -558,6 +577,7 @@ struct SvgNode
         SvgTextNode text;
         SvgFilterNode filter;
         SvgGaussianBlurNode gaussianBlur;
+        SvgPatternNode pattern;
     } node;
     SvgXmlSpace xmlSpace = SvgXmlSpace::None;
     ~SvgNode();

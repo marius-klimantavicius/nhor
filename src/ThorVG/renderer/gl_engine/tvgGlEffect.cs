@@ -21,6 +21,7 @@ namespace ThorVG
     {
         public Float4 color;
         public Float2 offset;
+        public Float2 dummy1;
     }
 
     internal class GlEffectParams
@@ -178,7 +179,7 @@ namespace ThorVG
             var dstCopyFbo1 = blendPool[1].GetRenderTarget(vp);
 
             // add uniform data
-            var viewport = stackalloc float[] { vp.min.x, vp.min.y, vp.max.x, vp.max.y };
+            var viewport = stackalloc float[] { 0.0f, 0.0f, vp.Sw(), vp.Sh() };
             var blur = (GlGaussianBlur)effect.rd!;
             var blurData = stackalloc float[] { blur.sigma, blur.scale, blur.extend, blur.dummy0 };
             var blurOffset = gpuBuffer.Push(blurData, 4 * sizeof(float), true);
@@ -251,17 +252,16 @@ namespace ThorVG
             var dstCopyFbo0 = blendPool[0].GetRenderTarget(vp);
             var dstCopyFbo1 = blendPool[1].GetRenderTarget(vp);
 
-            var viewport = stackalloc float[] { vp.min.x, vp.min.y, vp.max.x, vp.max.y };
+            var viewport = stackalloc float[] { 0.0f, 0.0f, vp.Sw(), vp.Sh() };
             var ds = (GlDropShadow)effect.rd!;
-            // Pack GlDropShadow into float array: sigma, scale, extend, dummy0, color[4], offset[2]
-            var paramsData = stackalloc float[] { ds.sigma, ds.scale, ds.extend, ds.dummy0, ds.color[0], ds.color[1], ds.color[2], ds.color[3], ds.offset[0], ds.offset[1] };
-            var paramsOffset = gpuBuffer.Push(paramsData, 10 * sizeof(float), true);
+            var paramsData = stackalloc float[] { ds.sigma, ds.scale, ds.extend, ds.dummy0, ds.color[0], ds.color[1], ds.color[2], ds.color[3], ds.offset[0], ds.offset[1], 0.0f, 0.0f };
+            var paramsOffset = gpuBuffer.Push(paramsData, 12 * sizeof(float), true);
             var viewportOffset = gpuBuffer.Push(viewport, 4 * sizeof(float), true);
 
             var task = new GlEffectDropShadowTask(pDropShadow, dstFbo, dstCopyFbo0, dstCopyFbo1);
             task.effect = effect;
             task.SetViewport(new RenderRegion(0, 0, vp.Sw(), vp.Sh()));
-            task.AddBindResource(new GlBindingResource(0, pDropShadow.GetUniformBlockIndex("DropShadow\0"u8), gpuBuffer.GetBufferId(), paramsOffset, 10 * sizeof(float)));
+            task.AddBindResource(new GlBindingResource(0, pDropShadow.GetUniformBlockIndex("DropShadow\0"u8), gpuBuffer.GetBufferId(), paramsOffset, 12 * sizeof(float)));
             task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = voffset });
             task.SetDrawRange(ioffset, 6);
 

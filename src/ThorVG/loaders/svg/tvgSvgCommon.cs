@@ -61,12 +61,14 @@ namespace ThorVG
         Symbol,
         Filter,
         GaussianBlur,
+        Pattern,
         Unknown
     }
 
     [Flags]
     public enum SvgFillFlags
     {
+        None = 0x0,
         Paint = 0x01,
         Opacity = 0x02,
         Gradient = 0x04,
@@ -98,6 +100,7 @@ namespace ThorVG
     [Flags]
     public enum SvgStyleFlags
     {
+        None = 0x0,
         Color = 0x01,
         Fill = 0x02,
         FillRule = 0x04,
@@ -280,8 +283,11 @@ namespace ThorVG
 
     public class SvgMaskNode
     {
+        public Box box;
+        public bool[] isPercentage = new bool[4];
         public SvgMaskType type;
         public bool userSpace;
+        public bool maskContentUserSpace;
     }
 
     public class SvgTextNode
@@ -308,6 +314,18 @@ namespace ThorVG
         public bool[] isPercentage = new bool[4];
         public bool filterUserSpace;
         public bool primitiveUserSpace;
+    }
+
+    public class SvgPatternNode
+    {
+        public Box box;
+        public Box vbox;
+        public Matrix? transform;
+        public bool[] isPercentage = new bool[4];
+        public bool patternUserSpace;
+        public bool contentUserSpace;
+        public bool hasViewBox;
+        public bool applying;
     }
 
     public class SvgLinearGradient
@@ -340,6 +358,7 @@ namespace ThorVG
     public class SvgPaint
     {
         public SvgStyleGradient? gradient;
+        public SvgNode? pattern;
         public string? url;
         public RGB color;
         public bool none;
@@ -455,6 +474,7 @@ namespace ThorVG
         public SvgTextNode text = new SvgTextNode();
         public SvgFilterNode filter = new SvgFilterNode();
         public SvgGaussianBlurNode gaussianBlur = new SvgGaussianBlurNode();
+        public SvgPatternNode pattern = new SvgPatternNode();
     }
 
     public class SvgParser
@@ -509,7 +529,9 @@ namespace ThorVG
         public List<SvgNodeIdPair> nodesToStyle = new List<SvgNodeIdPair>();
         public List<string> images = new List<string>();
         public List<FontFace> fonts = new List<FontFace>();
+        public List<AccessorEntity> access = new List<AccessorEntity>();
         public OpenedTagType openedTag = OpenedTagType.Other;
+        public bool accessible;
     }
 
     /// <summary>Helper to check string equality (mirrors C++ STR_AS macro).</summary>

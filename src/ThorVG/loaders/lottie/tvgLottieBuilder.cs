@@ -103,6 +103,12 @@ namespace ThorVG
                         Update(new LottiePuckerBloatModifier(pucker.amount));
                         break;
                     }
+                    case LottieModifier.ModifierType.ZigZag:
+                    {
+                        var zigzag = (LottieZigZagModifier)m;
+                        Update(new LottieZigZagModifier(zigzag.amp, zigzag.freq, zigzag.point));
+                        break;
+                    }
                 }
                 m = m.next;
             }
@@ -142,8 +148,10 @@ namespace ThorVG
     public class LottieBuilder
     {
         private LottieExpressions? exps;
-        private Tween tween;
+        public LottieTween tween = new();
         public AssetResolver? resolver;
+        public Action<LottieAudioResolver, object?>? audioResolver;
+        public object? audioResolverData;
 
         // Object pools for per-frame allocations
         private Stack<RenderContext> contextPool = new();
@@ -204,26 +212,9 @@ namespace ThorVG
             return exps != null;
         }
 
-        public void OffTween()
-        {
-            if (tween.active) tween.active = false;
-        }
-
-        public void OnTween(float to, float progress)
-        {
-            tween.frameNo = to;
-            tween.progress = progress;
-            tween.active = true;
-        }
-
-        public bool Tweening()
-        {
-            return tween.active;
-        }
-
         // --- Static helpers ---
 
-        private static void Dimension3D(LottieTransform transform, float frameNo, ref Matrix m, float angle, Tween tween, LottieExpressions? exps)
+        private static void Dimension3D(LottieTransform transform, float frameNo, ref Matrix m, float angle, LottieTween tween, LottieExpressions? exps)
         {
             var x = TvgMath.Deg2Rad(transform.ddd!.rx.Evaluate(frameNo, tween, exps));
             var y = TvgMath.Deg2Rad(transform.ddd.ry.Evaluate(frameNo, tween, exps));
@@ -270,7 +261,7 @@ namespace ThorVG
             m.e22 = ri10 * ro01 + ri11 * ro11 + ri12 * ro21;
         }
 
-        private static void Rotate(LottieTransform transform, float frameNo, ref Matrix m, float angle, Tween tween, LottieExpressions? exps)
+        private static void Rotate(LottieTransform transform, float frameNo, ref Matrix m, float angle, LottieTween tween, LottieExpressions? exps)
         {
             if (transform.ddd != null)
             {
@@ -326,7 +317,7 @@ namespace ThorVG
             m.e22 = Bv * e21 + (1.0f + A) * m.e22;
         }
 
-        private static bool UpdateTransformMatrix(LottieTransform? transform, float frameNo, ref Matrix matrix, out byte opacity, bool autoOrient, Tween tween, LottieExpressions? exps)
+        private static bool UpdateTransformMatrix(LottieTransform? transform, float frameNo, ref Matrix matrix, out byte opacity, bool autoOrient, LottieTween tween, LottieExpressions? exps)
         {
             TvgMath.SetIdentity(out matrix);
 
@@ -369,7 +360,7 @@ namespace ThorVG
             return true;
         }
 
-        private static void UpdateStroke(LottieStroke stroke, float frameNo, RenderContext ctx, Tween tween, LottieExpressions? exps)
+        private static void UpdateStroke(LottieStroke stroke, float frameNo, RenderContext ctx, LottieTween tween, LottieExpressions? exps)
         {
             ctx.propagator!.StrokeWidth(stroke.width.Evaluate(frameNo, tween, exps));
             ctx.propagator.StrokeCap(stroke.cap);
@@ -484,7 +475,13 @@ namespace ThorVG
 
         private void UpdateTransformLayer(LottieLayer? layer, float frameNo)
         {
-            if (layer == null || (!Tweening() && TvgMath.Equal(layer.cacheFrameNo, frameNo))) return;
+            if (layer == null) return;
+            if (tween.active) layer.cacheFrameNo = -1.0f;
+            else
+            {
+                if (TvgMath.Equal(layer.cacheFrameNo, frameNo)) return;
+                layer.cacheFrameNo = frameNo;
+            }
 
             var transform = layer.transform;
             var parent = layer.parent;
@@ -498,7 +495,6 @@ namespace ThorVG
             if (parent != null) matrix = TvgMath.Multiply(parent.cacheMatrix, matrix);
 
             layer.cacheMatrix = matrix;
-            layer.cacheFrameNo = frameNo;
         }
 
         private void UpdateTransform(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
@@ -782,10 +778,8 @@ namespace ThorVG
                     tVal = ctx.transform.Value;
                     t = &tVal;
                 }
-                if (path.pathset.Evaluate(frameNo, ctx.merging!.rs.path, t, tween, exps, ctx.modifiers))
-                {
-                    ctx.merging.pImpl.Mark(RenderUpdateFlag.Path);
-                }
+                path.pathset.Evaluate(frameNo, ctx.merging!.rs.path, t, tween, exps, ctx.modifiers);
+                ctx.merging.pImpl.Mark(RenderUpdateFlag.Path);
             }
             else
             {
@@ -803,7 +797,7 @@ namespace ThorVG
             }
         }
 
-        private unsafe void UpdateStar(LottiePolyStar star, float frameNo, Matrix? transformM, Shape merging, RenderContext ctx, Tween tween, LottieExpressions? exps)
+        private unsafe void UpdateStar(LottiePolyStar star, float frameNo, Matrix? transformM, Shape merging, RenderContext ctx, LottieTween tween, LottieExpressions? exps)
         {
             const float POLYSTAR_MAGIC_NUMBER = 0.47829f / 0.28f;
 
@@ -933,7 +927,7 @@ namespace ThorVG
             if (ctx.modifiers != null) ctx.modifiers.Polystar(shape.rs.path, merging.rs.path, outerRoundness, hasRoundness);
         }
 
-        private unsafe void UpdatePolygon(LottieGroup parent, LottiePolyStar star, float frameNo, Matrix? transformM, Shape merging, RenderContext ctx, Tween tween, LottieExpressions? exps)
+        private unsafe void UpdatePolygon(LottieGroup parent, LottiePolyStar star, float frameNo, Matrix? transformM, Shape merging, RenderContext ctx, LottieTween tween, LottieExpressions? exps)
         {
             const float POLYGON_MAGIC_NUMBER = 0.25f;
 
@@ -1061,6 +1055,16 @@ namespace ThorVG
             ctx.Update(new LottiePuckerBloatModifier(puckerBloat.amount.Evaluate(frameNo, tween, exps)));
         }
 
+        private void UpdateZigZag(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
+        {
+            var zigzag = (LottieZigZag)parent.children[childIdx];
+            var amplitude = zigzag.amplitude.Evaluate(frameNo, tween, exps);
+            if (TvgMath.Zero(amplitude)) return;
+            var frequency = zigzag.frequency.Evaluate(frameNo, tween, exps);
+            var point = (LottieZigZagModifier.PointType)zigzag.point.Evaluate(frameNo, tween, exps);
+            ctx.Update(new LottieZigZagModifier(amplitude, frequency, point));
+        }
+
         private void UpdateRepeater(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
         {
             var repeater = (LottieRepeater)parent.children[childIdx];
@@ -1158,6 +1162,9 @@ namespace ThorVG
                         case LottieObject.ObjectType.PuckerBloat:
                             UpdatePuckerBloat(parent, childIdx, frameNo, contexts, ctx);
                             break;
+                        case LottieObject.ObjectType.ZigZag:
+                            UpdateZigZag(parent, childIdx, frameNo, contexts, ctx);
+                            break;
                         default: break;
                     }
 
@@ -1188,15 +1195,15 @@ namespace ThorVG
             precomp.scene!.Clip(clipper);
         }
 
-        private void UpdatePrecomp(LottieComposition comp, LottieLayer precomp, float frameNo, ref Tween tween)
+        private void UpdatePrecomp(LottieComposition comp, LottieLayer precomp, float frameNo, LottieTween tween)
         {
             // record & recover the tweening frame number before remapping
-            var record = tween.frameNo;
-            tween.frameNo = precomp.Remap(comp, record, exps);
+            var record = tween.to;
+            tween.to = precomp.Remap(comp, record, exps);
 
             UpdatePrecomp(comp, precomp, frameNo);
 
-            tween.frameNo = record;
+            tween.to = record;
         }
 
         private void UpdateSolid(LottieLayer layer)
@@ -1269,13 +1276,14 @@ namespace ThorVG
             paint.SetText(processedText);
             paint.SetLayout(doc.bboxSize.x, doc.bboxSize.y);
             paint.Translate(doc.bboxPos.x, doc.bboxPos.y);
-            if (doc.bboxSize.x > 0.0f) paint.SetWrapping(TextWrap.Word);
+            if (doc.bboxSize.x > 0.0f) paint.SetWrapping(TextWrap.Smart);
 
-            // align the text to the base line
+            // Align to the baseline when unboxed, otherwise to the box top.
             paint.GetMetrics(out var metrics);
-            paint.SetAlign(doc.justify, metrics.ascent / (metrics.ascent - metrics.descent));
+            var valign = doc.bboxSize.y > 0.0f ? 0.0f : metrics.ascent / (metrics.ascent - metrics.descent);
+            paint.SetAlign(doc.justify, valign);
 
-            var hspacing = (doc.tracking > 0.0f) ? (1.0f + doc.tracking * doc.size / metrics.ascent) : 1.0f;
+            var hspacing = 1.0f + doc.tracking * doc.size / metrics.ascent;
             var vspacing = (doc.height > 0.0f && paint.Lines() > 1) ? (doc.height / metrics.advance) : 1.0f;
             paint.SetSpacing(hspacing, vspacing);
 
@@ -1323,10 +1331,8 @@ namespace ThorVG
                 {
                     unsafe
                     {
-                        if (((LottiePath)childObj).pathset.Evaluate(frameNo, shape.rs.path, null, tween, exps))
-                        {
-                            shape.pImpl.Mark(RenderUpdateFlag.Path);
-                        }
+                        ((LottiePath)childObj).pathset.Evaluate(frameNo, shape.rs.path, null, tween, exps);
+                        shape.pImpl.Mark(RenderUpdateFlag.Path);
                     }
                 }
             }
@@ -1534,9 +1540,12 @@ namespace ThorVG
                     ctx.cursor = new Point(0.0f, (++ctx.line * doc.height + ctx.totalLineSpace) / ctx.scale);
                     continue;
                 }
+                var glyph = SearchGlyph(text.font!, ctx.text, ctx.pIdx, doc, out ctx.capScale);
+                var advance = glyph != null ? (glyph.width + doc.tracking) * ctx.capScale : 0.0f;
+
                 if (currentChar == ' ')
                 {
-                    if (doc.bboxSize.x > 0.0f && (ctx.cursor.x + NextWordWidth(text, doc, ctx.text, ctx.pIdx + 1)) * ctx.scale >= doc.bboxSize.x)
+                    if (doc.bboxSize.x > 0.0f && (ctx.cursor.x + advance + NextWordWidth(text, doc, ctx.text, ctx.pIdx + 1)) * ctx.scale >= doc.bboxSize.x)
                     {
                         ++ctx.pIdx;
                         lineWrapped = true;
@@ -1551,11 +1560,14 @@ namespace ThorVG
                         ctx.lineScene.Translate(ctx.cursor.x, ctx.cursor.y);
                     }
                 }
-                var glyph = SearchGlyph(text.font!, ctx.text, ctx.pIdx, doc, out ctx.capScale);
-
                 // draw matched glyphs
                 if (glyph != null)
                 {
+                    if (doc.bboxSize.x > 0.0f && ctx.cursor.x > 0.0f && (ctx.cursor.x + advance) * ctx.scale > doc.bboxSize.x)
+                    {
+                        lineWrapped = true;
+                        continue;
+                    }
                     // new text group, single scene for each characters
                     if (text.alignOp.group == LottieText.AlignOption.Group.Chars || text.alignOp.group == LottieText.AlignOption.Group.All)
                     {
@@ -1565,8 +1577,7 @@ namespace ThorVG
                     }
                     var shape = TextShape(text, frameNo, doc, glyph, ctx);
                     if (!UpdateTextRange(text, frameNo, shape, doc, ctx)) Commit(glyph, shape, ctx);
-                    if (doc.bboxSize.x > 0.0f && ctx.cursor.x * ctx.scale >= doc.bboxSize.x) lineWrapped = true;
-                    else ctx.cursor.x += (glyph.width + doc.tracking) * ctx.capScale;
+                    ctx.cursor.x += advance;
                     ctx.pIdx += glyph.len;
                     ctx.idx += glyph.len;
                 } else
@@ -1808,8 +1819,39 @@ namespace ThorVG
             }
         }
 
+        private void UpdateAudio(LottieComposition comp, LottieLayer layer, float frameNo)
+        {
+            if (layer.children.Count == 0 || layer.children[0] is not LottieAudio asset) return;
+            var ctrl = layer.Audio();
+            var active = frameNo >= layer.inFrame && frameNo < layer.outFrame;
+            var volume = active ? TvgMath.Clamp(ctrl.volume.Evaluate(frameNo, tween, exps), 0.0f, 100.0f) : 100.0f;
+            var changed = active != ctrl.prevActive || (active && !TvgMath.Equal(volume, ctrl.prevVolume));
+            if (changed)
+            {
+                var info = new LottieAudioResolver
+                {
+                    src = asset.data,
+                    mimeType = asset.mimeType,
+                    size = asset.size,
+                    embedded = asset.size > 0,
+                    volume = volume,
+                    active = active,
+                    offset = active ? (layer.Remap(comp, frameNo, exps) - layer.Remap(comp, layer.inFrame, exps)) / comp.frameRate : 0.0f
+                };
+                audioResolver?.Invoke(info, audioResolverData);
+            }
+            ctrl.prevActive = active;
+            ctrl.prevVolume = volume;
+        }
+
         private void UpdateLayer(LottieComposition comp, Scene scene, LottieLayer layer, float frameNo)
         {
+            if (layer.layerType == LottieLayer.LayerType.Audio)
+            {
+                if (audioResolver != null) UpdateAudio(comp, layer, frameNo);
+                return;
+            }
+
             layer.scene = null;
 
             // visibility
@@ -1837,8 +1879,8 @@ namespace ThorVG
             {
                 case LottieLayer.LayerType.Precomp:
                 {
-                    if (!Tweening()) UpdatePrecomp(comp, layer, frameNo);
-                    else UpdatePrecomp(comp, layer, frameNo, ref tween);
+                    if (!tween.active) UpdatePrecomp(comp, layer, frameNo);
+                    else UpdatePrecomp(comp, layer, frameNo, tween);
                     break;
                 }
                 case LottieLayer.LayerType.Solid:
@@ -1893,7 +1935,7 @@ namespace ThorVG
                         layer.effect |= assetLayer.effect;
                     }
                 }
-                else if (layer.layerType == LottieLayer.LayerType.Image)
+                else if (layer.layerType == LottieLayer.LayerType.Image || layer.layerType == LottieLayer.LayerType.Audio)
                 {
                     layer.children.Add(asset);
                 }
@@ -2016,13 +2058,11 @@ namespace ThorVG
 
             comp.Clamp(ref frameNo);
 
-            if (Tweening())
+            if (tween.active)
             {
-                var tf = tween.frameNo;
+                var tf = tween.to;
                 comp.Clamp(ref tf);
-                tween.frameNo = tf;
-                // tweening is not necessary.
-                if (TvgMath.Equal(frameNo, tween.frameNo)) OffTween();
+                tween.to = tf;
             }
 
             if (exps != null && comp.expressions) exps.Update(comp.TimeAtFrame(frameNo));

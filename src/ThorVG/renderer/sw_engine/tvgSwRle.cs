@@ -93,6 +93,23 @@ namespace ThorVG
             return ((pt.x > pt.y) ? (pt.x + (3 * pt.y >> 3)) : (pt.y + (3 * pt.x >> 3)));
         }
 
+        private static void _splitCubic(SwPoint* p)
+        {
+            int a, b, c, d;
+            p[6].x = p[3].x; c = p[1].x; d = p[2].x;
+            p[1].x = a = (p[0].x + c) >> 1; p[5].x = b = (p[3].x + d) >> 1;
+            c = (c + d) >> 1; p[2].x = a = (a + c) >> 1; p[4].x = b = (b + c) >> 1; p[3].x = (a + b) >> 1;
+            p[6].y = p[3].y; c = p[1].y; d = p[2].y;
+            p[1].y = a = (p[0].y + c) >> 1; p[5].y = b = (p[3].y + d) >> 1;
+            c = (c + d) >> 1; p[2].y = a = (a + c) >> 1; p[4].y = b = (b + c) >> 1; p[3].y = (a + b) >> 1;
+        }
+
+        private static void _splitLine(SwPoint* p)
+        {
+            p[2] = p[1];
+            p[1] = new SwPoint((p[0].x >> 1) + (p[1].x >> 1), (p[0].y >> 1) + (p[1].y >> 1));
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint SAFE_HYPOT(SwPoint pt1, SwPoint pt2)
         {
@@ -288,7 +305,7 @@ namespace ThorVG
             {
                 if (SAFE_HYPOT(line[0], line[1]) > short.MaxValue)
                 {
-                    SwMath.mathSplitLine(line);
+                    _splitLine(line);
                     ++line;
                     continue;
                 }
@@ -461,7 +478,7 @@ namespace ThorVG
 
                     if (needSplit)
                     {
-                        SwMath.mathSplitCubic(arc);
+                        _splitCubic(arc);
                         arc += 3;
                         shouldDraw = false;
                         continue;
@@ -484,13 +501,13 @@ namespace ThorVG
             for (uint ci = 0; ci < outline->cntrs.count; ci++)
             {
                 var last = outline->cntrs[ci];
-                var limit = outline->pts.data + last;
-                var start = UPSCALE(outline->pts[first]);
-                var pt = outline->pts.data + first;
+                var limit = outline->output.data + last;
+                var start = UPSCALE(outline->output[first]);
+                var pt = outline->output.data + first;
                 var types = outline->types.data + first;
                 ++types;
 
-                if (!_moveTo(ref rw, UPSCALE(outline->pts[first]))) return false;
+                if (!_moveTo(ref rw, UPSCALE(outline->output[first]))) return false;
 
                 while (pt < limit)
                 {

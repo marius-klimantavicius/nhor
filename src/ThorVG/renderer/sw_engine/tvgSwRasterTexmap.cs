@@ -109,7 +109,7 @@ namespace ThorVG
 
                         if (needAA) { var feather = _feathering(iru, irv, ar, ab, sw, sh); if (feather < 255) px = (int)ALPHA_BLEND((uint)px, feather); }
 
-                        *buf = INTERPOLATE(surface.blender!(rasterUnpremultiply((uint)px), *buf), *buf, (byte)MULTIPLY(opacity, A((uint)px)));
+                        *buf = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply((uint)px), *buf), *buf, (byte)MULTIPLY(opacity, A((uint)px)));
                         ++buf;
                         u += localDudx;
                         v += localDvdx;

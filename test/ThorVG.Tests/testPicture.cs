@@ -26,7 +26,7 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -59,7 +59,7 @@ namespace ThorVG.Tests
 
             // Primary
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -73,7 +73,7 @@ namespace ThorVG.Tests
 
             // Secondary
             var rawPath2 = System.IO.Path.Combine(TEST_DIR, "rawimage_250x375.raw");
-            if (!System.IO.File.Exists(rawPath2)) return;
+            Assert.True(System.IO.File.Exists(rawPath2), $"Required test resource is missing: {rawPath2}");
             var bytes2 = System.IO.File.ReadAllBytes(rawPath2);
             var data2 = new uint[bytes2.Length / 4];
             System.Buffer.BlockCopy(bytes2, 0, data2, 0, bytes2.Length);
@@ -96,7 +96,7 @@ namespace ThorVG.Tests
 
             // Primary
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -120,7 +120,7 @@ namespace ThorVG.Tests
 
             // Primary
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -145,7 +145,7 @@ namespace ThorVG.Tests
 
             // Primary
             var rawPath = System.IO.Path.Combine(TEST_DIR, "rawimage_200x300.raw");
-            if (!System.IO.File.Exists(rawPath)) return;
+            Assert.True(System.IO.File.Exists(rawPath), $"Required test resource is missing: {rawPath}");
             var bytes = System.IO.File.ReadAllBytes(rawPath);
             var data = new uint[bytes.Length / 4];
             System.Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
@@ -167,20 +167,30 @@ namespace ThorVG.Tests
         [Fact]
         public void LoadSvgFile()
         {
-            var picture = Picture.Gen();
-            Assert.NotNull(picture);
+            Assert.Equal(Result.Success, Initializer.Init());
+            {
+                var fontPath = System.IO.Path.Combine(TEST_DIR, "PublicSans-Regular.ttf");
+                Assert.True(System.IO.File.Exists(fontPath), $"Required test resource is missing: {fontPath}");
+                Assert.Equal(Result.Success, Text.LoadFont(fontPath));
 
-            // Invalid file
-            Assert.Equal(Result.InvalidArguments, picture.Load("invalid.svg"));
+                var picture = Picture.Gen();
+                Assert.NotNull(picture);
 
-            // Load SVG files
-            Assert.Equal(Result.Success, picture.Load(System.IO.Path.Combine(TEST_DIR, "test1.svg")));
-            Assert.Equal(Result.Success, picture.Load(System.IO.Path.Combine(TEST_DIR, "test2.svg")));
-            Assert.Equal(Result.Success, picture.Load(System.IO.Path.Combine(TEST_DIR, "test3.svg")));
+                // Invalid file
+                Assert.Equal(Result.InvalidArguments, picture.Load("invalid.svg"));
 
-            Assert.Equal(Result.Success, picture.GetSize(out var w, out var h));
+                // Load SVG files, including text positioning and pattern coverage.
+                for (var i = 1; i <= 4; i++)
+                {
+                    var path = System.IO.Path.Combine(TEST_DIR, $"test{i}.svg");
+                    Assert.True(System.IO.File.Exists(path), $"Required test resource is missing: {path}");
+                    Assert.Equal(Result.Success, picture.Load(path));
+                }
 
-            Paint.Rel(picture);
+                Assert.Equal(Result.Success, picture.GetSize(out _, out _));
+                Paint.Rel(picture);
+            }
+            Assert.Equal(Result.Success, Initializer.Term());
         }
 
         [Fact]
@@ -216,7 +226,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.InvalidArguments, picture.Load("invalid.png"));
 
             var pngPath = System.IO.Path.Combine(TEST_DIR, "test.png");
-            if (!System.IO.File.Exists(pngPath)) return;
+            Assert.True(System.IO.File.Exists(pngPath), $"Required test resource is missing: {pngPath}");
 
             Assert.Equal(Result.Success, picture.Load(pngPath));
 
@@ -235,7 +245,7 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var pngPath = System.IO.Path.Combine(TEST_DIR, "test.png");
-            if (!System.IO.File.Exists(pngPath)) return;
+            Assert.True(System.IO.File.Exists(pngPath), $"Required test resource is missing: {pngPath}");
 
             var data = System.IO.File.ReadAllBytes(pngPath);
 
@@ -264,11 +274,7 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var pngPath = System.IO.Path.Combine(TEST_DIR, "test.png");
-            if (!System.IO.File.Exists(pngPath))
-            {
-                Initializer.Term();
-                return;
-            }
+            Assert.True(System.IO.File.Exists(pngPath), $"Required test resource is missing: {pngPath}");
 
             Assert.Equal(Result.Success, picture.Load(pngPath));
             Assert.Equal(Result.Success, picture.Opacity(192));
@@ -289,7 +295,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.InvalidArguments, picture.Load("invalid.jpg"));
 
             var jpgPath = System.IO.Path.Combine(TEST_DIR, "test.jpg");
-            if (!System.IO.File.Exists(jpgPath)) return;
+            Assert.True(System.IO.File.Exists(jpgPath), $"Required test resource is missing: {jpgPath}");
 
             Assert.Equal(Result.Success, picture.Load(jpgPath));
 
@@ -308,7 +314,7 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var jpgPath = System.IO.Path.Combine(TEST_DIR, "test.jpg");
-            if (!System.IO.File.Exists(jpgPath)) return;
+            Assert.True(System.IO.File.Exists(jpgPath), $"Required test resource is missing: {jpgPath}");
 
             var data = System.IO.File.ReadAllBytes(jpgPath);
 
@@ -337,17 +343,25 @@ namespace ThorVG.Tests
             Assert.NotNull(picture);
 
             var jpgPath = System.IO.Path.Combine(TEST_DIR, "test.jpg");
-            if (!System.IO.File.Exists(jpgPath))
-            {
-                Initializer.Term();
-                return;
-            }
+            Assert.True(System.IO.File.Exists(jpgPath), $"Required test resource is missing: {jpgPath}");
 
             Assert.Equal(Result.Success, picture.Load(jpgPath));
 
             Assert.Equal(Result.Success, canvas.Add(picture));
 
             Assert.Equal(Result.Success, Initializer.Term());
+        }
+
+        [Fact]
+        public void PictureFilterMethod()
+        {
+            var picture = Picture.Gen();
+            Assert.NotNull(picture);
+
+            Assert.Equal(Result.Success, picture.SetFilter(FilterMethod.Bilinear));
+            Assert.Equal(Result.Success, picture.SetFilter(FilterMethod.Nearest));
+
+            Paint.Rel(picture);
         }
     }
 }

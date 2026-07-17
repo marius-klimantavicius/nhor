@@ -87,24 +87,25 @@ namespace ThorVG.Tests
         public void Tweening_DefaultFalse()
         {
             var builder = new LottieBuilder();
-            Assert.False(builder.Tweening());
+            Assert.False(builder.tween.active);
         }
 
         [Fact]
         public void OnTween_SetsTweenActive()
         {
             var builder = new LottieBuilder();
-            builder.OnTween(30f, 0.5f);
-            Assert.True(builder.Tweening());
+            builder.tween.On(30f, 0.5f);
+            Assert.True(builder.tween.active);
+            Assert.True(builder.tween.legacy);
         }
 
         [Fact]
         public void OffTween_ClearsTweenActive()
         {
             var builder = new LottieBuilder();
-            builder.OnTween(30f, 0.5f);
-            builder.OffTween();
-            Assert.False(builder.Tweening());
+            builder.tween.On(30f, 0.5f);
+            builder.tween.Off();
+            Assert.False(builder.tween.active);
         }
 
         // ---- RenderContext ----

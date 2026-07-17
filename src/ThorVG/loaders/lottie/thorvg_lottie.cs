@@ -1,11 +1,13 @@
 // Ported from ThorVG/src/loaders/lottie/thorvg_lottie.h and tvgLottieAnimation.cpp
 
+using System;
+
 namespace ThorVG
 {
     /// <summary>
     /// The LottieAnimation class enables control of advanced Lottie features.
     /// Extends Animation with Lottie-specific interfaces for markers, slots,
-    /// tweening, and expression variables.
+    /// tweening, and audio synchronization.
     /// </summary>
     public class LottieAnimation : Animation
     {
@@ -57,6 +59,23 @@ namespace ThorVG
             return Result.Success;
         }
 
+        /// <summary>Sets the target frame for dynamic tweening.</summary>
+        public Result TweenTo(float to)
+        {
+            var loader = GetPicture().loader as LottieLoader;
+            if (loader == null || !loader.TweenTo(to)) return Result.InsufficientCondition;
+            return Result.Success;
+        }
+
+        /// <summary>Updates the progress of a dynamic tween started by <see cref="TweenTo"/>.</summary>
+        public Result Tween(float progress)
+        {
+            var loader = GetPicture().loader as LottieLoader;
+            if (loader == null || !loader.Tween(progress)) return Result.InsufficientCondition;
+            GetPicture().pImpl.Mark(RenderUpdateFlag.All);
+            return Result.Success;
+        }
+
         /// <summary>
         /// Gets the marker count of the animation.
         /// </summary>
@@ -74,6 +93,7 @@ namespace ThorVG
         /// <summary>
         /// Gets the marker name by a given index.
         /// </summary>
+        [Obsolete("Use Marker(uint, out float, out float) instead.")]
         public string? Marker(uint idx)
         {
             return Marker(idx, out _, out _);
@@ -133,23 +153,6 @@ namespace ThorVG
         }
 
         /// <summary>
-        /// Assigns a variable value to a layer expression.
-        /// </summary>
-        public Result Assign(string layer, uint ix, string var_, float val)
-        {
-            if (layer == null || var_ == null) return Result.InvalidArguments;
-
-            var loader = GetPicture().loader as LottieLoader;
-            if (loader == null) return Result.InsufficientCondition;
-            if (loader.Assign(layer, ix, var_, val))
-            {
-                GetPicture().pImpl.Mark(RenderUpdateFlag.All);
-                return Result.Success;
-            }
-            return Result.NonSupport;
-        }
-
-        /// <summary>
         /// Sets the quality level for Lottie effects (0-100).
         /// </summary>
         public Result Quality(byte value)
@@ -165,5 +168,26 @@ namespace ThorVG
             if (!lottieLoader.SetQuality(value)) return Result.InsufficientCondition;
             return Result.Success;
         }
+
+        /// <summary>Sets the callback used to synchronize Lottie audio layers.</summary>
+        public Result Resolver(Action<LottieAudioResolver, object?>? func, object? data = null)
+        {
+            var loader = GetPicture().loader as LottieLoader;
+            if (loader == null) return Result.InsufficientCondition;
+            loader.Resolver(func, data);
+            return Result.Success;
+        }
+    }
+
+    /// <summary>Describes the current playback state of a Lottie audio layer.</summary>
+    public struct LottieAudioResolver
+    {
+        public object? src;
+        public string? mimeType;
+        public uint size;
+        public float offset;
+        public float volume;
+        public bool active;
+        public bool embedded;
     }
 }

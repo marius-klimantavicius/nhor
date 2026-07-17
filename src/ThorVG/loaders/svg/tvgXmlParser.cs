@@ -55,6 +55,7 @@ namespace ThorVG
                 SvgNodeType.Symbol => "Symbol",
                 SvgNodeType.Filter => "Filter",
                 SvgNodeType.GaussianBlur => "GaussianBlur",
+                SvgNodeType.Pattern => "Pattern",
                 _ => "Unknown"
             };
         }

@@ -162,9 +162,15 @@ namespace ThorVG
 
         public Result GetMetrics(string? ch, out GlyphMetrics metrics)
         {
+            return GetMetrics(ch, out metrics, out _);
+        }
+
+        public Result GetMetrics(string? ch, out GlyphMetrics metrics, out int next)
+        {
             metrics = default;
+            next = 0;
             if (loader == null || fm.fontSize <= 0.0f) return Result.InsufficientCondition;
-            if (ch != null && loader.GlyphMetrics(fm, ch, out metrics)) return Result.Success;
+            if (ch != null && loader.GlyphMetrics(fm, ch, out metrics, out next)) return Result.Success;
             return Result.InvalidArguments;
         }
 
@@ -302,10 +308,10 @@ namespace ThorVG
             return shape.pImpl.GeometricBounds(pt4, m, obb);
         }
 
-        internal bool Intersects(in RenderRegion region)
+        internal bool Intersects(in RenderRegion region, bool visibleOnly)
         {
             if (!InternalLoad()) return false;
-            return shape.Intersects(region);
+            return shape.Intersects(region, false);
         }
 
         internal Paint DuplicateText(Paint? ret)
@@ -351,7 +357,7 @@ namespace ThorVG
         internal override bool PaintRenderVirt(RenderMethod renderer, CompositionFlag flag) => PaintRender(renderer, flag);
         internal override RenderRegion PaintBoundsVirt() => TextBounds();
         internal override bool GeometricBoundsVirt(Span<Point> pt4, in Matrix m, bool obb) => GeometricBounds(pt4, m, obb);
-        internal override bool IntersectsVirt(in RenderRegion region) => Intersects(region);
+        internal override bool IntersectsVirt(in RenderRegion region, bool visibleOnly) => Intersects(region, visibleOnly);
 
         // --- Private helpers ---
 

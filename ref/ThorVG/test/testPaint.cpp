@@ -219,20 +219,20 @@ TEST_CASE("Bounding Box", "[tvgPaint]")
         REQUIRE(canvas->update() == Result::Success);
 
         REQUIRE(shape->bounds(&x, &y, &w, &h) == Result::Success);
-        REQUIRE(x == 4.0f);
-        REQUIRE(y == 4.0f);
-        REQUIRE(h == 12.0f);
-        REQUIRE(w == 192.0f);
+        REQUIRE(x == Approx(4.0f).margin(0.000001));
+        REQUIRE(y == Approx(4.0f).margin(0.000001));
+        REQUIRE(h == Approx(12.0f).margin(0.000001));
+        REQUIRE(w == Approx(192.0f).margin(0.000001));
 
         REQUIRE(shape->bounds(pts) == Result::Success);
-        REQUIRE(pts[0].x == 4.0f);
-        REQUIRE(pts[3].x == 4.0f);
-        REQUIRE(pts[0].y == 4.0f);
-        REQUIRE(pts[1].y == 4.0f);
-        REQUIRE(pts[1].x == 196.0f);
-        REQUIRE(pts[2].x == 196.0f);
-        REQUIRE(pts[2].y == 16.0f);
-        REQUIRE(pts[3].y == 16.0f);
+        REQUIRE(pts[0].x == Approx(4.0f).margin(0.000001));
+        REQUIRE(pts[3].x == Approx(4.0f).margin(0.000001));
+        REQUIRE(pts[0].y == Approx(4.0f).margin(0.000001));
+        REQUIRE(pts[1].y == Approx(4.0f).margin(0.000001));
+        REQUIRE(pts[1].x == Approx(196.0f).margin(0.000001));
+        REQUIRE(pts[2].x == Approx(196.0f).margin(0.000001));
+        REQUIRE(pts[2].y == Approx(16.0f).margin(0.000001));
+        REQUIRE(pts[3].y == Approx(16.0f).margin(0.000001));
 
 #ifdef THORVG_TTF_LOADER_SUPPORT
         //Text
@@ -291,41 +291,6 @@ TEST_CASE("Bounding Box", "[tvgPaint]")
         REQUIRE(pts[2].y == Approx(40.959999f).margin(0.000001));
         REQUIRE(pts[3].y == Approx(40.959999f).margin(0.000001));
 #endif
-    }
-    REQUIRE(Initializer::term() == Result::Success);
-}
-
-TEST_CASE("Intersection", "[tvgPaint]")
-{
-    REQUIRE(Initializer::init() == Result::Success);
-    {
-        auto canvas = unique_ptr<SwCanvas>(SwCanvas::gen());
-
-        uint32_t buffer[200 * 200] = {};
-        canvas->target(buffer, 200, 200, 200, ColorSpace::ARGB8888);
-
-        auto shape = Shape::gen();
-        REQUIRE(shape);
-        REQUIRE(shape->appendRect(50, 50, 100, 100) == Result::Success);
-        REQUIRE(shape->fill(255, 0, 0, 255) == Result::Success);
-
-        REQUIRE(canvas->add(shape) == Result::Success);
-        REQUIRE(canvas->draw() == Result::Success);
-
-        // Case1. Fully contained
-        REQUIRE(shape->intersects(0, 0, 200, 200) == true);
-
-        // Case2. Partially overlapping
-        REQUIRE(shape->intersects(25, 25, 50, 50) == true);
-        REQUIRE(shape->intersects(125, 125, 50, 50) == true);
-
-        // Case3. Edge-touching
-        REQUIRE(shape->intersects(49, 49, 2, 2) == true);
-        REQUIRE(shape->intersects(149, 149, 2, 2) == true);
-
-        // Case4. Fully separated
-        REQUIRE(shape->intersects(0, 0, 25, 25) == false);
-        REQUIRE(shape->intersects(175, 175, 25, 25) == false);
     }
     REQUIRE(Initializer::term() == Result::Success);
 }

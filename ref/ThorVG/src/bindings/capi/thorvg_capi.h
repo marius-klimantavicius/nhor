@@ -137,11 +137,12 @@ typedef struct
  */
 typedef enum
 {
-    TVG_COLORSPACE_ABGR8888 = 0,  ///< The channels are joined in the order: alpha, blue, green, red. Colors are alpha-premultiplied.
-    TVG_COLORSPACE_ARGB8888,      ///< The channels are joined in the order: alpha, red, green, blue. Colors are alpha-premultiplied.
-    TVG_COLORSPACE_ABGR8888S,     ///< The channels are joined in the order: alpha, blue, green, red. Colors are un-alpha-premultiplied. (since 0.13)
-    TVG_COLORSPACE_ARGB8888S,     ///< The channels are joined in the order: alpha, red, green, blue. Colors are un-alpha-premultiplied. (since 0.13)
-    TVG_COLORSPACE_UNKNOWN = 255, ///< Unknown channel data. This is reserved for an initial ColorSpace value. (since 1.0)
+    TVG_COLORSPACE_ABGR8888 = 0,   ///< The channels are joined in the order: alpha, blue, green, red. Colors are alpha-premultiplied.
+    TVG_COLORSPACE_ARGB8888,       ///< The channels are joined in the order: alpha, red, green, blue. Colors are alpha-premultiplied.
+    TVG_COLORSPACE_ABGR8888S,      ///< The channels are joined in the order: alpha, blue, green, red. Colors are un-alpha-premultiplied. (since 0.13)
+    TVG_COLORSPACE_ARGB8888S,      ///< The channels are joined in the order: alpha, red, green, blue. Colors are un-alpha-premultiplied. (since 0.13)
+    TVG_COLORSPACE_GRAYSCALE8,     ///< Single channel, 1 byte per pixel 8-bit grayscale. (since 1.1)
+    TVG_COLORSPACE_UNKNOWN = 255,  ///< Unknown channel data. This is reserved for an initial ColorSpace value. (since 1.0)
 } Tvg_Colorspace;
 
 /**
@@ -206,13 +207,13 @@ typedef enum
     TVG_BLEND_METHOD_COLORDODGE,        ///< Divides the bottom layer by the inverted top layer. D / (255 - S)
     TVG_BLEND_METHOD_COLORBURN,         ///< Divides the inverted bottom layer by the top layer, and then inverts the result. 255 - (255 - D) / S
     TVG_BLEND_METHOD_HARDLIGHT,         ///< The same as Overlay but with the color roles reversed. (2 * S * D) if (S < Sa), otherwise (Sa * Da) - 2 * (Da - S) * (Sa - D)
-    TVG_BLEND_METHOD_SOFTLIGHT,         ///< The same as Overlay but with applying pure black or white does not result in pure black or white. (1 - 2 * S) * (D ^ 2) + (2 * S * D)
+    TVG_BLEND_METHOD_SOFTLIGHT,         ///< Darkens or lightens the colors, depending on the source color value. If S <= 0.5: D - (1 - 2 * S) * D * (1 - D), otherwise: D + (2 * S - 1) * (G(D) - D), where G(D) = ((16 * D - 12) * D + 4) * D if D <= 0.25, otherwise sqrt(D).
     TVG_BLEND_METHOD_DIFFERENCE,        ///< Subtracts the bottom layer from the top layer or the other way around, to always get a non-negative value. (S - D) if (S > D), otherwise (D - S)
     TVG_BLEND_METHOD_EXCLUSION,         ///< The result is twice the product of the top and bottom layers, subtracted from their sum. s + d - (2 * s * d)
-    TVG_BLEND_METHOD_HUE,               ///< Combine with HSL(Sh + Ds + Dl) then convert it to RGB.
-    TVG_BLEND_METHOD_SATURATION,        ///< Combine with HSL(Dh + Ss + Dl) then convert it to RGB.
-    TVG_BLEND_METHOD_COLOR,             ///< Combine with HSL(Sh + Ss + Dl) then convert it to RGB.
-    TVG_BLEND_METHOD_LUMINOSITY,        ///< Combine with HSL(Dh + Ds + Sl) then convert it to RGB.
+    TVG_BLEND_METHOD_HUE,               ///< Uses the hue of the source and the saturation and luminosity of the destination. @since 1.0
+    TVG_BLEND_METHOD_SATURATION,        ///< Uses the saturation of the source and the hue and luminosity of the destination. @since 1.0
+    TVG_BLEND_METHOD_COLOR,             ///< Uses the hue and saturation of the source and the luminosity of the destination. @since 1.0
+    TVG_BLEND_METHOD_LUMINOSITY,        ///< Uses the luminosity of the source and the hue and saturation of the destination. @since 1.0
     TVG_BLEND_METHOD_ADD,               ///< Simply adds pixel values of one layer with the other. (S + D)
     TVG_BLEND_METHOD_COMPOSITION = 255  ///< Used for intermediate composition. @since 1.0
 } Tvg_Blend_Method;
@@ -345,7 +346,7 @@ typedef enum
 /**
  * @brief Defines the image filtering method used during image scaling or transformation.
  *
- * @note Experimental API
+ * @since 1.1
  */
 typedef enum
 {
@@ -527,6 +528,7 @@ TVG_API Tvg_Canvas tvg_swcanvas_create(Tvg_Engine_Option op);
  *
  * @warning Do not access @p buffer during tvg_canvas_draw() - tvg_canvas_sync(). It should not be accessed while the engine is writing on it.
  *
+ * @note Currently, only @c TVG_COLORSPACE_ABGR8888, @c TVG_COLORSPACE_ARGB8888, @c TVG_COLORSPACE_ABGR8888S, and @c TVG_COLORSPACE_ARGB8888S are supported for @p cs.
  * @see Tvg_Colorspace
  */
 TVG_API Tvg_Result tvg_swcanvas_set_target(Tvg_Canvas canvas, uint32_t* buffer, uint32_t stride, uint32_t w, uint32_t h, Tvg_Colorspace cs);
@@ -606,6 +608,20 @@ TVG_API Tvg_Result tvg_glcanvas_set_target(Tvg_Canvas canvas, void* display, voi
 /* WgCanvas API                                                         */
 /************************************************************************/
 
+
+/**
+ * @brief Encapsulates the WebGPU context required for rendering.
+ *
+ * This structure contains the WebGPU objects used to initialize the rendering backend.
+ *
+ * @note Experimental API
+ */
+typedef struct {
+        void* instance;  // WGPUInstance, context for all other wgpu objects.
+        void* adapter;   // WGPUAdapter, the adapter associated with the rendering device.
+        void* device;    // WGPUDevice, a desired handle for the wgpu device.
+} Tvg_WgContext;
+
 /**
  * @brief Creates a new WebGPU Canvas object with optional rendering engine settings.
  *
@@ -627,20 +643,41 @@ TVG_API Tvg_Canvas tvg_wgcanvas_create(Tvg_Engine_Option op);
 /**
  * @brief Sets the drawing target for the rasterization.
  *
- * @param[in] device WGPUDevice, a desired handle for the wgpu device. If it is @c nullptr, ThorVG will assign an appropriate device internally.
+ * @param[in] device WGPUDevice, a desired handle for the wgpu device.
  * @param[in] instance WGPUInstance, context for all other wgpu objects.
  * @param[in] target Either WGPUSurface or WGPUTexture, serving as handles to a presentable surface or texture.
  * @param[in] w The width of the target.
  * @param[in] h The height of the target.
- * @param[in] cs Specifies how the pixel values should be interpreted. Currently, it only allows @c TVG_COLORSPACE_ABGR8888S as @c WGPUTextureFormat_RGBA8Unorm.
- * @param[in] type @c 0: surface, @c 1: texture are used as pesentable target.
+ * @param[in] cs Specifies how the pixel values should be interpreted. Currently, it allows @c TVG_COLORSPACE_ABGR8888 and @c TVG_COLORSPACE_ABGR8888S.
+ * @param[in] type @c 0: surface, @c 1: texture are used as presentable target.
  *
  * @retval TVG_RESULT_INSUFFICIENT_CONDITION if the canvas is performing rendering. Please ensure the canvas is synced.
  * @retval TVG_RESULT_NOT_SUPPORTED In case the wg engine is not supported.
  *
+ * @warning Regardless of the value of @p cs, this target API uses the default alpha mode.
+ *
+ * @see tvg_wgcanvas_set_target_with_context()
+ *
  * @since 1.0
  */
 TVG_API Tvg_Result tvg_wgcanvas_set_target(Tvg_Canvas canvas, void* device, void* instance, void* target, uint32_t w, uint32_t h, Tvg_Colorspace cs, int type);
+
+/**
+ * @brief Sets the drawing target for the rasterization.
+ *
+ * @param[in] context Tvg_WgContext context.
+ * @param[in] target Either WGPUSurface or WGPUTexture, serving as handles to a presentable surface or texture.
+ * @param[in] w The width of the target.
+ * @param[in] h The height of the target.
+ * @param[in] cs Specifies how the pixel values should be interpreted. Currently, it allows @c TVG_COLORSPACE_ABGR8888 and @c TVG_COLORSPACE_ABGR8888S.
+ * @param[in] type @c 0: surface, @c 1: texture are used as presentable target.
+ *
+ * @retval TVG_RESULT_INSUFFICIENT_CONDITION if the canvas is performing rendering. Please ensure the canvas is synced.
+ * @retval TVG_RESULT_NOT_SUPPORTED In case the wg engine is not supported.
+ *
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_wgcanvas_set_target_with_context(Tvg_Canvas canvas, const Tvg_WgContext* context, void* target, uint32_t w, uint32_t h, Tvg_Colorspace cs, int type);
 
 /** \} */   // end defgroup ThorVGCapi_WgCanvas
 
@@ -932,7 +969,7 @@ TVG_API bool tvg_paint_get_visible(const Tvg_Paint paint);
  * @see tvg_accessor_generate_id()
  * @see tvg_paint_set_id()
  *
- * @note Experimental API
+ * @since 1.1
  */
 TVG_API uint32_t tvg_paint_get_id(const Tvg_Paint paint);
 
@@ -948,7 +985,7 @@ TVG_API uint32_t tvg_paint_get_id(const Tvg_Paint paint);
  * @see tvg_accessor_generate_id()
  * @see tvg_paint_get_id()
  *
- * @note Experimental API
+ * @since 1.1
  */
 TVG_API Tvg_Result tvg_paint_set_id(Tvg_Paint paint, uint32_t id);
 
@@ -1059,21 +1096,51 @@ TVG_API Tvg_Paint tvg_paint_duplicate(Tvg_Paint paint);
  * The paint must be updated in a Canvas beforehand—typically after the Canvas has been
  * drawn and synchronized.
  *
- * @param[in] paint The shape object to be tested.
+ * @param[in] paint The paint object to be tested.
  * @param[in] x The x-coordinate of the top-left corner of the test region.
  * @param[in] y The y-coordinate of the top-left corner of the test region.
- * @param[in] w The width of the region to test. Must be greater than 0; defaults to 1.
- * @param[in] h The height of the region to test. Must be greater than 0; defaults to 1.
+ * @param[in] w The width of the region to test. Must be greater than 0.
+ * @param[in] h The height of the region to test. Must be greater than 0.
  *
  * @return @c true if any part of the region intersects the filled area; otherwise, @c false.
  *
  * @note To test a single point, set the region size to w = 1, h = 1.
  * @note For efficiency, an AABB (axis-aligned bounding box) test is performed internally before precise hit detection.
  * @note This test does not take into account the results of blending or masking.
- * @note This test does take into account the the hidden paints as well. @see tvg_paint_set_visible().
+ * @note This test does take into account hidden paints as well.
+ * @see tvg_paint_set_visible()
  * @since 1.0
  */
 TVG_API bool tvg_paint_intersects(Tvg_Paint paint, int32_t x, int32_t y, int32_t w, int32_t h);
+
+/**
+ * @brief Checks whether a given region intersects the filled area of the paint.
+ *
+ * This function determines whether the specified rectangular region—defined by (`x`, `y`, `w`, `h`)—
+ * intersects the geometric fill region of the paint object.
+ *
+ * This is useful for hit-testing purposes, such as detecting whether a user interaction (e.g., touch or click)
+ * occurs within a painted region.
+ *
+ * The paint must be updated in a Canvas beforehand—typically after the Canvas has been
+ * drawn and synchronized.
+ *
+ * @param[in] paint The paint object to be tested.
+ * @param[in] x The x-coordinate of the top-left corner of the test region.
+ * @param[in] y The y-coordinate of the top-left corner of the test region.
+ * @param[in] w The width of the region to test. Must be greater than 0.
+ * @param[in] h The height of the region to test. Must be greater than 0.
+ * @param[in] visibleOnly If @c true, hidden paints are excluded from the intersection test.
+ *
+ * @return @c true if any part of the region intersects the filled area; otherwise, @c false.
+ *
+ * @note To test a single point, set the region size to w = 1, h = 1.
+ * @note This test does not take into account the results of blending or masking.
+ *
+ * @see tvg_paint_set_visible()
+ * @since Experimental API
+ */
+TVG_API bool tvg_paint_intersects_region(Tvg_Paint paint, int32_t x, int32_t y, int32_t w, int32_t h, bool visibleOnly);
 
 /**
  * @brief Retrieves the axis-aligned bounding box (AABB) of the paint object in canvas space.
@@ -2073,7 +2140,7 @@ TVG_API const Tvg_Paint tvg_picture_get_paint(Tvg_Paint picture, uint32_t id);
  * @param[in] method The filtering method to apply. Default is @c TVG_FILTER_METHOD_BILINEAR.
  *
  * @see Tvg_Filter_Method
- * @note Experimental API
+ * @since 1.1
  */
 TVG_API Tvg_Result tvg_picture_set_filter(Tvg_Paint picture, Tvg_Filter_Method method);
 
@@ -2094,7 +2161,7 @@ TVG_API Tvg_Result tvg_picture_set_filter(Tvg_Paint picture, Tvg_Filter_Method m
  * @see tvg_accessor_get_name()
  * @see tvg_picture_get_paint()
  *
- * @since 1.0
+ * @since 1.1
  */
 TVG_API Tvg_Result tvg_picture_set_accessible(Tvg_Paint picture, bool accessible);
 
@@ -2467,9 +2534,9 @@ TVG_API Tvg_Result tvg_text_wrap_mode(Tvg_Paint text, Tvg_Text_Wrap mode);
  * @return The total number of lines.
  *
  * @see tvg_text_wrap_mode()
- * @note Experimental API
+ * @since 1.1
  */
- TVG_API uint32_t tvg_text_line_count(Tvg_Paint text);
+TVG_API uint32_t tvg_text_line_count(Tvg_Paint text);
 
 /**
  * @brief Set the spacing scale factors for text layout.
@@ -2601,6 +2668,8 @@ TVG_API Tvg_Result tvg_text_get_text_metrics(const Tvg_Paint text, Tvg_Text_Metr
  * @param[in] text The text object.
  * @param[in] ch A pointer to a UTF-8 encoded character.
  * @param[out] metrics A pointer to a @ref Tvg_Glyph_Metrics structure to be filled with the resulting values.
+ * @param[out] next An optional pointer that receives the position immediately
+ *                  following the processed UTF-8 character.
  *
  * @return TVG_RESULT_INSUFFICIENT_CONDITION if no font or size has been set yet.
  * @return TVG_RESULT_INVALID_ARGUMENT if the given character is invalid or not supported.
@@ -2609,7 +2678,7 @@ TVG_API Tvg_Result tvg_text_get_text_metrics(const Tvg_Paint text, Tvg_Text_Metr
  * @note Currently, ThorVG only supports horizontal text layout.
  * @note Experimental API
  */
-TVG_API Tvg_Result tvg_text_get_glyph_metrics(const Tvg_Paint text, const char* ch, Tvg_Glyph_Metrics* metrics);
+TVG_API Tvg_Result tvg_text_get_glyph_metrics(const Tvg_Paint text, const char* ch, Tvg_Glyph_Metrics* metrics, const char** next);
 
 /**
  * @brief Loads a scalable font data from a file.
@@ -2881,7 +2950,7 @@ TVG_API Tvg_Result tvg_animation_get_duration(Tvg_Animation animation, float* du
  * @retval TVG_RESULT_INSUFFICIENT_CONDITION In case the animation is not loaded.
  * @retval TVG_RESULT_INVALID_ARGUMENT If the @p begin is higher than @p end.
  *
- * @note Animation allows a range from 0.0 to the total frame. @p end should not be higher than @p begin.
+ * @note Animation allows a range from 0.0 to the total frame. @p end should not be lower than @p begin.
  * @note If a marker has been specified, its range will be disregarded.
  *
  * @see tvg_lottie_animation_set_marker()
@@ -2993,7 +3062,7 @@ TVG_API uint32_t tvg_accessor_generate_id(const char* name);
  * @see tvg_picture_set_accessible()
  *
  * @note This function is only available within Accessor callbacks registered via @ref tvg_accessor_set().
- * @note Experimental API
+ * @since 1.1
  */
 TVG_API const char* tvg_accessor_get_name(Tvg_Accessor accessor, uint32_t id);
 
@@ -3089,17 +3158,9 @@ TVG_API Tvg_Result tvg_lottie_animation_set_marker(Tvg_Animation animation, cons
 TVG_API Tvg_Result tvg_lottie_animation_get_markers_cnt(Tvg_Animation animation, uint32_t* cnt);
 
 /**
- * @brief Gets the marker name by a given index.
- *
- * @param[in] animation The Lottie animation object.
- * @param[in] idx The index of the animation marker, starts from 0.
- * @param[out] name The name of marker when succeed.
- *
- * @retval TVG_RESULT_INVALID_ARGUMENT In case @c nullptr is passed as the argument or @c idx is out of range.
- *
- * @since 1.0
+ * @deprecated see tvg_lottie_animation_get_marker_info()
  */
-TVG_API Tvg_Result tvg_lottie_animation_get_marker(Tvg_Animation animation, uint32_t idx, const char** name);
+TVG_API TVG_DEPRECATED Tvg_Result tvg_lottie_animation_get_marker(Tvg_Animation animation, uint32_t idx, const char** name);
 
 /**
  * @brief Retrieves marker information by index.
@@ -3117,7 +3178,7 @@ TVG_API Tvg_Result tvg_lottie_animation_get_marker(Tvg_Animation animation, uint
  * @retval TVG_RESULT_INSUFFICIENT_CONDITION In case the animation is not loaded.
  *
  * @see tvg_lottie_animation_get_markers_cnt()
- * @note Experimental API
+ * @since 1.1
  */
 TVG_API Tvg_Result tvg_lottie_animation_get_marker_info(Tvg_Animation animation, uint32_t idx, const char** name, float* begin, float* end);
 
@@ -3139,21 +3200,40 @@ TVG_API Tvg_Result tvg_lottie_animation_get_marker_info(Tvg_Animation animation,
 TVG_API Tvg_Result tvg_lottie_animation_tween(Tvg_Animation animation, float from, float to, float progress);
 
 /**
- * @brief Updates the value of an expression variable for a specific layer.
+ * @brief Sets the target frame for dynamic tweening.
+ *
+ * This method starts a dynamic interpolation from the current animation frame
+ * toward @p to. Use tvg_lottie_animation_tween_go() to update the interpolation progress.
  *
  * @param[in] animation The Lottie animation object.
- * @param[in] layer The name of the layer containing the variable to be updated.
- * @param[in] ix The property index of the variable within the layer.
- * @param[in] var The name of the variable to be updated.
- * @param[in] val The new value to assign to the variable.
+ * @param[in] to The target frame number of the interpolation.
  *
  * @retval TVG_RESULT_INSUFFICIENT_CONDITION If the animation is not loaded.
- * @retval TVG_RESULT_INVALID_ARGUMENT When the given parameter is invalid.
- * @retval TVG_RESULT_NOT_SUPPORTED When neither the layer nor the property is found in the current animation.
  *
+ * @note The dynamic tweening set by this method is discarded when @ref tvg_animation_set_frame()
+ *       or @ref tvg_lottie_animation_tween() is called.
+ *
+ * @see tvg_lottie_animation_tween_go()
  * @note Experimental API
  */
-TVG_API Tvg_Result tvg_lottie_animation_assign(Tvg_Animation animation, const char* layer, uint32_t ix, const char* var, float val);
+TVG_API Tvg_Result tvg_lottie_animation_tween_to(Tvg_Animation animation, float to);
+
+/**
+ * @brief Updates the current tween toward the target frame.
+ *
+ * This method advances the interpolation started by @ref tvg_lottie_animation_tween_to() using the
+ * given @p progress value.
+ *
+ * @param[in] animation The Lottie animation object.
+ * @param[in] progress The current progress of the interpolation (range: 0.0 to 1.0).
+ *
+ * @retval TVG_RESULT_INSUFFICIENT_CONDITION If the animation is not loaded.
+ * @retval TVG_RESULT_INSUFFICIENT_CONDITION If @ref tvg_lottie_animation_tween_to() has not been called.
+ *
+ * @see tvg_lottie_animation_tween_to()
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_lottie_animation_tween_go(Tvg_Animation animation, float progress);
 
 /**
  * @brief Sets the quality level for Lottie effects.
@@ -3172,6 +3252,73 @@ TVG_API Tvg_Result tvg_lottie_animation_assign(Tvg_Animation animation, const ch
  * @since 1.0
  */
 TVG_API Tvg_Result tvg_lottie_animation_set_quality(Tvg_Animation animation, uint8_t value);
+
+/**
+ * @brief Describes the current state of a Lottie audio layer.
+ *
+ * This structure is provided to the audio resolver callback and contains
+ * the information required to synchronize audio playback with the animation
+ * timeline. Applications are responsible for managing audio playback using
+ * their own audio engine.
+ *
+ * Example:
+ * @code
+ * void on_audio(const Tvg_Audio_Info* info, void* data)
+ * {
+ *     if (info->active) {
+ *         // Start or seek playback of info->src.
+ *     } else {
+ *         // Stop playback of info->src.
+ *     }
+ * }
+ * @endcode
+ *
+ * @see tvg_lottie_animation_set_audio_resolver()
+ *
+ * @note Experimental API
+ */
+typedef struct {
+    const char* src;      ///< Audio source: a file path/URL or embedded raw bytes.
+    const char* mimeType; ///< MIME type string; valid when @c embedded; may be @c NULL.
+    uint32_t    size;     ///< Embedded data size in bytes; valid when @c embedded.
+    float       offset;   ///< Position within the audio file in seconds; valid when @c active.
+    float       volume;   ///< Volume [0, 100]; valid when @c active.
+    bool        active;   ///< @c true while the layer is within its playback range.
+    bool        embedded; ///< @c true if @p src points to embedded audio data; @c false if it is a file path or URL.
+} Tvg_Audio_Info;
+
+/**
+ * @brief Callback invoked to provide audio playback information for a Lottie animation.
+ *
+ * Applications can use this callback to synchronize external audio
+ * playback with the animation timeline.
+ *
+ * @param[in] info Audio information for the current timeline state.
+ * @param[in] data User data specified when registering the callback.
+ *
+ * @see tvg_lottie_animation_set_audio_resolver()
+ * @note Experimental API.
+ */
+typedef void (*Tvg_Audio_Resolver)(const Tvg_Audio_Info* info, void* data);
+
+/**
+ * @brief Sets the audio resolver callback for Lottie audio layers.
+ *
+ * The resolver is invoked whenever the playback state of an audio layer changes.
+ * It allows applications to synchronize audio playback with the animation timeline.
+ *
+ * @param[in] animation A Lottie animation object.
+ * @param[in] resolver A user-defined callback that receives audio playback state updates.
+ * @param[in] data User data passed to @p resolver.
+ *
+ * @retval TVG_RESULT_INSUFFICIENT_CONDITION The animation has not been loaded.
+ *
+ * @note To disable audio notifications, pass @c nullptr as @p resolver.
+ * @note Experimental API.
+ *
+ * @see Tvg_Audio_Resolver
+ */
+TVG_API Tvg_Result tvg_lottie_animation_set_audio_resolver(Tvg_Animation animation, Tvg_Audio_Resolver resolver, void* data);
 
 /** \} */   // end addtogroup ThorVGCapi_LottieAnimation
 

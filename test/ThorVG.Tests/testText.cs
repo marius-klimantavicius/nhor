@@ -127,6 +127,27 @@ namespace ThorVG.Tests
         }
 
         [Fact]
+        public void GlyphMetricsAdvanceToNextCharacter()
+        {
+            Initializer.Init();
+            {
+                var text = Text.Gen();
+                Assert.Equal(Result.Success, Text.LoadFont(Path.Combine(TEST_DIR, "PublicSans-Regular.ttf")));
+                Assert.Equal(Result.Success, text.SetFont("PublicSans-Regular"));
+                Assert.Equal(Result.Success, text.SetFontSize(16));
+
+                Assert.Equal(Result.InvalidArguments, text.GetMetrics(null, out _, out var invalidNext));
+                Assert.Equal(0, invalidNext);
+                Assert.Equal(Result.Success, text.GetMetrics("AB", out var metrics, out var next));
+                Assert.Equal(1, next);
+                Assert.True(metrics.advance > 0.0f);
+
+                Paint.Rel(text);
+            }
+            Initializer.Term();
+        }
+
+        [Fact]
         public void TextWithCompositeGlyphs()
         {
             Initializer.Init();
@@ -202,6 +223,7 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, text.SetFontSize(80));
                 Assert.Equal(Result.Success, text.SetFill(255, 255, 255));
                 Assert.Equal(Result.Success, text.SetText("ThorVG Test\n Text!"));
+                Assert.Equal(2u, text.Lines());
 
                 Assert.Equal(Result.Success, text.SetAlign(0.0f, 0.0f));
                 Assert.Equal(Result.Success, text.SetAlign(0.5f, 0.5f));
@@ -336,5 +358,6 @@ namespace ThorVG.Tests
             }
             Initializer.Term();
         }
+
     }
 }

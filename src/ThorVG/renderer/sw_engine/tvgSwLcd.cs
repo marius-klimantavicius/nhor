@@ -211,10 +211,10 @@ namespace ThorVG
         {
             if (!shape.hasOutline) return;
 
-            var ptCount = shape.outline.pts.count;
+            var ptCount = shape.outline.output.count;
             if (ptCount == 0) return;
 
-            var pts = shape.outline.pts.data;
+            var pts = shape.outline.output.data;
 
             // --- scale X * 3 ---
             for (uint i = 0; i < ptCount; i++)

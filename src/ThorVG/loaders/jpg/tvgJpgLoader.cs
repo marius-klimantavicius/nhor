@@ -31,8 +31,8 @@ namespace ThorVG
         {
             if (decoder == null) return;
 
-            surface.cs = ImageLoader.cs;
-            var pixels = decoder.Decompress(surface.cs);
+            surface.cs = ColorSpace.ABGR8888;
+            var pixels = decoder.Decompress();
             if (pixels == null) return;
 
             surface.data = pixels;
@@ -43,6 +43,7 @@ namespace ThorVG
             surface.h = (uint)h;
             surface.channelSize = sizeof(uint);
             surface.premultiplied = true;
+            surface.alphaIgnored = true;
 
             Clear();
         }

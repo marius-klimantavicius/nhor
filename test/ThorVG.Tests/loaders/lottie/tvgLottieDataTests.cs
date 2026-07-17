@@ -84,14 +84,14 @@ namespace ThorVG.Tests
             Assert.InRange(mid, 0.0f, 0.55f);
         }
 
-        // ---- Tween struct ----
+        // ---- Dynamic tween state ----
 
         [Fact]
         public void Tween_DefaultInactive()
         {
-            var t = new Tween();
+            var t = new LottieTween();
             Assert.False(t.active);
-            Assert.Equal(0f, t.frameNo);
+            Assert.Equal(0f, t.to);
             Assert.Equal(0f, t.progress);
         }
 

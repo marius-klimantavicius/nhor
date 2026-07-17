@@ -28,6 +28,8 @@
 #include "tvgShape.h"
 #include "tvgLottieExpressions.h"
 #include "tvgLottieModifier.h"
+#include "tvgLottieTween.h"
+#include "thorvg_lottie.h"
 
 struct LottieComposition;
 
@@ -124,6 +126,11 @@ struct RenderContext
                     update(new LottiePuckerBloatModifier(pucker->amount));
                     break;
                 }
+                case LottieModifier::Type::ZigZag: {
+                    auto zigzag = static_cast<LottieZigZagModifier*>(m);
+                    update(new LottieZigZagModifier(zigzag->amp, zigzag->freq, zigzag->point));
+                    break;
+                }
             }
             m = m->next;
         }
@@ -140,6 +147,13 @@ struct RenderContext
         else modifiers = next;
     }
 };
+
+struct AudioResolver
+{
+    std::function<void(const tvg::LottieAudioResolver& info, void* data)> func;
+    void* data = nullptr;
+};
+
 
 struct LottieBuilder
 {
@@ -158,29 +172,15 @@ struct LottieBuilder
         return exps ? true : false;
     }
 
-    void offTween()
-    {
-        if (tween.active) tween.active = false;
-    }
-
-    void onTween(float to, float progress)
-    {
-        tween.frameNo = to;
-        tween.progress = progress;
-        tween.active = true;
-    }
-
-    bool tweening()
-    {
-        return tween.active;
-    }
-
     bool update(LottieComposition* comp, float progress);
     void build(LottieComposition* comp);
 
     const AssetResolver* resolver = nullptr;  //do not free this
+    AudioResolver audioResolver;
+    LottieTween tween;
 
 private:
+    void updateAudio(LottieComposition* comp, LottieLayer* layer, float frameNo);
     void appendRect(LottieRect* rect, Shape* shape, Point& pos, Point& size, float r, bool clockwise, RenderContext* ctx);
     void appendCircle(LottieEllipse* ellipse, Shape* shape, Point& center, Point& radius, bool clockwise, RenderContext* ctx);
     bool fragmented(LottieGroup* parent, LottieObject** child, Inlist<RenderContext>& contexts, RenderContext* ctx, RenderFragment fragment);
@@ -191,7 +191,7 @@ private:
     void updateLayer(LottieComposition* comp, Scene* scene, LottieLayer* layer, float frameNo);
     bool updateMatte(LottieComposition* comp, float frameNo, Scene* scene, LottieLayer* layer);
     void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo);
-    void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo, Tween& tween);
+    void updatePrecomp(LottieComposition* comp, LottieLayer* precomp, float frameNo, LottieTween& tween);
     void updateSolid(LottieLayer* layer);
     void updateImage(LottieGroup* layer);
     void updateURLFont(LottieLayer* layer, float frameNo, LottieText* text, const TextDocument& doc);
@@ -211,16 +211,16 @@ private:
     void updateEllipse(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePolystar(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
-    void updateStar(LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, Tween& tween, LottieExpressions* exps);
-    void updatePolygon(LottieGroup* parent, LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, Tween& tween, LottieExpressions* exps);
+    void updateStar(LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, LottieTween& tween, LottieExpressions* exps);
+    void updatePolygon(LottieGroup* parent, LottiePolyStar* star, float frameNo, Matrix* transform, Shape* merging, RenderContext* ctx, LottieTween& tween, LottieExpressions* exps);
     void updateTrimpath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateRepeater(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateRoundedCorner(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updateOffsetPath(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
     void updatePuckerBloat(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
+    void updateZigZag(LottieGroup* parent, LottieObject** child, float frameNo, Inlist<RenderContext>& contexts, RenderContext* ctx);
 
     LottieExpressions* exps;
-    Tween tween;
 };
 
 #endif //_TVG_LOTTIE_BUILDER_H

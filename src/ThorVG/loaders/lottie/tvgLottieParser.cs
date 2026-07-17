@@ -1360,6 +1360,23 @@ namespace ThorVG
             return puckerBloat;
         }
 
+        private LottieZigZag ParseZigZag()
+        {
+            var zigzag = new LottieZigZag();
+            context.parent = zigzag;
+
+            string? key;
+            while ((key = NextObjectKey()) != null)
+            {
+                if (ParseCommon(zigzag, key)) continue;
+                else if (key == "s") ParseProperty(zigzag.amplitude);
+                else if (key == "r") ParseProperty(zigzag.frequency);
+                else if (key == "pt") ParseProperty(zigzag.point);
+                else Skip();
+            }
+            return zigzag;
+        }
+
         #endregion
 
         #region Object/asset parsing
@@ -1383,9 +1400,9 @@ namespace ThorVG
                 case "rp": return ParseRepeater();
                 case "pb": return ParsePuckerBloat();
                 case "op": return ParseOffsetPath();
+                case "zz": return ParseZigZag();
                 case "mm": TvgCommon.TVGLOG("LOTTIE", "MergePath(mm) is not supported yet"); break;
                 case "tw": TvgCommon.TVGLOG("LOTTIE", "Twist(tw) is not supported yet"); break;
-                case "zz": TvgCommon.TVGLOG("LOTTIE", "ZigZag(zz) is not supported yet"); break;
             }
             return null;
         }
@@ -1460,6 +1477,41 @@ namespace ThorVG
             image.Prepare(external);
         }
 
+        private void ParseVolume(LottieLayer layer)
+        {
+            EnterObject();
+            string? key;
+            while ((key = NextObjectKey()) != null)
+            {
+                if (key == "lv") ParseProperty(layer.Audio().volume);
+                else Skip();
+            }
+        }
+
+        private void ParseAudio(LottieAudio audio, string data, string? subPath, bool embedded)
+        {
+            if (data.Length == 0) return;
+            if (embedded && data.StartsWith("data:audio/", StringComparison.Ordinal))
+            {
+                var semi = data.IndexOf(';', 11);
+                if (semi < 0) return;
+                audio.mimeType = data.Substring(11, semi - 11);
+                var comma = data.IndexOf(',', semi);
+                if (comma < 0) return;
+                var decoded = TvgCompressor.B64Decode(data.Substring(comma + 1));
+                audio.data = decoded;
+                audio.size = (uint)decoded.Length;
+            }
+            else if (data.StartsWith("https://", StringComparison.Ordinal) || data.StartsWith("http://", StringComparison.Ordinal))
+            {
+                audio.data = data;
+            }
+            else
+            {
+                audio.data = $"{dirName}/{subPath ?? ""}{data}";
+            }
+        }
+
         private LottieObject? ParseAsset()
         {
             EnterObject();
@@ -1492,9 +1544,20 @@ namespace ThorVG
 
             if (data != null)
             {
-                obj = new LottieImage();
-                ParseImage((LottieImage)obj, data, subPath, embedded, width, height);
-                if (sid != null) RegisterSlot(obj, sid, ((LottieImage)obj).bitmap);
+                if (data.StartsWith("data:image/", StringComparison.Ordinal) || width != 0.0f || height != 0.0f)
+                {
+                    var image = new LottieImage();
+                    ParseImage(image, data, subPath, embedded, width, height);
+                    if (sid != null) RegisterSlot(image, sid, image.bitmap);
+                    obj = image;
+                }
+                else if (data.StartsWith("data:audio/", StringComparison.Ordinal) || !embedded)
+                {
+                    var audio = new LottieAudio();
+                    ParseAudio(audio, data, subPath, embedded);
+                    obj = audio;
+                }
+                else TvgCommon.TVGLOG("LOTTIE", "Unexpected data type");
             }
             if (obj != null) obj.id = id;
             return obj;
@@ -1619,8 +1682,7 @@ namespace ThorVG
                     }
                     else Skip();
                 }
-                glyph.Prepare();
-                glyphs.Add(glyph);
+                if (glyph.Prepare()) glyphs.Add(glyph);
             }
         }
 
@@ -2026,6 +2088,7 @@ namespace ThorVG
                 else if (key == "td") layer.matteSrc = GetInt() != 0;
                 else if (key == "t") ParseText(layer.children);
                 else if (key == "ef") ParseEffects(layer);
+                else if (key == "au") ParseVolume(layer);
                 else Skip();
             }
 

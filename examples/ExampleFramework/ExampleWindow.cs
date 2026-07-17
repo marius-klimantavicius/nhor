@@ -200,6 +200,7 @@ public abstract unsafe class ExampleWindow : IDisposable
 
     public virtual void Dispose()
     {
+        if (canvas is IDisposable disposable) disposable.Dispose();
         canvas = null;
         if (window != null)
         {
@@ -462,8 +463,6 @@ public unsafe class SwWindow : ExampleWindow
 
 public unsafe class GlWindow : ExampleWindow
 {
-    private nint contextId;
-
     public GlWindow(ExampleBase example, uint width, uint height, uint threadsCnt)
         : base(example, width, height, threadsCnt)
     {
@@ -498,14 +497,13 @@ public unsafe class GlWindow : ExampleWindow
             return;
         }
 
-        contextId = 1;
         Resize();
     }
 
     protected override void Resize()
     {
-        ((GlCanvas)canvas!).Target(nint.Zero, nint.Zero, contextId, 0,
-            width, height, ColorSpace.ABGR8888S);
+        ExampleBase.Verify(((GlCanvas)canvas!).Target(0, width, height, ColorSpace.ABGR8888S),
+            "Failed to target the current OpenGL context!");
     }
 
     protected override void Refresh()
@@ -516,7 +514,6 @@ public unsafe class GlWindow : ExampleWindow
 
     public override void Dispose()
     {
-        canvas = null;
         base.Dispose();
     }
 }

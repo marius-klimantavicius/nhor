@@ -157,6 +157,7 @@ namespace ThorVG
         public ColorSpace cs = ColorSpace.Unknown;
         public byte channelSize;
         public bool premultiplied;
+        public bool alphaIgnored;
 
         // Raw pointer access (mirrors C++ union { pixel_t* data; uint32_t* buf32; uint8_t* buf8; })
         internal GCHandle _pinHandle;
@@ -231,6 +232,7 @@ namespace ThorVG
             cs = rhs.cs;
             channelSize = rhs.channelSize;
             premultiplied = rhs.premultiplied;
+            alphaIgnored = rhs.alphaIgnored;
             buf32 = rhs.buf32;  // share pointer (not owned)
         }
     }
@@ -456,6 +458,8 @@ namespace ThorVG
         public bool Bounds(Matrix* m, ref BBox box)
         {
             if (cmds.Empty() || cmds.First() == PathCommand.CubicTo) return false;
+
+            box.Init();
 
             var pt = pts.Begin();
             var cmd = cmds.Begin();

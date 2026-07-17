@@ -37,7 +37,7 @@ namespace ThorVG.Tests
         public void Marker_NoLoader_ReturnsNull()
         {
             var anim = LottieAnimation.Gen();
-            Assert.Null(anim.Marker(0));
+            Assert.Null(anim.Marker(0, out _, out _));
         }
 
         // ---- Segment without loaded animation ----

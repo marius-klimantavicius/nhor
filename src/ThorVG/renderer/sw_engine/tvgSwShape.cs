@@ -6,45 +6,45 @@ namespace ThorVG
     {
         private static bool _outlineBegin(SwOutline* outline)
         {
-            if (outline->pts.Empty()) return false;
-            outline->cntrs.Push(outline->pts.count - 1);
+            if (outline->input.Empty()) return false;
+            outline->cntrs.Push(outline->input.count - 1);
             outline->closed.Push(false);
-            outline->pts.Push(outline->pts[outline->cntrs.Last()]);
+            outline->input.Push(outline->input[outline->cntrs.Last()]);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
             return false;
         }
 
         private static bool _outlineEnd(SwOutline* outline)
         {
-            if (outline->pts.Empty()) return false;
-            outline->cntrs.Push(outline->pts.count - 1);
+            if (outline->input.Empty()) return false;
+            outline->cntrs.Push(outline->input.count - 1);
             outline->closed.Push(false);
             return false;
         }
 
-        private static bool _outlineMoveTo(SwOutline* outline, in Point to, in Matrix transform, bool closed = false)
+        private static bool _outlineMoveTo(SwOutline* outline, in Point to, bool closed = false)
         {
             if (!closed) _outlineEnd(outline);
-            outline->pts.Push(SwMath.mathTransform(to, transform));
+            outline->input.Push(to);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
             return false;
         }
 
-        private static void _outlineLineTo(SwOutline* outline, in Point to, in Matrix transform)
+        private static void _outlineLineTo(SwOutline* outline, in Point to)
         {
-            outline->pts.Push(SwMath.mathTransform(to, transform));
+            outline->input.Push(to);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
         }
 
-        private static void _outlineCubicTo(SwOutline* outline, in Point ctrl1, in Point ctrl2, in Point to, in Matrix transform)
+        private static void _outlineCubicTo(SwOutline* outline, in Point ctrl1, in Point ctrl2, in Point to)
         {
-            outline->pts.Push(SwMath.mathTransform(ctrl1, transform));
+            outline->input.Push(ctrl1);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_CUBIC);
 
-            outline->pts.Push(SwMath.mathTransform(ctrl2, transform));
+            outline->input.Push(ctrl2);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_CUBIC);
 
-            outline->pts.Push(SwMath.mathTransform(to, transform));
+            outline->input.Push(to);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
         }
 
@@ -54,10 +54,10 @@ namespace ThorVG
             if (outline->cntrs.count > 0) i = outline->cntrs.Last() + 1;
             else i = 0;
 
-            if (outline->pts.count == i) return false;
+            if (outline->input.count == i) return false;
 
-            outline->pts.Push(outline->pts[i]);
-            outline->cntrs.Push(outline->pts.count - 1);
+            outline->input.Push(outline->input[i]);
+            outline->cntrs.Push(outline->input.count - 1);
             outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
             outline->closed.Push(true);
 
@@ -68,23 +68,23 @@ namespace ThorVG
         //  Dash stroke functions
         // =====================================================================
 
-        private static void _drawPoint(SwDashStroke dash, SwOutline* outline, in Point start, in Matrix transform)
+        private static void _drawPoint(SwDashStroke dash, SwOutline* outline, in Point start)
         {
             if (dash.move || dash.pattern![dash.curIdx] < MathConstants.FLOAT_EPSILON)
             {
-                _outlineMoveTo(outline, start, transform);
+                _outlineMoveTo(outline, start);
                 dash.move = false;
             }
-            _outlineLineTo(outline, start, transform);
+            _outlineLineTo(outline, start);
         }
 
-        private static void _dashLineTo(SwDashStroke dash, SwOutline* outline, in Point to, in Matrix transform, bool validPoint)
+        private static void _dashLineTo(SwDashStroke dash, SwOutline* outline, in Point to, bool validPoint)
         {
             var cur = new Line { pt1 = dash.ptCur, pt2 = to };
             var len = cur.Length();
             if (TvgMath.Zero(len))
             {
-                _outlineMoveTo(outline, dash.ptCur, transform);
+                _outlineMoveTo(outline, dash.ptCur);
             }
             // draw the current line fully
             else if (len <= dash.curLen)
@@ -94,10 +94,10 @@ namespace ThorVG
                 {
                     if (dash.move)
                     {
-                        _outlineMoveTo(outline, dash.ptCur, transform);
+                        _outlineMoveTo(outline, dash.ptCur);
                         dash.move = false;
                     }
-                    _outlineLineTo(outline, to, transform);
+                    _outlineLineTo(outline, to);
                 }
             }
             // draw the current line partially
@@ -114,15 +114,15 @@ namespace ThorVG
                         {
                             if (dash.move || dash.pattern![dash.curIdx] - dash.curLen < MathConstants.FLOAT_EPSILON)
                             {
-                                _outlineMoveTo(outline, left.pt1, transform);
+                                _outlineMoveTo(outline, left.pt1);
                                 dash.move = false;
                             }
-                            _outlineLineTo(outline, left.pt2, transform);
+                            _outlineLineTo(outline, left.pt2);
                         }
                     }
                     else
                     {
-                        if (validPoint && !dash.curOpGap) _drawPoint(dash, outline, cur.pt1, transform);
+                        if (validPoint && !dash.curOpGap) _drawPoint(dash, outline, cur.pt1);
                         right = cur;
                     }
                     dash.curIdx = (dash.curIdx + 1) % (int)dash.cnt;
@@ -138,12 +138,12 @@ namespace ThorVG
                 {
                     if (dash.move)
                     {
-                        _outlineMoveTo(outline, cur.pt1, transform);
+                        _outlineMoveTo(outline, cur.pt1);
                         dash.move = false;
                     }
-                    _outlineLineTo(outline, cur.pt2, transform);
+                    _outlineLineTo(outline, cur.pt2);
                 }
-                if (dash.curLen < 1 && SwHelper.TO_SWCOORD(len) > 1)
+                if (dash.curLen < 1.0f && !TvgMath.Zero(len))
                 {
                     // move to next dash
                     dash.curIdx = (dash.curIdx + 1) % (int)dash.cnt;
@@ -154,7 +154,7 @@ namespace ThorVG
             dash.ptCur = to;
         }
 
-        private static void _dashCubicTo(SwDashStroke dash, SwOutline* outline, in Point ctrl1, in Point ctrl2, in Point to, in Matrix transform, bool validPoint)
+        private static void _dashCubicTo(SwDashStroke dash, SwOutline* outline, in Point ctrl1, in Point ctrl2, in Point to, bool validPoint)
         {
             var cur = new Bezier(dash.ptCur, ctrl1, ctrl2, to);
             var len = cur.Length();
@@ -162,7 +162,7 @@ namespace ThorVG
             // draw the current line fully
             if (TvgMath.Zero(len))
             {
-                _outlineMoveTo(outline, dash.ptCur, transform);
+                _outlineMoveTo(outline, dash.ptCur);
             }
             else if (len <= dash.curLen)
             {
@@ -171,10 +171,10 @@ namespace ThorVG
                 {
                     if (dash.move)
                     {
-                        _outlineMoveTo(outline, dash.ptCur, transform);
+                        _outlineMoveTo(outline, dash.ptCur);
                         dash.move = false;
                     }
-                    _outlineCubicTo(outline, ctrl1, ctrl2, to, transform);
+                    _outlineCubicTo(outline, ctrl1, ctrl2, to);
                 }
             }
             // draw the current line partially
@@ -191,15 +191,15 @@ namespace ThorVG
                         {
                             if (dash.move || dash.pattern![dash.curIdx] - dash.curLen < MathConstants.FLOAT_EPSILON)
                             {
-                                _outlineMoveTo(outline, left.start, transform);
+                                _outlineMoveTo(outline, left.start);
                                 dash.move = false;
                             }
-                            _outlineCubicTo(outline, left.ctrl1, left.ctrl2, left.end, transform);
+                            _outlineCubicTo(outline, left.ctrl1, left.ctrl2, left.end);
                         }
                     }
                     else
                     {
-                        if (validPoint && !dash.curOpGap) _drawPoint(dash, outline, cur.start, transform);
+                        if (validPoint && !dash.curOpGap) _drawPoint(dash, outline, cur.start);
                         right = cur;
                     }
                     dash.curIdx = (dash.curIdx + 1) % (int)dash.cnt;
@@ -215,12 +215,12 @@ namespace ThorVG
                 {
                     if (dash.move)
                     {
-                        _outlineMoveTo(outline, cur.start, transform);
+                        _outlineMoveTo(outline, cur.start);
                         dash.move = false;
                     }
-                    _outlineCubicTo(outline, cur.ctrl1, cur.ctrl2, cur.end, transform);
+                    _outlineCubicTo(outline, cur.ctrl1, cur.ctrl2, cur.end);
                 }
-                if (dash.curLen < 0.1f && SwHelper.TO_SWCOORD(len) > 1)
+                if (dash.curLen < 0.1f && !TvgMath.Zero(len))
                 {
                     // move to next dash
                     dash.curIdx = (dash.curIdx + 1) % (int)dash.cnt;
@@ -231,9 +231,9 @@ namespace ThorVG
             dash.ptCur = to;
         }
 
-        private static void _dashClose(SwDashStroke dash, SwOutline* outline, in Matrix transform, bool validPoint)
+        private static void _dashClose(SwDashStroke dash, SwOutline* outline, bool validPoint)
         {
-            _dashLineTo(dash, outline, dash.ptStart, transform, validPoint);
+            _dashLineTo(dash, outline, dash.ptStart, validPoint);
         }
 
         private static void _dashMoveTo(SwDashStroke dash, uint offIdx, float offset, in Point pts)
@@ -245,7 +245,7 @@ namespace ThorVG
             dash.move = true;
         }
 
-        private static SwOutline* _genDashOutline(RenderShape rshape, in Matrix transform, SwMpool mpool, uint tid, bool trimmed)
+        private static SwOutline* _genDashOutline(RenderShape rshape, SwMpool mpool, uint tid, bool trimmed)
         {
             PathCommand* cmds;
             Point* pts;
@@ -313,18 +313,18 @@ namespace ThorVG
                 switch (*cmds)
                 {
                     case PathCommand.Close:
-                        _dashClose(dash, outline, transform, validPoint);
+                        _dashClose(dash, outline, validPoint);
                         break;
                     case PathCommand.MoveTo:
                         _dashMoveTo(dash, offIdx, offset, *pts);
                         ++pts;
                         break;
                     case PathCommand.LineTo:
-                        _dashLineTo(dash, outline, *pts, transform, validPoint);
+                        _dashLineTo(dash, outline, *pts, validPoint);
                         ++pts;
                         break;
                     case PathCommand.CubicTo:
-                        _dashCubicTo(dash, outline, pts[0], pts[1], pts[2], transform, validPoint);
+                        _dashCubicTo(dash, outline, pts[0], pts[1], pts[2], validPoint);
                         pts += 3;
                         break;
                 }
@@ -344,13 +344,13 @@ namespace ThorVG
 
         private static bool _axisAlignedRect(SwOutline* outline)
         {
-            if (outline->pts.count != 5) return false;
+            if (outline->output.count != 5) return false;
             if (outline->types[2] == SwConstants.SW_CURVE_TYPE_CUBIC) return false;
 
-            var pt1 = outline->pts.data + 0;
-            var pt2 = outline->pts.data + 1;
-            var pt3 = outline->pts.data + 2;
-            var pt4 = outline->pts.data + 3;
+            var pt1 = outline->output.data + 0;
+            var pt2 = outline->output.data + 1;
+            var pt3 = outline->output.data + 2;
+            var pt4 = outline->output.data + 3;
 
             var a = new SwPoint(pt1->x, pt3->y);
             var b = new SwPoint(pt3->x, pt1->y);
@@ -360,7 +360,7 @@ namespace ThorVG
             return false;
         }
 
-        private static SwOutline* _genOutline(SwShape shape, RenderShape rshape, in Matrix transform, SwMpool mpool, uint tid, bool hasComposite, bool trimmed = false)
+        private static SwOutline* _genOutline(RenderShape rshape, SwMpool mpool, uint tid, bool trimmed = false)
         {
             PathCommand* cmds;
             Point* pts;
@@ -398,17 +398,17 @@ namespace ThorVG
                         if (!closed) closed = _outlineClose(outline);
                         break;
                     case PathCommand.MoveTo:
-                        closed = _outlineMoveTo(outline, *pts, transform, closed);
+                        closed = _outlineMoveTo(outline, *pts, closed);
                         ++pts;
                         break;
                     case PathCommand.LineTo:
                         if (closed) closed = _outlineBegin(outline);
-                        _outlineLineTo(outline, *pts, transform);
+                        _outlineLineTo(outline, *pts);
                         ++pts;
                         break;
                     case PathCommand.CubicTo:
                         if (closed) closed = _outlineBegin(outline);
-                        _outlineCubicTo(outline, pts[0], pts[1], pts[2], transform);
+                        _outlineCubicTo(outline, pts[0], pts[1], pts[2]);
                         pts += 3;
                         break;
                 }
@@ -419,7 +419,6 @@ namespace ThorVG
 
             outline->fillRule = rshape.rule;
 
-            shape.fastTrack = (!hasComposite && _axisAlignedRect(outline));
             return outline;
         }
 
@@ -427,12 +426,14 @@ namespace ThorVG
 
         public static bool shapePrepare(SwShape shape, RenderShape rshape, in Matrix transform, in RenderRegion clipBox, ref RenderRegion renderBox, SwMpool mpool, uint tid, bool hasComposite)
         {
-            var outlinePtr = _genOutline(shape, rshape, transform, mpool, tid, hasComposite, rshape.Trimpath());
+            var outlinePtr = _genOutline(rshape, mpool, tid, rshape.Trimpath());
             if (outlinePtr != null)
             {
+                SwUtil.Export(outlinePtr, transform, out var bbox);
+                shape.fastTrack = !hasComposite && _axisAlignedRect(outlinePtr);
                 shape.outline = *outlinePtr;
                 shape.hasOutline = true;
-                if (SwMath.mathUpdateOutlineBBox(outlinePtr, clipBox, ref renderBox, shape.fastTrack))
+                if (SwUtil.BBox(bbox, clipBox, ref renderBox, shape.fastTrack))
                 {
                     shape.outline = *outlinePtr;
                     shape.bbox = renderBox;
@@ -456,7 +457,7 @@ namespace ThorVG
             return shape.hasRle;
         }
 
-        public static void shapeDelOutline(SwShape shape, SwMpool mpool, uint tid)
+        public static void shapeDelOutline(SwShape shape)
         {
             shape.hasOutline = false;
         }
@@ -467,6 +468,7 @@ namespace ThorVG
             {
                 SwRleOps.rleReset(ref shape.rle);
             }
+            shape.hasOutline = false;
             shape.bbox.Reset();
             shape.fastTrack = false;
         }
@@ -504,26 +506,26 @@ namespace ThorVG
 
         public static bool shapeGenStrokeRle(SwShape shape, RenderShape rshape, in Matrix transform, in RenderRegion clipBox, ref RenderRegion renderBox, SwMpool mpool, uint tid, bool antiAlias)
         {
+            shapeResetStroke(shape, rshape, transform, mpool, tid);
             SwOutline* shapeOutline = null;
+            SwOutline retainedOutline = default;
 
             // Dash style with/without trimming
             if (rshape.stroke!.dashLength > RenderHelper.DASH_PATTERN_THRESHOLD)
             {
-                shapeOutline = _genDashOutline(rshape, transform, mpool, tid, rshape.Trimpath());
+                shapeOutline = _genDashOutline(rshape, mpool, tid, rshape.Trimpath());
             }
             // Trimming & Normal style
             else
             {
-                // Use existing outline if available, otherwise generate one
-                // Copy the outline value into the mpool slot to get a stable pointer
                 if (shape.hasOutline)
                 {
-                    shapeOutline = mpool.Outline(tid);
-                    *shapeOutline = shape.outline;
+                    retainedOutline = shape.outline;
+                    shapeOutline = &retainedOutline;
                 }
                 else
                 {
-                    shapeOutline = _genOutline(shape, rshape, transform, mpool, tid, false, rshape.Trimpath());
+                    shapeOutline = _genOutline(rshape, mpool, tid, rshape.Trimpath());
                 }
             }
 
@@ -532,24 +534,25 @@ namespace ThorVG
             if (!SwStrokeOps.strokeParseOutline(shape.stroke!, *shapeOutline, mpool, tid)) return false;
 
             var strokeOutline = SwStrokeOps.strokeExportOutline(shape.stroke!, mpool, tid);
+            SwUtil.Export(strokeOutline, transform, out var bbox);
+            if (!SwUtil.BBox(bbox, clipBox, ref renderBox, false)) return false;
+            shape.hasStrokeRle = SwRleOps.rleRender(ref shape.strokeRle, strokeOutline, renderBox, mpool, tid, antiAlias);
+            return shape.hasStrokeRle;
+        }
 
-            var ret = SwMath.mathUpdateOutlineBBox(strokeOutline, clipBox, ref renderBox, false);
-            if (ret)
+        public static bool shapeGenFillColors(ref SwFill? output, Fill? fill, in Matrix transform, SwSurface surface, byte opacity, bool ctable)
+        {
+            if (fill == null) return true;
+            if (output == null)
             {
-                shape.hasStrokeRle = SwRleOps.rleRender(ref shape.strokeRle, strokeOutline, renderBox, mpool, tid, antiAlias);
+                output = new SwFill();
+                ctable = true;
             }
-
-            return ret;
-        }
-
-        public static bool shapeGenFillColors(SwShape shape, Fill fill, in Matrix transform, SwSurface surface, byte opacity, bool ctable)
-        {
-            return SwFillOps.fillGenColorTable(shape.fill!, fill, transform, surface, opacity, ctable);
-        }
-
-        public static bool shapeGenStrokeFillColors(SwShape shape, Fill fill, in Matrix transform, SwSurface surface, byte opacity, bool ctable)
-        {
-            return SwFillOps.fillGenColorTable(shape.stroke!.fill!, fill, transform, surface, opacity, ctable);
+            else if (ctable)
+            {
+                SwFillOps.fillReset(output);
+            }
+            return SwFillOps.fillGenColorTable(output, fill, transform, surface, opacity, ctable);
         }
 
         public static void shapeResetFill(SwShape shape)
@@ -586,22 +589,22 @@ namespace ThorVG
         {
             if (rshape.StrokeWidth() <= 0.0f) return false;
 
-            var outline = _genOutline(shape, rshape, m, mpool, 0, false, rshape.Trimpath());
+            var outline = _genOutline(rshape, mpool, 0, rshape.Trimpath());
             if (outline == null) return false;
 
             if (shape.stroke == null) shape.stroke = new SwStroke();
             SwStrokeOps.strokeReset(shape.stroke, rshape, m, mpool, 0);
             SwStrokeOps.strokeParseOutline(shape.stroke, *outline, mpool, 0);
 
-            var min = new SwPoint(int.MaxValue, int.MaxValue);
-            var max = new SwPoint(int.MinValue, int.MinValue);
+            var min = new Point(float.MaxValue, float.MaxValue);
+            var max = new Point(-float.MaxValue, -float.MaxValue);
 
             for (int side = 0; side < 2; ++side)
             {
                 var border = shape.stroke.borders[side];
                 for (uint i = 0; i < border.pts.count; i++)
                 {
-                    var pts = border.pts[i];
+                    var pts = TvgMath.Transform(border.pts[i], m);
                     if (pts.x < min.x) min.x = pts.x;
                     if (pts.x > max.x) max.x = pts.x;
                     if (pts.y < min.y) min.y = pts.y;
@@ -609,12 +612,12 @@ namespace ThorVG
                 }
             }
 
-            pt4[0] = min.ToPoint();
-            pt4[1] = new SwPoint(max.x, min.y).ToPoint();
-            pt4[2] = max.ToPoint();
-            pt4[3] = new SwPoint(min.x, max.y).ToPoint();
+            pt4[0] = min;
+            pt4[1] = new Point(max.x, min.y);
+            pt4[2] = max;
+            pt4[3] = new Point(min.x, max.y);
 
-            shapeDelOutline(shape, mpool, 0);
+            shapeDelOutline(shape);
 
             return true;
         }

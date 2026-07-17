@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 
 namespace ThorVG
 {
-    public unsafe class GlRenderer : RenderMethod
+    public unsafe class GlRenderer : RenderMethod, IGlTargetResult, IDisposable
     {
         /************************************************************************/
         /* RenderTypes enum                                                     */
@@ -159,6 +159,7 @@ namespace ThorVG
         private List<GlCompositor> mComposeStack = new List<GlCompositor>();
         private TextureMgr mTextures = new TextureMgr();
         private GlSolidBatch mSolidBatch = new GlSolidBatch();
+        private GlStencilCoverBatch mStencilCoverBatch = new GlStencilCoverBatch();
 
         // Disposed resources. They should be released on synced call.
         private List<uint> mDisposedTextures = new List<uint>();
@@ -166,6 +167,8 @@ namespace ThorVG
 
         private BlendMethod mBlendMethod = BlendMethod.Normal;
         private bool mClearBuffer;
+        private bool mDisposed;
+        private bool mCountReleased;
 
         /************************************************************************/
         /* Constructor / Destructor                                             */
@@ -174,20 +177,45 @@ namespace ThorVG
         private GlRenderer()
         {
             mEffect = new GlEffect(mGpuBuffer);
+            GL.TryGetCurrentTarget(out mDisplay, out mSurface, out mContext);
         }
 
         ~GlRenderer()
         {
-            if (mContext != 0) CurrentContext();
-            Flush();
-            mTextures.Clear();
+            ReleaseRendererCount();
+        }
 
-            mPrograms.Clear();
-
+        private void ReleaseRendererCount()
+        {
+            if (mCountReleased) return;
+            mCountReleased = true;
             lock (_rendererMtx)
             {
                 --_rendererCnt;
             }
+        }
+
+        public void Dispose()
+        {
+            if (mDisposed) return;
+            if (mContext == 0 || !CurrentContext()) return;
+
+            Flush();
+            mTextures.Clear();
+            foreach (var program in mPrograms) program?.Dispose();
+            mPrograms.Clear();
+            mEffect.Dispose();
+            mGpuBuffer.Dispose();
+            mDisposed = true;
+            ReleaseRendererCount();
+            GC.SuppressFinalize(this);
+        }
+
+        internal void Abandon()
+        {
+            if (mDisposed) return;
+            mDisposed = true;
+            ReleaseRendererCount();
         }
 
         /************************************************************************/
@@ -214,6 +242,7 @@ namespace ThorVG
 
             mRenderPassStack.Clear();
             mSolidBatch.Clear();
+            mStencilCoverBatch.Clear();
         }
 
         private void Flush()
@@ -221,17 +250,16 @@ namespace ThorVG
             ClearDisposes();
 
             mRootTarget.Reset();
+            foreach (var pool in mComposePool) pool.Dispose();
             mComposePool.Clear();
+            foreach (var pool in mBlendPool) pool.Dispose();
             mBlendPool.Clear();
             mComposeStack.Clear();
         }
 
         private bool CurrentContext()
         {
-            // In the C# port we do not manage EGL/WGL contexts.
-            // Application-managed context is assumed current.
-            TvgCommon.TVGLOG("GL_ENGINE", "Maybe missing currentContext()?");
-            return true;
+            return GL.MakeCurrent(mDisplay, mSurface, mContext);
         }
 
         private void InitShaders()
@@ -307,14 +335,45 @@ namespace ThorVG
             return new GlDirectBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, viewRegion);
         }
 
-        private GlRenderTask? CreateStencilTask(GlRenderTask task, GlStencilMode stencilMode, int depth)
+        private static bool SkipRender(ref ValueList<object?> clips)
         {
-            if (stencilMode == GlStencilMode.None) return null;
+            for (int i = 0; i < clips.Count; ++i)
+            {
+                var clip = (GlShape?)clips[i];
+                if (clip == null) continue;
+                var flag = clip.geometry.stroke.vertex.count > 0 ? RenderUpdateFlag.Stroke : RenderUpdateFlag.Path;
+                if (!clip.geometry.Drawable(flag)) return true;
+            }
+            return false;
+        }
 
-            var stencilTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil], task);
-            stencilTask.SetDrawDepth(depth);
+        private static Matrix PrimitiveViewMatrix(GlGeometry geometry, in Matrix viewMatrix, RenderUpdateFlag flag)
+        {
+            if ((flag & (RenderUpdateFlag.Stroke | RenderUpdateFlag.GradientStroke)) != 0)
+                return TvgMath.Multiply(viewMatrix, geometry.matrix);
+            return viewMatrix;
+        }
 
-            return stencilTask;
+        private GlRenderTask? DrawPrimitiveGeometry(GlRenderTask task, GlShape sdata, RenderUpdateFlag flag,
+            GlStencilMode stencilMode, bool clipped, int depth, in Matrix viewMatrix, in RenderRegion passViewport,
+            RGBA? color, in RenderRegion viewBounds, out RenderRegion stencilBounds,
+            out GlGeometryBuffer? stencilBuffer, out uint* stencilIndices, out bool merge)
+        {
+            if (stencilMode == GlStencilMode.None)
+            {
+                stencilBounds = default;
+                stencilBuffer = null;
+                stencilIndices = null;
+                merge = false;
+                sdata.geometry.Draw(task, mGpuBuffer, flag);
+                return null;
+            }
+
+            var stencil = mStencilCoverBatch.Prepare(mPrograms[(int)RenderTypes.RT_Stencil], CurrentPass()!, task,
+                sdata.geometry, mGpuBuffer, flag, stencilMode, clipped, depth, viewMatrix, passViewport, color,
+                viewBounds, out stencilBounds, out var buffer, out stencilIndices, out merge);
+            stencilBuffer = buffer;
+            return stencil;
         }
 
         private void BindBlendTarget(GlRenderTask task, GlRenderTarget? dstCopyFbo, in RenderRegion viewRegion, uint binding)
@@ -339,11 +398,15 @@ namespace ThorVG
 
         private void DrawPrimitive(GlShape sdata, in RGBA c, RenderUpdateFlag flag, int depth)
         {
+            if (!sdata.geometry.Drawable(flag)) return;
             var blendShape = (mBlendMethod != BlendMethod.Normal);
             var vp = CurrentPass()!.GetViewport();
-            var bbox = blendShape ? sdata.geometry.GetBounds() : sdata.geometry.viewport;
-
-            bbox.IntersectWith(vp);
+            var viewBounds = sdata.geometry.viewport;
+            viewBounds.IntersectWith(vp);
+            if (viewBounds.Invalid()) return;
+            var stroke = (flag & (RenderUpdateFlag.Stroke | RenderUpdateFlag.GradientStroke)) != 0;
+            var bbox = stroke ? GpuCommon.GpuTransformBounds(sdata.geometry.strokeBounds, sdata.geometry.matrix) : sdata.geometry.fillBounds;
+            bbox.IntersectWith(viewBounds);
             if (bbox.Invalid()) return;
 
             var viewRegion = ViewportRegion(vp, bbox);
@@ -351,7 +414,7 @@ namespace ThorVG
 
             if (!blendShape && stencilMode == GlStencilMode.None && sdata.clips.Count == 0)
             {
-                mSolidBatch.Draw(this, sdata, c, depth, viewRegion);
+                mSolidBatch.Draw(this, sdata, c, depth, viewRegion, ViewportRegion(vp, viewBounds));
                 return;
             }
 
@@ -360,13 +423,9 @@ namespace ThorVG
             GlRenderTarget? dstCopyFbo;
             var task = CreatePrimitiveTask(RenderTypes.RT_Color, BlendSource.Solid, viewRegion, out dstCopyFbo);
 
-            task.SetViewMatrix(CurrentPass()!.GetViewMatrix());
+            var viewMatrix = PrimitiveViewMatrix(sdata.geometry, CurrentPass()!.GetViewMatrix(), flag);
+            task.SetViewMatrix(viewMatrix);
             task.SetDrawDepth(depth);
-
-            if (!sdata.geometry.Draw(task, mGpuBuffer, flag))
-            {
-                return;
-            }
 
             var a = RenderHelper.Multiply(c.a, (byte)sdata.opacity);
             if ((flag & RenderUpdateFlag.Stroke) != 0)
@@ -378,27 +437,35 @@ namespace ThorVG
                     a = RenderHelper.Multiply(a, (byte)(alpha * 255));
                 }
             }
-            task.SetVertexColor(c.r / 255f, c.g / 255f, c.b / 255f, a / 255f);
+            var color = new RGBA(c.r, c.g, c.b, a);
             task.SetViewport(viewRegion);
 
-            var stencilTask = CreateStencilTask(task, stencilMode, depth);
+            var clipped = sdata.clips.Count > 0;
+            var stencilTask = DrawPrimitiveGeometry(task, sdata, flag, stencilMode, clipped, depth, viewMatrix, vp,
+                color, viewBounds, out var stencilBounds, out var stencilBuffer, out var stencilIndices, out var merge);
+            if (stencilTask == null) task.SetVertexColor(color.r / 255f, color.g / 255f, color.b / 255f, color.a / 255f);
             // Keep BlendRegion on the existing solid-shape blend UBO slot.
             BindBlendTarget(task, dstCopyFbo, viewRegion, 2);
 
-            if (stencilTask != null) CurrentPass()!.AddRenderTask(new GlStencilCoverTask(stencilTask, task, stencilMode));
+            if (stencilTask != null) mStencilCoverBatch.Draw(CurrentPass()!, stencilTask, task, merge, stencilMode, clipped, stencilBounds, viewBounds, stencilBuffer!, stencilIndices);
             else CurrentPass()!.AddRenderTask(task);
         }
 
         private void DrawPrimitive(GlShape sdata, Fill fill, RenderUpdateFlag flag, int depth)
         {
-            var blendShape = (mBlendMethod != BlendMethod.Normal);
+            if (!sdata.geometry.Drawable(flag)) return;
             var vp = CurrentPass()!.GetViewport();
-            var bbox = blendShape ? sdata.geometry.GetBounds() : sdata.geometry.viewport;
-            bbox.IntersectWith(vp);
+            var viewBounds = sdata.geometry.viewport;
+            viewBounds.IntersectWith(vp);
+            if (viewBounds.Invalid()) return;
+            var stroke = (flag & (RenderUpdateFlag.Stroke | RenderUpdateFlag.GradientStroke)) != 0;
+            var bbox = stroke ? GpuCommon.GpuTransformBounds(sdata.geometry.strokeBounds, sdata.geometry.matrix) : sdata.geometry.fillBounds;
+            bbox.IntersectWith(viewBounds);
             if (bbox.Invalid()) return;
 
             Fill.ColorStop[]? stops;
-            var stopCnt = Math.Min(fill.GetColorStops(out stops), (uint)GlConstants.MAX_GRADIENT_STOPS);
+            var colorStopCnt = fill.GetColorStops(out stops);
+            var stopCnt = Math.Min(colorStopCnt, (uint)GlConstants.MAX_GRADIENT_STOPS);
             if (stopCnt < 1) return;
 
             GlRenderTarget? dstCopyFbo;
@@ -407,6 +474,7 @@ namespace ThorVG
 
             RenderTypes taskType = RenderTypes.RT_None;
             var blendSource = BlendSource.LinearGradient;
+            float cx = 0, cy = 0, r = 0, fx = 0, fy = 0, fr = 0;
 
             if (fill.GetFillType() == Type.LinearGradient)
             {
@@ -414,6 +482,15 @@ namespace ThorVG
             }
             else if (radial)
             {
+                var radialFill = (RadialGradient)fill;
+                radialFill.Radial(out cx, out cy, out r, out fx, out fy, out fr);
+                if (!radialFill.Correct(ref fx, ref fy, ref fr))
+                {
+                    var stop = stops![colorStopCnt - 1];
+                    var solidFlag = (flag & RenderUpdateFlag.GradientStroke) != 0 ? RenderUpdateFlag.Stroke : RenderUpdateFlag.Color;
+                    DrawPrimitive(sdata, new RGBA(stop.r, stop.g, stop.b, stop.a), solidFlag, depth);
+                    return;
+                }
                 taskType = RenderTypes.RT_RadGradient;
                 blendSource = BlendSource.RadialGradient;
             }
@@ -421,24 +498,25 @@ namespace ThorVG
 
             var task = CreatePrimitiveTask(taskType, blendSource, viewRegion, out dstCopyFbo);
 
-            task.SetViewMatrix(CurrentPass()!.GetViewMatrix());
+            var viewMatrix = PrimitiveViewMatrix(sdata.geometry, CurrentPass()!.GetViewMatrix(), flag);
+            task.SetViewMatrix(viewMatrix);
             task.SetDrawDepth(depth);
-
-            if (!sdata.geometry.Draw(task, mGpuBuffer, flag))
-            {
-                return;
-            }
 
             task.SetViewport(viewRegion);
 
             var stencilMode = sdata.geometry.GetStencilMode(flag);
-            var stencilTask = CreateStencilTask(task, stencilMode, depth);
+            var clipped = sdata.clips.Count > 0;
+            var stencilTask = DrawPrimitiveGeometry(task, sdata, flag, stencilMode, clipped, depth, viewMatrix, vp,
+                null, viewBounds, out var stencilBounds, out var stencilBuffer, out var stencilIndices, out var merge);
 
             // transform buffer (inverse fill-space transform)
             var invMat3 = stackalloc float[(int)GlConstants.GL_MAT3_STD140_SIZE];
             TvgMath.Inverse(fill.GetTransform(), out var inv);
-            TvgMath.Inverse(sdata.geometry.matrix, out var invShape);
-            inv = TvgMath.Multiply(inv, invShape);
+            if ((flag & RenderUpdateFlag.GradientStroke) == 0)
+            {
+                TvgMath.Inverse(sdata.geometry.matrix, out var invShape);
+                inv = TvgMath.Multiply(inv, invShape);
+            }
             GlMatrixHelper.GetMatrix3Std140(inv, new Span<float>(invMat3, (int)GlConstants.GL_MAT3_STD140_SIZE));
 
             var transformOffset = mGpuBuffer.Push(invMat3, GlConstants.GL_MAT3_STD140_BYTES, true);
@@ -528,9 +606,6 @@ namespace ThorVG
                 }
                 gradientBlock.nStops[0] = nStops * 1.0f;
 
-                radialFill.Radial(out var cx, out var cy, out var r, out var fx, out var fy, out var fr);
-                radialFill.Correct(ref fx, ref fy, ref fr);
-
                 gradientBlock.centerPos[0] = fx;
                 gradientBlock.centerPos[1] = fy;
                 gradientBlock.centerPos[2] = cx;
@@ -557,7 +632,7 @@ namespace ThorVG
 
             if (stencilTask != null)
             {
-                CurrentPass()!.AddRenderTask(new GlStencilCoverTask(stencilTask, task, stencilMode));
+                mStencilCoverBatch.Draw(CurrentPass()!, stencilTask, task, merge, stencilMode, clipped, stencilBounds, viewBounds, stencilBuffer!, stencilIndices);
             }
             else
             {
@@ -565,8 +640,10 @@ namespace ThorVG
             }
         }
 
-        private void DrawClip(ref ValueList<object?> clips)
+        private void DrawClip(ref ValueList<object?> clips, in RenderRegion viewBounds)
         {
+            if (viewBounds.Invalid()) return;
+            mStencilCoverBatch.Clear();
             var identityVertex = stackalloc float[] { -1f, 1f, -1f, -1f, 1f, 1f, 1f, -1f };
             var identityIndex = stackalloc uint[] { 0, 1, 2, 2, 1, 3 };
 
@@ -582,6 +659,7 @@ namespace ThorVG
 
             var vport = CurrentPass()!.GetViewport();
             var viewMatrix = CurrentPass()!.GetViewMatrix();
+            var viewRegion = ViewportRegion(vport, viewBounds);
 
             for (int i = 0; i < clips.Count; ++i)
             {
@@ -590,24 +668,21 @@ namespace ThorVG
 
                 var clipTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil]);
                 clipTask.SetDrawDepth(clipDepths[i]);
-                clipTask.SetViewMatrix(viewMatrix);
 
                 var flag = (sdata.geometry.stroke.vertex.count > 0) ? RenderUpdateFlag.Stroke : RenderUpdateFlag.Path;
+                clipTask.SetViewMatrix(PrimitiveViewMatrix(sdata.geometry, viewMatrix, flag));
                 sdata.geometry.Draw(clipTask, mGpuBuffer, flag);
 
-                var bboxClip = sdata.geometry.viewport;
-                bboxClip.IntersectWith(vport);
-
-                var cx = bboxClip.Sx() - vport.Sx();
-                var cy = vport.Sh() - (bboxClip.Sy() - vport.Sy()) - bboxClip.Sh();
-                clipTask.SetViewport(new RenderRegion(cx, cy, cx + bboxClip.Sw(), cy + bboxClip.Sh()));
+                var clipBounds = sdata.geometry.GetBounds();
+                clipBounds.IntersectWith(viewBounds);
+                clipTask.SetViewport(ViewportRegion(vport, clipBounds));
 
                 var maskTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil]);
 
                 maskTask.SetDrawDepth(clipDepths[i]);
                 maskTask.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = identityVertexOffset });
                 maskTask.SetDrawRange(identityIndexOffset, 6);
-                maskTask.SetViewport(new RenderRegion(0, 0, vport.Sw(), vport.Sh()));
+                maskTask.SetViewport(viewRegion);
 
                 CurrentPass()!.AddRenderTask(new GlClipTask(clipTask, maskTask));
             }
@@ -988,12 +1063,21 @@ namespace ThorVG
 
         public bool Target(nint display, nint surfaceHandle, nint context, int id, uint w, uint h, ColorSpace cs)
         {
+            return TargetResult(display, surfaceHandle, context, id, w, h, cs) == Result.Success;
+        }
+
+        public Result TargetResult(nint display, nint surfaceHandle, nint context, int id, uint w, uint h, ColorSpace cs)
+        {
+            if (cs != ColorSpace.ABGR8888S) return Result.NonSupport;
             // assume the context zero is invalid
-            if (context == 0 || w == 0 || h == 0) return false;
+            if (context == 0 || w == 0 || h == 0) return Result.InvalidArguments;
+            if (mDisposed) return Result.InsufficientCondition;
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && mDisplay != 0 && display != mDisplay)
+                return Result.InsufficientCondition;
 
             if (mContext != 0)
             {
-                CurrentContext();
+                if (!CurrentContext()) return Result.InsufficientCondition;
                 if (mContext != context) mTextures.Clear();
             }
 
@@ -1009,20 +1093,21 @@ namespace ThorVG
             mContext = context;
             mTargetFboId = id;
 
-            var ret = CurrentContext();
+            if (!CurrentContext()) return Result.InsufficientCondition;
 
             mRootTarget.viewport = new RenderRegion(0, 0, (int)surface.w, (int)surface.h);
             mRootTarget.Init(surface.w, surface.h, mTargetFboId);
 
-            return ret;
+            return Result.Success;
         }
 
         public override bool Sync()
         {
+            if (mDisposed) return false;
             // nothing to be done.
             if (mRenderPassStack.Count == 0) return true;
 
-            CurrentContext();
+            if (!CurrentContext()) return false;
 
             // Blend function for straight alpha
             GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
@@ -1068,28 +1153,11 @@ namespace ThorVG
                     var bbox = new BBox();
                     bbox.Init();
                     var vertexes = sdata.geometry.stroke.vertex;
-                    if (TvgMath.MatrixEqual(m, sdata.geometry.matrix))
+                    for (uint i = 0; i < vertexes.count / 2; i++)
                     {
-                        // Common AABB path: stroke vertices are already in world space.
-                        for (uint i = 0; i < vertexes.count / 2; i++)
-                        {
-                            var vert = new Point(vertexes[i * 2 + 0], vertexes[i * 2 + 1]);
-                            bbox.min = new Point(MathF.Min(bbox.min.x, vert.x), MathF.Min(bbox.min.y, vert.y));
-                            bbox.max = new Point(MathF.Max(bbox.max.x, vert.x), MathF.Max(bbox.max.y, vert.y));
-                        }
-                    }
-                    else
-                    {
-                        // GL stroke vertices are generated in world space.
-                        var inverseModel = sdata.geometry.InverseMatrix();
-
-                        for (uint i = 0; i < vertexes.count / 2; i++)
-                        {
-                            var vert = new Point(vertexes[i * 2 + 0], vertexes[i * 2 + 1]);
-                            vert = TvgMath.Transform(vert, TvgMath.Multiply(inverseModel, m));
-                            bbox.min = new Point(MathF.Min(bbox.min.x, vert.x), MathF.Min(bbox.min.y, vert.y));
-                            bbox.max = new Point(MathF.Max(bbox.max.x, vert.x), MathF.Max(bbox.max.y, vert.y));
-                        }
+                        var vert = TvgMath.Transform(new Point(vertexes[i * 2 + 0], vertexes[i * 2 + 1]), m);
+                        bbox.min = new Point(MathF.Min(bbox.min.x, vert.x), MathF.Min(bbox.min.y, vert.y));
+                        bbox.max = new Point(MathF.Max(bbox.max.x, vert.x), MathF.Max(bbox.max.y, vert.y));
                     }
                     pt4[0] = bbox.min;
                     pt4[1] = new Point(bbox.max.x, bbox.min.y);
@@ -1110,9 +1178,9 @@ namespace ThorVG
 
         public override bool PreRender()
         {
-            if (mRootTarget.Invalid()) return false;
+            if (mDisposed || mRootTarget.Invalid()) return false;
 
-            CurrentContext();
+            if (!CurrentContext()) return false;
             if (mPrograms.Count == 0) InitShaders();
             mRenderPassStack.Add(new GlRenderPass((GlRenderTarget?)mRootTarget));
 
@@ -1219,20 +1287,16 @@ namespace ThorVG
             var bbox = sdata.geometry.viewport;
             bbox.IntersectWith(vp);
             if (bbox.Invalid()) return true;
+            if (!sdata.geometry.Drawable(RenderUpdateFlag.Image) || SkipRender(ref sdata.clips)) return true;
 
-            var x = bbox.Sx() - vp.Sx();
-            var y = bbox.Sy() - vp.Sy();
             var drawDepth = CurrentPass()!.NextDrawDepth();
 
-            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips);
+            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips, bbox);
 
             var task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Image]);
             task.SetDrawDepth(drawDepth);
 
-            if (!sdata.geometry.Draw(task, mGpuBuffer, RenderUpdateFlag.Image))
-            {
-                return true;
-            }
+            sdata.geometry.Draw(task, mGpuBuffer, RenderUpdateFlag.Image);
 
             bool complexBlend = BeginComplexBlending(bbox, sdata.geometry.GetBounds());
             if (complexBlend) vp = CurrentPass()!.GetViewport();
@@ -1253,11 +1317,9 @@ namespace ThorVG
             // texture id
             task.AddBindResource(new GlBindingResource(0, sdata.texId, task.GetProgram()!.GetUniformLocation("uTexture\0"u8)));
 
-            y = vp.Sh() - y - bbox.Sh();
-            var x2 = x + bbox.Sw();
-            var y2 = y + bbox.Sh();
-
-            task.SetViewport(new RenderRegion(x, y, x2, y2));
+            var taskBounds = bbox;
+            taskBounds.IntersectWith(vp);
+            task.SetViewport(ViewportRegion(vp, taskBounds));
 
             CurrentPass()!.AddRenderTask(task);
 
@@ -1280,12 +1342,13 @@ namespace ThorVG
             var bbox = sdata.geometry.viewport;
             bbox.IntersectWith(CurrentPass()!.GetViewport());
             if (bbox.Invalid()) return true;
+            if (SkipRender(ref sdata.clips)) return true;
 
             int drawDepth1 = 0, drawDepth2 = 0;
             if (sdata.validFill) drawDepth1 = CurrentPass()!.NextDrawDepth();
             if (sdata.validStroke) drawDepth2 = CurrentPass()!.NextDrawDepth();
 
-            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips);
+            if (sdata.clips.Count > 0) DrawClip(ref sdata.clips, bbox);
 
             if (sdata.rshape != null && sdata.rshape.StrokeFirst())
             {
@@ -1339,11 +1402,18 @@ namespace ThorVG
 
         public override object? Prepare(RenderSurface image, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
         {
-            // TODO: redefine GlImage.
-            if (opacity == 0) return data;
-
             var sdata = data as GlShape;
             if (sdata == null) sdata = new GlShape();
+
+            if (opacity == 0)
+            {
+                sdata.opacity = 0;
+                sdata.deferredFlags |= flags;
+                return sdata;
+            }
+
+            flags |= sdata.deferredFlags;
+            sdata.deferredFlags = RenderUpdateFlag.None;
 
             var cacheStale = sdata.texId != 0 && (sdata.texStamp != mTextures.stamp);
             if (flags == RenderUpdateFlag.None && !cacheStale) return data;
@@ -1353,8 +1423,7 @@ namespace ThorVG
             sdata.viewWd = (float)surface.w;
             sdata.viewHt = (float)surface.h;
 
-            var sourceChanged = !ReferenceEquals(sdata.texSource, image) || (sdata.texFilter != filter);
-            if (sdata.texId == 0 || sourceChanged || cacheStale)
+            if (cacheStale || sdata.texId == 0 || !ReferenceEquals(sdata.texSource, image) || sdata.texFilter != filter)
             {
                 var ownsTexture = sdata.texId != 0 && (sdata.texStamp == mTextures.stamp);
                 if (ownsTexture) DisposeTexture(mTextures.Release(sdata.texSource, sdata.texFilter, sdata.texId));
@@ -1363,6 +1432,10 @@ namespace ThorVG
                 sdata.texFilter = filter;
                 sdata.texStamp = mTextures.stamp;
                 sdata.geometry = new GlGeometry();
+            }
+            else if ((flags & RenderUpdateFlag.Image) != 0)
+            {
+                TextureMgr.Upload(sdata.texId, image, filter);
             }
 
             sdata.texColorSpace = image.cs;
@@ -1391,7 +1464,16 @@ namespace ThorVG
                 flags = RenderUpdateFlag.All;
             }
 
-            if ((opacity == 0 && !clipper) || flags == RenderUpdateFlag.None) return sdata;
+            if (opacity == 0 && !clipper)
+            {
+                sdata.opacity = 0;
+                sdata.deferredFlags |= flags;
+                return sdata;
+            }
+
+            flags |= sdata.deferredFlags;
+            sdata.deferredFlags = RenderUpdateFlag.None;
+            if (flags == RenderUpdateFlag.None) return sdata;
 
             sdata.viewWd = (float)surface.w;
             sdata.viewHt = (float)surface.h;
@@ -1401,7 +1483,9 @@ namespace ThorVG
 
             sdata.geometry.SetMatrix(transform);
             sdata.geometry.viewport = vport;
-            if ((flags & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform)) != 0) sdata.geometry.Prepare(rshape);
+            var strokePathMissing = (flags & RenderUpdateFlag.Stroke) != 0 && rshape.stroke != null &&
+                float.IsFinite(rshape.StrokeWidth()) && !TvgMath.Zero(rshape.StrokeWidth()) && sdata.geometry.optStrokePath.Empty();
+            if ((flags & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform)) != 0 || strokePathMissing) sdata.geometry.Prepare(rshape);
 
             // TODO: Please precisely update tessellation not to update only if the color is changed.
             if ((flags & (RenderUpdateFlag.Color | RenderUpdateFlag.Gradient | RenderUpdateFlag.Transform | RenderUpdateFlag.Path)) != 0)
@@ -1432,9 +1516,8 @@ namespace ThorVG
 
         public override bool PreUpdate()
         {
-            if (mRootTarget.Invalid()) return false;
-            CurrentContext();
-            return true;
+            if (mDisposed || mRootTarget.Invalid()) return false;
+            return CurrentContext();
         }
 
         public override bool PostUpdate()
@@ -1457,6 +1540,7 @@ namespace ThorVG
         {
             if (data == null) return false;
             var shape = (GlShape)data;
+            if (shape.opacity == 0) return false;
             var bbox = shape.geometry.GetBounds();
             if (region.Intersected(bbox))
             {
@@ -1471,6 +1555,7 @@ namespace ThorVG
         {
             if (data == null) return false;
             var shape = (GlShape)data;
+            if (shape.opacity == 0) return false;
             var bbox = shape.geometry.GetBounds();
             if (region.Intersected(bbox))
             {

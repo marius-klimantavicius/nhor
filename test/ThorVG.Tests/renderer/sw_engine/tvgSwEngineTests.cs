@@ -171,29 +171,6 @@ namespace ThorVG.Tests
         }
 
         // =====================================================================
-        //  SwMath (fixed-point math)
-        // =====================================================================
-
-        [Fact]
-        public void SwMath_mathLength_UnitVector()
-        {
-            // Unit vector along x-axis in 16.16 fixed point
-            var p = new SwPoint(1 << 16, 0);
-            var len = SwMath.mathLength(p);
-            // Should be close to 1.0 in 16.16 fixed point (65536)
-            Assert.True(System.Math.Abs(len - 65536) < 512);
-        }
-
-        [Fact]
-        public void SwMath_mathAtan_PositiveX()
-        {
-            // atan of point (1, 0) should be 0 degrees (= 0 in fixed)
-            var p = new SwPoint(1 << 16, 0);
-            var angle = SwMath.mathAtan(p);
-            Assert.True(System.Math.Abs(angle) < 2048);
-        }
-
-        // =====================================================================
         //  Memory pool
         // =====================================================================
 
@@ -247,6 +224,24 @@ namespace ThorVG.Tests
             Assert.False(renderer.Target(buffer, 100, 0, 100, ColorSpace.ARGB8888));
             // zero height
             Assert.False(renderer.Target(buffer, 100, 100, 0, ColorSpace.ARGB8888));
+            // insufficient backing storage
+            Assert.False(renderer.Target(new uint[99], 100, 100, 1, ColorSpace.ARGB8888));
+            // multiplication must not wrap when validating capacity
+            Assert.False(renderer.Target(new uint[1], uint.MaxValue, 1, uint.MaxValue, ColorSpace.ARGB8888));
+        }
+
+        [Fact]
+        public unsafe void SwRenderer_Target_PointerClearsManagedTarget()
+        {
+            var renderer = SwRenderer.Gen();
+            var managed = new uint[4];
+            Assert.True(renderer.Target(managed, 2, 2, 2, ColorSpace.ARGB8888));
+
+            var pointerBuffer = stackalloc uint[4];
+            Assert.True(renderer.Target(pointerBuffer, 2, 2, 2, ColorSpace.ARGB8888));
+
+            Assert.Null(renderer.MainSurface()!.data);
+            Assert.Equal((nint)pointerBuffer, (nint)renderer.MainSurface()!.buf32);
         }
 
         [Fact]
@@ -484,7 +479,14 @@ namespace ThorVG.Tests
         {
             var canvas = SwCanvas.Gen();
             var buffer = new uint[100 * 100];
-            Assert.Equal(Result.InvalidArguments, canvas.Target(buffer, 100, 100, 100, ColorSpace.Unknown));
+            Assert.Equal(Result.NonSupport, canvas.Target(buffer, 100, 100, 100, ColorSpace.Unknown));
+        }
+
+        [Fact]
+        public void SwCanvas_Target_InsufficientManagedBuffer_InvalidArgs()
+        {
+            var canvas = SwCanvas.Gen();
+            Assert.Equal(Result.InvalidArguments, canvas.Target(new uint[99], 100, 100, 1, ColorSpace.ARGB8888));
         }
 
         // =====================================================================

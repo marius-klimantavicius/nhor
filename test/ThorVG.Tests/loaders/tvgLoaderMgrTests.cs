@@ -58,6 +58,28 @@ namespace ThorVG.Tests
             var loader = LoaderMgr.Loader(data, 4, 4, ColorSpace.ABGR8888, false);
             Assert.NotNull(loader);
             Assert.IsType<RawLoader>(loader);
+            Assert.True(LoaderMgr.Retrieve(loader));
+        }
+
+        [Fact]
+        public void Loader_RawCache_UsesArrayIdentity()
+        {
+            var data = new uint[16];
+            var same = data;
+            var distinct = new uint[16];
+
+            var first = LoaderMgr.Loader(data, 4, 4, ColorSpace.ABGR8888, false);
+            var cached = LoaderMgr.Loader(same, 4, 4, ColorSpace.ABGR8888, false);
+            var other = LoaderMgr.Loader(distinct, 4, 4, ColorSpace.ABGR8888, false);
+
+            Assert.Same(first, cached);
+            Assert.NotSame(first, other);
+            Assert.Same(data, first!.hashdata);
+            Assert.Same(distinct, other!.hashdata);
+
+            Assert.True(LoaderMgr.Retrieve(first));
+            Assert.True(LoaderMgr.Retrieve(cached));
+            Assert.True(LoaderMgr.Retrieve(other));
         }
 
         // ---- Init / Term ----
@@ -130,6 +152,29 @@ namespace ThorVG.Tests
             var loader = LoaderMgr.Loader(data, (uint)data.Length, "png", null, true);
             Assert.NotNull(loader);
             Assert.IsType<PngLoader>(loader);
+        }
+
+        [Fact]
+        public void Loader_DataCache_UsesArrayIdentity()
+        {
+            using var image = new Image<Rgba32>(2, 2);
+            using var ms = new MemoryStream();
+            image.SaveAsPng(ms);
+            var data = ms.ToArray();
+            var distinct = (byte[])data.Clone();
+
+            var first = LoaderMgr.Loader(data, (uint)data.Length, "png", null, false);
+            var cached = LoaderMgr.Loader(data, (uint)data.Length, "png", null, false);
+            var other = LoaderMgr.Loader(distinct, (uint)distinct.Length, "png", null, false);
+
+            Assert.Same(first, cached);
+            Assert.NotSame(first, other);
+            Assert.Same(data, first!.hashdata);
+            Assert.Same(distinct, other!.hashdata);
+
+            Assert.True(LoaderMgr.Retrieve(first));
+            Assert.True(LoaderMgr.Retrieve(cached));
+            Assert.True(LoaderMgr.Retrieve(other));
         }
 
         [Fact]

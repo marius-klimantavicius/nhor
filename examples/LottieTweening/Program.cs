@@ -32,10 +32,8 @@ class UserExample : ExampleBase
         for (uint i = 0; i < lottie!.MarkersCnt(); ++i)
         {
             //specify the current segment to retrieve the segment's starting frame.
-            float begin;
-            var name = lottie.Marker(i);
+            var name = lottie.Marker(i, out var begin, out _);
             lottie.Segment(name);
-            lottie.Segment(out begin, out _);
 
             //save the current AnimState to the state list
             states.Add(new AnimState { name = name!, begin = begin });

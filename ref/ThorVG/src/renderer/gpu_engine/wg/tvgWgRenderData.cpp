@@ -35,18 +35,10 @@
 
 void WgImageData::update(WgContext& context, const RenderSurface* surface, FilterMethod filter)
 {
-    // get appropriate texture format from color space
-    WGPUTextureFormat texFormat = WGPUTextureFormat_BGRA8Unorm;
-    if (surface->cs == ColorSpace::ABGR8888S)
-        texFormat = WGPUTextureFormat_RGBA8Unorm;
-    if (surface->cs == ColorSpace::Grayscale8)
-        texFormat = WGPUTextureFormat_R8Unorm;
     auto bytesPerRow = surface->stride * CHANNEL_SIZE(surface->cs);
     auto dataSize = static_cast<uint64_t>(bytesPerRow) * surface->h;
     // allocate new texture handle
-    bool texHandleChanged = context.allocateTexture(texture, surface->w, surface->h, texFormat, surface->data, bytesPerRow, dataSize);
-    // update texture view of texture handle was changed
-    if (texHandleChanged) {
+    if (context.allocateTexture(texture, surface->w, surface->h, WgTextureMgr::textureFormat(surface), surface->data, bytesPerRow, dataSize)) {
         context.releaseTextureView(textureView);
         textureView = context.createTextureView(texture);
         // update bind group
@@ -183,14 +175,25 @@ void WgRenderDataShape::updateMeshes(const RenderShape &rshape, RenderUpdateFlag
 
     // optimize path
     auto& optPath = RenderPath::scratch();
+    RenderPath optStrokePath;
     bool optPathThin = false;
     bool optPathSkipFill = false;
+    auto strokeWidth = rshape.strokeWidth();
+    auto localOut = (std::isfinite(strokeWidth) && !tvg::zero(strokeWidth)) ? &optStrokePath : nullptr;
     if (rshape.trimpath()) {
         auto& trimmed = RenderPath::scratch();
-        if (rshape.stroke->trim.trim(rshape.path, trimmed)) gpuOptimize(trimmed, optPath, matrix, optPathThin, optPathSkipFill);
+        if (rshape.stroke->trim.trim(rshape.path, trimmed)) {
+            GpuOptimizeResult result{&optPath, localOut};
+            gpuOptimize(trimmed, result, matrix);
+            optPathThin = result.thin;
+            optPathSkipFill = result.skipFill;
+        }
         else optPath.clear();
     } else {
-        gpuOptimize(rshape.path, optPath, matrix, optPathThin, optPathSkipFill);
+        GpuOptimizeResult result{&optPath, localOut};
+        gpuOptimize(rshape.path, result, matrix);
+        optPathThin = result.thin;
+        optPathSkipFill = result.skipFill;
     }
 
     auto updatePath = flag & (RenderUpdateFlag::Transform | RenderUpdateFlag::Path);
@@ -224,24 +227,26 @@ void WgRenderDataShape::updateMeshes(const RenderShape &rshape, RenderUpdateFlag
     }
     // update strokes shapes
     if (rshape.stroke && (updatePath || (flag & (RenderUpdateFlag::Stroke | RenderUpdateFlag::GradientStroke)))) {
-        auto strokeWidth = rshape.strokeWidth();
-        auto strokeWidthWorld = strokeWidth * scaling(matrix);
+        auto qualityScale = scaling(matrix);
+        auto strokeWidthWorld = strokeWidth * qualityScale;
         if (!std::isfinite(strokeWidthWorld)) strokeWidthWorld = strokeWidth;
         if (!std::isfinite(strokeWidthWorld)) strokeWidthWorld = 0.0f;
+        if (!std::isfinite(qualityScale) || tvg::zero(qualityScale)) qualityScale = 1.0f;
 
         //run stroking only if it's valid
         if (!tvg::zero(strokeWidthWorld)) {
-            WgStroker stroker(&meshStrokes, strokeWidthWorld, rshape.strokeCap(), rshape.strokeJoin(), rshape.strokeMiterlimit());
+            WgStroker stroker(&meshStrokes, strokeWidth, rshape.strokeCap(), rshape.strokeJoin(), rshape.strokeMiterlimit(), qualityScale);
             auto& dashed = RenderPath::scratch();
-            if (gpuStrokeDash(rshape, dashed, &matrix)) stroker.run(dashed);
-            else stroker.run(optPath);
+            if (gpuStrokeDash(rshape, dashed, nullptr)) stroker.run(dashed);
+            else stroker.run(optStrokePath);
             renderSettingsStroke.opacityMultiplier = 1.0f;
             if (meshStrokes.ibuffer.empty()) {
                 meshStrokes.clear();
             } else {
                 auto bbox = stroker.getBBox();
                 meshStrokesBBox.bbox(bbox.min, bbox.max);
-                updateBBox(bbox);
+                auto strokeBounds = gpuTransformBounds(stroker.bounds(), matrix);
+                updateBBox({{(float)strokeBounds.min.x, (float)strokeBounds.min.y}, {(float)strokeBounds.max.x, (float)strokeBounds.max.y}});
             }
         }
     }
@@ -630,7 +635,6 @@ bool WgIntersector::isPointInMesh(const Point& p, const WgMeshData& mesh)
     return (crossings % 2) == 1;
 }
 
-
 bool WgIntersector::intersectClips(const Point& pt, const Array<WgRenderDataPaint*>& clips)
 {
     for (uint32_t i = 0; i < clips.count; i++) {
@@ -644,6 +648,8 @@ bool WgIntersector::intersectClips(const Point& pt, const Array<WgRenderDataPain
 bool WgIntersector::intersectShape(const RenderRegion region, const WgRenderDataShape* shape)
 {
     if (!shape || ((shape->meshShape.ibuffer.count == 0) && (shape->meshStrokes.ibuffer.count == 0))) return false;
+    Matrix inverseModel;
+    auto testStroke = !shape->renderSettingsStroke.skip && inverse(&shape->transform, &inverseModel);
     auto sizeX = region.sw();
     auto sizeY = region.sh();
     for (int32_t y = 0; y <= sizeY; y++) {
@@ -652,7 +658,7 @@ bool WgIntersector::intersectShape(const RenderRegion region, const WgRenderData
             if (y % 2 == 1) pt.y = (float) sizeY - y - sizeY % 2 + region.min.y;
             if (intersectClips(pt, shape->clips)) {
                 if (!shape->renderSettingsShape.skip && isPointInMesh(pt, shape->meshShape)) return true;
-                if (!shape->renderSettingsStroke.skip && isPointInTris(pt, shape->meshStrokes)) return true;
+                if (testStroke && isPointInTris(pt * inverseModel, shape->meshStrokes)) return true;
             }
         }
     }

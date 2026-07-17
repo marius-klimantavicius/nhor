@@ -386,13 +386,13 @@ bool LottieLoader::frame(float no)
     no = shorten(no);
 
     //Skip update if frame diff is too small.
-    if (!builder->tweening() && fabsf(this->frameNo - no) <= 0.0009f) return false;
+    if (!builder->tween.active && fabsf(this->frameNo - no) <= 0.0009f) return false;
 
     this->done();
 
     this->frameNo = no;
 
-    builder->offTween();
+    builder->tween.off();
 
     if (comp) comp->clear();     //clear synchronously
 
@@ -487,39 +487,56 @@ bool LottieLoader::ready()
         if (comp) return true;
     }
     done();
-    if (comp) return true;
-    return false;
+    return comp ? true : false;
 }
 
-
-bool LottieLoader::tween(float from, float to, float progress)
+bool LottieLoader::tweenTo(float to)
 {
-    //tweening is not necessary
-    if (tvg::zero(progress)) return frame(from);
-    else if (tvg::equal(progress, 1.0f)) return frame(to);
+    done();
+
+    builder->tween.on(shorten(to));
+
+    return true;
+}
+
+bool LottieLoader::tween(float progress)
+{
+    if (!builder->tween.active || builder->tween.legacy) return false;
+
+    // Skip update if frame diff is too small.
+    progress = shorten(progress);
+    if (tvg::equal(progress, builder->tween.progress)) return true;
 
     done();
 
-    frameNo = shorten(from);
-
-    builder->onTween(shorten(to), progress);
-
-    if (comp) comp->clear();     //clear synchronously
+    if (tvg::equal(progress, 1.0f)) frameNo = builder->tween.to;
+    builder->tween.progress = progress;
+    if (comp) comp->clear();  // clear synchronously
 
     TaskScheduler::request(this);
 
     return true;
 }
 
-
-bool LottieLoader::assign(const char* layer, uint32_t ix, const char* var, float val)
+bool LottieLoader::tween(float from, float to, float progress)
 {
-    if (!ready() || !comp->expressions) return false;
-    comp->root->assign(layer, ix, var, val);
+    builder->tween.off();  // Not allowed dynamic tweening during the new tween mode
+
+    //tweening is not necessary
+    if (tvg::zero(progress)) return frame(from);
+    if (tvg::equal(progress, 1.0f)) return frame(to);
+
+    done();
+
+    progress = shorten(progress);
+    frameNo = shorten(from);
+    builder->tween.on(shorten(to), progress);
+    if (comp) comp->clear();     //clear synchronously
+
+    TaskScheduler::request(this);
 
     return true;
 }
-
 
 bool LottieLoader::quality(uint8_t value)
 {
@@ -529,4 +546,10 @@ bool LottieLoader::quality(uint8_t value)
         build = true;
     }
     return true;
+}
+
+
+void LottieLoader::resolver(std::function<void(const tvg::LottieAudioResolver&, void*)> func, void* data)
+{
+    builder->audioResolver = {std::move(func), data};
 }

@@ -152,5 +152,21 @@ namespace ThorVG.Tests
             Assert.Equal(0f, bmp.width);
             Assert.Equal(0f, bmp.height);
         }
+
+        [Fact]
+        public void LottieBitmap_ReleaseUnrefsPictureExactlyOnce()
+        {
+            var picture = Picture.Gen();
+            picture.Ref();
+            picture.Ref();
+            var bmp = new LottieBitmap { picture = picture };
+
+            bmp.Release();
+            Assert.Equal((ushort)1, picture.RefCnt());
+            bmp.Release();
+            Assert.Equal((ushort)1, picture.RefCnt());
+
+            picture.Unref();
+        }
     }
 }

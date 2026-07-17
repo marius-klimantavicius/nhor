@@ -108,13 +108,6 @@ namespace ThorVG
         }
     }
 
-    public struct Tween
-    {
-        public float frameNo;
-        public float progress; // greater than 0 and smaller than 1
-        public bool active;
-    }
-
     public static class LottieDataHelper
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

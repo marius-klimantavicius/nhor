@@ -14,16 +14,43 @@ namespace ThorVG
         private const byte SW_STROKE_TAG_END = 8;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static long SIDE_TO_ROTATE(int s)
+        private static float SIDE_TO_ROTATE(int s)
         {
-            return (SwConstants.SW_ANGLE_PI2 - (long)s * SwConstants.SW_ANGLE_PI);
+            return MathConstants.MATH_PI2 - s * MathConstants.MATH_PI;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SCALE(SwStroke stroke, ref SwPoint pt)
+        private static Point Add(Point a, Point b) => new Point(a.x + b.x, a.y + b.y);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Point Sub(Point a, Point b) => new Point(a.x - b.x, a.y - b.y);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool Tiny(Point p)
         {
-            pt.x = (int)(pt.x * stroke.sx);
-            pt.y = (int)(pt.y * stroke.sy);
+            const float epsilon = 2.0f / 64.0f;
+            return MathF.Abs(p.x) < epsilon && MathF.Abs(p.y) < epsilon;
+        }
+
+        private static float Diff(float angle1, float angle2)
+        {
+            var delta = (angle2 - angle1) % MathConstants.MATH_2PI;
+            if (delta < 0) delta += MathConstants.MATH_2PI;
+            if (delta > MathConstants.MATH_PI) delta -= MathConstants.MATH_2PI;
+            return delta;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float Mean(float angle1, float angle2) => angle1 + Diff(angle1, angle2) * 0.5f;
+
+        private static void Rotate(ref Point p, float angle)
+        {
+            if (TvgMath.Zero(angle)) return;
+            var cos = MathF.Cos(angle);
+            var sin = MathF.Sin(angle);
+            var x = p.x * cos - p.y * sin;
+            p.y = p.x * sin + p.y * cos;
+            p.x = x;
         }
 
         private static void _growBorder(SwStrokeBorder border, uint newPts)
@@ -74,7 +101,7 @@ namespace ThorVG
             border.movable = false;
         }
 
-        private static void _borderCubicTo(SwStrokeBorder border, SwPoint ctrl1, SwPoint ctrl2, SwPoint to)
+        private static void _borderCubicTo(SwStrokeBorder border, Point ctrl1, Point ctrl2, Point to)
         {
             _growBorder(border, 3);
 
@@ -91,45 +118,40 @@ namespace ThorVG
             border.movable = false;
         }
 
-        private static void _borderArcTo(SwStrokeBorder border, SwPoint center, long radius, long angleStart, long angleDiff, SwStroke stroke)
+        private static void _borderArcTo(SwStrokeBorder border, Point center, float radius, float angleStart, float angleDiff)
         {
-            long ARC_CUBIC_ANGLE = SwConstants.SW_ANGLE_PI / 2;
-            var a = new SwPoint((int)radius, 0);
-            SwMath.mathRotate(ref a, angleStart);
-            SCALE(stroke, ref a);
-            a = a + center;
+            var a = new Point(radius, 0);
+            Rotate(ref a, angleStart);
+            a = Add(a, center);
 
             var total = angleDiff;
             var angle = angleStart;
-            var rotate = (angleDiff >= 0) ? SwConstants.SW_ANGLE_PI2 : -SwConstants.SW_ANGLE_PI2;
+            var rotate = angleDiff >= 0 ? MathConstants.MATH_PI2 : -MathConstants.MATH_PI2;
 
             while (total != 0)
             {
                 var step = total;
-                if (step > ARC_CUBIC_ANGLE) step = ARC_CUBIC_ANGLE;
-                else if (step < -ARC_CUBIC_ANGLE) step = -ARC_CUBIC_ANGLE;
+                if (step > MathConstants.MATH_PI2) step = MathConstants.MATH_PI2;
+                else if (step < -MathConstants.MATH_PI2) step = -MathConstants.MATH_PI2;
 
                 var next = angle + step;
                 var theta = step;
                 if (theta < 0) theta = -theta;
-                theta >>= 1;
+                theta *= 0.5f;
 
-                var b = new SwPoint((int)radius, 0);
-                SwMath.mathRotate(ref b, next);
-                SCALE(stroke, ref b);
-                b = b + center;
+                var b = new Point(radius, 0);
+                Rotate(ref b, next);
+                b = Add(b, center);
 
-                var length = SwMath.mathMulDiv(radius, SwMath.mathSin(theta) * 4, (0x10000L + SwMath.mathCos(theta)) * 3);
+                var length = radius * (4.0f / 3.0f) * MathF.Tan(theta * 0.5f);
 
-                var a2 = new SwPoint((int)length, 0);
-                SwMath.mathRotate(ref a2, angle + rotate);
-                SCALE(stroke, ref a2);
-                a2 = a2 + a;
+                var a2 = new Point(length, 0);
+                Rotate(ref a2, angle + rotate);
+                a2 = Add(a2, a);
 
-                var b2 = new SwPoint((int)length, 0);
-                SwMath.mathRotate(ref b2, next - rotate);
-                SCALE(stroke, ref b2);
-                b2 = b2 + b;
+                var b2 = new Point(length, 0);
+                Rotate(ref b2, next - rotate);
+                b2 = Add(b2, b);
 
                 _borderCubicTo(border, a2, b2, b);
 
@@ -139,7 +161,7 @@ namespace ThorVG
             }
         }
 
-        private static void _borderLineTo(SwStrokeBorder border, SwPoint to, bool movable)
+        private static void _borderLineTo(SwStrokeBorder border, Point to, bool movable)
         {
             if (border.movable)
             {
@@ -147,7 +169,7 @@ namespace ThorVG
             }
             else
             {
-                if (!border.pts.Empty() && (border.pts.Last() - to).Tiny()) return;
+                if (!border.pts.Empty() && Tiny(Sub(border.pts.Last(), to))) return;
                 _growBorder(border, 1);
                 border.tags[border.pts.count] = SW_STROKE_TAG_POINT;
                 border.pts.Push(to);
@@ -155,7 +177,7 @@ namespace ThorVG
             border.movable = movable;
         }
 
-        private static void _borderMoveTo(SwStrokeBorder border, SwPoint to)
+        private static void _borderMoveTo(SwStrokeBorder border, Point to)
         {
             if (border.start >= 0) _borderClose(border, false);
             border.start = (int)border.pts.count;
@@ -167,13 +189,13 @@ namespace ThorVG
         {
             var border = stroke.borders[side];
             var rotate = SIDE_TO_ROTATE(side);
-            var total = SwMath.mathDiff(stroke.angleIn, stroke.angleOut);
-            if (total == SwConstants.SW_ANGLE_PI) total = -rotate * 2;
-            _borderArcTo(border, stroke.center, stroke.width, stroke.angleIn + rotate, total, stroke);
+            var total = Diff(stroke.angleIn, stroke.angleOut);
+            if (TvgMath.Equal(total, MathConstants.MATH_PI)) total = -rotate * 2;
+            _borderArcTo(border, stroke.center, stroke.width, stroke.angleIn + rotate, total);
             border.movable = false;
         }
 
-        private static void _outside(SwStroke stroke, int side, long lineLength)
+        private static void _outside(SwStroke stroke, int side, float lineLength)
         {
             var border = stroke.borders[side];
 
@@ -185,13 +207,13 @@ namespace ThorVG
             {
                 var rotate = SIDE_TO_ROTATE(side);
                 var bevel = stroke.join == StrokeJoin.Bevel;
-                long phi = 0;
-                long thcos = 0;
+                float phi = 0;
+                float thcos = 0;
 
                 if (!bevel)
                 {
-                    var theta = SwMath.mathDiff(stroke.angleIn, stroke.angleOut);
-                    if (theta == SwConstants.SW_ANGLE_PI)
+                    var theta = Diff(stroke.angleIn, stroke.angleOut);
+                    if (TvgMath.Equal(theta, MathConstants.MATH_PI))
                     {
                         theta = rotate;
                         phi = stroke.angleIn;
@@ -202,81 +224,74 @@ namespace ThorVG
                         phi = stroke.angleIn + theta + rotate;
                     }
 
-                    thcos = SwMath.mathCos(theta);
-                    var sigma = SwMath.mathMultiply(stroke.miterlimit, thcos);
-                    if (sigma < 0x10000L) bevel = true;
+                    thcos = MathF.Cos(theta);
+                    if (stroke.miterlimit * thcos < 1.0f) bevel = true;
                 }
 
                 if (bevel)
                 {
-                    var delta = new SwPoint((int)stroke.width, 0);
-                    SwMath.mathRotate(ref delta, stroke.angleOut + rotate);
-                    SCALE(stroke, ref delta);
-                    delta = delta + stroke.center;
+                    var delta = new Point(stroke.width, 0);
+                    Rotate(ref delta, stroke.angleOut + rotate);
+                    delta = Add(delta, stroke.center);
                     border.movable = false;
                     _borderLineTo(border, delta, false);
                 }
                 else
                 {
-                    var length = SwMath.mathDivide(stroke.width, thcos);
-                    var delta = new SwPoint((int)length, 0);
-                    SwMath.mathRotate(ref delta, phi);
-                    SCALE(stroke, ref delta);
-                    delta = delta + stroke.center;
+                    var delta = new Point(stroke.width / thcos, 0);
+                    Rotate(ref delta, phi);
+                    delta = Add(delta, stroke.center);
                     _borderLineTo(border, delta, false);
 
                     if (lineLength == 0)
                     {
-                        delta = new SwPoint((int)stroke.width, 0);
-                        SwMath.mathRotate(ref delta, stroke.angleOut + rotate);
-                        SCALE(stroke, ref delta);
-                        delta = delta + stroke.center;
+                        delta = new Point(stroke.width, 0);
+                        Rotate(ref delta, stroke.angleOut + rotate);
+                        delta = Add(delta, stroke.center);
                         _borderLineTo(border, delta, false);
                     }
                 }
             }
         }
 
-        private static void _inside(SwStroke stroke, int side, long lineLength)
+        private static void _inside(SwStroke stroke, int side, float lineLength)
         {
             var border = stroke.borders[side];
-            var theta = SwMath.mathDiff(stroke.angleIn, stroke.angleOut) / 2;
-            SwPoint delta;
+            var theta = Diff(stroke.angleIn, stroke.angleOut) * 0.5f;
+            Point delta;
             bool intersect = false;
 
             if (border.movable && lineLength > 0)
             {
-                long minLength = Math.Abs(SwMath.mathMultiply(stroke.width, SwMath.mathTan(theta)));
-                if (stroke.lineLength >= minLength && lineLength >= minLength) intersect = true;
+                var minLength = MathF.Abs(stroke.width * MathF.Tan(theta));
+                if (stroke.length >= minLength && lineLength >= minLength) intersect = true;
             }
 
             var rotate = SIDE_TO_ROTATE(side);
 
             if (!intersect)
             {
-                delta = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta, stroke.angleOut + rotate);
-                SCALE(stroke, ref delta);
-                delta = delta + stroke.center;
+                delta = new Point(stroke.width, 0);
+                Rotate(ref delta, stroke.angleOut + rotate);
+                delta = Add(delta, stroke.center);
                 border.movable = false;
             }
             else
             {
                 var phi = stroke.angleIn + theta;
-                var thcos = SwMath.mathCos(theta);
-                delta = new SwPoint((int)SwMath.mathDivide(stroke.width, thcos), 0);
-                SwMath.mathRotate(ref delta, phi + rotate);
-                SCALE(stroke, ref delta);
-                delta = delta + stroke.center;
+                var thcos = MathF.Cos(theta);
+                delta = new Point(stroke.width / thcos, 0);
+                Rotate(ref delta, phi + rotate);
+                delta = Add(delta, stroke.center);
             }
 
             _borderLineTo(border, delta, false);
         }
 
-        private static void _processCorner(SwStroke stroke, long lineLength)
+        private static void _processCorner(SwStroke stroke, float lineLength)
         {
-            var turn = SwMath.mathDiff(stroke.angleIn, stroke.angleOut);
-            if (turn == 0) return;
+            var turn = Diff(stroke.angleIn, stroke.angleOut);
+            if (TvgMath.Zero(turn)) return;
 
             int inside = 0;
             if (turn < 0) inside = 1;
@@ -285,41 +300,37 @@ namespace ThorVG
             _outside(stroke, 1 - inside, lineLength);
         }
 
-        private static void _firstSubPath(SwStroke stroke, long startAngle, long lineLength)
+        private static void _firstSubPath(SwStroke stroke, float startAngle, float lineLength)
         {
-            var delta = new SwPoint((int)stroke.width, 0);
-            SwMath.mathRotate(ref delta, startAngle + SwConstants.SW_ANGLE_PI2);
-            SCALE(stroke, ref delta);
+            var delta = new Point(stroke.width, 0);
+            Rotate(ref delta, startAngle + MathConstants.MATH_PI2);
 
-            var pt = stroke.center + delta;
+            var pt = Add(stroke.center, delta);
             _borderMoveTo(stroke.borders[0], pt);
 
-            pt = stroke.center - delta;
+            pt = Sub(stroke.center, delta);
             _borderMoveTo(stroke.borders[1], pt);
 
             stroke.subPathAngle = startAngle;
             stroke.firstPt = false;
-            stroke.subPathLineLength = lineLength;
+            stroke.subPathLength = lineLength;
         }
 
-        private static void _lineTo(SwStroke stroke, SwPoint to)
+        private static void _lineTo(SwStroke stroke, Point to)
         {
-            var delta = to - stroke.center;
+            var delta = Sub(to, stroke.center);
 
-            if (delta.Zero())
+            if (TvgMath.Zero(delta))
             {
                 if (stroke.firstPt && stroke.cap != StrokeCap.Butt) _firstSubPath(stroke, 0, 0);
                 return;
             }
 
-            delta.x = (int)(delta.x / stroke.sx);
-            delta.y = (int)(delta.y / stroke.sy);
-            var lineLength = SwMath.mathLength(delta);
-            var angle = SwMath.mathAtan(delta);
+            var lineLength = TvgMath.PointLength(delta);
+            var angle = TvgMath.Atan2(delta.y, delta.x);
 
-            delta = new SwPoint((int)stroke.width, 0);
-            SwMath.mathRotate(ref delta, angle + SwConstants.SW_ANGLE_PI2);
-            SCALE(stroke, ref delta);
+            delta = new Point(stroke.width, 0);
+            Rotate(ref delta, angle + MathConstants.MATH_PI2);
 
             if (stroke.firstPt)
             {
@@ -333,19 +344,63 @@ namespace ThorVG
 
             for (int side = 0; side < 2; ++side)
             {
-                _borderLineTo(stroke.borders[side], to + delta, true);
+                _borderLineTo(stroke.borders[side], Add(to, delta), true);
                 delta.x = -delta.x;
                 delta.y = -delta.y;
             }
 
             stroke.angleIn = angle;
             stroke.center = to;
-            stroke.lineLength = lineLength;
+            stroke.length = lineLength;
         }
 
-        private static void _cubicTo(SwStroke stroke, SwPoint ctrl1, SwPoint ctrl2, SwPoint to)
+        private static int _cubicAngle(Point* p, out float angleIn, out float angleMid, out float angleOut)
         {
-            var bezStack = stackalloc SwPoint[37];
+            var d1 = Sub(p[2], p[3]);
+            var d2 = Sub(p[1], p[2]);
+            var d3 = Sub(p[0], p[1]);
+            angleIn = angleMid = angleOut = 0;
+            if (Tiny(d1))
+            {
+                if (Tiny(d2))
+                {
+                    if (Tiny(d3)) return -1;
+                    angleIn = angleMid = angleOut = TvgMath.Atan2(d3.y, d3.x);
+                }
+                else if (Tiny(d3)) angleIn = angleMid = angleOut = TvgMath.Atan2(d2.y, d2.x);
+                else { angleIn = angleMid = TvgMath.Atan2(d2.y, d2.x); angleOut = TvgMath.Atan2(d3.y, d3.x); }
+            }
+            else if (Tiny(d2))
+            {
+                if (Tiny(d3)) angleIn = angleMid = angleOut = TvgMath.Atan2(d1.y, d1.x);
+                else { angleIn = TvgMath.Atan2(d1.y, d1.x); angleOut = TvgMath.Atan2(d3.y, d3.x); angleMid = Mean(angleIn, angleOut); }
+            }
+            else if (Tiny(d3))
+            {
+                angleIn = TvgMath.Atan2(d1.y, d1.x); angleMid = angleOut = TvgMath.Atan2(d2.y, d2.x);
+            }
+            else
+            {
+                angleIn = TvgMath.Atan2(d1.y, d1.x); angleMid = TvgMath.Atan2(d2.y, d2.x); angleOut = TvgMath.Atan2(d3.y, d3.x);
+            }
+            return MathF.Abs(Diff(angleIn, angleMid)) < MathConstants.MATH_PI / 8 && MathF.Abs(Diff(angleMid, angleOut)) < MathConstants.MATH_PI / 8 ? 0 : 1;
+        }
+
+        private static void _splitCubic(Point* p)
+        {
+            var p01 = new Point((p[0].x + p[1].x) * 0.5f, (p[0].y + p[1].y) * 0.5f);
+            var p12 = new Point((p[1].x + p[2].x) * 0.5f, (p[1].y + p[2].y) * 0.5f);
+            var p23 = new Point((p[2].x + p[3].x) * 0.5f, (p[2].y + p[3].y) * 0.5f);
+            var p012 = new Point((p01.x + p12.x) * 0.5f, (p01.y + p12.y) * 0.5f);
+            var p123 = new Point((p12.x + p23.x) * 0.5f, (p12.y + p23.y) * 0.5f);
+            p[6] = p[3]; p[1] = p01; p[2] = p012;
+            p[3] = new Point((p012.x + p123.x) * 0.5f, (p012.y + p123.y) * 0.5f);
+            p[4] = p123; p[5] = p23;
+        }
+
+        private static void _cubicTo(SwStroke stroke, Point ctrl1, Point ctrl2, Point to)
+        {
+            var bezStack = stackalloc Point[37];
             var limit = bezStack + 32;
             var arc = bezStack;
             var firstArc = true;
@@ -353,18 +408,19 @@ namespace ThorVG
             arc[1] = ctrl2;
             arc[2] = ctrl1;
             arc[3] = stroke.center;
+            var join = stroke.join;
 
             while (arc >= bezStack)
             {
-                long angleIn, angleOut, angleMid;
+                float angleIn, angleOut, angleMid;
                 angleIn = angleOut = angleMid = stroke.angleIn;
 
-                var valid = SwMath.mathCubicAngle(arc, out angleIn, out angleMid, out angleOut);
+                var valid = _cubicAngle(arc, out angleIn, out angleMid, out angleOut);
 
                 if (valid > 0 && arc < limit)
                 {
                     if (stroke.firstPt) stroke.angleIn = angleIn;
-                    SwMath.mathSplitCubic(arc);
+                    _splitCubic(arc);
                     arc += 3;
                     continue;
                 }
@@ -389,26 +445,27 @@ namespace ThorVG
                         _processCorner(stroke, 0);
                     }
                 }
-                else if (Math.Abs(SwMath.mathDiff(stroke.angleIn, angleIn)) > (SwConstants.SW_ANGLE_PI / 8) / 4)
+                else if (MathF.Abs(Diff(stroke.angleIn, angleIn)) > (MathConstants.MATH_PI / 8) / 4)
                 {
                     stroke.center = arc[3];
                     stroke.angleOut = angleIn;
                     stroke.join = StrokeJoin.Round;
                     _processCorner(stroke, 0);
-                    stroke.join = stroke.joinSaved;
+                    stroke.join = join;
                 }
 
-                var theta1 = SwMath.mathDiff(angleIn, angleMid) / 2;
-                var theta2 = SwMath.mathDiff(angleMid, angleOut) / 2;
-                var phi1 = SwMath.mathMean(angleIn, angleMid);
-                var phi2 = SwMath.mathMean(angleMid, angleOut);
-                var length1 = SwMath.mathDivide(stroke.width, SwMath.mathCos(theta1));
-                var length2 = SwMath.mathDivide(stroke.width, SwMath.mathCos(theta2));
-                long alpha0 = 0;
+                var theta1 = Diff(angleIn, angleMid) * 0.5f;
+                var theta2 = Diff(angleMid, angleOut) * 0.5f;
+                var phi1 = Mean(angleIn, angleMid);
+                var phi2 = Mean(angleMid, angleOut);
+                var length1 = stroke.width / MathF.Cos(theta1);
+                var length2 = stroke.width / MathF.Cos(theta2);
+                var alpha0 = 0.0f;
 
                 if (stroke.handleWideStrokes)
                 {
-                    alpha0 = SwMath.mathAtan(arc[0] - arc[3]);
+                    var v = Sub(arc[0], arc[3]);
+                    alpha0 = TvgMath.Atan2(v.y, v.x);
                 }
 
                 for (int side = 0; side < 2; ++side)
@@ -416,39 +473,36 @@ namespace ThorVG
                     var border = stroke.borders[side];
                     var rotate = SIDE_TO_ROTATE(side);
 
-                    var _ctrl1 = new SwPoint((int)length1, 0);
-                    SwMath.mathRotate(ref _ctrl1, phi1 + rotate);
-                    SCALE(stroke, ref _ctrl1);
-                    _ctrl1 = _ctrl1 + arc[2];
+                    var _ctrl1 = new Point(length1, 0);
+                    Rotate(ref _ctrl1, phi1 + rotate);
+                    _ctrl1 = Add(_ctrl1, arc[2]);
 
-                    var _ctrl2 = new SwPoint((int)length2, 0);
-                    SwMath.mathRotate(ref _ctrl2, phi2 + rotate);
-                    SCALE(stroke, ref _ctrl2);
-                    _ctrl2 = _ctrl2 + arc[1];
+                    var _ctrl2 = new Point(length2, 0);
+                    Rotate(ref _ctrl2, phi2 + rotate);
+                    _ctrl2 = Add(_ctrl2, arc[1]);
 
-                    var end = new SwPoint((int)stroke.width, 0);
-                    SwMath.mathRotate(ref end, angleOut + rotate);
-                    SCALE(stroke, ref end);
-                    end = end + arc[0];
+                    var end = new Point(stroke.width, 0);
+                    Rotate(ref end, angleOut + rotate);
+                    end = Add(end, arc[0]);
 
                     if (stroke.handleWideStrokes)
                     {
                         var start = border.pts.Last();
-                        var alpha1 = SwMath.mathAtan(end - start);
+                        var direction = Sub(end, start);
+                        var alpha1 = TvgMath.Atan2(direction.y, direction.x);
 
-                        if (Math.Abs(SwMath.mathDiff(alpha0, alpha1)) > SwConstants.SW_ANGLE_PI / 2)
+                        if (MathF.Abs(Diff(alpha0, alpha1)) > MathConstants.MATH_PI2)
                         {
-                            var beta = SwMath.mathAtan(arc[3] - start);
-                            var gamma = SwMath.mathAtan(arc[0] - end);
-                            var bvec = end - start;
-                            var blen = SwMath.mathLength(bvec);
-                            var sinA = Math.Abs(SwMath.mathSin(alpha1 - gamma));
-                            var sinB = Math.Abs(SwMath.mathSin(beta - gamma));
-                            var alen = SwMath.mathMulDiv(blen, sinA, sinB);
+                            var betaVector = Sub(arc[3], start);
+                            var gammaVector = Sub(arc[0], end);
+                            var beta = TvgMath.Atan2(betaVector.y, betaVector.x);
+                            var gamma = TvgMath.Atan2(gammaVector.y, gammaVector.x);
+                            var blen = TvgMath.PointLength(Sub(end, start));
+                            var alen = blen * MathF.Abs(MathF.Sin(alpha1 - gamma)) / MathF.Abs(MathF.Sin(beta - gamma));
 
-                            var dd = new SwPoint((int)alen, 0);
-                            SwMath.mathRotate(ref dd, beta);
-                            dd = dd + start;
+                            var dd = new Point(alen, 0);
+                            Rotate(ref dd, beta);
+                            dd = Add(dd, start);
 
                             border.movable = false;
                             _borderLineTo(border, dd, false);
@@ -466,37 +520,33 @@ namespace ThorVG
             stroke.center = to;
         }
 
-        private static void _addCap(SwStroke stroke, long angle, int side)
+        private static void _addCap(SwStroke stroke, float angle, int side)
         {
             if (stroke.cap == StrokeCap.Square)
             {
                 var rotate = SIDE_TO_ROTATE(side);
                 var border = stroke.borders[side];
 
-                var delta = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta, angle);
-                SCALE(stroke, ref delta);
+                var delta = new Point(stroke.width, 0);
+                Rotate(ref delta, angle);
 
-                var delta2 = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta2, angle + rotate);
-                SCALE(stroke, ref delta2);
-                delta = delta + stroke.center + delta2;
+                var delta2 = new Point(stroke.width, 0);
+                Rotate(ref delta2, angle + rotate);
+                delta = Add(Add(delta, stroke.center), delta2);
                 _borderLineTo(border, delta, false);
 
-                delta = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta, angle);
-                SCALE(stroke, ref delta);
+                delta = new Point(stroke.width, 0);
+                Rotate(ref delta, angle);
 
-                delta2 = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta2, angle - rotate);
-                SCALE(stroke, ref delta2);
-                delta = delta + delta2 + stroke.center;
+                delta2 = new Point(stroke.width, 0);
+                Rotate(ref delta2, angle - rotate);
+                delta = Add(Add(delta, delta2), stroke.center);
                 _borderLineTo(border, delta, false);
             }
             else if (stroke.cap == StrokeCap.Round)
             {
                 stroke.angleIn = angle;
-                stroke.angleOut = angle + SwConstants.SW_ANGLE_PI;
+                stroke.angleOut = angle + MathConstants.MATH_PI;
                 _arcTo(stroke, side);
             }
             else
@@ -504,16 +554,14 @@ namespace ThorVG
                 var rotate = SIDE_TO_ROTATE(side);
                 var border = stroke.borders[side];
 
-                var delta = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta, angle + rotate);
-                SCALE(stroke, ref delta);
-                delta = delta + stroke.center;
+                var delta = new Point(stroke.width, 0);
+                Rotate(ref delta, angle + rotate);
+                delta = Add(delta, stroke.center);
                 _borderLineTo(border, delta, false);
 
-                delta = new SwPoint((int)stroke.width, 0);
-                SwMath.mathRotate(ref delta, angle - rotate);
-                SCALE(stroke, ref delta);
-                delta = delta + stroke.center;
+                delta = new Point(stroke.width, 0);
+                Rotate(ref delta, angle - rotate);
+                delta = Add(delta, stroke.center);
                 _borderLineTo(border, delta, false);
             }
         }
@@ -557,7 +605,7 @@ namespace ThorVG
             left.movable = false;
         }
 
-        private static void _beginSubPath(SwStroke stroke, SwPoint to, bool closed)
+        private static void _beginSubPath(SwStroke stroke, Point to, bool closed)
         {
             stroke.firstPt = true;
             stroke.center = to;
@@ -568,7 +616,7 @@ namespace ThorVG
             else
                 stroke.handleWideStrokes = false;
 
-            stroke.ptStartSubPath = to;
+            stroke.subPathStart = to;
             stroke.angleIn = 0;
         }
 
@@ -576,18 +624,18 @@ namespace ThorVG
         {
             if (stroke.closedSubPath)
             {
-                if (stroke.center != stroke.ptStartSubPath)
-                    _lineTo(stroke, stroke.ptStartSubPath);
+                if (TvgMath.PointNotEqual(stroke.center, stroke.subPathStart))
+                    _lineTo(stroke, stroke.subPathStart);
 
                 stroke.angleOut = stroke.subPathAngle;
-                var turn = SwMath.mathDiff(stroke.angleIn, stroke.angleOut);
+                var turn = Diff(stroke.angleIn, stroke.angleOut);
 
                 if (turn != 0)
                 {
                     int inside = 0;
                     if (turn < 0) inside = 1;
-                    _inside(stroke, inside, stroke.subPathLineLength);
-                    _outside(stroke, 1 - inside, stroke.subPathLineLength);
+                    _inside(stroke, inside, stroke.subPathLength);
+                    _outside(stroke, 1 - inside, stroke.subPathLength);
                 }
 
                 _borderClose(stroke.borders[0], false);
@@ -600,8 +648,8 @@ namespace ThorVG
                 _addCap(stroke, stroke.angleIn, 0);
                 _addReverseLeft(stroke, true);
 
-                stroke.center = stroke.ptStartSubPath;
-                _addCap(stroke, stroke.subPathAngle + SwConstants.SW_ANGLE_PI, 0);
+                stroke.center = stroke.subPathStart;
+                _addCap(stroke, stroke.subPathAngle + MathConstants.MATH_PI, 0);
 
                 _borderClose(right, false);
             }
@@ -613,7 +661,7 @@ namespace ThorVG
             if (border.pts.Empty()) return;
 
             var src = border.tags;
-            var idx = outline->pts.count;
+            var idx = outline->input.count;
 
             for (uint i = 0; i < border.pts.count; i++)
             {
@@ -622,7 +670,7 @@ namespace ThorVG
                 if ((src[i] & SW_STROKE_TAG_END) != 0) outline->cntrs.Push(idx);
                 ++idx;
             }
-            outline->pts.Push(border.pts);
+            outline->input.Push(border.pts);
         }
 
         // Public API
@@ -638,12 +686,10 @@ namespace ThorVG
 
         public static void strokeReset(SwStroke stroke, RenderShape rshape, in Matrix transform, SwMpool mpool, uint tid)
         {
-            stroke.sx = MathF.Sqrt(transform.e11 * transform.e11 + transform.e21 * transform.e21);
-            stroke.sy = MathF.Sqrt(transform.e12 * transform.e12 + transform.e22 * transform.e22);
-            stroke.width = SwHelper.HALF_STROKE(rshape.StrokeWidth());
+            stroke.width = rshape.StrokeWidth() * 0.5f;
             stroke.cap = rshape.StrokeCap();
-            stroke.miterlimit = (long)(rshape.StrokeMiterlimit() * 65536.0f);
-            stroke.joinSaved = stroke.join = rshape.StrokeJoin();
+            stroke.miterlimit = rshape.StrokeMiterlimit();
+            stroke.join = rshape.StrokeJoin();
 
             stroke.borders[0] = mpool.StrokeLBorder(tid);
             stroke.borders[1] = mpool.StrokeRBorder(tid);
@@ -657,13 +703,13 @@ namespace ThorVG
             for (uint ci = 0; ci < outline.cntrs.count; ci++)
             {
                 var last = outline.cntrs[ci];
-                var limit = outline.pts.data + last;
+                var limit = outline.input.data + last;
                 ++i;
 
                 if (last <= first) { first = last + 1; continue; }
 
-                var start = outline.pts[first];
-                var pt = outline.pts.data + first;
+                var start = outline.input[first];
+                var pt = outline.input.data + first;
                 var types = outline.types.data + first;
                 var type = types[0];
 
@@ -702,7 +748,7 @@ namespace ThorVG
         {
             var reserve = stroke.borders[0].pts.count + stroke.borders[1].pts.count;
             var outline = mpool.Outline(tid);
-            outline->pts.Reserve(reserve);
+            outline->input.Reserve(reserve);
             outline->types.Reserve(reserve);
             outline->fillRule = FillRule.NonZero;
 

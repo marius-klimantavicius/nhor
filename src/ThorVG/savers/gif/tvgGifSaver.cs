@@ -127,6 +127,7 @@ namespace ThorVG
 
         public override bool Save(Animation animation, Paint? bg, string filename, uint quality, uint fps)
         {
+            if (filename == null) return false;
             Close();
 
             var picture = animation.GetPicture();

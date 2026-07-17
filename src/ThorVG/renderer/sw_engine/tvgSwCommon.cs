@@ -358,7 +358,8 @@ namespace ThorVG
 
     public unsafe struct SwOutline
     {
-        public Array<SwPoint> pts;
+        public Array<Point> input;
+        public Array<SwPoint> output;
         public Array<uint> cntrs;
         public Array<byte> types;
         public Array<bool> closed;
@@ -521,7 +522,7 @@ namespace ThorVG
 
     public unsafe class SwStrokeBorder
     {
-        public Array<SwPoint> pts;
+        public Array<Point> pts;
         public byte* tags;
         public int start = -1;
         public bool movable;
@@ -542,21 +543,19 @@ namespace ThorVG
 
     public class SwStroke
     {
-        public long angleIn;
-        public long angleOut;
-        public SwPoint center;
-        public long lineLength;
-        public long subPathAngle;
-        public SwPoint ptStartSubPath;
-        public long subPathLineLength;
-        public long width;
-        public long miterlimit;
+        public float angleIn;
+        public float angleOut;
+        public Point center;
+        public float length;
+        public float subPathAngle;
+        public Point subPathStart;
+        public float subPathLength;
+        public float width;
+        public float miterlimit;
         public SwFill? fill;
         public SwStrokeBorder[] borders = new SwStrokeBorder[2];
-        public float sx, sy;
         public StrokeCap cap;
         public StrokeJoin join;
-        public StrokeJoin joinSaved;
         public bool firstPt;
         public bool closedSubPath;
         public bool handleWideStrokes;
@@ -628,6 +627,7 @@ namespace ThorVG
         public FilterMethod filter;
         public bool direct;
         public bool scaled;
+        public bool alphaIgnored;
     }
 
     // =====================================================================
@@ -635,7 +635,7 @@ namespace ThorVG
     // =====================================================================
 
     public delegate byte SwMask(byte s, byte d, byte a);
-    public delegate uint SwBlender(uint s, uint d);
+    public delegate uint SwBlender(SwSurface surface, uint s, uint d);
     public delegate uint SwBlenderA(uint s, uint d, byte a);
     public delegate uint SwJoin(byte r, byte g, byte b, byte a);
     public unsafe delegate byte SwAlpha(byte* data);
@@ -770,6 +770,11 @@ namespace ThorVG
             return alphas[idx > 3 ? 0 : idx];
         }
 
+        public unsafe byte Luma(uint color)
+        {
+            return alphas[2]!((byte*)&color);
+        }
+
         public SwSurface() { }
 
         public SwSurface(SwSurface rhs) : base(rhs)
@@ -854,7 +859,8 @@ namespace ThorVG
 
         public unsafe SwOutline* Outline(uint idx)
         {
-            outlines[idx].pts.Clear();
+            outlines[idx].input.Clear();
+            outlines[idx].output.Clear();
             outlines[idx].cntrs.Clear();
             outlines[idx].types.Clear();
             outlines[idx].closed.Clear();

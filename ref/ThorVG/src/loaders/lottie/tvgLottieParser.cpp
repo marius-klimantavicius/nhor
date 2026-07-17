@@ -324,8 +324,7 @@ bool LottieParser::getValue(Point3& pt)
     pt.y = getFloat();
     pt.z = getFloat();
 
-    while (nextArrayValue())
-        getFloat();  // drop
+    while (nextArrayValue()) getFloat();  // drop
 
     return true;
 }
@@ -512,11 +511,10 @@ bool LottieParser::parseCommon(LottieObject* obj, const char* key)
 {
     if (KEY_AS("nm")) {
         obj->id = djb2Encode(getString());
-        return true;
     } else if (KEY_AS("hd")) {
         obj->hidden = getBool();
-        return true;
     } else return false;
+    return true;
 }
 
 
@@ -524,23 +522,19 @@ bool LottieParser::parseCommon(LottieObject* obj, LottieProperty& prop, const ch
 {
     if (KEY_AS("ix")) {
         prop.ix = getInt();
-        return true;
     } else if (KEY_AS("x") && expressions) {
         getExpression(getStringCopy(), comp, context.layer, context.parent, &prop);
-        return true;
     } else if (KEY_AS("sid")) {
         registerSlot(obj, getString(), prop);
-        return true;
     } else return false;
+    return true;
 }
 
 
 bool LottieParser::parseDirection(LottieShape* shape, const char* key)
 {
     if (KEY_AS("d")) {
-        if (getInt() == 3) {
-            shape->clockwise = false;       //default is true
-        }
+        if (getInt() == 3) shape->clockwise = false;       //default is true
         return true;
     }
     return false;
@@ -898,6 +892,22 @@ LottiePuckerBloat* LottieParser::parsePuckerBloat()
     return puckerBloat;
 }
 
+LottieZigZag* LottieParser::parseZigZag()
+{
+    auto zigzag = new LottieZigZag;
+
+    context.parent = zigzag;
+
+    while (auto key = nextObjectKey()) {
+        if (parseCommon(zigzag, key)) continue;
+        else if (KEY_AS("s")) parseProperty(zigzag->amplitude);
+        else if (KEY_AS("r")) parseProperty(zigzag->frequency);
+        else if (KEY_AS("pt")) parseProperty(zigzag->point);
+        else skip();
+    }
+    return zigzag;
+}
+
 LottieObject* LottieParser::parseObject(const char* type)
 {
     if (!strcmp(type, "gr")) return parseGroup();
@@ -915,9 +925,9 @@ LottieObject* LottieParser::parseObject(const char* type)
     else if (!strcmp(type, "rp")) return parseRepeater();
     else if (!strcmp(type, "pb")) return parsePuckerBloat();
     else if (!strcmp(type, "op")) return parseOffsetPath();
+    else if (!strcmp(type, "zz")) return parseZigZag();
     else if (!strcmp(type, "mm")) TVGLOG("LOTTIE", "MergePath(mm) is not supported yet");
     else if (!strcmp(type, "tw")) TVGLOG("LOTTIE", "Twist(tw) is not supported yet");
-    else if (!strcmp(type, "zz")) TVGLOG("LOTTIE", "ZigZag(zz) is not supported yet");
     return nullptr;
 }
 
@@ -974,6 +984,41 @@ void LottieParser::parseObject(Array<LottieObject*>& parent)
     if (freeType) tvg::free(type);
 
     while(nextObjectKey()) skip();
+}
+
+
+void LottieParser::parseVolume(LottieLayer* layer)
+{
+    enterObject();
+    while (auto key = nextObjectKey()) {
+        if (KEY_AS("lv")) parseProperty(layer->audio()->volume);
+        else skip();
+    }
+}
+
+
+void LottieParser::parseAudio(LottieAudio* audio, const char* data, const char* subPath, bool embedded)
+{
+    auto dlen = strlen(data);
+    if (dlen == 0) return;
+
+    if (embedded && !strncmp(data, "data:audio/", 11)) {
+        auto mime = data + 11;
+        auto semi = strstr(mime, ";");
+        if (!semi) return;
+        audio->mimeType = duplicate(mime, semi - mime);
+        auto b64 = strstr(semi, ",");
+        if (!b64) return;
+        ++b64;
+        audio->size = b64Decode(b64, dlen - (b64 - data), &audio->data);
+    } else if (!strncmp(data, "https://", 8) || !strncmp(data, "http://", 7)) {
+        audio->path = duplicate(data);
+    } else {
+        auto subPathLen = subPath ? strlen(subPath) : 0;
+        auto len = strlen(dirName) + subPathLen + dlen + 2;
+        audio->path = tvg::malloc<char>(len);
+        snprintf(audio->path, len, "%s/%s%s", dirName, subPath ? subPath : "", data);
+    }
 }
 
 
@@ -1049,9 +1094,16 @@ LottieObject* LottieParser::parseAsset()
         else skip();
     }
     if (data) {
-        obj = new LottieImage;
-        parseImage(static_cast<LottieImage*>(obj), data, subPath, embedded, width, height);
-        if (sid) registerSlot(obj, sid, static_cast<LottieImage*>(obj)->bitmap);
+        if (!strncmp(data, "data:image/", 11) || width != 0.0f || height != 0.0f) {
+            auto asset = new LottieImage;
+            parseImage(asset, data, subPath, embedded, width, height);
+            if (sid) registerSlot(asset, sid, asset->bitmap);
+            obj = asset;
+        } else if (!strncmp(data, "data:audio/", 11) || !embedded) {
+            auto asset = new LottieAudio;
+            parseAudio(asset, data, subPath, embedded);
+            obj = asset;
+        } else TVGLOG("LOTTIE", "Unexpected data type");
     }
     if (obj) obj->id = id;
     return obj;
@@ -1165,8 +1217,7 @@ void LottieParser::parseChars(Array<LottieGlyph*>& glyphs)
                 }
             } else skip();
         }
-        glyph->prepare();
-        glyphs.push(glyph);
+        if (glyph->prepare()) glyphs.push(glyph);
     }
 }
 
@@ -1588,6 +1639,7 @@ LottieLayer* LottieParser::parseLayer(LottieLayer* precomp)
         else if (KEY_AS("td")) layer->matteSrc = getInt();      //used for matte layer
         else if (KEY_AS("t")) parseText(layer->children);
         else if (KEY_AS("ef")) parseEffects(layer);
+        else if (KEY_AS("au")) parseVolume(layer);
         else skip();
     }
 

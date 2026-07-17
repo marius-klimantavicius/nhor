@@ -973,16 +973,18 @@ void main()
     float weightSum = 0.0;
     int radius = int(uGaussian.extend);
 
-    for (int y = -radius; y <= radius; ++y) {
-        vec2 offset = vec2(0.0, float(y) * texelSize.y);
-        vec2 coord = vUV + offset;
-        float pixCoord = uViewport.vp.y - coord.y / texelSize.y;
-        float weight = pixCoord < uViewport.vp.w ? gaussian(float(y), sigma) : 0.0;
+    vec2 texelStep = vec2(0.0, texelSize.y);
+    int first = max(-radius, int(ceil(uViewport.vp.y - gl_FragCoord.y)));
+    int last = min(radius, int(ceil(uViewport.vp.w - gl_FragCoord.y)) - 1);
+    vec2 coord = vUV + texelStep * float(first);
+    for (int y = first; y <= last; ++y) {
+        float weight = gaussian(float(y), sigma);
         colorSum += texture(uSrcTexture, coord) * weight;
         weightSum += weight;
+        coord += texelStep;
     }
 
-    FragColor = colorSum / weightSum;
+    FragColor = weightSum > 0.0 ? colorSum / weightSum : texture(uSrcTexture, vUV);
 }
 ";
 
@@ -1015,16 +1017,18 @@ void main()
     float weightSum = 0.0;
     int radius = int(uGaussian.extend);
 
-    for (int y = -radius; y <= radius; ++y) {
-        vec2 offset = vec2(float(y) * texelSize.x, 0.0);
-        vec2 coord = vUV + offset;
-        float pixCoord = uViewport.vp.x + coord.x / texelSize.x;
-        float weight = pixCoord < uViewport.vp.z ? gaussian(float(y), sigma) : 0.0;
+    vec2 texelStep = vec2(texelSize.x, 0.0);
+    int first = max(-radius, int(ceil(uViewport.vp.x - gl_FragCoord.x)));
+    int last = min(radius, int(ceil(uViewport.vp.z - gl_FragCoord.x)) - 1);
+    vec2 coord = vUV + texelStep * float(first);
+    for (int x = first; x <= last; ++x) {
+        float weight = gaussian(float(x), sigma);
         colorSum += texture(uSrcTexture, coord) * weight;
         weightSum += weight;
+        coord += texelStep;
     }
 
-    FragColor = colorSum / weightSum;
+    FragColor = weightSum > 0.0 ? colorSum / weightSum : texture(uSrcTexture, vUV);
 }
 ";
 

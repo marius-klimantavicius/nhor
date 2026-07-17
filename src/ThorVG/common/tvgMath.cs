@@ -11,7 +11,8 @@ namespace ThorVG
     public static class MathConstants
     {
         public const float MATH_PI  = 3.14159265358979323846f;
-        public const float MATH_PI2 = 1.57079632679489661923f;
+        public const float MATH_PI2 = MATH_PI * 0.5f;
+        public const float MATH_2PI = MATH_PI * 2.0f;
         public const float FLOAT_EPSILON = 1.0e-06f;
         public const float PATH_KAPPA = 0.552284f;
     }
@@ -234,10 +235,8 @@ namespace ThorVG
         }
 
         // ---- Angle ------------------------------------------------------
-        public readonly float Angle(float t)
+        public readonly Point Tangent(float t)
         {
-            if (t < 0 || t > 1) return 0;
-
             float mt = 1.0f - t;
             float d = t * t;
             float a = -mt * mt;
@@ -249,11 +248,18 @@ namespace ThorVG
             ptx *= 3;
             pty *= 3;
 
-            return TvgMath.Rad2Deg(TvgMath.Atan2(pty, ptx));
+            return new Point(ptx, pty);
+        }
+
+        public readonly float Angle(float t)
+        {
+            if (t < 0 || t > 1) return 0;
+            var tangent = Tangent(t);
+            return TvgMath.Rad2Deg(TvgMath.Atan2(tangent.y, tangent.x));
         }
 
         // ---- Flatten ----------------------------------------------------
-        public readonly bool Flatten()
+        public readonly bool Flatten(float tolerance)
         {
             float diff1_x = MathF.Abs((ctrl1.x * 3.0f) - (start.x * 2.0f) - end.x);
             float diff1_y = MathF.Abs((ctrl1.y * 3.0f) - (start.y * 2.0f) - end.y);
@@ -261,13 +267,14 @@ namespace ThorVG
             float diff2_y = MathF.Abs((ctrl2.y * 3.0f) - (end.y * 2.0f) - start.y);
             if (diff1_x < diff2_x) diff1_x = diff2_x;
             if (diff1_y < diff2_y) diff1_y = diff2_y;
-            return (diff1_x + diff1_y <= 0.5f);
+            return (diff1_x + diff1_y <= tolerance);
         }
 
         // ---- Segments ---------------------------------------------------
-        public readonly uint Segments()
+        public readonly uint Segments(float scale = 1.0f)
         {
             const uint MaxSegments = 1u << 10;
+            var tolerance = 0.5f / scale;
             uint segCount = 0;
             var stack = new Array<Bezier>(16);
             try
@@ -276,7 +283,7 @@ namespace ThorVG
                 while (!stack.Empty())
                 {
                     var current = stack.Pick();
-                    if (current.Flatten())
+                    if (current.Flatten(tolerance))
                     {
                         ++segCount;
                         continue;
@@ -332,6 +339,20 @@ namespace ThorVG
             var a = -1.0f * start + 3.0f * ctrl1 - 3.0f * ctrl2 + end;
             var b = start - 2.0f * ctrl1 + ctrl2;
             var c = -1.0f * start + ctrl1;
+            if (TvgMath.Zero(a))
+            {
+                if (TvgMath.Zero(b)) return;
+                var extremum = -c / (2.0f * b);
+                if (extremum > 0.0f && extremum < 1.0f)
+                {
+                    var s = 1.0f - extremum;
+                    var q = s * s * s * start + 3.0f * s * s * extremum * ctrl1 +
+                            3.0f * s * extremum * extremum * ctrl2 + extremum * extremum * extremum * end;
+                    if (q < min) min = q;
+                    if (q > max) max = q;
+                }
+                return;
+            }
             var h = b * b - a * c;
             if (h <= 0.0f) return;
             h = MathF.Sqrt(h);
@@ -616,7 +637,9 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Scaling(in Matrix m)
         {
-            return MathF.Sqrt(m.e11 * m.e11 + m.e21 * m.e21);
+            var sx = m.e11 * m.e11 + m.e21 * m.e21;
+            var sy = m.e12 * m.e12 + m.e22 * m.e22;
+            return MathF.Sqrt(sx > sy ? sx : sy);
         }
 
         public static void Scale(ref Matrix m, Point p)
@@ -809,6 +832,13 @@ namespace ThorVG
         {
             lhs.x *= rhs.x;
             lhs.y *= rhs.y;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void PointDivAssign(ref Point lhs, Point rhs)
+        {
+            lhs.x /= rhs.x;
+            lhs.y /= rhs.y;
         }
 
         /// <summary>Point multiply-assign (by scalar). Mirrors C++ operator*=(Point&amp;, float).</summary>
