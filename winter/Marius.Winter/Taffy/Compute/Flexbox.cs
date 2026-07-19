@@ -247,6 +247,24 @@ namespace Marius.Winter.Taffy
                         styledBasedKnownDimensions.Width.Value,
                         styledBasedKnownDimensions.Height.Value));
                 }
+
+                // We can also short-circuit if the width is known and only the width has been requested.
+                if (inputs.Axis == RequestedAxis.Horizontal && styledBasedKnownDimensions.Width.HasValue)
+                {
+                    return LayoutOutput.FromOuterSize(new Size<float>(styledBasedKnownDimensions.Width.Value, 0f));
+                }
+            }
+
+            // Short-circuit layout if the container's size is fully determined by the container's size and the run mode
+            // is ComputeSize (and thus the container's size is all that we're interested in)
+            if (runMode == RunMode.ComputeSize)
+            {
+                if (styledBasedKnownDimensions.Width.HasValue && styledBasedKnownDimensions.Height.HasValue)
+                {
+                    return LayoutOutput.FromOuterSize(new Size<float>(
+                        styledBasedKnownDimensions.Width.Value,
+                        styledBasedKnownDimensions.Height.Value));
+                }
             }
 
             return ComputePreliminary(tree, node, new LayoutInput

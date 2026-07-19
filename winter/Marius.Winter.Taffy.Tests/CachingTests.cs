@@ -18,7 +18,7 @@ public class CachingTests
 
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
 
-        Assert.Equal(4, taffy.GetNodeContext(leaf)!.Count);
+        Assert.Equal(7, taffy.GetNodeContext(leaf)!.Count);
     }
 
     [Fact]
@@ -33,6 +33,6 @@ public class CachingTests
 
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
 
-        Assert.Equal(4, taffy.GetNodeContext(leaf)!.Count);
+        Assert.Equal(7, taffy.GetNodeContext(leaf)!.Count);
     }
 }

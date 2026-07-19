@@ -1,19 +1,139 @@
 // Ported from taffy/src/tree/cache.rs
 // A cache for storing the results of layout computation
 
+using System;
 using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Taffy
 {
+    /// <summary>Space-optimized cache key that packs bits into as small a size as possible</summary>
+    internal readonly struct CacheKey : IEquatable<CacheKey>
+    {
+        /// <summary><see cref="float.PositiveInfinity"/> as a uint</summary>
+        private const uint INFINITY_BITS = 0x7F800000;
+        /// <summary><see cref="float.NegativeInfinity"/> as a uint</summary>
+        private const uint NEG_INFINITY_BITS = 0xFF800000;
+
+        // Parent sizes are non-negative, so their sign bits encode RequestedAxis.
+        private const ulong SIGN_BIT_1 = 1UL << 63;
+        private const ulong SIGN_BIT_2 = 1UL << 31;
+        private const ulong BOTH_SIGN_BITS_MASK = SIGN_BIT_1 | SIGN_BIT_2;
+        private const ulong NON_SIGN_BITS_MASK = ~BOTH_SIGN_BITS_MASK;
+        private const ulong X_AXIS_VALUE_MASK = (ulong)uint.MaxValue << 32;
+
+        /// <summary>The known dimensions and available space</summary>
+        public readonly ulong KnownDimensionsAvailableSpace;
+        /// <summary>The parent size with the requested axis packed into its sign bits</summary>
+        public readonly ulong ParentSizeBits;
+
+        private CacheKey(ulong knownDimensionsAvailableSpace, ulong parentSizeBits)
+        {
+            KnownDimensionsAvailableSpace = knownDimensionsAvailableSpace;
+            ParentSizeBits = parentSizeBits;
+        }
+
+        /// <summary>Pack a nullable float into a uint</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint OptionCacheKey(float? input)
+        {
+            return input.HasValue ? BitConverter.SingleToUInt32Bits(input.Value) : INFINITY_BITS;
+        }
+
+        /// <summary>Pack nullable dimensions into a ulong</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong SizeOptionCacheKey(Size<float?> input)
+        {
+            return ((ulong)OptionCacheKey(input.Width) << 32) | OptionCacheKey(input.Height);
+        }
+
+        /// <summary>Pack available space into a uint</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint AvailableSpaceCacheKey(AvailableSpace input)
+        {
+            if (input == AvailableSpace.MinContent)
+                return NEG_INFINITY_BITS;
+            if (input == AvailableSpace.MaxContent)
+                return INFINITY_BITS;
+            return BitConverter.SingleToUInt32Bits(-input.Unwrap());
+        }
+
+        /// <summary>Pack available-space dimensions into a ulong</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong SizeAvailableSpaceCacheKey(Size<AvailableSpace> input)
+        {
+            return ((ulong)AvailableSpaceCacheKey(input.Width) << 32) | AvailableSpaceCacheKey(input.Height);
+        }
+
+        /// <summary>Encode a known dimension or its available space into one cache-key dimension</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint MixedCacheKey(float? knownDimension, AvailableSpace availableSpace)
+        {
+            return knownDimension.HasValue
+                ? BitConverter.SingleToUInt32Bits(knownDimension.Value)
+                : AvailableSpaceCacheKey(availableSpace);
+        }
+
+        /// <summary>Encode known dimensions and available space into a cache key</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ulong SizeMixedCacheKey(Size<float?> knownDimensions, Size<AvailableSpace> availableSpace)
+        {
+            return ((ulong)MixedCacheKey(knownDimensions.Width, availableSpace.Width) << 32)
+                | MixedCacheKey(knownDimensions.Height, availableSpace.Height);
+        }
+
+        /// <summary>Create a cache key from layout input</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CacheKey From(in LayoutInput input)
+        {
+            ulong extraBits = input.Axis switch
+            {
+                RequestedAxis.Horizontal => SIGN_BIT_1,
+                RequestedAxis.Vertical => SIGN_BIT_2,
+                RequestedAxis.Both => SIGN_BIT_1 | SIGN_BIT_2,
+                _ => throw new ArgumentOutOfRangeException(nameof(input.Axis)),
+            };
+
+            return new CacheKey(
+                SizeMixedCacheKey(input.KnownDimensions, input.AvailableSpace),
+                (SizeOptionCacheKey(input.ParentSize) & NON_SIGN_BITS_MASK) | extraBits);
+        }
+
+        /// <summary>Return the parent size with the requested-axis bits masked out</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ulong ParentSize()
+        {
+            return ParentSizeBits & NON_SIGN_BITS_MASK;
+        }
+
+        /// <summary>Return the parent size with requested-axis bits and the y-axis value masked out</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ulong XAxisParentSize()
+        {
+            return ParentSizeBits & (X_AXIS_VALUE_MASK & NON_SIGN_BITS_MASK);
+        }
+
+        public bool Equals(CacheKey other)
+        {
+            return KnownDimensionsAvailableSpace == other.KnownDimensionsAvailableSpace
+                && ParentSizeBits == other.ParentSizeBits;
+        }
+
+        public override bool Equals(object? obj) => obj is CacheKey other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(KnownDimensionsAvailableSpace, ParentSizeBits);
+
+        public static bool operator ==(CacheKey left, CacheKey right) => left.Equals(right);
+
+        public static bool operator !=(CacheKey left, CacheKey right) => !left.Equals(right);
+    }
+
     /// <summary>
     /// Cached intermediate layout results
     /// </summary>
     internal struct CacheEntry<T>
     {
-        /// <summary>The initial cached size of the node itself</summary>
-        public Size<float?> KnownDimensions;
-        /// <summary>The initial cached size of the parent's node</summary>
-        public Size<AvailableSpace> AvailableSpace;
+        /// <summary>The key for the cache entry</summary>
+        public CacheKey Key;
         /// <summary>The cached size and baselines of the item</summary>
         public T Content;
     }
@@ -97,8 +217,7 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public LayoutOutput? Get(in LayoutInput input)
         {
-            var knownDimensions = input.KnownDimensions;
-            var availableSpace = input.AvailableSpace;
+            var key = CacheKey.From(input);
             switch (input.RunMode)
             {
                 case RunMode.PerformLayout:
@@ -106,18 +225,8 @@ namespace Marius.Winter.Taffy
                     if (_finalLayoutEntry.HasValue)
                     {
                         var entry = _finalLayoutEntry.Value;
-                        var cachedSize = entry.Content.Size;
-                        if ((knownDimensions.Width == entry.KnownDimensions.Width
-                             || knownDimensions.Width == cachedSize.Width)
-                            && (knownDimensions.Height == entry.KnownDimensions.Height
-                                || knownDimensions.Height == cachedSize.Height)
-                            && (knownDimensions.Width.HasValue
-                                || entry.AvailableSpace.Width.IsRoughlyEqual(availableSpace.Width))
-                            && (knownDimensions.Height.HasValue
-                                || entry.AvailableSpace.Height.IsRoughlyEqual(availableSpace.Height)))
-                        {
+                        if (entry.Key == key)
                             return entry.Content;
-                        }
                     }
                     return null;
                 }
@@ -132,18 +241,10 @@ namespace Marius.Winter.Taffy
                                 continue;
 
                             var entry = slot.Value;
-                            var cachedSize = entry.Content;
-
-                            if ((knownDimensions.Width == entry.KnownDimensions.Width
-                                 || knownDimensions.Width == cachedSize.Width)
-                                && (knownDimensions.Height == entry.KnownDimensions.Height
-                                    || knownDimensions.Height == cachedSize.Height)
-                                && (knownDimensions.Width.HasValue
-                                    || entry.AvailableSpace.Width.IsRoughlyEqual(availableSpace.Width))
-                                && (knownDimensions.Height.HasValue
-                                    || entry.AvailableSpace.Height.IsRoughlyEqual(availableSpace.Height)))
+                            if (entry.Key.KnownDimensionsAvailableSpace == key.KnownDimensionsAvailableSpace
+                                && entry.Key.XAxisParentSize() == key.XAxisParentSize())
                             {
-                                return LayoutOutput.FromOuterSize(cachedSize);
+                                return LayoutOutput.FromOuterSize(entry.Content);
                             }
                         }
                     }
@@ -158,27 +259,24 @@ namespace Marius.Winter.Taffy
         /// <summary>Store a computed size in the cache</summary>
         public void Store(in LayoutInput input, LayoutOutput layoutOutput)
         {
-            var knownDimensions = input.KnownDimensions;
-            var availableSpace = input.AvailableSpace;
+            var key = CacheKey.From(input);
             switch (input.RunMode)
             {
                 case RunMode.PerformLayout:
                     _isEmpty = false;
                     _finalLayoutEntry = new CacheEntry<LayoutOutput>
                     {
-                        KnownDimensions = knownDimensions,
-                        AvailableSpace = availableSpace,
+                        Key = key,
                         Content = layoutOutput,
                     };
                     break;
                 case RunMode.ComputeSize:
                     _isEmpty = false;
                     _hasMeasureEntries = true;
-                    int cacheSlot = ComputeCacheSlot(knownDimensions, availableSpace);
+                    int cacheSlot = ComputeCacheSlot(input.KnownDimensions, input.AvailableSpace);
                     _measureEntries[cacheSlot] = new CacheEntry<Size<float>>
                     {
-                        KnownDimensions = knownDimensions,
-                        AvailableSpace = availableSpace,
+                        Key = key,
                         Content = layoutOutput.Size,
                     };
                     break;

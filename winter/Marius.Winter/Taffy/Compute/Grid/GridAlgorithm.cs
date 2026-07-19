@@ -107,9 +107,20 @@ namespace Marius.Winter.Taffy
                 Height = outerNodeSize.Height.HasValue ? outerNodeSize.Height.Value - contentBoxInset.VerticalAxisSum() : null,
             };
 
-            if (runMode == RunMode.ComputeSize && outerNodeSize.Width.HasValue && outerNodeSize.Height.HasValue)
+            // Short-circuit layout if the container's size is fully determined by the container's size and the run mode
+            // is ComputeSize (and thus the container's size is all that we're interested in)
+            if (runMode == RunMode.ComputeSize)
             {
-                return LayoutOutput.FromOuterSize(new Size<float> { Width = outerNodeSize.Width.Value, Height = outerNodeSize.Height.Value });
+                if (outerNodeSize.Width.HasValue && outerNodeSize.Height.HasValue)
+                {
+                    return LayoutOutput.FromOuterSize(new Size<float> { Width = outerNodeSize.Width.Value, Height = outerNodeSize.Height.Value });
+                }
+
+                // We can also short-circuit if the width is known and only the width has been requested.
+                if (inputs.Axis == RequestedAxis.Horizontal && outerNodeSize.Width.HasValue)
+                {
+                    return LayoutOutput.FromOuterSize(new Size<float> { Width = outerNodeSize.Width.Value, Height = 0f });
+                }
             }
 
             // 2. Resolve the explicit grid

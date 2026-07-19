@@ -1,5 +1,4 @@
-// Concrete canvas implementations.
-// SwCanvas is fully ported. GlCanvas remains a stub until Batch 9 (GL Engine).
+// Concrete software and OpenGL canvas implementations.
 
 namespace ThorVG
 {

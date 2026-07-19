@@ -317,6 +317,12 @@ namespace Marius.Winter.Taffy
                         styledBasedKnownDimensions.Width.Value,
                         styledBasedKnownDimensions.Height.Value));
                 }
+
+                // We can also short-circuit if the width is known and only the width has been requested.
+                if (inputs.Axis == RequestedAxis.Horizontal && styledBasedKnownDimensions.Width.HasValue)
+                {
+                    return LayoutOutput.FromOuterSize(new Size<float>(styledBasedKnownDimensions.Width.Value, 0.0f));
+                }
             }
 
             // Unwrap the block formatting context if one was passed, or else create a new one
@@ -398,7 +404,6 @@ namespace Marius.Winter.Taffy
             var paddingBorder = padding.Add(border);
             var paddingBorderSize = paddingBorder.SumAxes();
             var contentBoxInset = paddingBorder.Add(scrollbarGutter);
-            var containerContentBoxSize = knownDimensions.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
 
             // Apply content box inset
             blockCtx.ApplyContentBoxInset(new float[] { contentBoxInset.Left, contentBoxInset.Right });
@@ -420,6 +425,17 @@ namespace Marius.Winter.Taffy
                 .MaybeResolve(parentSize, tree.Calc)
                 .MaybeApplyAspectRatio(aspectRatio)
                 .MaybeAdd(boxSizingAdjustment.Map<float?>(v => v));
+
+            // css-sizing-4: a definite size in one axis transfers through aspect-ratio to make
+            // the other definite. Only adopt a newly-derived axis so incoming known sizes retain
+            // any padding/border overrides already resolved by the parent.
+            var derivedKnownDimensions = knownDimensions
+                .MaybeApplyAspectRatio(aspectRatio)
+                .MaybeClamp(minSize, maxSize);
+            knownDimensions = new Size<float?>(
+                knownDimensions.Width ?? derivedKnownDimensions.Width,
+                knownDimensions.Height ?? derivedKnownDimensions.Height);
+            var containerContentBoxSize = knownDimensions.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
 
             var overflow = style.Overflow();
             bool isScrollContainer = overflow.X.IsScrollContainer() || overflow.Y.IsScrollContainer();
@@ -475,6 +491,12 @@ namespace Marius.Winter.Taffy
                 return LayoutOutput.FromOuterSize(new Size<float>(containerOuterWidth, knownDimensions.Height.Value));
             }
 
+            // We can also short-circuit if the width is known and only the width has been requested.
+            if (runMode == RunMode.ComputeSize && inputs.Axis == RequestedAxis.Horizontal)
+            {
+                return LayoutOutput.FromOuterSize(new Size<float>(containerOuterWidth, 0.0f));
+            }
+
             float? containerPercentageResolutionHeight =
                 knownDimensions.Height ?? size.Height.MaybeMax(minSize.Height) ?? minSize.Height;
 
@@ -485,6 +507,7 @@ namespace Marius.Winter.Taffy
             var (inflowContentSize, intrinsicOuterHeight, firstChildTopMarginSet, lastChildBottomMarginSet) =
                 PerformFinalLayoutOnInFlowChildren(
                     tree,
+                    runMode,
                     items,
                     containerOuterWidth,
                     containerPercentageResolutionHeight,
@@ -560,6 +583,42 @@ namespace Marius.Winter.Taffy
                 }
             }
 
+            // Determine whether this node can be collapsed through
+            bool allInFlowChildrenCanBeCollapsedThrough = true;
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].Position != Position.Absolute && !items[i].CanBeCollapsedThrough)
+                {
+                    allInFlowChildrenCanBeCollapsedThrough = false;
+                    break;
+                }
+            }
+            bool canBeCollapsedThrough =
+                !hasStylesPreventingBeingCollapsedThrough && allInFlowChildrenCanBeCollapsedThrough;
+
+            var output = new LayoutOutput
+            {
+                Size = finalOuterSize,
+                ContentSize = SizeExtensions.ZeroF32,
+                FirstBaselines = PointExtensions.NoneF32,
+                TopMargin = ownMarginsCollapseWithChildren.Start
+                    ? firstChildTopMarginSet
+                    : CollapsibleMarginSet.FromMargin(
+                        rawMargin.Top.ResolveOrZero(parentSize.Width, tree.Calc)),
+                BottomMargin = ownMarginsCollapseWithChildren.End
+                    ? lastChildBottomMarginSet
+                    : CollapsibleMarginSet.FromMargin(
+                        rawMargin.Bottom.ResolveOrZero(parentSize.Width, tree.Calc)),
+                MarginsCanCollapseThrough = canBeCollapsedThrough,
+            };
+
+            // Short-circuit if computing size. Parent block containers rely on the margin-collapsing
+            // outputs of their children to compute their own intrinsic height.
+            if (runMode == RunMode.ComputeSize)
+            {
+                return output;
+            }
+
             // Floated items commit during placement. Commit deferred in-flow layouts now that
             // block-axis alignment has been applied.
             for (int i = 0; i < items.Count; i++)
@@ -571,18 +630,13 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            // Short-circuit if computing size
-            if (runMode == RunMode.ComputeSize)
-            {
-                return LayoutOutput.FromOuterSize(finalOuterSize);
-            }
-
             // 4. Layout absolutely positioned children
             var absolutePositionInset = resolvedBorder.Add(scrollbarGutter);
             var absolutePositionArea = finalOuterSize.Sub(absolutePositionInset.SumAxes());
             var absolutePositionOffset = new Point<float>(absolutePositionInset.Left, absolutePositionInset.Top);
             var absoluteContentSize =
                 PerformAbsoluteLayoutOnAbsoluteChildren(tree, items, absolutePositionArea, absolutePositionOffset, direction);
+            output.ContentSize = inflowContentSize.F32Max(absoluteContentSize);
 
             // 5. Perform hidden layout on hidden children
             int len = tree.ChildCount(nodeId);
@@ -603,36 +657,7 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            // 7. Determine whether this node can be collapsed through
-            bool allInFlowChildrenCanBeCollapsedThrough = true;
-            for (int i = 0; i < items.Count; i++)
-            {
-                if (items[i].Position != Position.Absolute && !items[i].CanBeCollapsedThrough)
-                {
-                    allInFlowChildrenCanBeCollapsedThrough = false;
-                    break;
-                }
-            }
-            bool canBeCollapsedThrough =
-                !hasStylesPreventingBeingCollapsedThrough && allInFlowChildrenCanBeCollapsedThrough;
-
-            var contentSize = inflowContentSize.F32Max(absoluteContentSize);
-
-            return new LayoutOutput
-            {
-                Size = finalOuterSize,
-                ContentSize = contentSize,
-                FirstBaselines = PointExtensions.NoneF32,
-                TopMargin = ownMarginsCollapseWithChildren.Start
-                    ? firstChildTopMarginSet
-                    : CollapsibleMarginSet.FromMargin(
-                        rawMargin.Top.ResolveOrZero(parentSize.Width, tree.Calc)),
-                BottomMargin = ownMarginsCollapseWithChildren.End
-                    ? lastChildBottomMarginSet
-                    : CollapsibleMarginSet.FromMargin(
-                        rawMargin.Bottom.ResolveOrZero(parentSize.Width, tree.Calc)),
-                MarginsCanCollapseThrough = canBeCollapsedThrough,
-            };
+            return output;
         }
 
         /// <summary>
@@ -753,15 +778,15 @@ namespace Marius.Winter.Taffy
                 }
                 else
                 {
-                    var sizeAndBaselines = tree.PerformChildLayout(
+                    width = tree.MeasureChildSize(
                         item.NodeId,
                         knownDims,
                         SizeExtensions.NoneF32,
                         new Size<AvailableSpace>(availSpace.Width.MaybeSub(itemXMarginSum), availSpace.Height),
                         SizingMode.InherentSize,
+                        AbsoluteAxis.Horizontal,
                         LineExtensions.TrueLine
                     );
-                    width = sizeAndBaselines.Size.Width;
                 }
 
                 width = MathF.Max(width, item.PaddingBorderSum.Width) + itemXMarginSum;
@@ -788,6 +813,7 @@ namespace Marius.Winter.Taffy
         private static (Size<float> inflowContentSize, float intrinsicOuterHeight, CollapsibleMarginSet firstChildTopMarginSet, CollapsibleMarginSet lastChildBottomMarginSet)
             PerformFinalLayoutOnInFlowChildren(
                 ILayoutBlockContainer tree,
+                RunMode runMode,
                 List<BlockItem> items,
                 float containerOuterWidth,
                 float? containerPercentageResolutionHeight,
@@ -803,8 +829,9 @@ namespace Marius.Winter.Taffy
             float? containerPctResHeight =
                 containerPercentageResolutionHeight.MaybeSub(resolvedContentBoxInset.VerticalAxisSum());
             var parentSize = new Size<float?>(containerInnerWidth, containerPctResHeight);
+            // Vertical available space in block flow is indefinite, not a min-content constraint.
             var availableSpace =
-                new Size<AvailableSpace>(AvailableSpace.Definite(containerInnerWidth), AvailableSpace.MinContent);
+                new Size<AvailableSpace>(AvailableSpace.Definite(containerInnerWidth), AvailableSpace.MAX_CONTENT);
 
             // TODO: handle nested blocks with different widths
             if (blockCtx.IsBfcRoot())
@@ -956,7 +983,7 @@ namespace Marius.Winter.Taffy
 
                     var layoutInputs = new LayoutInput
                     {
-                        RunMode = RunMode.PerformLayout,
+                        RunMode = runMode,
                         SizingMode = SizingMode.InherentSize,
                         Axis = RequestedAxis.Both,
                         KnownDimensions = knownDimensions,
