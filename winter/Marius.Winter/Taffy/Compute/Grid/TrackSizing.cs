@@ -128,33 +128,32 @@ namespace Marius.Winter.Taffy
             if (trackCount <= 1)
                 return 0f;
 
-            // As items never cross the outermost gutters in a grid, we can simplify our calculations by treating
-            // AlignContent.Start and AlignContent.End the same
-            int outerGutterWeight = alignment switch
+            // Safety does not influence gutter weight; overflow fallback is handled when offsets are computed.
+            int outerGutterWeight = alignment.Keyword switch
             {
-                AlignContent.Start => 1,
-                AlignContent.FlexStart => 1,
-                AlignContent.End => 1,
-                AlignContent.FlexEnd => 1,
-                AlignContent.Center => 1,
-                AlignContent.Stretch => 0,
-                AlignContent.SpaceBetween => 0,
-                AlignContent.SpaceAround => 1,
-                AlignContent.SpaceEvenly => 1,
+                AlignContentKeyword.Start => 1,
+                AlignContentKeyword.FlexStart => 1,
+                AlignContentKeyword.End => 1,
+                AlignContentKeyword.FlexEnd => 1,
+                AlignContentKeyword.Center => 1,
+                AlignContentKeyword.Stretch => 0,
+                AlignContentKeyword.SpaceBetween => 0,
+                AlignContentKeyword.SpaceAround => 1,
+                AlignContentKeyword.SpaceEvenly => 1,
                 _ => 0,
             };
 
-            int innerGutterWeight = alignment switch
+            int innerGutterWeight = alignment.Keyword switch
             {
-                AlignContent.FlexStart => 0,
-                AlignContent.Start => 0,
-                AlignContent.FlexEnd => 0,
-                AlignContent.End => 0,
-                AlignContent.Center => 0,
-                AlignContent.Stretch => 0,
-                AlignContent.SpaceBetween => 1,
-                AlignContent.SpaceAround => 2,
-                AlignContent.SpaceEvenly => 1,
+                AlignContentKeyword.FlexStart => 0,
+                AlignContentKeyword.Start => 0,
+                AlignContentKeyword.FlexEnd => 0,
+                AlignContentKeyword.End => 0,
+                AlignContentKeyword.Center => 0,
+                AlignContentKeyword.Stretch => 0,
+                AlignContentKeyword.SpaceBetween => 1,
+                AlignContentKeyword.SpaceAround => 2,
+                AlignContentKeyword.SpaceEvenly => 1,
                 _ => 0,
             };
 
@@ -343,8 +342,7 @@ namespace Marius.Winter.Taffy
                 ref items,
                 axisMinSize,
                 axisMaxSize,
-                axisAvailableSpaceForExpansion,
-                innerNodeSize);
+                axisAvailableSpaceForExpansion);
 
             // 11.8. Stretch auto Tracks
             // This step expands tracks that have an auto max track sizing function by dividing any remaining positive, definite free space equally amongst them.
@@ -530,30 +528,39 @@ namespace Marius.Winter.Taffy
             // tracks they span (first items that span 1 track, then items that span 2 tracks, etc).
             items.Sort((a, b) => CmpByCrossFlexThenSpanThenStart(a, b, axis));
 
-            static float MinContentContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
+            static float MinContentContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> axisTracks, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
             {
-                var avail = item.AvailableSpaceCached(axis, ref otherAxisTracks, innerNodeSize.Get(axis.Other()),
-                    (track, basis) => getTrackSizeEstimate(track, basis, tree));
-                var marginSums = item.MarginsAxisSumsWithBaselineShims(innerNodeSize.Width, tree);
-                var contribution = item.MinContentContributionCached(axis, tree, avail, innerNodeSize);
+                var gridAreaSize = item.GridAreaSizeCached(axis, ref axisTracks, ref otherAxisTracks, innerNodeSize,
+                    (track, basis) => getTrackSizeEstimate(track, basis, tree),
+                    (val, basis) => tree.Calc(val, basis));
+                var availableSpace = gridAreaSize;
+                availableSpace.Set(axis, null);
+                var marginSums = item.MarginsAxisSumsWithBaselineShims(availableSpace.Width, tree);
+                var contribution = item.MinContentContributionCached(axis, tree, gridAreaSize, availableSpace);
                 return contribution + marginSums.Get(axis);
             }
 
-            static float MaxContentContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
+            static float MaxContentContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> axisTracks, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
             {
-                var avail = item.AvailableSpaceCached(axis, ref otherAxisTracks, innerNodeSize.Get(axis.Other()),
-                    (track, basis) => getTrackSizeEstimate(track, basis, tree));
-                var marginSums = item.MarginsAxisSumsWithBaselineShims(innerNodeSize.Width, tree);
-                var contribution = item.MaxContentContributionCached(axis, tree, avail, innerNodeSize);
+                var gridAreaSize = item.GridAreaSizeCached(axis, ref axisTracks, ref otherAxisTracks, innerNodeSize,
+                    (track, basis) => getTrackSizeEstimate(track, basis, tree),
+                    (val, basis) => tree.Calc(val, basis));
+                var availableSpace = gridAreaSize;
+                availableSpace.Set(axis, null);
+                var marginSums = item.MarginsAxisSumsWithBaselineShims(availableSpace.Width, tree);
+                var contribution = item.MaxContentContributionCached(axis, tree, gridAreaSize, availableSpace);
                 return contribution + marginSums.Get(axis);
             }
 
             static float MinimumContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> axisTracks, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
             {
-                var avail = item.AvailableSpaceCached(axis, ref otherAxisTracks, innerNodeSize.Get(axis.Other()),
-                    (track, basis) => getTrackSizeEstimate(track, basis, tree));
-                var marginSums = item.MarginsAxisSumsWithBaselineShims(innerNodeSize.Width, tree);
-                var contribution = item.MinimumContributionCached(tree, axis, ref axisTracks, avail, innerNodeSize);
+                var gridAreaSize = item.GridAreaSizeCached(axis, ref axisTracks, ref otherAxisTracks, innerNodeSize,
+                    (track, basis) => getTrackSizeEstimate(track, basis, tree),
+                    (val, basis) => tree.Calc(val, basis));
+                var availableSpace = gridAreaSize;
+                availableSpace.Set(axis, null);
+                var marginSums = item.MarginsAxisSumsWithBaselineShims(availableSpace.Width, tree);
+                var contribution = item.MinimumContributionCached(tree, axis, ref axisTracks, gridAreaSize, innerNodeSize);
                 return contribution + marginSums.Get(axis);
             }
 
@@ -590,20 +597,20 @@ namespace Marius.Winter.Taffy
                         var tag = track.MinTrackSizingFunction.Inner.Tag;
                         if (tag == CompactLength.MIN_CONTENT_TAG)
                         {
-                            newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                            newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
                         else if (tag == CompactLength.PERCENT_TAG || track.MinTrackSizingFunction.Inner.IsCalc())
                         {
                             // If the container size is indefinite and has not yet been resolved then percentage sized
                             // tracks should be treated as min-content
                             if (!axisInnerNodeSize.HasValue)
-                                newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                                newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                             else
                                 newBaseSize = track.BaseSize;
                         }
                         else if (tag == CompactLength.MAX_CONTENT_TAG)
                         {
-                            newBaseSize = MathF.Max(track.BaseSize, MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                            newBaseSize = MathF.Max(track.BaseSize, MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
                         else if (tag == CompactLength.AUTO_TAG)
                         {
@@ -612,7 +619,7 @@ namespace Marius.Winter.Taffy
                                 && !item.OverflowStyle.Get(axis).IsScrollContainer())
                             {
                                 var axisMinimumSize = MinimumContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
-                                var axisMinContentSize = MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                                var axisMinContentSize = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                                 var limit = track.MaxTrackSizingFunction.DefiniteLimit(axisInnerNodeSize, CalcResolver);
                                 space = axisMinContentSize.MaybeMin(limit).MaybeMax(axisMinimumSize);
                             }
@@ -638,21 +645,21 @@ namespace Marius.Winter.Taffy
                         {
                             if (!item.OverflowStyle.Get(axis).IsScrollContainer())
                             {
-                                float minCC = MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                                float minCC = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                                 track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, minCC);
                             }
                             float fitContentLimit = track.FitContentLimit(axisInnerNodeSize);
-                            float maxCC = MathF.Min(MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree), fitContentLimit);
+                            float maxCC = MathF.Min(MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree), fitContentLimit);
                             track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, maxCC);
                         }
                         else if (track.MaxTrackSizingFunction.IsMaxContentAlike()
                             || (track.MaxTrackSizingFunction.UsesPercentage() && !axisInnerNodeSize.HasValue))
                         {
-                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
                         else if (track.MaxTrackSizingFunction.IsIntrinsic())
                         {
-                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
 
                         axisTracks[trackIndex] = track;
@@ -694,7 +701,7 @@ namespace Marius.Winter.Taffy
                         && !item.OverflowStyle.Get(axis).IsScrollContainer())
                     {
                         var axisMinimumSize = MinimumContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
-                        var axisMinContentSize = MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                        var axisMinContentSize = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         var limit = item.SpannedTrackLimit(axis, ref axisTracks, axisInnerNodeSize, CalcResolver);
                         space = axisMinContentSize.MaybeMin(limit).MaybeMax(axisMinimumSize);
                     }
@@ -731,7 +738,7 @@ namespace Marius.Winter.Taffy
                 for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                 {
                     ref var item = ref itemArr[bi];
-                    float space = MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                    float space = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                     if (space > 0f)
                     {
                         var range = item.TrackRangeExcludingLines(axis);
@@ -761,7 +768,7 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
-                        float axisMaxContentSize = MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                        float axisMaxContentSize = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         var limit = item.SpannedTrackLimit(axis, ref axisTracks, axisInnerNodeSize, CalcResolver);
                         float space = axisMaxContentSize.MaybeMin(limit);
                         if (space > 0f)
@@ -797,7 +804,7 @@ namespace Marius.Winter.Taffy
                 for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                 {
                     ref var item = ref itemArr[bi];
-                    float space = MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                    float space = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                     if (space > 0f)
                     {
                         var range = item.TrackRangeExcludingLines(axis);
@@ -829,7 +836,7 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
-                        float space = MinContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                        float space = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         if (space > 0f)
                         {
                             var range = item.TrackRangeExcludingLines(axis);
@@ -843,7 +850,7 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
-                        float space = MaxContentContribution(ref item, axis, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                        float space = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         if (space > 0f)
                         {
                             var range = item.TrackRangeExcludingLines(axis);
@@ -1087,8 +1094,7 @@ namespace Marius.Winter.Taffy
             ref ValueList<GridItem> items,
             float? axisMinSize,
             float? axisMaxSize,
-            AvailableSpace axisAvailableSpaceForExpansion,
-            Size<float?> innerNodeSize)
+            AvailableSpace axisAvailableSpaceForExpansion)
         {
             // First, find the grid's used flex fraction
             float flexFraction;
@@ -1135,7 +1141,8 @@ namespace Marius.Winter.Taffy
                         for (int j = range.Start; j < range.End; j += 2)
                             subTracks.Add(axisTracks[j]);
 
-                        float maxContentContribution = item.MaxContentContributionCached(axis, tree, SizeExtensions.NoneF32, innerNodeSize);
+                        float maxContentContribution = item.MaxContentContributionCached(
+                            axis, tree, SizeExtensions.NoneF32, SizeExtensions.NoneF32);
                         float fr = FindSizeOfFr(ref subTracks, maxContentContribution);
                         if (fr > maxFrItem) maxFrItem = fr;
                     }

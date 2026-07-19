@@ -249,7 +249,7 @@ namespace Marius.Winter.Taffy
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                item.AvailableSpaceCache = null;
+                item.GridAreaSizeCache = null;
                 items[i] = item;
             }
 
@@ -323,36 +323,45 @@ namespace Marius.Winter.Taffy
 
             // Column sizing must be re-run (once) if needed
             bool rerunColumnSizing;
+            bool intrinsicColumnContributionChanged = false;
             bool hasPercentageColumn = false;
             for (int i = 0; i < columns.Count; i++) { if (columns[i].UsesPercentage()) { hasPercentageColumn = true; break; } }
+            bool hasPercentageRow = false;
+            for (int i = 0; i < rows.Count; i++) { if (rows[i].UsesPercentage()) { hasPercentageRow = true; break; } }
             bool parentWidthIndefinite = !availableSpace.Width.IsDefinite();
             rerunColumnSizing = parentWidthIndefinite && hasPercentageColumn;
 
             if (!rerunColumnSizing)
             {
-                bool minContentContributionChanged = false;
                 for (int i = 0; i < items.Count; i++)
                 {
                     var item = items[i];
                     if (!item.CrossesIntrinsicColumn) continue;
 
-                    var avail = item.AvailableSpaceCached(
-                        AbstractAxis.Inline, ref rows, innerNodeSize.Height,
-                        (GridTrack t, float? _) => (float?)t.BaseSize);
-                    var newMinContentContribution = item.MinContentContributionCached(AbstractAxis.Inline, tree, avail, innerNodeSize);
+                    var gridAreaSize = item.GridAreaSize(
+                        AbstractAxis.Inline, ref columns, ref rows, innerNodeSize,
+                        (GridTrack t, float? _) => (float?)t.BaseSize,
+                        (val, basis) => tree.Calc(val, basis));
+                    var intrinsicAvailableSpace = gridAreaSize;
+                    intrinsicAvailableSpace.Set(AbstractAxis.Inline, null);
+                    var newMinContentContribution = item.MinContentContribution(
+                        AbstractAxis.Inline, tree, gridAreaSize, intrinsicAvailableSpace);
 
                     bool hasChanged = item.MinContentContributionCache.Width != newMinContentContribution;
 
-                    item.AvailableSpaceCache = avail;
+                    item.GridAreaSizeCache = gridAreaSize;
                     item.MinContentContributionCache = new Size<float?> { Width = newMinContentContribution, Height = item.MinContentContributionCache.Height };
                     item.MaxContentContributionCache = new Size<float?> { Width = null, Height = item.MaxContentContributionCache.Height };
                     item.MinimumContributionCache = new Size<float?> { Width = null, Height = item.MinimumContributionCache.Height };
                     items[i] = item;
 
                     if (hasChanged)
-                        minContentContributionChanged = true;
+                    {
+                        intrinsicColumnContributionChanged = true;
+                        break;
+                    }
                 }
-                rerunColumnSizing = minContentContributionChanged;
+                rerunColumnSizing = intrinsicColumnContributionChanged;
             }
             else
             {
@@ -360,13 +369,15 @@ namespace Marius.Winter.Taffy
                 for (int i = 0; i < items.Count; i++)
                 {
                     var item = items[i];
-                    item.AvailableSpaceCache = null;
+                    item.GridAreaSizeCache = null;
                     item.MinContentContributionCache = new Size<float?> { Width = null, Height = item.MinContentContributionCache.Height };
                     item.MaxContentContributionCache = new Size<float?> { Width = null, Height = item.MaxContentContributionCache.Height };
                     item.MinimumContributionCache = new Size<float?> { Width = null, Height = item.MinimumContributionCache.Height };
                     items[i] = item;
                 }
             }
+
+            bool intrinsicRowContributionChanged = false;
 
             if (rerunColumnSizing)
             {
@@ -388,43 +399,47 @@ namespace Marius.Winter.Taffy
 
                 // Row sizing re-run check
                 bool rerunRowSizing;
-                bool hasPercentageRow = false;
-                for (int ri = 0; ri < rows.Count; ri++) { if (rows[ri].UsesPercentage()) { hasPercentageRow = true; break; } }
                 bool parentHeightIndefinite = !availableSpace.Height.IsDefinite();
                 rerunRowSizing = parentHeightIndefinite && hasPercentageRow;
 
                 if (!rerunRowSizing)
                 {
-                    bool minContentContributionChanged = false;
                     for (int i = 0; i < items.Count; i++)
                     {
                         var item = items[i];
                         if (!item.CrossesIntrinsicColumn) continue;
 
-                        var avail = item.AvailableSpaceCached(
-                            AbstractAxis.Block, ref columns, innerNodeSize.Width,
-                            (GridTrack t, float? _) => (float?)t.BaseSize);
-                        var newMinContentContribution = item.MinContentContributionCached(AbstractAxis.Block, tree, avail, innerNodeSize);
+                        var gridAreaSize = item.GridAreaSize(
+                            AbstractAxis.Block, ref rows, ref columns, innerNodeSize,
+                            (GridTrack t, float? _) => (float?)t.BaseSize,
+                            (val, basis) => tree.Calc(val, basis));
+                        var intrinsicAvailableSpace = gridAreaSize;
+                        intrinsicAvailableSpace.Set(AbstractAxis.Block, null);
+                        var newMinContentContribution = item.MinContentContribution(
+                            AbstractAxis.Block, tree, gridAreaSize, intrinsicAvailableSpace);
 
                         bool hasChanged = item.MinContentContributionCache.Height != newMinContentContribution;
 
-                        item.AvailableSpaceCache = avail;
+                        item.GridAreaSizeCache = gridAreaSize;
                         item.MinContentContributionCache = new Size<float?> { Width = item.MinContentContributionCache.Width, Height = newMinContentContribution };
                         item.MaxContentContributionCache = new Size<float?> { Width = item.MaxContentContributionCache.Width, Height = null };
                         item.MinimumContributionCache = new Size<float?> { Width = item.MinimumContributionCache.Width, Height = null };
                         items[i] = item;
 
                         if (hasChanged)
-                            minContentContributionChanged = true;
+                        {
+                            intrinsicRowContributionChanged = true;
+                            break;
+                        }
                     }
-                    rerunRowSizing = minContentContributionChanged;
+                    rerunRowSizing = intrinsicRowContributionChanged;
                 }
                 else
                 {
                     for (int i = 0; i < items.Count; i++)
                     {
                         var item = items[i];
-                        item.AvailableSpaceCache = null;
+                        item.GridAreaSizeCache = null;
                         item.MinContentContributionCache = new Size<float?> { Width = item.MinContentContributionCache.Width, Height = null };
                         item.MaxContentContributionCache = new Size<float?> { Width = item.MaxContentContributionCache.Width, Height = null };
                         item.MinimumContributionCache = new Size<float?> { Width = item.MinimumContributionCache.Width, Height = null };
@@ -451,6 +466,41 @@ namespace Marius.Winter.Taffy
                         false);
                 }
             }
+
+            if ((intrinsicColumnContributionChanged && !hasPercentageColumn)
+                || (intrinsicRowContributionChanged && !hasPercentageRow))
+            {
+                float finalColumnSum = 0f;
+                for (int i = 0; i < columns.Count; i++)
+                    finalColumnSum += columns[i].BaseSize;
+                float finalRowSum = 0f;
+                for (int i = 0; i < rows.Count; i++)
+                    finalRowSum += rows[i].BaseSize;
+
+                if (intrinsicColumnContributionChanged && !hasPercentageColumn)
+                {
+                    containerBorderBox.Width = MathF.Max(
+                        (resolvedStyleSize.Get(AbstractAxis.Inline) ?? (finalColumnSum + contentBoxInset.HorizontalAxisSum()))
+                            .MaybeClamp(minSize.Width, maxSize.Width),
+                        paddingBorderSize.Width);
+                    containerContentBox.Width = MathF.Max(
+                        0f, containerBorderBox.Width - contentBoxInset.HorizontalAxisSum());
+                }
+
+                if (intrinsicRowContributionChanged && !hasPercentageRow)
+                {
+                    containerBorderBox.Height = MathF.Max(
+                        (resolvedStyleSize.Get(AbstractAxis.Block) ?? (finalRowSum + contentBoxInset.VerticalAxisSum()))
+                            .MaybeClamp(minSize.Height, maxSize.Height),
+                        paddingBorderSize.Height);
+                    containerContentBox.Height = MathF.Max(
+                        0f, containerBorderBox.Height - contentBoxInset.VerticalAxisSum());
+                }
+            }
+
+            // If only the container's size has been requested
+            if (runMode == RunMode.ComputeSize)
+                return LayoutOutput.FromOuterSize(containerBorderBox);
 
             // 8. Track Alignment
 

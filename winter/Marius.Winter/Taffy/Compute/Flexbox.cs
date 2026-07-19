@@ -1654,10 +1654,9 @@ namespace Marius.Winter.Taffy
                 var numItems = line.Items.Length;
                 var layoutReverse = constants.Dir.IsReverse();
                 var gap = constants.Gap.Main(constants.Dir);
-                var isSafe = false; // TODO: Implement safe alignment
                 var rawJustifyContentMode = constants.JustifyContentStyle ?? AlignContent.FlexStart;
                 var justifyContentMode =
-                    AlignmentUtils.ApplyAlignmentFallback(freeSpace, numItems, rawJustifyContentMode, isSafe);
+                    AlignmentUtils.ApplyAlignmentFallback(freeSpace, numItems, rawJustifyContentMode);
 
                 if (layoutReverse)
                 {
@@ -1747,20 +1746,23 @@ namespace Marius.Winter.Taffy
             ref AlgoConstants constants)
         {
             var crossAxisShouldReverse = constants.IsColumn && constants.LayoutDirection.IsRtl();
+            var alignKeyword = child.AlignSelf.IsSafe && freeSpace < 0f
+                ? AlignItemsKeyword.Start
+                : child.AlignSelf.Keyword;
 
-            switch (child.AlignSelf)
+            switch (alignKeyword)
             {
-                case AlignItems.Start:
+                case AlignItemsKeyword.Start:
                     return crossAxisShouldReverse ? freeSpace : 0f;
-                case AlignItems.FlexStart:
+                case AlignItemsKeyword.FlexStart:
                     return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? freeSpace : 0f;
-                case AlignItems.End:
+                case AlignItemsKeyword.End:
                     return crossAxisShouldReverse ? 0f : freeSpace;
-                case AlignItems.FlexEnd:
+                case AlignItemsKeyword.FlexEnd:
                     return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? 0f : freeSpace;
-                case AlignItems.Center:
+                case AlignItemsKeyword.Center:
                     return freeSpace / 2f;
-                case AlignItems.Baseline:
+                case AlignItemsKeyword.Baseline:
                     if (constants.IsRow)
                     {
                         return maxBaseline - child.Baseline;
@@ -1772,7 +1774,7 @@ namespace Marius.Winter.Taffy
                         var baselineColumnShouldReverse = crossAxisShouldReverse && !constants.IsWrap;
                         return (constants.IsWrapReverse ^ baselineColumnShouldReverse) ? freeSpace : 0f;
                     }
-                case AlignItems.Stretch:
+                case AlignItemsKeyword.Stretch:
                     return (constants.IsWrapReverse ^ crossAxisShouldReverse) ? freeSpace : 0f;
                 default:
                     return 0f;
@@ -1827,9 +1829,8 @@ namespace Marius.Winter.Taffy
             var gap = constants.Gap.Cross(constants.Dir);
             var totalCrossAxisGap = SumAxisGaps(gap, numLines);
             var freeSpace = constants.InnerContainerSize.Cross(constants.Dir) - totalCrossSize - totalCrossAxisGap;
-            var isSafe = false; // TODO: Implement safe alignment
 
-            var alignContentMode = AlignmentUtils.ApplyAlignmentFallback(freeSpace, numLines, constants.AlignContentStyle, isSafe);
+            var alignContentMode = AlignmentUtils.ApplyAlignmentFallback(freeSpace, numLines, constants.AlignContentStyle);
 
             if (constants.IsWrapReverse)
             {
@@ -2229,46 +2230,77 @@ namespace Marius.Winter.Taffy
                 // Determine flex-relative insets
                 var (startMain, endMain) = constants.IsRow ? (left, right) : (top, bottom);
                 var (startCross, endCross) = constants.IsRow ? (top, bottom) : (left, right);
+                var mainAxisIsHorizontal = constants.IsRow;
+                var crossAxisIsHorizontal = !constants.IsRow;
+                var mainIsRtl = mainAxisIsHorizontal && constants.LayoutDirection.IsRtl();
+                var crossIsRtl = crossAxisIsHorizontal && constants.LayoutDirection.IsRtl();
+                var mainAxisFlexStartReversed = constants.Dir.IsReverse() ^ mainIsRtl;
+                var crossAxisFlexStartReversed = constants.IsWrapReverse ^ crossIsRtl;
+                var mainStartScrollbarOffset = mainIsRtl ? constants.ScrollbarGutter.Main(constants.Dir) : 0f;
+                var crossStartScrollbarOffset = crossIsRtl ? constants.ScrollbarGutter.Cross(constants.Dir) : 0f;
+                var mainEndScrollbarOffset = mainIsRtl ? 0f : constants.ScrollbarGutter.Main(constants.Dir);
+                var crossEndScrollbarOffset = crossIsRtl ? 0f : constants.ScrollbarGutter.Cross(constants.Dir);
 
                 // Apply main-axis alignment
                 float offsetMain;
-                if (startMain.HasValue)
+                if (startMain.HasValue || endMain.HasValue)
                 {
-                    offsetMain = startMain.Value + constants.Border.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir);
-                }
-                else if (endMain.HasValue)
-                {
-                    offsetMain = constants.ContainerSize.Main(constants.Dir)
-                        - constants.Border.MainEnd(constants.Dir)
-                        - constants.ScrollbarGutter.Main(constants.Dir)
-                        - finalSize.Main(constants.Dir)
-                        - endMain.Value
-                        - resolvedMargin.MainEnd(constants.Dir);
+                    if (mainIsRtl && endMain.HasValue)
+                    {
+                        offsetMain = constants.ContainerSize.Main(constants.Dir)
+                            - constants.Border.MainEnd(constants.Dir)
+                            - mainEndScrollbarOffset
+                            - finalSize.Main(constants.Dir)
+                            - endMain.GetValueOrDefault()
+                            - resolvedMargin.MainEnd(constants.Dir);
+                    }
+                    else if (startMain.HasValue)
+                    {
+                        offsetMain = startMain.Value
+                            + constants.Border.MainStart(constants.Dir)
+                            + mainStartScrollbarOffset
+                            + resolvedMargin.MainStart(constants.Dir);
+                    }
+                    else
+                    {
+                        offsetMain = constants.ContainerSize.Main(constants.Dir)
+                            - constants.Border.MainEnd(constants.Dir)
+                            - mainEndScrollbarOffset
+                            - finalSize.Main(constants.Dir)
+                            - endMain.GetValueOrDefault()
+                            - resolvedMargin.MainEnd(constants.Dir);
+                    }
                 }
                 else
                 {
-                    var jc = constants.JustifyContentStyle ?? AlignContent.Start;
-                    offsetMain = (jc, constants.IsWrapReverse) switch
+                    // Safe fallback is intentionally not applied to justify-content for abspos children,
+                    // matching Chromium's behavior. Alignment still uses the underlying keyword.
+                    var justifyKeyword = (constants.JustifyContentStyle ?? AlignContent.Start).Keyword;
+                    offsetMain = (justifyKeyword, mainAxisFlexStartReversed) switch
                     {
-                        (AlignContent.SpaceBetween, _) or
-                        (AlignContent.Start, _) or
-                        (AlignContent.Stretch, false) or
-                        (AlignContent.FlexStart, false) or
-                        (AlignContent.FlexEnd, true) =>
+                        (AlignContentKeyword.SpaceBetween, _) or
+                        (AlignContentKeyword.Stretch, false) or
+                        (AlignContentKeyword.FlexStart, false) or
+                        (AlignContentKeyword.FlexEnd, true) or
+                        (AlignContentKeyword.Start, false) =>
                             constants.ContentBoxInset.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir),
 
-                        (AlignContent.End, _) or
-                        (AlignContent.FlexEnd, false) or
-                        (AlignContent.FlexStart, true) or
-                        (AlignContent.Stretch, true) =>
+                        (AlignContentKeyword.Start, true) or
+                        (AlignContentKeyword.End, false) or
+                        (AlignContentKeyword.FlexEnd, false) or
+                        (AlignContentKeyword.FlexStart, true) or
+                        (AlignContentKeyword.Stretch, true) =>
                             constants.ContainerSize.Main(constants.Dir)
                             - constants.ContentBoxInset.MainEnd(constants.Dir)
                             - finalSize.Main(constants.Dir)
                             - resolvedMargin.MainEnd(constants.Dir),
 
-                        (AlignContent.SpaceEvenly, _) or
-                        (AlignContent.SpaceAround, _) or
-                        (AlignContent.Center, _) =>
+                        (AlignContentKeyword.End, true) =>
+                            constants.ContentBoxInset.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir),
+
+                        (AlignContentKeyword.SpaceEvenly, _) or
+                        (AlignContentKeyword.SpaceAround, _) or
+                        (AlignContentKeyword.Center, _) =>
                             (constants.ContainerSize.Main(constants.Dir)
                              + constants.ContentBoxInset.MainStart(constants.Dir)
                              - constants.ContentBoxInset.MainEnd(constants.Dir)
@@ -2283,38 +2315,60 @@ namespace Marius.Winter.Taffy
 
                 // Apply cross-axis alignment
                 float offsetCrossAbs;
-                if (startCross.HasValue)
+                if (startCross.HasValue || endCross.HasValue)
                 {
-                    offsetCrossAbs = startCross.Value + constants.Border.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir);
-                }
-                else if (endCross.HasValue)
-                {
-                    offsetCrossAbs = constants.ContainerSize.Cross(constants.Dir)
-                        - constants.Border.CrossEnd(constants.Dir)
-                        - constants.ScrollbarGutter.Cross(constants.Dir)
-                        - finalSize.Cross(constants.Dir)
-                        - endCross.Value
-                        - resolvedMargin.CrossEnd(constants.Dir);
+                    if (crossIsRtl && endCross.HasValue)
+                    {
+                        offsetCrossAbs = constants.ContainerSize.Cross(constants.Dir)
+                            - constants.Border.CrossEnd(constants.Dir)
+                            - crossEndScrollbarOffset
+                            - finalSize.Cross(constants.Dir)
+                            - endCross.GetValueOrDefault()
+                            - resolvedMargin.CrossEnd(constants.Dir);
+                    }
+                    else if (startCross.HasValue)
+                    {
+                        offsetCrossAbs = startCross.Value
+                            + constants.Border.CrossStart(constants.Dir)
+                            + crossStartScrollbarOffset
+                            + resolvedMargin.CrossStart(constants.Dir);
+                    }
+                    else
+                    {
+                        offsetCrossAbs = constants.ContainerSize.Cross(constants.Dir)
+                            - constants.Border.CrossEnd(constants.Dir)
+                            - crossEndScrollbarOffset
+                            - finalSize.Cross(constants.Dir)
+                            - endCross.GetValueOrDefault()
+                            - resolvedMargin.CrossEnd(constants.Dir);
+                    }
                 }
                 else
                 {
-                    offsetCrossAbs = (alignSelf, constants.IsWrapReverse) switch
+                    var crossOverflows = finalSize.Cross(constants.Dir) + resolvedMargin.CrossAxisSum(constants.Dir)
+                        > constants.ContainerSize.Cross(constants.Dir) - constants.ContentBoxInset.CrossAxisSum(constants.Dir);
+                    var crossKeyword = AlignmentUtils.ResolveSelfAlignmentSafety(alignSelf, crossOverflows);
+                    offsetCrossAbs = (crossKeyword, crossAxisFlexStartReversed) switch
                     {
                         // Stretch alignment does not apply to absolutely positioned items
-                        (AlignItems.Start, _) or
-                        (AlignItems.Baseline or AlignItems.Stretch or AlignItems.FlexStart, false) or
-                        (AlignItems.FlexEnd, true) =>
+                        (AlignItemsKeyword.Start, false) or
+                        (AlignItemsKeyword.Baseline or AlignItemsKeyword.Stretch or AlignItemsKeyword.FlexStart, false) or
+                        (AlignItemsKeyword.FlexEnd, true) =>
                             constants.ContentBoxInset.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir),
 
-                        (AlignItems.End, _) or
-                        (AlignItems.Baseline or AlignItems.Stretch or AlignItems.FlexStart, true) or
-                        (AlignItems.FlexEnd, false) =>
+                        (AlignItemsKeyword.Start, true) or
+                        (AlignItemsKeyword.End, false) or
+                        (AlignItemsKeyword.Baseline or AlignItemsKeyword.Stretch or AlignItemsKeyword.FlexStart, true) or
+                        (AlignItemsKeyword.FlexEnd, false) =>
                             constants.ContainerSize.Cross(constants.Dir)
                             - constants.ContentBoxInset.CrossEnd(constants.Dir)
                             - finalSize.Cross(constants.Dir)
                             - resolvedMargin.CrossEnd(constants.Dir),
 
-                        (AlignItems.Center, _) =>
+                        (AlignItemsKeyword.End, true) =>
+                            constants.ContentBoxInset.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir),
+
+                        (AlignItemsKeyword.Center, _) =>
                             (constants.ContainerSize.Cross(constants.Dir)
                              + constants.ContentBoxInset.CrossStart(constants.Dir)
                              - constants.ContentBoxInset.CrossEnd(constants.Dir)

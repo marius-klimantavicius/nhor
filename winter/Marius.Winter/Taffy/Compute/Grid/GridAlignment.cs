@@ -42,8 +42,7 @@ namespace Marius.Winter.Taffy
             // simply pass zero here. Grid layout is never reversed.
             float gap = 0f;
             bool layoutIsReversed = false;
-            bool isSafe = false; // TODO: Implement safe alignment
-            var trackAlignment = AlignmentUtils.ApplyAlignmentFallback(freeSpace, numTracks, trackAlignmentStyle, isSafe);
+            var trackAlignment = AlignmentUtils.ApplyAlignmentFallback(freeSpace, numTracks, trackAlignmentStyle);
             if (axisIsReversed)
                 trackAlignment = trackAlignment.Reversed();
 
@@ -317,18 +316,21 @@ namespace Marius.Winter.Taffy
                 End = margin.End ?? autoMarginSize,
             };
 
+            bool overflows = resolvedSize + nonAutoMargin.Sum() > gridAreaSize;
+            var alignmentKeyword = AlignmentUtils.ResolveSelfAlignmentSafety(alignmentStyle, overflows);
+
             // Compute offset in the axis
-            float alignmentBasedOffset = alignmentStyle switch
+            float alignmentBasedOffset = alignmentKeyword switch
             {
-                AlignItems.Start or AlignItems.FlexStart or AlignItems.Baseline or AlignItems.Stretch =>
+                AlignItemsKeyword.Start or AlignItemsKeyword.FlexStart or AlignItemsKeyword.Baseline or AlignItemsKeyword.Stretch =>
                     direction.IsRtl()
                         ? gridAreaSize - resolvedSize - resolvedMargin.End
                         : resolvedMargin.Start,
-                AlignItems.End or AlignItems.FlexEnd =>
+                AlignItemsKeyword.End or AlignItemsKeyword.FlexEnd =>
                     direction.IsRtl()
                         ? resolvedMargin.Start
                         : gridAreaSize - resolvedSize - resolvedMargin.End,
-                AlignItems.Center => (gridAreaSize - resolvedSize + resolvedMargin.Start - resolvedMargin.End) / 2f,
+                AlignItemsKeyword.Center => (gridAreaSize - resolvedSize + resolvedMargin.Start - resolvedMargin.End) / 2f,
                 _ => resolvedMargin.Start,
             };
 

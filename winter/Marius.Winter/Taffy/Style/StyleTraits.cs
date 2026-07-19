@@ -97,6 +97,9 @@ namespace Marius.Winter.Taffy
     {
         /// <summary>How items elements should aligned in the inline axis</summary>
         TextAlign TextAlign() => Taffy.TextAlign.Auto;
+
+        /// <summary>How children are aligned in the block (cross) axis</summary>
+        AlignContent? AlignContent() => null;
     }
 
     /// <summary>

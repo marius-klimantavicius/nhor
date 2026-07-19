@@ -238,6 +238,12 @@ namespace Marius.Winter.Taffy
         public Point<float> StaticPosition;
         /// <summary>Whether margins can be collapsed through this item</summary>
         public bool CanBeCollapsedThrough;
+
+        /// <summary>
+        /// Pending layout for in-flow non-floated items. Held back so align-content can shift
+        /// the block-axis location before the layout is committed to the tree.
+        /// </summary>
+        public Layout? FinalLayout;
     }
 
     /// <summary>
@@ -444,6 +450,7 @@ namespace Marius.Winter.Taffy
                 || (minSize.Height.HasValue && minSize.Height.Value > 0.0f);
 
             var textAlign = style.TextAlign();
+            var alignContent = style.AlignContent();
 
             // 1. Generate items
             var items = GenerateItemList(tree, nodeId, containerContentBoxSize);
@@ -499,6 +506,70 @@ namespace Marius.Winter.Taffy
                 intrinsicOuterHeight.MaybeClamp(minSize.Height, maxSize.Height))
                 .MaybeMax(paddingBorderSize.Height);
             var finalOuterSize = new Size<float>(containerOuterWidth, containerOuterHeight);
+
+            // Treat the entire stack of in-flow children as one alignment subject. Passing one
+            // item applies the single-subject fallback for all distribution keywords.
+            if (alignContent.HasValue)
+            {
+                float containerInnerHeight = containerOuterHeight - resolvedContentBoxInset.VerticalAxisSum();
+                float inflowContentHeight = intrinsicOuterHeight - resolvedContentBoxInset.VerticalAxisSum();
+                float freeSpace = containerInnerHeight - inflowContentHeight;
+                bool anyInFlow = false;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    if (items[i].FinalLayout.HasValue)
+                    {
+                        anyInFlow = true;
+                        break;
+                    }
+                }
+
+                if (anyInFlow)
+                {
+                    var keyword = AlignmentUtils.ApplyAlignmentFallback(freeSpace, 1, alignContent.Value);
+                    float groupOffset = AlignmentUtils.ComputeAlignmentOffset(freeSpace, 1, 0.0f, keyword, false, true);
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var item = items[i];
+                        if (!item.FinalLayout.HasValue) continue;
+
+                        var layout = item.FinalLayout.Value;
+                        layout.Location.Y += groupOffset;
+                        item.FinalLayout = layout;
+                        items[i] = item;
+                    }
+
+                    inflowContentSize = SizeExtensions.ZeroF32;
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var item = items[i];
+                        if (!item.FinalLayout.HasValue) continue;
+
+                        var layout = item.FinalLayout.Value;
+                        inflowContentSize = inflowContentSize.F32Max(
+                            ContentSizeUtils.ComputeContentSizeContribution(
+                                new Point<float>(
+                                    layout.Location.X - resolvedContentBoxInset.Left,
+                                    layout.Location.Y - resolvedContentBoxInset.Top),
+                                layout.Size,
+                                layout.ContentSize,
+                                item.Overflow
+                            )
+                        );
+                    }
+                }
+            }
+
+            // Floated items commit during placement. Commit deferred in-flow layouts now that
+            // block-axis alignment has been applied.
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                if (item.FinalLayout.HasValue)
+                {
+                    tree.SetUnroundedLayout(item.NodeId, item.FinalLayout.Value);
+                }
+            }
 
             // Short-circuit if computing size
             if (runMode == RunMode.ComputeSize)
@@ -640,6 +711,7 @@ namespace Marius.Winter.Taffy
                     ComputedSize = SizeExtensions.ZeroF32,
                     StaticPosition = PointExtensions.ZeroF32,
                     CanBeCollapsedThrough = false,
+                    FinalLayout = null,
                 });
 
                 order++;
@@ -1035,20 +1107,19 @@ namespace Marius.Winter.Taffy
                         }
                     }
 
-                    tree.SetUnroundedLayout(
-                        item.NodeId,
-                        new Layout
-                        {
-                            Order = item.Order,
-                            Size = itemLayout.Size,
-                            ContentSize = itemLayout.ContentSize,
-                            ScrollbarSize = scrollbarSize,
-                            Location = location,
-                            Padding = item.Padding,
-                            Border = item.Border,
-                            Margin = resolvedMargin,
-                        }
-                    );
+                    // Defer committing in-flow layouts so align-content can shift the stack after
+                    // the container's final height has been resolved.
+                    item.FinalLayout = new Layout
+                    {
+                        Order = item.Order,
+                        Size = itemLayout.Size,
+                        ContentSize = itemLayout.ContentSize,
+                        ScrollbarSize = scrollbarSize,
+                        Location = location,
+                        Padding = item.Padding,
+                        Border = item.Border,
+                        Margin = resolvedMargin,
+                    };
 
                     inflowContentSize = inflowContentSize.F32Max(
                         ContentSizeUtils.ComputeContentSizeContribution(

@@ -315,6 +315,38 @@ namespace Marius.Winter.Taffy
                 self.Bottom.ResolveOrZero(context, calc));
         }
 
+        // Resolve Rect values against a definite context without lifting it to nullable.
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<float> ResolveOrZero(this Rect<Dimension> self, float context, Func<IntPtr, float, float> calc)
+        {
+            return new Rect<float>(
+                self.Left.ResolveOrZero(context, calc),
+                self.Right.ResolveOrZero(context, calc),
+                self.Top.ResolveOrZero(context, calc),
+                self.Bottom.ResolveOrZero(context, calc));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<float> ResolveOrZero(this Rect<LengthPercentage> self, float context, Func<IntPtr, float, float> calc)
+        {
+            return new Rect<float>(
+                self.Left.ResolveOrZero(context, calc),
+                self.Right.ResolveOrZero(context, calc),
+                self.Top.ResolveOrZero(context, calc),
+                self.Bottom.ResolveOrZero(context, calc));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<float> ResolveOrZero(this Rect<LengthPercentageAuto> self, float context, Func<IntPtr, float, float> calc)
+        {
+            return new Rect<float>(
+                self.Left.ResolveOrZero(context, calc),
+                self.Right.ResolveOrZero(context, calc),
+                self.Top.ResolveOrZero(context, calc),
+                self.Bottom.ResolveOrZero(context, calc));
+        }
+
         // =====================================================================
         // MaybeResolve: Rect<LengthPercentageAuto> against Size<float?> -> Rect<float?>
         // =====================================================================

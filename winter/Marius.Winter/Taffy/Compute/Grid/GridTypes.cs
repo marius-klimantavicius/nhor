@@ -734,8 +734,8 @@ namespace Marius.Winter.Taffy
         public bool CrossesIntrinsicColumn;
 
         // Caches for intrinsic size computation
-        /// <summary>Cache for the known_dimensions input to intrinsic sizing computation</summary>
-        public Size<float?>? AvailableSpaceCache;
+        /// <summary>Cache for the grid area size input to intrinsic sizing computation</summary>
+        public Size<float?>? GridAreaSizeCache;
         /// <summary>Cache for the min-content size</summary>
         public Size<float?> MinContentContributionCache;
         /// <summary>Cache for the minimum contribution</summary>
@@ -784,7 +784,7 @@ namespace Marius.Winter.Taffy
                 CrossesFlexibleColumn = false,
                 CrossesIntrinsicRow = false,
                 CrossesIntrinsicColumn = false,
-                AvailableSpaceCache = null,
+                GridAreaSizeCache = null,
                 MinContentContributionCache = SizeExtensions.NoneF32,
                 MaxContentContributionCache = SizeExtensions.NoneF32,
                 MinimumContributionCache = SizeExtensions.NoneF32,
@@ -898,14 +898,13 @@ namespace Marius.Winter.Taffy
         /// <summary>Compute the known_dimensions to be passed to the child sizing functions</summary>
         public Size<float?> KnownDimensions(
             ILayoutPartialTree tree,
-            Size<float?> innerNodeSize,
             Size<float?> gridAreaSize)
         {
-            var margins = MarginsAxisSumsWithBaselineShims(innerNodeSize.Width, tree);
+            var margins = MarginsAxisSumsWithBaselineShims(gridAreaSize.Width, tree);
 
             var aspectRatio = AspectRatio;
-            var padding = PaddingStyle.ResolveOrZero(gridAreaSize, (val, basis) => tree.Calc(val, basis));
-            var border = BorderStyle.ResolveOrZero(gridAreaSize, (val, basis) => tree.Calc(val, basis));
+            var padding = PaddingStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
+            var border = BorderStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
             var paddingBorderSize = padding.Add(border).SumAxes();
             var boxSizingAdj = (BoxSizingStyle == BoxSizing.ContentBox ? paddingBorderSize : SizeExtensions.ZeroF32).Map<float?>(v => v);
             var inherentSize = SizeStyle
@@ -949,20 +948,41 @@ namespace Marius.Winter.Taffy
             return clamped;
         }
 
-        /// <summary>Compute the available_space to be passed to the child sizing functions</summary>
-        public Size<float?> ComputeAvailableSpace(
+        /// <summary>Compute the grid area size to be passed to the child sizing functions.</summary>
+        public Size<float?> GridAreaSize(
             AbstractAxis axis,
+            ref ValueList<GridTrack> axisTracks,
             ref ValueList<GridTrack> otherAxisTracks,
-            float? otherAxisAvailableSpace,
-            Func<GridTrack, float?, float?> getTrackSizeEstimate)
+            Size<float?> availableSpace,
+            Func<GridTrack, float?, float?> getTrackSizeEstimate,
+            Func<IntPtr, float, float> resolveCalcValue)
         {
+            var size = SizeExtensions.NoneF32;
+
+            var axisRange = TrackRangeExcludingLines(axis);
+            float? itemAxisSize = 0f;
+            for (int i = axisRange.Start; i < axisRange.End; i++)
+            {
+                var track = axisTracks[i];
+                var minSize = track.MinTrackSizingFunction.DefiniteValue(availableSpace.Get(axis), resolveCalcValue);
+                var maxSize = track.MaxTrackSizingFunction.DefiniteValue(availableSpace.Get(axis), resolveCalcValue);
+                if (minSize.HasValue && maxSize.HasValue && minSize.Value == maxSize.Value)
+                    itemAxisSize = itemAxisSize.Value + track.BaseSize;
+                else
+                {
+                    itemAxisSize = null;
+                    break;
+                }
+            }
+            size.Set(axis, itemAxisSize);
+
             var range = TrackRangeExcludingLines(axis.Other());
             float? itemOtherAxisSize = 0f;
             // Iterate ALL tracks in the range (including gutters) to match Rust sub-slice iteration
             for (int i = range.Start; i < range.End; i++)
             {
                 var track = otherAxisTracks[i];
-                var est = getTrackSizeEstimate(track, otherAxisAvailableSpace);
+                var est = getTrackSizeEstimate(track, availableSpace.Get(axis.Other()));
                 if (est.HasValue)
                     itemOtherAxisSize = itemOtherAxisSize.Value + est.Value + track.ContentAlignmentAdjustment;
                 else
@@ -972,23 +992,25 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            var size = SizeExtensions.NoneF32;
             size.Set(axis.Other(), itemOtherAxisSize);
             return size;
         }
 
-        /// <summary>Retrieve the available_space from the cache or compute them</summary>
-        public Size<float?> AvailableSpaceCached(
+        /// <summary>Retrieve the grid area size from the cache or compute it.</summary>
+        public Size<float?> GridAreaSizeCached(
             AbstractAxis axis,
+            ref ValueList<GridTrack> axisTracks,
             ref ValueList<GridTrack> otherAxisTracks,
-            float? otherAxisAvailableSpace,
-            Func<GridTrack, float?, float?> getTrackSizeEstimate)
+            Size<float?> availableSpace,
+            Func<GridTrack, float?, float?> getTrackSizeEstimate,
+            Func<IntPtr, float, float> resolveCalcValue)
         {
-            if (AvailableSpaceCache.HasValue)
-                return AvailableSpaceCache.Value;
-            var availableSpaces = ComputeAvailableSpace(axis, ref otherAxisTracks, otherAxisAvailableSpace, getTrackSizeEstimate);
-            AvailableSpaceCache = availableSpaces;
-            return availableSpaces;
+            if (GridAreaSizeCache.HasValue)
+                return GridAreaSizeCache.Value;
+            var gridAreaSize = GridAreaSize(axis, ref axisTracks, ref otherAxisTracks, availableSpace,
+                getTrackSizeEstimate, resolveCalcValue);
+            GridAreaSizeCache = gridAreaSize;
+            return gridAreaSize;
         }
 
         /// <summary>
@@ -1011,12 +1033,12 @@ namespace Marius.Winter.Taffy
         public float MinContentContribution(
             AbstractAxis axis,
             ILayoutPartialTree tree,
-            Size<float?> availableSpace,
-            Size<float?> innerNodeSize)
+            Size<float?> gridAreaSize,
+            Size<float?> availableSpace)
         {
-            var knownDims = KnownDimensions(tree, innerNodeSize, availableSpace);
+            var knownDims = KnownDimensions(tree, gridAreaSize);
             return tree.MeasureChildSize(
-                Node, knownDims, innerNodeSize,
+                Node, knownDims, gridAreaSize,
                 availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MinContent),
                 SizingMode.InherentSize,
                 axis.AsAbsNaive(),
@@ -1028,13 +1050,13 @@ namespace Marius.Winter.Taffy
         public float MinContentContributionCached(
             AbstractAxis axis,
             ILayoutPartialTree tree,
-            Size<float?> availableSpace,
-            Size<float?> innerNodeSize)
+            Size<float?> gridAreaSize,
+            Size<float?> availableSpace)
         {
             var cached = MinContentContributionCache.Get(axis);
             if (cached.HasValue)
                 return cached.Value;
-            var size = MinContentContribution(axis, tree, availableSpace, innerNodeSize);
+            var size = MinContentContribution(axis, tree, gridAreaSize, availableSpace);
             MinContentContributionCache.Set(axis, size);
             return size;
         }
@@ -1043,12 +1065,12 @@ namespace Marius.Winter.Taffy
         public float MaxContentContribution(
             AbstractAxis axis,
             ILayoutPartialTree tree,
-            Size<float?> availableSpace,
-            Size<float?> innerNodeSize)
+            Size<float?> gridAreaSize,
+            Size<float?> availableSpace)
         {
-            var knownDims = KnownDimensions(tree, innerNodeSize, availableSpace);
+            var knownDims = KnownDimensions(tree, gridAreaSize);
             return tree.MeasureChildSize(
-                Node, knownDims, innerNodeSize,
+                Node, knownDims, gridAreaSize,
                 availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MaxContent),
                 SizingMode.InherentSize,
                 axis.AsAbsNaive(),
@@ -1060,13 +1082,13 @@ namespace Marius.Winter.Taffy
         public float MaxContentContributionCached(
             AbstractAxis axis,
             ILayoutPartialTree tree,
-            Size<float?> availableSpace,
-            Size<float?> innerNodeSize)
+            Size<float?> gridAreaSize,
+            Size<float?> availableSpace)
         {
             var cached = MaxContentContributionCache.Get(axis);
             if (cached.HasValue)
                 return cached.Value;
-            var size = MaxContentContribution(axis, tree, availableSpace, innerNodeSize);
+            var size = MaxContentContribution(axis, tree, gridAreaSize, availableSpace);
             MaxContentContributionCache.Set(axis, size);
             return size;
         }
@@ -1079,21 +1101,21 @@ namespace Marius.Winter.Taffy
             ILayoutPartialTree tree,
             AbstractAxis axis,
             ref ValueList<GridTrack> axisTracks,
-            Size<float?> knownDimensions,
+            Size<float?> gridAreaSize,
             Size<float?> innerNodeSize)
         {
-            var padding = PaddingStyle.ResolveOrZero(innerNodeSize, (val, basis) => tree.Calc(val, basis));
-            var border = BorderStyle.ResolveOrZero(innerNodeSize, (val, basis) => tree.Calc(val, basis));
+            var padding = PaddingStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
+            var border = BorderStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
             var paddingBorderSize = padding.Add(border).SumAxes();
             var boxSizingAdj = (BoxSizingStyle == BoxSizing.ContentBox ? paddingBorderSize : SizeExtensions.ZeroF32).Map<float?>(v => v);
             var resolvedSize = SizeStyle
-                .MaybeResolve(innerNodeSize, (val, basis) => tree.Calc(val, basis))
+                .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
                 .MaybeApplyAspectRatio(AspectRatio)
                 .MaybeAdd(boxSizingAdj)
                 .Get(axis);
 
             var resolvedMinSize = MinSizeStyle
-                .MaybeResolve(innerNodeSize, (val, basis) => tree.Calc(val, basis))
+                .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
                 .MaybeApplyAspectRatio(AspectRatio)
                 .MaybeAdd(boxSizingAdj)
                 .Get(axis);
@@ -1103,7 +1125,7 @@ namespace Marius.Winter.Taffy
             var size = resolvedSize
                 ?? resolvedMinSize
                 ?? overflowMinSize
-                ?? ComputeAutoMinimumSize(tree, axis, ref axisTracks, knownDimensions, innerNodeSize);
+                ?? ComputeAutoMinimumSize(tree, axis, ref axisTracks, gridAreaSize, innerNodeSize);
 
             // Clamp by spanned fixed track limit
             var limit = SpannedFixedTrackLimit(axis, ref axisTracks, innerNodeSize.Get(axis),
@@ -1115,7 +1137,7 @@ namespace Marius.Winter.Taffy
             ILayoutPartialTree tree,
             AbstractAxis axis,
             ref ValueList<GridTrack> axisTracks,
-            Size<float?> knownDimensions,
+            Size<float?> gridAreaSize,
             Size<float?> innerNodeSize)
         {
             // Automatic minimum size. See https://www.w3.org/TR/css-grid-1/#min-size-auto
@@ -1149,7 +1171,7 @@ namespace Marius.Winter.Taffy
 
             if (useContentBasedMinimum)
             {
-                var minimumContribution = MinContentContributionCached(axis, tree, knownDimensions, innerNodeSize);
+                var minimumContribution = MinContentContributionCached(axis, tree, gridAreaSize, gridAreaSize);
 
                 if (IsCompressibleReplaced)
                 {
@@ -1169,13 +1191,13 @@ namespace Marius.Winter.Taffy
             ILayoutPartialTree tree,
             AbstractAxis axis,
             ref ValueList<GridTrack> axisTracks,
-            Size<float?> knownDimensions,
+            Size<float?> gridAreaSize,
             Size<float?> innerNodeSize)
         {
             var cached = MinimumContributionCache.Get(axis);
             if (cached.HasValue)
                 return cached.Value;
-            var size = MinimumContribution(tree, axis, ref axisTracks, knownDimensions, innerNodeSize);
+            var size = MinimumContribution(tree, axis, ref axisTracks, gridAreaSize, innerNodeSize);
             MinimumContributionCache.Set(axis, size);
             return size;
         }

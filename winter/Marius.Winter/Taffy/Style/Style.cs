@@ -306,6 +306,9 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         TextAlign IBlockContainerStyle.TextAlign() => TextAlignValue;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        AlignContent? IBlockContainerStyle.AlignContent() => AlignContentValue;
+
         // =========================================================================
         // IBlockItemStyle implementation
         // =========================================================================

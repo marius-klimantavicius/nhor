@@ -547,6 +547,15 @@ namespace Marius.Winter.Taffy
             }
         }
 
+        /// <summary>Creates a copy with the extent of the specified layout axis set.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Size<T> With(AbstractAxis axis, T value)
+        {
+            var result = this;
+            result.Set(axis, value);
+            return result;
+        }
+
         // --- FlexDirection-based accessors ---
 
         /// <summary>

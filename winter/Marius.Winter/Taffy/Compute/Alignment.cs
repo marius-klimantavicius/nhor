@@ -11,52 +11,55 @@ namespace Marius.Winter.Taffy
     public static class AlignmentUtils
     {
         /// <summary>
-        /// Implement fallback alignment.
+        /// Resolves the safe/unsafe overflow-position fallback for a self-level alignment value.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static AlignItemsKeyword ResolveSelfAlignmentSafety(AlignItems alignment, bool overflows)
+        {
+            return alignment.IsSafe && overflows ? AlignItemsKeyword.Start : alignment.Keyword;
+        }
+
+        /// <summary>
+        /// Resolve any spec-defined fallbacks for the alignment value.
         ///
         /// In addition to the spec at https://www.w3.org/TR/css-align-3/ this implementation follows
         /// the resolution of https://github.com/w3c/csswg-drafts/issues/10154
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static AlignContent ApplyAlignmentFallback(
+        public static AlignContentKeyword ApplyAlignmentFallback(
             float freeSpace,
             int numItems,
-            AlignContent alignmentMode,
-            bool isSafe)
+            AlignContent alignmentMode)
         {
-            // Fallback occurs in two cases:
+            var keyword = alignmentMode.Keyword;
+            var isSafe = alignmentMode.IsSafe;
 
-            // 1. If there is only a single item being aligned and alignment is a distributed alignment keyword
+            // Distributed keywords fall back to positional keywords and gain implicit safe semantics.
             //    https://www.w3.org/TR/css-align-3/#distribution-values
             if (numItems <= 1 || freeSpace <= 0f)
             {
-                switch (alignmentMode)
+                switch (keyword)
                 {
-                    case AlignContent.Stretch:
-                        alignmentMode = AlignContent.FlexStart;
+                    case AlignContentKeyword.Stretch:
+                    case AlignContentKeyword.SpaceBetween:
+                        keyword = AlignContentKeyword.FlexStart;
                         isSafe = true;
                         break;
-                    case AlignContent.SpaceBetween:
-                        alignmentMode = AlignContent.FlexStart;
-                        isSafe = true;
-                        break;
-                    case AlignContent.SpaceAround:
-                        alignmentMode = AlignContent.Center;
-                        isSafe = true;
-                        break;
-                    case AlignContent.SpaceEvenly:
-                        alignmentMode = AlignContent.Center;
+                    case AlignContentKeyword.SpaceAround:
+                    case AlignContentKeyword.SpaceEvenly:
+                        keyword = AlignContentKeyword.Center;
                         isSafe = true;
                         break;
                 }
             }
 
-            // 2. If free space is negative the "safe" alignment variants all fallback to Start alignment
+            // Safe alignment falls back to Start whenever the alignment subject overflows.
             if (freeSpace <= 0f && isSafe)
             {
-                alignmentMode = AlignContent.Start;
+                keyword = AlignContentKeyword.Start;
             }
 
-            return alignmentMode;
+            return keyword;
         }
 
         /// <summary>
@@ -72,7 +75,7 @@ namespace Marius.Winter.Taffy
             float freeSpace,
             int numItems,
             float gap,
-            AlignContent alignmentMode,
+            AlignContentKeyword alignmentMode,
             bool layoutIsFlexReversed,
             bool isFirst)
         {
@@ -80,17 +83,17 @@ namespace Marius.Winter.Taffy
             {
                 return alignmentMode switch
                 {
-                    AlignContent.Start => 0f,
-                    AlignContent.FlexStart => layoutIsFlexReversed ? freeSpace : 0f,
-                    AlignContent.End => freeSpace,
-                    AlignContent.FlexEnd => layoutIsFlexReversed ? 0f : freeSpace,
-                    AlignContent.Center => freeSpace / 2f,
-                    AlignContent.Stretch => 0f,
-                    AlignContent.SpaceBetween => 0f,
-                    AlignContent.SpaceAround => freeSpace >= 0f
+                    AlignContentKeyword.Start => 0f,
+                    AlignContentKeyword.FlexStart => layoutIsFlexReversed ? freeSpace : 0f,
+                    AlignContentKeyword.End => freeSpace,
+                    AlignContentKeyword.FlexEnd => layoutIsFlexReversed ? 0f : freeSpace,
+                    AlignContentKeyword.Center => freeSpace / 2f,
+                    AlignContentKeyword.Stretch => 0f,
+                    AlignContentKeyword.SpaceBetween => 0f,
+                    AlignContentKeyword.SpaceAround => freeSpace >= 0f
                         ? (freeSpace / numItems) / 2f
                         : freeSpace / 2f,
-                    AlignContent.SpaceEvenly => freeSpace >= 0f
+                    AlignContentKeyword.SpaceEvenly => freeSpace >= 0f
                         ? freeSpace / (numItems + 1)
                         : freeSpace / 2f,
                     _ => 0f,
@@ -101,15 +104,15 @@ namespace Marius.Winter.Taffy
                 float clampedFreeSpace = freeSpace > 0f ? freeSpace : 0f;
                 return gap + alignmentMode switch
                 {
-                    AlignContent.Start => 0f,
-                    AlignContent.FlexStart => 0f,
-                    AlignContent.End => 0f,
-                    AlignContent.FlexEnd => 0f,
-                    AlignContent.Center => 0f,
-                    AlignContent.Stretch => 0f,
-                    AlignContent.SpaceBetween => clampedFreeSpace / (numItems - 1),
-                    AlignContent.SpaceAround => clampedFreeSpace / numItems,
-                    AlignContent.SpaceEvenly => clampedFreeSpace / (numItems + 1),
+                    AlignContentKeyword.Start => 0f,
+                    AlignContentKeyword.FlexStart => 0f,
+                    AlignContentKeyword.End => 0f,
+                    AlignContentKeyword.FlexEnd => 0f,
+                    AlignContentKeyword.Center => 0f,
+                    AlignContentKeyword.Stretch => 0f,
+                    AlignContentKeyword.SpaceBetween => clampedFreeSpace / (numItems - 1),
+                    AlignContentKeyword.SpaceAround => clampedFreeSpace / numItems,
+                    AlignContentKeyword.SpaceEvenly => clampedFreeSpace / (numItems + 1),
                     _ => 0f,
                 };
             }
