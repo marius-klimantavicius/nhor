@@ -196,6 +196,105 @@ public sealed class UnicodeEditingTests(EditorWindow host)
         Assert.Equal("e\u0301😀B", TextOf(editor));
     }
 
+    [Theory]
+    [InlineData("TextArea", false)]
+    [InlineData("RichTextBox", false)]
+    [InlineData("TextArea", true)]
+    [InlineData("RichTextBox", true)]
+    public void ReplacementKeepsOriginalInsertionOffsetWhenRemovingNewlineJoinsGraphemes(string kind, bool paste)
+    {
+        var editor = host.Attach(kind, "a\n\u0301B");
+        Key(editor, GLFW_KEY_HOME, GLFW_MOD_CONTROL);
+        Key(editor, GLFW_KEY_RIGHT);
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_SHIFT); // Select only the newline.
+        if (paste)
+        {
+            Glfw.Glfw.glfwSetClipboardString(null, "X");
+            Key(editor, GLFW_KEY_V, GLFW_MOD_CONTROL);
+        }
+        else editor.OnTextInput("X");
+        Assert.Equal("aX\u0301B", TextOf(editor));
+        Assert.Equal(3, Caret(editor));
+        AssertBoundary(editor);
+        if (editor is RichTextBox rich) AssertRuns(rich);
+    }
+
+    [Theory]
+    [InlineData("TextArea", "\n")]
+    [InlineData("RichTextBox", "\n")]
+    [InlineData("TextArea", "\r\n")]
+    [InlineData("RichTextBox", "\r\n")]
+    public void WordCommandsRetainMultilineStops(string kind, string newline)
+    {
+        var editor = host.Attach(kind, "one" + newline + "😀two");
+        Key(editor, GLFW_KEY_HOME, GLFW_MOD_CONTROL);
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_CONTROL);
+        Assert.Equal(3, Caret(editor));
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_CONTROL);
+        Assert.Equal(3 + newline.Length, Caret(editor));
+        Key(editor, GLFW_KEY_DELETE, GLFW_MOD_CONTROL);
+        Assert.Equal("one" + newline, TextOf(editor));
+        AssertBoundary(editor);
+    }
+
+    [Theory, MemberData(nameof(Editors))]
+    public void JoinedInsertionAndSelectionAcrossClustersRemainValid(string kind)
+    {
+        var editor = host.Attach(kind, "👩💻!");
+        Key(editor, GLFW_KEY_HOME, GLFW_MOD_CONTROL);
+        Key(editor, GLFW_KEY_RIGHT);
+        editor.OnTextInput("\u200d");
+        Assert.Equal("👩‍💻!", TextOf(editor));
+        Assert.Equal("👩‍💻".Length, Caret(editor));
+        Key(editor, GLFW_KEY_HOME, GLFW_MOD_CONTROL | GLFW_MOD_SHIFT);
+        Key(editor, GLFW_KEY_DELETE);
+        Assert.Equal("!", TextOf(editor));
+        editor.OnTextInput("e\u0301😀");
+        Key(editor, GLFW_KEY_HOME, GLFW_MOD_CONTROL);
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_SHIFT);
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_SHIFT);
+        editor.OnTextInput("🇱🇹");
+        Assert.Equal("🇱🇹!", TextOf(editor));
+        AssertBoundary(editor);
+        if (editor is RichTextBox rich) AssertRuns(rich);
+    }
+
+    [Theory, MemberData(nameof(Editors))]
+    public void PasteClearsAnEmptyShiftSelection(string kind)
+    {
+        var editor = host.Attach(kind, "A😀");
+        Key(editor, GLFW_KEY_LEFT, GLFW_MOD_SHIFT);
+        Key(editor, GLFW_KEY_RIGHT, GLFW_MOD_SHIFT);
+        Glfw.Glfw.glfwSetClipboardString(null, "e\u0301");
+        Key(editor, GLFW_KEY_V, GLFW_MOD_CONTROL);
+        Assert.Equal("A😀e\u0301", TextOf(editor));
+        Assert.Equal(-1, Field<int>(editor, "_selectionStart"));
+        Key(editor, GLFW_KEY_BACKSPACE);
+        Assert.Equal("A😀", TextOf(editor));
+    }
+
+    [Fact]
+    public void ScrolledTextBoxUsesGraphemeSafeVisibleRangesAndRetainsItsPaint()
+    {
+        var box = (TextBox)host.Attach("TextBox", string.Concat(Enumerable.Repeat("Ae\u0301👩🏽‍💻🇱🇹", 8)));
+        box.Bounds = new RectF(0, 0, 100, 30);
+        var paint = Field<ThorVG.Text>(box, "_textPaint");
+        var scene = Field<ThorVG.Scene>(box, "_textScene");
+        var boundaries = StringInfo.ParseCombiningCharacters(box.Text).Append(box.Text.Length).ToArray();
+        Key(box, GLFW_KEY_HOME);
+        for (int i = 0; i < boundaries.Length; i++)
+        {
+            Key(box, GLFW_KEY_RIGHT);
+            int start = Field<int>(box, "_visibleStart");
+            int end = Field<int>(box, "_visibleEnd");
+            Assert.Contains(start, boundaries);
+            Assert.Contains(end, boundaries);
+            Assert.Equal(box.Text[start..end], paint.GetText());
+            Assert.Same(scene, paint.Parent());
+            Assert.Same(paint, Field<ThorVG.Text>(box, "_textPaint"));
+        }
+    }
+
     [Theory, MemberData(nameof(EditorClusters))]
     public void MousePlacementAndDragOnlySelectGraphemeBoundaries(string kind, string cluster)
     {

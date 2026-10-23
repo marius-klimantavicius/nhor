@@ -87,6 +87,14 @@ public sealed class CaretPerformanceTests(EditorWindow host, ITestOutputHelper o
             Assert.Equal(ThorVG.Result.Success, measure.GetTextSize(out float width, out _));
             Assert.True(width > 0);
             Assert.Equal(width, cursorX(), 2);
+            measure.SetText(box.Text[..4]); // These fixtures start with four ASCII letters.
+            Assert.Equal(ThorVG.Result.Success, measure.GetTextSize(out float prefixWidth, out _));
+            Key(box, GLFW_KEY_HOME);
+            float hitX = box.Bounds.H * 0.3f + prefixWidth;
+            box.OnMouseDown(0, hitX, box.Bounds.H / 2);
+            box.OnMouseUp(0, hitX, box.Bounds.H / 2);
+            Assert.Equal(4, Caret(box));
+            Key(box, GLFW_KEY_END);
         }
         finally { measure.Unref(); }
     }
