@@ -319,15 +319,24 @@ public class ComboBox : Element
         });
     }
 
+    protected override void OnActivityChanged(bool active)
+    {
+        if (!active) ClosePopup();
+    }
+
+    protected override void OnDetaching() => ClosePopup();
+
     internal void ClosePopup()
     {
         if (!_isOpen) return;
         _isOpen = false;
         if (_popup != null)
         {
-            OwnerWindow?.Animator?.Cancel("combobox_popup");
-            OwnerWindow?.RemoveOverlay(_popup);
+            var popup = _popup;
             _popup = null;
+            OwnerWindow?.Animator?.Cancel("combobox_popup");
+            OwnerWindow?.RemoveOverlay(popup);
+            popup.Dispose();
         }
     }
 
@@ -370,6 +379,11 @@ internal class ComboBoxPopup : Element
     private readonly List<Text> _itemTexts = new();
     private bool _shapesCreated;
     private float _itemHeight;
+
+    public override void OnBlur()
+    {
+        if (!IsDisposed) _owner.ClosePopup();
+    }
 
     public ComboBoxPopup(ComboBox owner, List<string> items, int selectedIndex)
     {

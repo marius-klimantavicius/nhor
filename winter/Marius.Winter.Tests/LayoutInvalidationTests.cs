@@ -68,4 +68,29 @@ public class LayoutInvalidationTests
         Assert.Equal(0, a.Bounds.W); Assert.Equal(0, a.Bounds.H);
         a.Visible = true; engine.ComputeLayout(panel, 100, 50); Assert.Equal(24, b.Bounds.X);
     }
+
+    [Fact]
+    public void LeadingCollapsedChildrenDoNotLeavePhantomStackSpacingInMeasurement()
+    {
+        var panel = new Panel { Layout = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 4 },
+            Style = new Style { Padding = new Thickness(0) } };
+        panel.AddChild(new Box { Visible = false }); panel.AddChild(new Box());
+        Assert.Equal(new Vector2(20, 10), panel.Measure(100, 50));
+    }
+
+    [Fact]
+    public void EffectivePanelStyleWithPaddingStillNotifiesOnMutation()
+    {
+        var panel = new Panel { Style = new Style(), Padding = new Thickness(7) };
+        panel.Measure(100, 50); panel.Style.FontSize = 36;
+        Assert.True(panel.IsMeasureDirty);
+    }
+
+    [Fact]
+    public void DetachedDefaultStyleMutationPersistsAcrossMeasurement()
+    {
+        var box = new StyledBox(); box.Measure(100, 100);
+        box.Style.FontSize = 50;
+        Assert.Equal(new Vector2(66, 50), box.Measure(100, 100));
+    }
 }

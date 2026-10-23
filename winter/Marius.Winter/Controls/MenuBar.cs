@@ -367,14 +367,23 @@ public class MenuBar : Element
         MarkDirty();
     }
 
+    protected override void OnActivityChanged(bool active)
+    {
+        if (!active) CloseMenu();
+    }
+
+    protected override void OnDetaching() => CloseMenu();
+
     internal void CloseMenu()
     {
         if (_popup != null)
         {
-            _popup.CloseSubPopup();
-            OwnerWindow?.Animator?.Cancel("menu_popup");
-            OwnerWindow?.RemoveOverlay(_popup);
+            var popup = _popup;
             _popup = null;
+            popup.CloseSubPopup();
+            OwnerWindow?.Animator?.Cancel("menu_popup");
+            OwnerWindow?.RemoveOverlay(popup);
+            popup.Dispose();
         }
         _openIndex = -1;
         UpdateHighlight();
@@ -766,12 +775,23 @@ internal class MenuPopup : Element
     {
         if (_subPopup != null)
         {
-            _subPopup.CloseSubPopup(); // recursive
-            (OwnerWindow ?? _window)?.RemoveOverlay(_subPopup);
+            var popup = _subPopup;
             _subPopup = null;
             _subMenuIndex = -1;
+            popup.CloseSubPopup(); // recursive
+            var window = OwnerWindow ?? _window;
+            window.Animator.Cancel("menu_sub_popup");
+            window.RemoveOverlay(popup);
+            popup.Dispose();
         }
     }
+
+    public override void OnBlur()
+    {
+        if (!IsDisposed) _onDismiss?.Invoke();
+    }
+
+    protected override void OnDetaching() => CloseSubPopup();
 
     public override bool OnMouseDown(int button, float x, float y) => button == 0;
     public override bool OnMouseUp(int button, float x, float y) => button == 0;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Marius.Winter;
 
@@ -72,23 +73,55 @@ public enum ElementState
 
 public class Style
 {
-    public Color4 Background;
-    public Color4 BackgroundHovered;
-    public Color4 BackgroundPressed;
-    public Color4 BackgroundDisabled;
-    public Color4 Foreground;
-    public Color4 ForegroundDisabled;
-    public Color4 Border;
-    public Color4 BorderFocused;
-    public float BorderWidth = 1f;
-    public float CornerRadius = 3f;
-    public float FontSize = 16f;
-    public string FontName = "default";
-    public Thickness Padding = new(8f, 4f);
+    private Color4 _background, _backgroundHovered, _backgroundPressed, _backgroundDisabled;
+    private Color4 _foreground, _foregroundDisabled, _border, _borderFocused;
+    private float _borderWidth = 1f, _cornerRadius = 3f, _fontSize = 16f;
+    private string _fontName = "default";
+    private Thickness _padding = new(8f, 4f);
+    private List<WeakReference<Element>>? _subscribers;
+    internal uint Version { get; private set; }
+
+    public Color4 Background { get => _background; set => Set(ref _background, value); }
+    public Color4 BackgroundHovered { get => _backgroundHovered; set => Set(ref _backgroundHovered, value); }
+    public Color4 BackgroundPressed { get => _backgroundPressed; set => Set(ref _backgroundPressed, value); }
+    public Color4 BackgroundDisabled { get => _backgroundDisabled; set => Set(ref _backgroundDisabled, value); }
+    public Color4 Foreground { get => _foreground; set => Set(ref _foreground, value); }
+    public Color4 ForegroundDisabled { get => _foregroundDisabled; set => Set(ref _foregroundDisabled, value); }
+    public Color4 Border { get => _border; set => Set(ref _border, value); }
+    public Color4 BorderFocused { get => _borderFocused; set => Set(ref _borderFocused, value); }
+    public float BorderWidth { get => _borderWidth; set => Set(ref _borderWidth, value); }
+    public float CornerRadius { get => _cornerRadius; set => Set(ref _cornerRadius, value); }
+    public float FontSize { get => _fontSize; set => Set(ref _fontSize, value); }
+    public string FontName { get => _fontName; set => Set(ref _fontName, value); }
+    /// <summary>Assign the complete Thickness value to notify elements of a change.</summary>
+    public Thickness Padding { get => _padding; set => Set(ref _padding, value); }
+
+    private void Set<T>(ref T field, T value)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        Version++;
+        if (_subscribers == null) return;
+        // Callbacks may read a different effective style and unsubscribe.
+        foreach (var weak in _subscribers.ToArray())
+            if (weak.TryGetTarget(out var element)) element.StyleMutated(this);
+        _subscribers.RemoveAll(weak => !weak.TryGetTarget(out _));
+    }
+
+    internal void Subscribe(Element element)
+    {
+        _subscribers ??= new();
+        _subscribers.Add(new WeakReference<Element>(element));
+    }
+
+    internal void Unsubscribe(Element element) =>
+        _subscribers?.RemoveAll(weak => !weak.TryGetTarget(out var target) || ReferenceEquals(target, element));
 
     public Style Clone()
     {
-        return (Style)MemberwiseClone();
+        var clone = (Style)MemberwiseClone();
+        clone._subscribers = null;
+        return clone;
     }
 }
 

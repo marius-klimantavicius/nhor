@@ -133,4 +133,83 @@ public class SubtreeLifecycleTests
         }
         finally { window.Dispose(); }
     }
+
+    [Theory]
+    [InlineData("hide", false)]
+    [InlineData("disable", false)]
+    [InlineData("remove", false)]
+    [InlineData("hide", true)]
+    [InlineData("disable", true)]
+    [InlineData("remove", true)]
+    [InlineData("dismiss", false)]
+    [InlineData("dismiss", true)]
+    public void InactivePopupOwnerSubtreeClosesItsPopupAndFadeAnimation(string operation, bool menu)
+    {
+        var window = new Window(160, 100, "Winter popup regression");
+        try
+        {
+            var panel = new Panel(); Element control;
+            if (menu) { var bar = new MenuBar(); bar.AddMenu("File").AddSubMenu("Recent").AddItem("Open"); control = bar; }
+            else { var combo = new ComboBox(); combo.SetItems(new[] { "One", "Two" }); control = combo; }
+            panel.AddChild(control); window.AddChild(panel); control.Arrange(new RectF(0, 0, 100, 30));
+            if (menu) { control.OnMouseMove(5, 5); control.OnMouseDown(0, 5, 5); control.OnClick(); }
+            else control.OnClick();
+            var overlayField = typeof(Window).GetField("_overlays", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var popup = Assert.Single((System.Collections.Generic.List<Element>)overlayField.GetValue(window)!);
+            Element? submenu = null;
+            if (menu)
+            {
+                popup.OnMouseMove(popup.Bounds.X + 5, popup.Bounds.Y + 6);
+                var open = (System.Collections.Generic.List<Element>)overlayField.GetValue(window)!;
+                Assert.Equal(2, open.Count); submenu = open[1];
+            }
+            if (operation == "hide") panel.Visible = false;
+            else if (operation == "disable") panel.Enabled = false;
+            else if (operation == "dismiss") window.DismissAllOverlays();
+            else window.RemoveChild(panel);
+            Assert.Empty((System.Collections.Generic.List<Element>)overlayField.GetValue(window)!);
+            Assert.False(window.Animator.HasActiveAnimations);
+            Assert.True(popup.IsDisposed); Assert.Empty(popup.Scene.Paints());
+            if (submenu != null) { Assert.True(submenu.IsDisposed); Assert.Empty(submenu.Scene.Paints()); }
+        }
+        finally { window.Dispose(); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RemovingTooltipOrContextMenuSourceDisposesTemporaryOverlay(bool tooltip)
+    {
+        var window = new Window(160, 100, "Winter transient overlay regression");
+        try
+        {
+            var panel = new Panel(); var box = new Box { Tooltip = "Details", ContextMenu = new Menu().AddItem("Open") };
+            panel.AddChild(box); window.AddChild(panel);
+            if (tooltip)
+            {
+                typeof(Window).GetMethod("UpdateTooltipTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { box, 5f, 5f });
+                typeof(Window).GetMethod("ShowTooltip", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+            }
+            else typeof(Window).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { box, 5f, 5f });
+            var overlays = (System.Collections.Generic.List<Element>)typeof(Window).GetField("_overlays", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+            var overlay = Assert.Single(overlays);
+            window.RemoveChild(panel);
+            Assert.Empty(overlays); Assert.False(window.Animator.HasActiveAnimations);
+            Assert.True(overlay.IsDisposed); Assert.Empty(overlay.Scene.Paints());
+        }
+        finally { window.Dispose(); }
+    }
+
+    [Fact]
+    public void ThemeRefreshDoesNotRaiseWindowResizeWithoutBoundsChange()
+    {
+        var window = new Window(160, 100, "Winter theme regression");
+        try
+        {
+            int resized = 0; window.Resized = () => resized++;
+            window.Theme = Theme.Light;
+            Assert.Equal(0, resized);
+        }
+        finally { window.Dispose(); }
+    }
 }

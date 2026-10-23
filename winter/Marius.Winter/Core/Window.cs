@@ -49,6 +49,7 @@ public unsafe class Window : Element
 
     // Context menu state
     private MenuPopup? _contextMenuPopup;
+    private Element? _contextMenuTarget;
 
     // Tooltip state
     private const float TooltipDelay = 0.5f; // seconds before tooltip appears
@@ -273,8 +274,11 @@ public unsafe class Window : Element
         Dispose();
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
+        if (IsDisposed) return;
+        DismissAllOverlays();
+        base.Dispose();
         _canvas = null;
 
         for (int i = 0; i < _cursors.Length; i++)
@@ -309,6 +313,7 @@ public unsafe class Window : Element
 
     public void SetFocus(Element? element)
     {
+        if (element != null && !CanReceiveInput(element)) return;
         if (_focusedElement == element) return;
         var old = _focusedElement;
         _focusedElement = element;
@@ -325,14 +330,74 @@ public unsafe class Window : Element
         }
     }
 
+    private bool CanReceiveInput(Element element) => ReferenceEquals(element.OwnerWindow, this) && element.IsActive;
+
+    private Element? FocusedInput()
+    {
+        if (_focusedElement != null && !CanReceiveInput(_focusedElement)) SetFocus(null);
+        return _focusedElement;
+    }
+
+    // Called before severing parent/window ownership, so OnBlur and animation
+    // cleanup still have access to the old window and its animator.
+    internal void ReleaseSubtreeReferences(Element root)
+    {
+        bool Contains(Element? element) => ReferenceEquals(root, element) || IsDescendantOf(element, root);
+        if (Contains(_focusedElement)) SetFocus(null);
+        if (Contains(_capturedElement))
+        {
+            var captured = _capturedElement;
+            _capturedElement = null;
+            captured!.State &= ~ElementState.Pressed;
+            captured.OnDragEnd();
+        }
+        if (Contains(_hoveredElement))
+        {
+            var hovered = _hoveredElement;
+            _hoveredElement = null;
+            for (var element = hovered; element != null && element != this; element = element.Parent)
+            {
+                element.State &= ~ElementState.Hovered;
+                element.OnMouseLeave();
+            }
+            SetCursor(CursorType.Arrow);
+        }
+        if (Contains(_tooltipElement)) HideTooltip();
+        if (Contains(_lastClickElement))
+        {
+            _lastClickElement = null;
+            _lastClickTimestamp = 0;
+        }
+        if (Contains(_contextMenuTarget)) DismissContextMenu();
+        ClearTransientState(root);
+        _dirty = true;
+    }
+
+    private static void ClearTransientState(Element element)
+    {
+        element.State &= ~(ElementState.Focused | ElementState.Hovered | ElementState.Pressed);
+        foreach (var child in element.Children) ClearTransientState(child);
+    }
+
+    private void ValidatePointerReferences()
+    {
+        if (_capturedElement != null && !CanReceiveInput(_capturedElement)) ReleaseSubtreeReferences(_capturedElement);
+        if (_hoveredElement != null && !CanReceiveInput(_hoveredElement)) ReleaseSubtreeReferences(_hoveredElement);
+    }
+
     // --- Overlay management ---
 
     public void ShowOverlay(Element overlay)
     {
+        ThrowIfDisposed();
+        overlay.ThrowIfDisposed();
         if (_overlays.Contains(overlay)) return;
+        if (overlay.Parent != null || overlay._overlayOwner != null)
+            throw new InvalidOperationException("Overlay already has an owner");
         _overlays.Add(overlay);
         overlay._overlayOwner = this;
         _overlayScene?.Add(overlay.Scene);
+        overlay.NotifyAttached();
         overlay.NotifyThemeChanged();
         _dirty = true;
     }
@@ -340,22 +405,24 @@ public unsafe class Window : Element
     public void RemoveOverlay(Element overlay)
     {
         if (!_overlays.Remove(overlay)) return;
-        overlay._overlayOwner = null;
+        overlay.DetachSubtree();
         _overlayScene?.Remove(overlay.Scene);
+        overlay._overlayOwner = null;
         _dirty = true;
     }
 
     public void DismissAllOverlays()
     {
-        for (int i = _overlays.Count - 1; i >= 0; i--)
+        DismissContextMenu();
+        HideTooltip();
+        foreach (var overlay in _overlays.ToArray())
         {
-            var overlay = _overlays[i];
-            overlay._overlayOwner = null;
-            _overlayScene?.Remove(overlay.Scene);
+            RemoveOverlay(overlay);
             overlay.OnBlur();
         }
         _overlays.Clear();
         _contextMenuPopup = null;
+        _contextMenuTarget = null;
         _dirty = true;
     }
 
@@ -368,6 +435,7 @@ public unsafe class Window : Element
         if (menu.Items.Count == 0) return;
 
         DismissContextMenu();
+        _contextMenuTarget = target;
 
         _contextMenuPopup = new MenuPopup(this, menu.Items,
             onItemSelected: item => { DismissContextMenu(); item.Action?.Invoke(); },
@@ -401,12 +469,15 @@ public unsafe class Window : Element
 
     private void DismissContextMenu()
     {
+        _contextMenuTarget = null;
         if (_contextMenuPopup != null)
         {
-            _contextMenuPopup.CloseSubPopup();
-            Animator.Cancel("context_menu");
-            RemoveOverlay(_contextMenuPopup);
+            var popup = _contextMenuPopup;
             _contextMenuPopup = null;
+            popup.CloseSubPopup();
+            Animator.Cancel("context_menu");
+            RemoveOverlay(popup);
+            popup.Dispose();
         }
     }
 
@@ -509,23 +580,24 @@ public unsafe class Window : Element
                     return;
                 }
 
-                _focusedElement?.OnKeyDown(key, mods, action == GLFW_REPEAT);
+                FocusedInput()?.OnKeyDown(key, mods, action == GLFW_REPEAT);
                 _dirty = true;
             }
             else if (action == GLFW_RELEASE)
             {
-                _focusedElement?.OnKeyUp(key, mods);
+                FocusedInput()?.OnKeyUp(key, mods);
             }
         });
 
         Glfw.Glfw.glfwSetCharCallback(_window!, (w, codepoint) =>
         {
-            _focusedElement?.OnTextInput(char.ConvertFromUtf32((int)codepoint));
+            FocusedInput()?.OnTextInput(char.ConvertFromUtf32((int)codepoint));
             _dirty = true;
         });
 
         Glfw.Glfw.glfwSetMouseButtonCallback(_window!, (w, button, action, mods) =>
         {
+            ValidatePointerReferences();
             // Hide tooltip on any mouse button press
             if (action == GLFW_PRESS && _tooltipOverlay != null)
                 HideTooltip();
@@ -568,7 +640,8 @@ public unsafe class Window : Element
                     // Bubble OnMouseDown up from hit target through ancestors
                     // until one handles it (returns true)
                     var handler = BubbleMouseDown(target2, button, _mouseX, _mouseY);
-                    _capturedElement = handler ?? target2;
+                    var capture = handler ?? target2;
+                    _capturedElement = CanReceiveInput(capture) ? capture : null;
                     SetFocus(_capturedElement);
                     _dirty = true;
                 }
@@ -621,6 +694,7 @@ public unsafe class Window : Element
 
         Glfw.Glfw.glfwSetCursorPosCallback(_window!, (w, xpos, ypos) =>
         {
+            ValidatePointerReferences();
             _mouseX = (float)xpos;
             _mouseY = (float)ypos;
 
@@ -637,6 +711,7 @@ public unsafe class Window : Element
 
         Glfw.Glfw.glfwSetScrollCallback(_window!, (w, xoffset, yoffset) =>
         {
+            ValidatePointerReferences();
             var target = _hoveredElement ?? HitTest(_mouseX, _mouseY);
             if (target != null && target != this)
             {
@@ -816,8 +891,10 @@ public unsafe class Window : Element
         _animator.Cancel("tooltip");
         if (_tooltipOverlay != null)
         {
-            RemoveOverlay(_tooltipOverlay);
+            var overlay = _tooltipOverlay;
             _tooltipOverlay = null;
+            RemoveOverlay(overlay);
+            overlay.Dispose();
             _dirty = true;
         }
         _tooltipElement = null;
@@ -968,6 +1045,9 @@ public unsafe class Window : Element
     }
 
     // --- Override Element for Window-specific behavior ---
+
+    // Style/theme refresh must not synthesize a native resize notification.
+    protected override void OnStyleChanged() => OnThemeChanged();
 
     protected override void OnSizeChanged()
     {

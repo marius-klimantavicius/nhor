@@ -26,6 +26,7 @@ public class StackLayout : ILayout
     {
         float mainSize = 0;
         float crossSize = 0;
+        int visibleCount = 0;
         var children = container.Children;
         var padding = container.Style.Padding;
 
@@ -49,7 +50,7 @@ public class StackLayout : ILayout
                 if (crossSize < childSize.Y) crossSize = childSize.Y;
             }
 
-            if (i > 0) mainSize += Spacing;
+            if (visibleCount++ > 0) mainSize += Spacing;
         }
 
         if (Orientation == Orientation.Vertical)

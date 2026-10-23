@@ -13,6 +13,9 @@ public class Panel : Element, ILayoutContainer
     private Color4? _borderColor;
     private Thickness? _padding;
     private CornerRadius? _cornerRadius;
+    private Style? _paddingStyle, _paddingStyleSource;
+    private uint _paddingStyleVersion;
+    private Thickness? _appliedPadding;
 
     public Panel()
     {
@@ -207,15 +210,21 @@ public class Panel : Element, ILayoutContainer
         shape.Close();
     }
 
-    protected override Style GetDefaultStyle()
+    protected override Style GetDefaultStyle() => OwnerWindow?.Theme.Panel ?? new Style();
+
+    protected override Style ApplyStyleOverrides(Style style)
     {
-        var s = OwnerWindow?.Theme.Panel ?? new Style();
-        if (_padding.HasValue)
+        if (!_padding.HasValue) return style;
+        if (!ReferenceEquals(_paddingStyleSource, style) || _paddingStyleVersion != style.Version ||
+            !_appliedPadding.Equals(_padding))
         {
-            s = s.Clone();
-            s.Padding = _padding.Value;
+            _paddingStyleSource = style;
+            _paddingStyleVersion = style.Version;
+            _appliedPadding = _padding;
+            _paddingStyle = style.Clone();
+            _paddingStyle.Padding = _padding.Value;
         }
-        return s;
+        return _paddingStyle!;
     }
 
     protected override void OnThemeChanged()

@@ -108,6 +108,12 @@ public class GifImage : Element
         StopTicking();
     }
 
+    protected override void OnActivityChanged(bool active)
+    {
+        if (active && _playing) StartTicking();
+        else StopTicking();
+    }
+
     private void Setup(GifDecoder.GifResult gif)
     {
         _gif = gif;
@@ -171,7 +177,7 @@ public class GifImage : Element
     private void StartTicking()
     {
         if (_tickAnim != null || _gif == null || _gif.Frames.Count <= 1) return;
-        if (OwnerWindow == null) return; // defer until OnAttached
+        if (!IsActive) return; // defer until the subtree is active in a window
 
         _lastTickElapsed = 0;
         _frameAccum = 0;
@@ -181,7 +187,7 @@ public class GifImage : Element
             Apply = OnTick,
             Tag = this,
         };
-        OwnerWindow.Animator.Start(_tickAnim);
+        OwnerWindow!.Animator.Start(_tickAnim);
     }
 
     private void StopTicking()

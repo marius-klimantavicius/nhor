@@ -121,6 +121,18 @@ public class LottieImage : Element
         StopTicking();
     }
 
+    protected override void OnActivityChanged(bool active)
+    {
+        if (active && _playing) StartTicking();
+        else StopTicking();
+    }
+
+    protected override void OnDisposed()
+    {
+        _animation?.Dispose();
+        _animation = null;
+    }
+
     private void LoadFromString(string? json)
     {
         if (string.IsNullOrEmpty(json)) { Unload(); return; }
@@ -174,7 +186,7 @@ public class LottieImage : Element
     private void StartTicking()
     {
         if (_tickAnim != null || _animation == null || _duration <= 0) return;
-        if (OwnerWindow == null) return; // defer until OnAttached
+        if (!IsActive) return; // defer until the subtree is active in a window
 
         _tickAnim = new Animation
         {

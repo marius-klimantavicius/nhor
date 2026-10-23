@@ -19,6 +19,7 @@ namespace Marius.Winter;
 internal class TaffyLayoutEngine
 {
     private readonly TaffyTree<Element> _tree = new();
+    private readonly HashSet<Element> _elements = new(ReferenceEqualityComparer.Instance);
     private bool _computing; // re-entrancy guard
 
     /// <summary>
@@ -81,7 +82,7 @@ internal class TaffyLayoutEngine
     {
         foreach (var child in element.ChildrenMutable)
         {
-            if (!child._taffyNodeValid) continue;
+            if (!ReferenceEquals(child._taffyOwner, this)) continue;
             _tree.MarkDirty(child._taffyNode);
             if (!child.ManagesOwnChildLayout)
                 ClearDescendantCaches(child);
@@ -93,11 +94,17 @@ internal class TaffyLayoutEngine
     /// </summary>
     public void RemoveNode(Element element)
     {
-        if (!element._taffyNodeValid) return;
-        foreach (var child in element.Children)
-            RemoveNode(child);
+        element.ReleaseLayoutNodes();
+    }
+
+    internal void RemoveOwnedNode(Element element)
+    {
+        if (!ReferenceEquals(element._taffyOwner, this)) return;
         _tree.Remove(element._taffyNode);
+        _elements.Remove(element);
         element._taffyNodeValid = false;
+        element._taffyOwner = null;
+        element._taffyStyleDirty = true;
     }
 
     /// <summary>
@@ -105,15 +112,26 @@ internal class TaffyLayoutEngine
     /// </summary>
     public void Clear()
     {
+        foreach (var element in _elements)
+        {
+            element._taffyNodeValid = false;
+            element._taffyOwner = null;
+            element._taffyStyleDirty = true;
+        }
+        _elements.Clear();
         _tree.Clear();
     }
 
     private void EnsureNode(Element element)
     {
-        if (!element._taffyNodeValid)
+        element.ThrowIfDisposed();
+        if (!ReferenceEquals(element._taffyOwner, this))
         {
+            element.ReleaseLayoutNodes();
             element._taffyNode = _tree.NewLeafWithContext(new Taffy.Style(), element);
             element._taffyNodeValid = true;
+            element._taffyOwner = this;
+            _elements.Add(element);
             element._taffyStyleDirty = true;
         }
     }
@@ -141,25 +159,14 @@ internal class TaffyLayoutEngine
         var children = element.ChildrenMutable;
         var taffyChildren = _tree.Children(element._taffyNode);
 
-        // Check if children match — fast path: same count and same nodes in order
+        // Every child must belong to this engine before any IDs are compared or
+        // published. A mismatch near the front must not skip initialization later.
         bool childrenMatch = children.Count == taffyChildren.Count;
-        if (childrenMatch)
+        for (int i = 0; i < children.Count; i++)
         {
-            for (int i = 0; i < children.Count; i++)
-            {
-                var child = children[i];
-                EnsureNode(child);
-                if (child._taffyNode != taffyChildren[i])
-                {
-                    childrenMatch = false;
-                    break;
-                }
-            }
-        }
-        else
-        {
-            for (int i = 0; i < children.Count; i++)
-                EnsureNode(children[i]);
+            EnsureNode(children[i]);
+            if (childrenMatch && children[i]._taffyNode != taffyChildren[i])
+                childrenMatch = false;
         }
 
         if (!childrenMatch)
@@ -228,6 +235,9 @@ internal class TaffyLayoutEngine
                 ApplyStackContainerStyle(s, stack, element);
         }
 
+        // Visible=false is collapsed, matching the manual layout algorithms.
+        // Apply this after container styles which otherwise set Display again.
+        if (!element.Visible) s.Display = Display.None;
         return s;
     }
 
@@ -347,7 +357,7 @@ internal class TaffyLayoutEngine
         for (int i = 0; i < children.Count; i++)
         {
             var child = children[i];
-            if (!child._taffyNodeValid) continue;
+            if (!ReferenceEquals(child._taffyOwner, this)) continue;
 
             var layout = _tree.GetLayout(child._taffyNode);
             float x = offsetX + layout.Location.X;

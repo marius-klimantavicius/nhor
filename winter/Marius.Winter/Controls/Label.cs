@@ -209,6 +209,19 @@ public class Label : Element
         return OwnerWindow?.Theme.Label ?? new Style();
     }
 
+    protected override void OnStyleChanged()
+    {
+        if (!_fontSizeSet) _fontSize = Style.FontSize;
+        _textPaint?.SetFont(_bold ? "default-bold" : Style.FontName);
+        _textPaint?.SetFontSize(EffectiveFontSize(_fontSize));
+        if (!_colorSet)
+        {
+            _color = Style.Foreground;
+            _textPaint?.SetFill(_color.R8, _color.G8, _color.B8);
+        }
+        OnSizeChanged();
+    }
+
     protected override void OnThemeChanged()
     {
         if (!_shapesCreated || _colorSet) return;
