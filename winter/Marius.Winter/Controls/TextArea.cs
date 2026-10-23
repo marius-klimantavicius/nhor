@@ -33,6 +33,11 @@ public class TextArea : Element
     private string _placeholder = "";
     private string[] _lines = { "" };
     private int[] _lineOffsets = { 0 };
+    private readonly TextEditingBoundaries _boundaries = new();
+    private TextEditingBoundaries Boundaries
+    {
+        get { _boundaries.SetText(_text); return _boundaries; }
+    }
     private int _cursorPos;
     private int _selectionStart = -1;
     private bool _shapesCreated;
@@ -73,7 +78,7 @@ public class TextArea : Element
         {
             if (_text == value) return;
             _text = value;
-            _cursorPos = Math.Clamp(_cursorPos, 0, value.Length);
+            _cursorPos = Boundaries.Floor(_cursorPos);
             _selectionStart = -1;
             SplitLines();
             UpdateContent();
@@ -96,14 +101,7 @@ public class TextArea : Element
 
     private void SplitLines()
     {
-        _lines = _text.Split('\n');
-        _lineOffsets = new int[_lines.Length];
-        int offset = 0;
-        for (int i = 0; i < _lines.Length; i++)
-        {
-            _lineOffsets[i] = offset;
-            offset += _lines[i].Length + 1;
-        }
+        TextEditingBoundaries.SplitLines(_text, out _lines, out _lineOffsets);
     }
 
     private bool NeedsScrollbarV()
@@ -472,6 +470,7 @@ public class TextArea : Element
 
     private void EnsureCursorVisible()
     {
+        _cursorPos = Boundaries.Floor(_cursorPos);
         float viewportH = ViewportH();
         float viewportW = ViewportW();
         float cursorY = GetCursorY();
@@ -514,11 +513,14 @@ public class TextArea : Element
         if (string.IsNullOrEmpty(lineText)) return _lineOffsets[line];
 
         float prevWidth = 0;
-        for (int i = 1; i <= lineText.Length; i++)
+        int start = _lineOffsets[line];
+        int end = start + lineText.Length;
+        for (int pos = Boundaries.Next(start), previous = start; pos <= end && pos > previous;
+             previous = pos, pos = Boundaries.Next(pos))
         {
-            float width = MeasureTextWidth(lineText[..i]);
+            float width = MeasureTextWidth(lineText[..(pos - start)]);
             float midpoint = (prevWidth + width) / 2f;
-            if (textX < midpoint) return _lineOffsets[line] + i - 1;
+            if (textX < midpoint) return previous;
             prevWidth = width;
         }
         return _lineOffsets[line] + lineText.Length;
@@ -592,6 +594,7 @@ public class TextArea : Element
         int start = Math.Min(_selectionStart, _cursorPos);
         int end = Math.Max(_selectionStart, _cursorPos);
         _text = _text.Remove(start, end - start);
+        // Normalize after the complete edit, preserving this offset for replacement.
         _cursorPos = start;
         _selectionStart = -1;
         _selectionShape?.Visible(false);
@@ -619,7 +622,8 @@ public class TextArea : Element
         if (string.IsNullOrEmpty(clip)) return;
         DeleteSelection();
         _text = _text.Insert(_cursorPos, clip);
-        _cursorPos += clip.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + clip.Length);
+        _selectionStart = -1;
         SplitLines();
         EnsureCursorVisible();
         MarkDirty();
@@ -859,7 +863,7 @@ public class TextArea : Element
 
         DeleteSelection();
         _text = _text.Insert(_cursorPos, text);
-        _cursorPos += text.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + text.Length);
         _selectionStart = -1;
         SplitLines();
         EnsureCursorVisible();
@@ -881,7 +885,7 @@ public class TextArea : Element
             case GLFW_KEY_KP_ENTER:
                 DeleteSelection();
                 _text = _text.Insert(_cursorPos, "\n");
-                _cursorPos++;
+                _cursorPos = Boundaries.Next(_cursorPos);
                 _selectionStart = -1;
                 SplitLines();
                 EnsureCursorVisible();
@@ -900,7 +904,7 @@ public class TextArea : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryLeft(_cursorPos);
                 else if (_cursorPos > 0)
-                    _cursorPos--;
+                    _cursorPos = Boundaries.Previous(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 EnsureCursorVisible();
                 RestartBlink();
@@ -917,7 +921,7 @@ public class TextArea : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryRight(_cursorPos);
                 else if (_cursorPos < _text.Length)
-                    _cursorPos++;
+                    _cursorPos = Boundaries.Next(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 EnsureCursorVisible();
                 RestartBlink();
@@ -930,9 +934,8 @@ public class TextArea : Element
                 int line = GetLineAtCharIndex(_cursorPos);
                 if (line > 0)
                 {
-                    int col = GetColumnInLine(_cursorPos, line);
-                    col = Math.Min(col, _lines[line - 1].Length);
-                    _cursorPos = _lineOffsets[line - 1] + col;
+                    _cursorPos = Boundaries.InAdjacentLine(_cursorPos, _lineOffsets[line],
+                        _lineOffsets[line - 1], _lines[line - 1].Length);
                 }
                 else
                 {
@@ -951,9 +954,8 @@ public class TextArea : Element
                 int line = GetLineAtCharIndex(_cursorPos);
                 if (line < _lines.Length - 1)
                 {
-                    int col = GetColumnInLine(_cursorPos, line);
-                    col = Math.Min(col, _lines[line + 1].Length);
-                    _cursorPos = _lineOffsets[line + 1] + col;
+                    _cursorPos = Boundaries.InAdjacentLine(_cursorPos, _lineOffsets[line],
+                        _lineOffsets[line + 1], _lines[line + 1].Length);
                 }
                 else
                 {
@@ -1003,7 +1005,7 @@ public class TextArea : Element
                     DeleteSelection();
                 else if (_cursorPos > 0)
                 {
-                    int count = ctrl ? _cursorPos - FindWordBoundaryLeft(_cursorPos) : 1;
+                    int count = _cursorPos - (ctrl ? FindWordBoundaryLeft(_cursorPos) : Boundaries.Previous(_cursorPos));
                     _cursorPos -= count;
                     _text = _text.Remove(_cursorPos, count);
                     SplitLines();
@@ -1018,7 +1020,7 @@ public class TextArea : Element
                     DeleteSelection();
                 else if (_cursorPos < _text.Length)
                 {
-                    int count = ctrl ? FindWordBoundaryRight(_cursorPos) - _cursorPos : 1;
+                    int count = (ctrl ? FindWordBoundaryRight(_cursorPos) : Boundaries.Next(_cursorPos)) - _cursorPos;
                     _text = _text.Remove(_cursorPos, count);
                     SplitLines();
                 }
@@ -1060,24 +1062,9 @@ public class TextArea : Element
 
     // --- Word boundaries ---
 
-    private int FindWordBoundaryLeft(int pos)
-    {
-        if (pos <= 0) return 0;
-        pos--;
-        while (pos > 0 && _text[pos] == '\n') pos--;
-        while (pos > 0 && char.IsWhiteSpace(_text[pos]) && _text[pos] != '\n') pos--;
-        while (pos > 0 && !char.IsWhiteSpace(_text[pos - 1])) pos--;
-        return pos;
-    }
+    private int FindWordBoundaryLeft(int pos) => Boundaries.WordLeft(pos, stopAtNewline: true);
 
-    private int FindWordBoundaryRight(int pos)
-    {
-        if (pos >= _text.Length) return _text.Length;
-        while (pos < _text.Length && _text[pos] == '\n') { pos++; return pos; }
-        while (pos < _text.Length && !char.IsWhiteSpace(_text[pos])) pos++;
-        while (pos < _text.Length && char.IsWhiteSpace(_text[pos]) && _text[pos] != '\n') pos++;
-        return pos;
-    }
+    private int FindWordBoundaryRight(int pos) => Boundaries.WordRight(pos, stopAtNewline: true);
 
     // --- Blink animation ---
 

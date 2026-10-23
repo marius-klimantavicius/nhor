@@ -18,11 +18,22 @@ public class TextBox : Element
     private Scene? _placeholderScene;
     private string _text = "";
     private string _placeholder = "";
+    private readonly TextEditingBoundaries _boundaries = new();
+    private TextEditingBoundaries Boundaries
+    {
+        get { _boundaries.SetText(_text); return _boundaries; }
+    }
     private int _cursorPos;
     private int _selectionStart = -1;
     private bool _shapesCreated;
     private float _scrollOffset;
     private float _effectiveFontSize;
+    private readonly TextAdvanceCache _advances = new();
+    private readonly TextAdvanceCache _placeholderAdvances = new();
+    private readonly TextEditingBoundaries _placeholderBoundaries = new();
+    private string? _metricsFont;
+    private float _metricsFontSize = float.NaN;
+    private int _layoutVersion;
     private object? _blinkTag;
     private bool _mouseDown;
 
@@ -51,7 +62,7 @@ public class TextBox : Element
         {
             if (_text == value) return;
             _text = value;
-            _cursorPos = Math.Clamp(_cursorPos, 0, value.Length);
+            _cursorPos = Boundaries.Floor(_cursorPos);
             _selectionStart = -1;
             UpdateVisibleText();
             if (_required) UpdateBorderColor();
@@ -68,6 +79,7 @@ public class TextBox : Element
             _placeholder = value;
             _placeholderPaint?.SetText(value);
             _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
+            UpdateVisibleText();
             MarkDirty();
         }
     }
@@ -86,12 +98,14 @@ public class TextBox : Element
 
     protected override void OnAttached()
     {
+        _layoutVersion++;
+        _metricsFont = null;
         if (!_shapesCreated)
         {
             _shapesCreated = true;
             var style = Style;
             var theme = OwnerWindow?.Theme ?? Theme.Dark;
-            _effectiveFontSize = EffectiveFontSize(style.FontSize);
+            EnsureTextMetrics();
             _blinkTag = new object();
 
             // Background — nanogui uses BoxGradient; we approximate with solid
@@ -158,6 +172,7 @@ public class TextBox : Element
 
     protected override void OnSizeChanged()
     {
+        _layoutVersion++;
         float w = Bounds.W, h = Bounds.H;
 
         // Background — nanogui: RoundedRect(x+1, y+1+1, w-2, h-2, 3)
@@ -260,7 +275,7 @@ public class TextBox : Element
 
         DeleteSelection();
         _text = _text.Insert(_cursorPos, text);
-        _cursorPos += text.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + text.Length);
         _selectionStart = -1;
         EnsureCursorVisible();
         RestartBlink();
@@ -287,7 +302,7 @@ public class TextBox : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryLeft(_cursorPos);
                 else if (_cursorPos > 0)
-                    _cursorPos--;
+                    _cursorPos = Boundaries.Previous(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 UpdateCursorPosition();
                 UpdateSelection();
@@ -306,7 +321,7 @@ public class TextBox : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryRight(_cursorPos);
                 else if (_cursorPos < _text.Length)
-                    _cursorPos++;
+                    _cursorPos = Boundaries.Next(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 UpdateCursorPosition();
                 UpdateSelection();
@@ -340,7 +355,7 @@ public class TextBox : Element
                     DeleteSelection();
                 else if (_cursorPos > 0)
                 {
-                    int count = ctrl ? _cursorPos - FindWordBoundaryLeft(_cursorPos) : 1;
+                    int count = _cursorPos - (ctrl ? FindWordBoundaryLeft(_cursorPos) : Boundaries.Previous(_cursorPos));
                     _cursorPos -= count;
                     _text = _text.Remove(_cursorPos, count);
                 }
@@ -354,7 +369,7 @@ public class TextBox : Element
                     DeleteSelection();
                 else if (_cursorPos < _text.Length)
                 {
-                    int count = ctrl ? FindWordBoundaryRight(_cursorPos) - _cursorPos : 1;
+                    int count = (ctrl ? FindWordBoundaryRight(_cursorPos) : Boundaries.Next(_cursorPos)) - _cursorPos;
                     _text = _text.Remove(_cursorPos, count);
                 }
                 EnsureCursorVisible();
@@ -398,38 +413,46 @@ public class TextBox : Element
 
     // --- Text measurement ---
 
-    private float MeasureTextWidth(string text)
+    private void EnsureTextMetrics()
     {
-        if (string.IsNullOrEmpty(text)) return 0;
-        var t = ThorVG.Text.Gen();
-        if (t == null) return 0;
-        t.SetFont(Style.FontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        if (t.GetTextSize(out float w, out _) == ThorVG.Result.Success)
-            return w;
-        t.Bounds(out float bx, out _, out float bw, out _);
-        return bx + bw;
+        var style = Style;
+        if (_metricsFont != style.FontName || _metricsFontSize != style.FontSize)
+        {
+            _metricsFont = style.FontName;
+            _metricsFontSize = style.FontSize;
+            var measure = ThorVG.Text.Gen();
+            measure.Ref();
+            try
+            {
+                measure.SetFont(style.FontName);
+                measure.SetFontSize(style.FontSize);
+                measure.SetText("M");
+                measure.GetMetrics(out var metrics);
+                float height = metrics.ascent - metrics.descent;
+                _effectiveFontSize = height > 0 ? style.FontSize * style.FontSize / height : style.FontSize;
+            }
+            finally { measure.Unref(); }
+            _textPaint?.SetFont(style.FontName);
+            _textPaint?.SetFontSize(_effectiveFontSize);
+            _placeholderPaint?.SetFont(style.FontName);
+            _placeholderPaint?.SetFontSize(_effectiveFontSize);
+        }
+        _advances.Ensure(_text, Boundaries, style.FontName, _effectiveFontSize, _layoutVersion);
+        string placeholder = string.IsNullOrEmpty(_placeholder) ? "M" : _placeholder;
+        _placeholderBoundaries.SetText(placeholder);
+        _placeholderAdvances.Ensure(placeholder, _placeholderBoundaries, style.FontName, _effectiveFontSize, _layoutVersion);
     }
 
     private float GetCursorX()
     {
-        if (_cursorPos <= 0) return 0;
-        return MeasureTextWidth(_text[.._cursorPos]);
+        EnsureTextMetrics();
+        return _advances.Advance(_cursorPos);
     }
 
     private int GetCharIndexAtX(float x)
     {
-        if (string.IsNullOrEmpty(_text)) return 0;
-        float prevWidth = 0;
-        for (int i = 1; i <= _text.Length; i++)
-        {
-            float width = MeasureTextWidth(_text[..i]);
-            float midpoint = (prevWidth + width) / 2f;
-            if (x < midpoint) return i - 1;
-            prevWidth = width;
-        }
-        return _text.Length;
+        EnsureTextMetrics();
+        return _advances.HitTest(x);
     }
 
     // --- Visible text management (software clipping) ---
@@ -437,6 +460,7 @@ public class TextBox : Element
     private void UpdateVisibleText()
     {
         if (_textPaint == null) return;
+        EnsureTextMetrics();
 
         _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
         if (_required) UpdateBorderColor();
@@ -449,8 +473,8 @@ public class TextBox : Element
             // Position placeholder even when text is empty
             if (Bounds.W > 0 && !string.IsNullOrEmpty(_placeholder))
             {
-                MeasureTextBounds(_placeholder, out _, out float eby, out _, out float ebh);
-                _placeholderScene?.Translate(XSpacing, TextSceneY(eby, ebh));
+                _placeholderScene?.Translate(XSpacing,
+                    TextSceneY(_placeholderAdvances.BoundsY, _placeholderAdvances.BoundsHeight));
             }
             UpdateCursorPosition();
             UpdateSelection();
@@ -465,15 +489,13 @@ public class TextBox : Element
             return;
         }
 
-        float totalWidth = MeasureTextWidth(_text);
+        float totalWidth = _advances.Advance(_text.Length);
 
         // Measure text for vertical centering with by offset compensation
-        MeasureTextBounds(_text, out float tbx, out float tby, out _, out float tbh);
-        float textY = TextSceneY(tby, tbh);
+        float textY = TextSceneY(_advances.BoundsY, _advances.BoundsHeight);
 
         // Measure placeholder for its own vertical centering
-        MeasureTextBounds(string.IsNullOrEmpty(_placeholder) ? "M" : _placeholder, out _, out float pby, out _, out float pbh);
-        float placeholderY = TextSceneY(pby, pbh);
+        float placeholderY = TextSceneY(_placeholderAdvances.BoundsY, _placeholderAdvances.BoundsHeight);
 
         // If all text fits and no scrolling, show everything
         if (totalWidth <= visibleWidth && _scrollOffset <= 0)
@@ -488,58 +510,23 @@ public class TextBox : Element
             return;
         }
 
-        // Find first visible character
-        _visibleStart = 0;
-        for (int i = 1; i <= _text.Length; i++)
-        {
-            float w = MeasureTextWidth(_text[..i]);
-            if (w > _scrollOffset)
-            {
-                _visibleStart = i - 1;
-                break;
-            }
-            if (i == _text.Length)
-                _visibleStart = _text.Length;
-        }
-
-        // Find last visible character
-        _visibleEnd = _text.Length;
-        for (int i = _visibleStart + 1; i <= _text.Length; i++)
-        {
-            float leftEdge = MeasureTextWidth(_text[..i]) - _scrollOffset;
-            if (leftEdge > visibleWidth)
-            {
-                _visibleEnd = i;
-                break;
-            }
-        }
+        // Clip only at grapheme boundaries, using the same cached advances as
+        // caret placement. Include a partially visible cluster at either edge.
+        _visibleStart = totalWidth <= _scrollOffset ? _text.Length :
+            _advances.OffsetAt(Math.Max(0, _advances.FirstAfter(_scrollOffset) - 1));
+        _visibleEnd = _advances.OffsetAt(_advances.FirstAfter(_scrollOffset + visibleWidth));
 
         // Set visible substring
         string visible = _text[_visibleStart.._visibleEnd];
         _textPaint.SetText(visible);
 
         // Position text scene
-        float startOffset = _visibleStart > 0 ? MeasureTextWidth(_text[.._visibleStart]) : 0;
+        float startOffset = _advances.Advance(_visibleStart);
         _textScene?.Translate(xSpacing + startOffset - _scrollOffset, textY);
         _placeholderScene?.Translate(xSpacing, placeholderY);
 
         UpdateCursorPosition();
         UpdateSelection();
-    }
-
-    /// <summary>Measure text bounds with a fresh Text to get clean bx/by/bw/bh.</summary>
-    private void MeasureTextBounds(string text, out float bx, out float by, out float bw, out float bh)
-    {
-        bx = by = 0;
-        bw = 0;
-        bh = Style.FontSize;
-        var t = ThorVG.Text.Gen();
-        if (t == null) return;
-        t.SetFont(Style.FontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out bx, out by, out bw, out bh);
-        if (bh <= 0) bh = Style.FontSize;
     }
 
     /// <summary>Compute scene translate Y that vertically centers text, compensating for by offset.</summary>
@@ -568,6 +555,7 @@ public class TextBox : Element
 
     private void EnsureCursorVisible()
     {
+        _cursorPos = Boundaries.Floor(_cursorPos);
         float xSpacing = XSpacing;
         float cursorX = GetCursorX();
         float visibleWidth = Bounds.W - 2 * xSpacing;
@@ -595,12 +583,13 @@ public class TextBox : Element
 
         int start = Math.Min(_selectionStart, _cursorPos);
         int end = Math.Max(_selectionStart, _cursorPos);
+        EnsureTextMetrics();
         float xSpacing = XSpacing;
         float clipLeft = xSpacing;
         float clipRight = Bounds.W - xSpacing;
 
-        float startX = MeasureTextWidth(_text[..start]) - _scrollOffset + xSpacing;
-        float endX = MeasureTextWidth(_text[..end]) - _scrollOffset + xSpacing;
+        float startX = _advances.Advance(start) - _scrollOffset + xSpacing;
+        float endX = _advances.Advance(end) - _scrollOffset + xSpacing;
 
         startX = Math.Max(startX, clipLeft);
         endX = Math.Min(endX, clipRight);
@@ -626,6 +615,8 @@ public class TextBox : Element
         int start = Math.Min(_selectionStart, _cursorPos);
         int end = Math.Max(_selectionStart, _cursorPos);
         _text = _text.Remove(start, end - start);
+        // Keep the original insertion point until replacement is complete;
+        // removing text can temporarily join its two neighboring graphemes.
         _cursorPos = start;
         _selectionStart = -1;
         _selectionShape?.Visible(false);
@@ -652,7 +643,8 @@ public class TextBox : Element
         if (string.IsNullOrEmpty(clip)) return;
         DeleteSelection();
         _text = _text.Insert(_cursorPos, clip);
-        _cursorPos += clip.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + clip.Length);
+        _selectionStart = -1;
         EnsureCursorVisible();
         MarkDirty();
         TextChanged?.Invoke(_text);
@@ -660,22 +652,9 @@ public class TextBox : Element
 
     // --- Word boundaries ---
 
-    private int FindWordBoundaryLeft(int pos)
-    {
-        if (pos <= 0) return 0;
-        pos--;
-        while (pos > 0 && char.IsWhiteSpace(_text[pos])) pos--;
-        while (pos > 0 && !char.IsWhiteSpace(_text[pos - 1])) pos--;
-        return pos;
-    }
+    private int FindWordBoundaryLeft(int pos) => Boundaries.WordLeft(pos);
 
-    private int FindWordBoundaryRight(int pos)
-    {
-        if (pos >= _text.Length) return _text.Length;
-        while (pos < _text.Length && !char.IsWhiteSpace(_text[pos])) pos++;
-        while (pos < _text.Length && char.IsWhiteSpace(_text[pos])) pos++;
-        return pos;
-    }
+    private int FindWordBoundaryRight(int pos) => Boundaries.WordRight(pos);
 
     // --- Blink animation ---
 
@@ -724,8 +703,15 @@ public class TextBox : Element
         return OwnerWindow?.Theme.TextBox ?? new Style();
     }
 
+    protected override void OnStyleChanged()
+    {
+        InvalidateMeasure();
+        OnThemeChanged();
+    }
+
     protected override void OnThemeChanged()
     {
+        _layoutVersion++;
         if (!_shapesCreated) return;
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
@@ -739,6 +725,7 @@ public class TextBox : Element
         var selColor = theme.SelectionColor;
         _selectionShape?.SetFill(selColor.R8, selColor.G8, selColor.B8, selColor.A8);
 
+        EnsureCursorVisible();
         MarkDirty();
     }
 

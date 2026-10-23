@@ -71,6 +71,11 @@ public class RichTextBox : Element
     private string[] _lines = { "" };
     private int[] _lineOffsets = { 0 };
 
+    private readonly TextEditingBoundaries _boundaries = new();
+    private TextEditingBoundaries Boundaries
+    {
+        get { _boundaries.SetText(_text); return _boundaries; }
+    }
     private int _cursorPos;
     private int _selectionStart = -1;
     private TextFormat? _pendingFormat;
@@ -121,7 +126,7 @@ public class RichTextBox : Element
         {
             if (_text == value) return;
             _text = value;
-            _cursorPos = Math.Clamp(_cursorPos, 0, value.Length);
+            _cursorPos = Boundaries.Floor(_cursorPos);
             _selectionStart = -1;
             _pendingFormat = null;
             _pendingColor = null;
@@ -217,7 +222,8 @@ public class RichTextBox : Element
     public void SetFormat(int start, int length, TextFormat format)
     {
         if (start < 0 || length <= 0 || start + length > _text.Length) return;
-        int end = start + length;
+        int end = TextEditingBoundaries.ScalarCeiling(_text, start + length);
+        start = TextEditingBoundaries.ScalarFloor(_text, start);
         SplitRunAt(start);
         SplitRunAt(end);
         for (int i = 0; i < _runs.Count; i++)
@@ -237,7 +243,9 @@ public class RichTextBox : Element
     public void SetColor(int start, int length, Color4 color)
     {
         if (start < 0 || length <= 0 || start + length > _text.Length) return;
-        ApplyColorToRange(start, start + length, color);
+        int end = TextEditingBoundaries.ScalarCeiling(_text, start + length);
+        start = TextEditingBoundaries.ScalarFloor(_text, start);
+        ApplyColorToRange(start, end, color);
         MergeAdjacentRuns();
         UpdateContent();
         MarkDirty();
@@ -247,14 +255,7 @@ public class RichTextBox : Element
 
     private void SplitLines()
     {
-        _lines = _text.Split('\n');
-        _lineOffsets = new int[_lines.Length];
-        int offset = 0;
-        for (int i = 0; i < _lines.Length; i++)
-        {
-            _lineOffsets[i] = offset;
-            offset += _lines[i].Length + 1;
-        }
+        TextEditingBoundaries.SplitLines(_text, out _lines, out _lineOffsets);
     }
 
     protected override void OnAttached()
@@ -1084,6 +1085,7 @@ public class RichTextBox : Element
 
     private void EnsureCursorVisible()
     {
+        _cursorPos = Boundaries.Floor(_cursorPos);
         float viewportH = ViewportH();
         float viewportW = ViewportW();
         float cursorY = GetCursorY();
@@ -1126,11 +1128,14 @@ public class RichTextBox : Element
         if (string.IsNullOrEmpty(lineText)) return _lineOffsets[line];
 
         float prevX = 0;
-        for (int i = 1; i <= lineText.Length; i++)
+        int start = _lineOffsets[line];
+        int end = start + lineText.Length;
+        for (int pos = Boundaries.Next(start), previous = start; pos <= end && pos > previous;
+             previous = pos, pos = Boundaries.Next(pos))
         {
-            float x = GetXOffsetInLine(line, i);
+            float x = GetXOffsetInLine(line, pos - start);
             float midpoint = (prevX + x) / 2f;
-            if (textX < midpoint) return _lineOffsets[line] + i - 1;
+            if (textX < midpoint) return previous;
             prevX = x;
         }
         return _lineOffsets[line] + lineText.Length;
@@ -1206,6 +1211,7 @@ public class RichTextBox : Element
         int len = end - start;
         DeleteRangeInRuns(start, len);
         _text = _text.Remove(start, len);
+        // Normalize after the complete edit, preserving this offset for replacement.
         _cursorPos = start;
         _selectionStart = -1;
         _selectionShape?.Visible(false);
@@ -1234,7 +1240,8 @@ public class RichTextBox : Element
         DeleteSelection();
         InsertTextInRuns(_cursorPos, clip.Length);
         _text = _text.Insert(_cursorPos, clip);
-        _cursorPos += clip.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + clip.Length);
+        _selectionStart = -1;
         SplitLines();
         EnsureCursorVisible();
         MarkDirty();
@@ -1474,7 +1481,7 @@ public class RichTextBox : Element
         DeleteSelection();
         InsertTextInRuns(_cursorPos, text.Length);
         _text = _text.Insert(_cursorPos, text);
-        _cursorPos += text.Length;
+        _cursorPos = Boundaries.Ceiling(_cursorPos + text.Length);
         _selectionStart = -1;
         SplitLines();
         EnsureCursorVisible();
@@ -1497,7 +1504,7 @@ public class RichTextBox : Element
                 DeleteSelection();
                 InsertTextInRuns(_cursorPos, 1);
                 _text = _text.Insert(_cursorPos, "\n");
-                _cursorPos++;
+                _cursorPos = Boundaries.Next(_cursorPos);
                 _selectionStart = -1;
                 SplitLines();
                 EnsureCursorVisible();
@@ -1516,7 +1523,7 @@ public class RichTextBox : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryLeft(_cursorPos);
                 else if (_cursorPos > 0)
-                    _cursorPos--;
+                    _cursorPos = Boundaries.Previous(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
                 _pendingColor = null;
@@ -1536,7 +1543,7 @@ public class RichTextBox : Element
                 else if (ctrl)
                     _cursorPos = FindWordBoundaryRight(_cursorPos);
                 else if (_cursorPos < _text.Length)
-                    _cursorPos++;
+                    _cursorPos = Boundaries.Next(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
                 _pendingColor = null;
@@ -1552,9 +1559,8 @@ public class RichTextBox : Element
                 int line = GetLineAtCharIndex(_cursorPos);
                 if (line > 0)
                 {
-                    int col = GetColumnInLine(_cursorPos, line);
-                    col = Math.Min(col, _lines[line - 1].Length);
-                    _cursorPos = _lineOffsets[line - 1] + col;
+                    _cursorPos = Boundaries.InAdjacentLine(_cursorPos, _lineOffsets[line],
+                        _lineOffsets[line - 1], _lines[line - 1].Length);
                 }
                 else
                 {
@@ -1576,9 +1582,8 @@ public class RichTextBox : Element
                 int line = GetLineAtCharIndex(_cursorPos);
                 if (line < _lines.Length - 1)
                 {
-                    int col = GetColumnInLine(_cursorPos, line);
-                    col = Math.Min(col, _lines[line + 1].Length);
-                    _cursorPos = _lineOffsets[line + 1] + col;
+                    _cursorPos = Boundaries.InAdjacentLine(_cursorPos, _lineOffsets[line],
+                        _lineOffsets[line + 1], _lines[line + 1].Length);
                 }
                 else
                 {
@@ -1637,7 +1642,7 @@ public class RichTextBox : Element
                     DeleteSelection();
                 else if (_cursorPos > 0)
                 {
-                    int count = ctrl ? _cursorPos - FindWordBoundaryLeft(_cursorPos) : 1;
+                    int count = _cursorPos - (ctrl ? FindWordBoundaryLeft(_cursorPos) : Boundaries.Previous(_cursorPos));
                     int deleteStart = _cursorPos - count;
                     DeleteRangeInRuns(deleteStart, count);
                     _cursorPos = deleteStart;
@@ -1656,7 +1661,7 @@ public class RichTextBox : Element
                     DeleteSelection();
                 else if (_cursorPos < _text.Length)
                 {
-                    int count = ctrl ? FindWordBoundaryRight(_cursorPos) - _cursorPos : 1;
+                    int count = (ctrl ? FindWordBoundaryRight(_cursorPos) : Boundaries.Next(_cursorPos)) - _cursorPos;
                     DeleteRangeInRuns(_cursorPos, count);
                     _text = _text.Remove(_cursorPos, count);
                     SplitLines();
@@ -1713,24 +1718,9 @@ public class RichTextBox : Element
 
     // --- Word boundaries ---
 
-    private int FindWordBoundaryLeft(int pos)
-    {
-        if (pos <= 0) return 0;
-        pos--;
-        while (pos > 0 && _text[pos] == '\n') pos--;
-        while (pos > 0 && char.IsWhiteSpace(_text[pos]) && _text[pos] != '\n') pos--;
-        while (pos > 0 && !char.IsWhiteSpace(_text[pos - 1])) pos--;
-        return pos;
-    }
+    private int FindWordBoundaryLeft(int pos) => Boundaries.WordLeft(pos, stopAtNewline: true);
 
-    private int FindWordBoundaryRight(int pos)
-    {
-        if (pos >= _text.Length) return _text.Length;
-        while (pos < _text.Length && _text[pos] == '\n') { pos++; return pos; }
-        while (pos < _text.Length && !char.IsWhiteSpace(_text[pos])) pos++;
-        while (pos < _text.Length && char.IsWhiteSpace(_text[pos]) && _text[pos] != '\n') pos++;
-        return pos;
-    }
+    private int FindWordBoundaryRight(int pos) => Boundaries.WordRight(pos, stopAtNewline: true);
 
     // --- Blink animation ---
 
