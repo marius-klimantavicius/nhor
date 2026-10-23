@@ -8,7 +8,16 @@ namespace Marius.Winter;
 /// <summary>
 /// Definition of a single menu item (label + action, separator, or submenu).
 /// </summary>
-internal record MenuItemDef(string Label, Action? Action, bool IsSeparator, Menu? SubMenu);
+public sealed class MenuItemDef
+{
+    public string Label { get; internal set; }
+    public Action? Action { get; internal set; }
+    public bool IsSeparator { get; }
+    public Menu? SubMenu { get; }
+
+    internal MenuItemDef(string label, Action? action, bool isSeparator, Menu? subMenu)
+        => (Label, Action, IsSeparator, SubMenu) = (label, action, isSeparator, subMenu);
+}
 
 /// <summary>
 /// A menu definition. Created via <see cref="MenuBar.AddMenu"/> for menu bars,
@@ -16,21 +25,56 @@ internal record MenuItemDef(string Label, Action? Action, bool IsSeparator, Menu
 /// </summary>
 public class Menu
 {
-    internal readonly string Title;
+    internal string Title;
     internal readonly List<MenuItemDef> Items = new();
+    internal event Action? Changed;
+    public IReadOnlyList<MenuItemDef> Entries => Items;
 
     public Menu() : this("") { }
     public Menu(string title) => Title = title;
 
     public Menu AddItem(string label, Action? action = null)
     {
-        Items.Add(new MenuItemDef(label, action, false, null));
+        InsertItem(Items.Count, label, action);
         return this;
+    }
+
+    public MenuItemDef InsertItem(int index, string label, Action? action = null)
+    {
+        var item = new MenuItemDef(label, action, false, null);
+        Items.Insert(index, item);
+        Changed?.Invoke();
+        return item;
+    }
+
+    public void UpdateItem(MenuItemDef item, string label)
+    {
+        if (!Items.Contains(item) || item.Label == label) return;
+        item.Label = label;
+        Changed?.Invoke();
+    }
+
+    public void RemoveItem(MenuItemDef item)
+    {
+        if (!Items.Remove(item)) return;
+        item.Action = null;
+        Changed?.Invoke();
+    }
+
+    public void MoveItem(MenuItemDef item, int index)
+    {
+        var oldIndex = Items.IndexOf(item);
+        if (oldIndex < 0 || oldIndex == index) return;
+        if ((uint)index >= (uint)Items.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        Items.RemoveAt(oldIndex);
+        Items.Insert(index, item);
+        Changed?.Invoke();
     }
 
     public Menu AddSeparator()
     {
         Items.Add(new MenuItemDef("", null, true, null));
+        Changed?.Invoke();
         return this;
     }
 
@@ -41,6 +85,7 @@ public class Menu
     {
         var sub = new Menu(label);
         Items.Add(new MenuItemDef(label, null, false, sub));
+        Changed?.Invoke();
         return sub;
     }
 }
@@ -69,12 +114,51 @@ public class MenuBar : Element
     public MenuBar() { }
 
     public Menu AddMenu(string title)
+        => InsertMenu(_menus.Count, title);
+
+    public IReadOnlyList<Menu> Menus => _menus;
+
+    public Menu InsertMenu(int index, string title)
     {
         var menu = new Menu(title);
-        _menus.Add(menu);
-        if (_shapesCreated)
-            RebuildTitles();
+        _menus.Insert(index, menu);
+        menu.Changed += CollectionChanged;
+        CollectionChanged();
         return menu;
+    }
+
+    public void UpdateMenu(Menu menu, string title)
+    {
+        if (!_menus.Contains(menu) || menu.Title == title) return;
+        menu.Title = title;
+        CollectionChanged();
+    }
+
+    public void RemoveMenu(Menu menu)
+    {
+        if (!_menus.Remove(menu)) return;
+        menu.Changed -= CollectionChanged;
+        CollectionChanged();
+    }
+
+    public void MoveMenu(Menu menu, int index)
+    {
+        var oldIndex = _menus.IndexOf(menu);
+        if (oldIndex < 0 || oldIndex == index) return;
+        if ((uint)index >= (uint)_menus.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        _menus.RemoveAt(oldIndex);
+        _menus.Insert(index, menu);
+        CollectionChanged();
+    }
+
+    private void CollectionChanged()
+    {
+        // A popup snapshots row geometry. Close it before mutating its collection.
+        CloseMenu();
+        _hoveredIndex = -1;
+        if (_shapesCreated) RebuildTitles();
+        InvalidateMeasure();
+        MarkDirty();
     }
 
     protected override void OnAttached()

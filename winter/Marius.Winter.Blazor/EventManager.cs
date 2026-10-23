@@ -17,7 +17,7 @@ public class EventManager
     {
         if (_configuredEvents.TryGetValue(eventName, out var eventRegistration))
         {
-            renderer.RegisterEvent(eventHandlerId, eventRegistration.ClearId);
+            if (eventHandlerId != 0) renderer.RegisterEvent(eventHandlerId, eventRegistration.ClearId);
             eventRegistration.SetId(eventHandlerId);
             return true;
         }

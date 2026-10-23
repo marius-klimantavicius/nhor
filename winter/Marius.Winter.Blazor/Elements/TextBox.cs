@@ -56,7 +56,7 @@ public class TextBox : WinterComponentBase
                     TextBoxControl.Required = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "ontextchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
                     _textChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:

@@ -29,9 +29,10 @@ public class ComboBox : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        // Shadow state — always holds the latest Blazor-declared values.
+        // Declared values are committed together after the render batch.
         string[] _items = Array.Empty<string>();
         int _selectedIndex = -1;
+        bool _selectionDirty;
         readonly CoalescedEvent _selectionChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
@@ -43,20 +44,27 @@ public class ComboBox : WinterComponentBase
 
         Marius.Winter.ComboBox ComboBoxControl => (Marius.Winter.ComboBox)ElementControl;
 
+        public override void CommitAttributes()
+        {
+            if (!_selectionDirty || IsDisposed) return;
+            _selectionDirty = false;
+            ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
+        }
+
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
             switch (attributeName)
             {
                 case "Items":
                     _items = AttributeHelper.GetStringArray(attributeValue) ?? Array.Empty<string>();
-                    ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
+                    _selectionDirty = true;
                     break;
                 case "SelectedIndex":
                     _selectedIndex = AttributeHelper.GetInt(attributeValue, -1);
-                    ComboBoxControl.SetItemsAndIndex(_items, _selectedIndex);
+                    _selectionDirty = true;
                     break;
                 case "onselectionchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
                     _selectionChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:

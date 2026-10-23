@@ -20,12 +20,13 @@ public class Image : Element
     {
     }
 
-    /// <summary>Raw image bytes (PNG, JPEG, WebP).</summary>
+    /// <summary>Raw image bytes (PNG, JPEG, WebP). Supply a new array to change the image.</summary>
     public byte[]? Source
     {
         get => _source;
         set
         {
+            if (ReferenceEquals(_source, value)) return;
             _source = value;
             if (_shapesCreated)
                 ReloadImage();
@@ -79,6 +80,7 @@ public class Image : Element
     /// </summary>
     public void SetSource(byte[]? source, string mimeType)
     {
+        if (ReferenceEquals(_source, source) && _mimeType == mimeType) return;
         _source = source;
         _mimeType = mimeType;
         if (_shapesCreated)

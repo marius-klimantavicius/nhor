@@ -24,10 +24,12 @@ public class MenuItem : WinterComponentBase
         builder.AddAttribute("onclick", OnClick);
     }
 
-    class Handler : WinterElementHandler, INonPhysicalChild
+    class Handler : WinterElementHandler, IIndexedNonPhysicalChild
     {
         private string _label = "";
         private ulong _clickEventHandlerId;
+        private Marius.Winter.Menu? _menu;
+        private Marius.Winter.MenuItemDef? _item;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Panel()) { }
@@ -38,9 +40,10 @@ public class MenuItem : WinterComponentBase
             {
                 case "Label":
                     _label = AttributeHelper.GetString(attributeValue) ?? "";
+                    if (_item != null) _menu?.UpdateItem(_item, _label);
                     break;
                 case "onclick":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_clickEventHandlerId == id) { _clickEventHandlerId = 0; } });
+                    RegisterEvent(attributeEventHandlerId, id => { if (_clickEventHandlerId == id) { _clickEventHandlerId = 0; } });
                     _clickEventHandlerId = attributeEventHandlerId;
                     break;
                 default:
@@ -54,16 +57,32 @@ public class MenuItem : WinterComponentBase
             if (parentElement is Element element && Menu.ElementToMenu.TryGetValue(element, out var menu))
             {
                 var renderer = Renderer;
-                menu.AddItem(_label, () =>
+                _menu = menu;
+                _item = menu.InsertItem(menu.Entries.Count, _label, () =>
                 {
                     if (_clickEventHandlerId != 0)
-                        renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
+                        renderer.DispatchNativeEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
                 });
             }
         }
 
         public void Remove()
         {
+            if (_item != null) _menu?.RemoveItem(_item);
+            _menu = null;
+            _item = null;
+        }
+
+        public void MoveTo(int index)
+        {
+            if (_item != null) _menu?.MoveItem(_item, index);
+        }
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            Remove();
+            base.Dispose();
         }
     }
 }

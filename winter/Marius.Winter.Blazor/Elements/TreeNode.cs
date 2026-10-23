@@ -32,7 +32,7 @@ public class TreeViewNode : WinterComponentBase
 
     protected override RenderFragment? GetChildContent() => ChildContent;
 
-    class Handler : WinterElementHandler, INonPhysicalChild, IWinterContainerElementHandler
+    class Handler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
     {
         private Marius.Winter.TreeView? _treeView;
         private Marius.Winter.TreeNode? _treeNode;
@@ -40,12 +40,14 @@ public class TreeViewNode : WinterComponentBase
         private string? _iconSvg;
         private string? _tag;
         private bool _mayHaveChildren;
+        private bool _nodeDirty;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Panel()) { }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
+            _nodeDirty = true;
             switch (attributeName)
             {
                 case "Text":
@@ -56,18 +58,33 @@ public class TreeViewNode : WinterComponentBase
                     break;
                 case "Tag":
                     _tag = AttributeHelper.GetString(attributeValue);
-                    if (_treeNode != null)
-                        _treeNode.Tag = _tag;
                     break;
                 case "MayHaveChildren":
                     _mayHaveChildren = AttributeHelper.GetBool(attributeValue);
-                    if (_treeNode != null)
-                        _treeNode.MayHaveChildren = _mayHaveChildren;
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
             }
+        }
+
+        public override void CommitAttributes()
+        {
+            if (IsDisposed || !_nodeDirty || _treeNode == null) return;
+            _nodeDirty = false;
+            _treeView?.UpdateNode(_treeNode, _text, _iconSvg, _tag, _mayHaveChildren);
+        }
+
+        public void MoveTo(int index)
+        {
+            if (_treeNode != null) _treeView?.MoveNode(_treeNode, index);
+        }
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            Remove();
+            base.Dispose();
         }
 
         public void SetParent(object parentElement)

@@ -43,6 +43,7 @@ public class TabWidget : Element
             _activeTab = value;
             _tabs[_activeTab].Content.Visible = true;
             UpdateActiveTabHighlight();
+            InvalidateMeasure();
             MarkDirty();
         }
     }
@@ -50,16 +51,18 @@ public class TabWidget : Element
     public int TabCount => _tabs.Count;
 
     public void AddTab(string label, Element content)
-    {
-        var tab = new TabInfo { Label = label, Content = content };
-        _tabs.Add(tab);
+        => InsertTab(_tabs.Count, label, content);
 
-        content.Visible = _tabs.Count == 1; // first tab visible, rest hidden
+    public void InsertTab(int index, string label, Element content)
+    {
+        var selected = _tabs.Count > 0 ? _tabs[_activeTab].Content : null;
+        var tab = new TabInfo { Label = label, Content = content };
+        _tabs.Insert(index, tab);
+        InsertChild(content, index);
+        RestoreSelection(selected ?? content);
 
         if (_shapesCreated)
             RebuildHeaders();
-
-        AddChild(content);
 
         InvalidateMeasure();
         MarkDirty();
@@ -69,17 +72,59 @@ public class TabWidget : Element
     {
         if (index < 0 || index >= _tabs.Count) return;
         var tab = _tabs[index];
+        var selected = _tabs[_activeTab].Content;
         RemoveChild(tab.Content);
         _tabs.RemoveAt(index);
 
-        if (_activeTab >= _tabs.Count) _activeTab = Math.Max(0, _tabs.Count - 1);
-        if (_tabs.Count > 0) _tabs[_activeTab].Content.Visible = true;
+        if (ReferenceEquals(selected, tab.Content))
+            selected = _tabs.Count > 0 ? _tabs[Math.Min(index, _tabs.Count - 1)].Content : null;
+        RestoreSelection(selected);
 
         if (_shapesCreated)
             RebuildHeaders();
 
         InvalidateMeasure();
         MarkDirty();
+    }
+
+    public void UpdateTab(Element content, string label)
+    {
+        var tab = _tabs.Find(t => ReferenceEquals(t.Content, content));
+        if (tab == null || tab.Label == label) return;
+        tab.Label = label;
+        if (_shapesCreated) RebuildHeaders();
+        InvalidateMeasure();
+        MarkDirty();
+    }
+
+    public void MoveTab(Element content, int index)
+    {
+        var oldIndex = _tabs.FindIndex(t => ReferenceEquals(t.Content, content));
+        if (oldIndex < 0 || oldIndex == index) return;
+        if ((uint)index >= (uint)_tabs.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        var selected = _tabs[_activeTab].Content;
+        var tab = _tabs[oldIndex];
+        _tabs.RemoveAt(oldIndex);
+        _tabs.Insert(index, tab);
+        var order = new List<Element>(Children);
+        var owned = new HashSet<Element>();
+        foreach (var entry in _tabs) owned.Add(entry.Content);
+        var next = 0;
+        for (var i = 0; i < order.Count; i++)
+            if (owned.Contains(order[i])) order[i] = _tabs[next++].Content;
+        ReorderChildren(order);
+        RestoreSelection(selected);
+        if (_shapesCreated) RebuildHeaders();
+        InvalidateMeasure();
+        MarkDirty();
+    }
+
+    private void RestoreSelection(Element? selected)
+    {
+        _activeTab = Math.Max(0, _tabs.FindIndex(t => ReferenceEquals(t.Content, selected)));
+        for (var i = 0; i < _tabs.Count; i++) _tabs[i].Content.Visible = i == _activeTab;
+        _activeTabShape?.Visible(_tabs.Count > 0);
+        UpdateActiveTabHighlight();
     }
 
     protected override void OnAttached()

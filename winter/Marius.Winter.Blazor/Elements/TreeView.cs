@@ -82,19 +82,19 @@ public class TreeView : WinterComponentBase
             switch (attributeName)
             {
                 case "onselectionchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _selectionChangedEvent.Unregister);
                     _selectionChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 case "onnodeexpanded":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _nodeExpandedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _nodeExpandedEvent.Unregister);
                     _nodeExpandedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 case "onnodecollapsed":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _nodeCollapsedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _nodeCollapsedEvent.Unregister);
                     _nodeCollapsedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 case "onnodedoubleclicked":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _nodeDoubleClickedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _nodeDoubleClickedEvent.Unregister);
                     _nodeDoubleClickedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 case "onnativetreeview":
@@ -104,6 +104,13 @@ public class TreeView : WinterComponentBase
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
             }
+        }
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            ElementToTreeInfo.Remove(ElementControl);
+            base.Dispose();
         }
 
         public void AddChild(Element child, int physicalSiblingIndex)

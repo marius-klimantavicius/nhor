@@ -13,6 +13,8 @@ namespace Marius.Winter.Blazor.Core
             ElementHandler = elementHandler ?? throw new ArgumentNullException(nameof(elementHandler));
         }
 
+        internal void ClearElementReference() => ElementHandler = null;
+
         protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             if (builder is null)

@@ -80,7 +80,7 @@ public class DialogWindow : WinterComponentBase
                     break;
                 }
                 case "onclose":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _closeEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _closeEvent.Unregister);
                     _closeEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:

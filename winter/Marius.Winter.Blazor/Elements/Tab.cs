@@ -27,7 +27,7 @@ public class Tab : WinterComponentBase
 
     protected override RenderFragment? GetChildContent() => ChildContent;
 
-    class Handler : WinterElementHandler, INonPhysicalChild, IWinterContainerElementHandler
+    class Handler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
     {
         private Marius.Winter.TabWidget? _parentTabWidget;
         private string _label = "";
@@ -47,6 +47,7 @@ public class Tab : WinterComponentBase
             {
                 case "Label":
                     _label = AttributeHelper.GetString(attributeValue) ?? "";
+                    _parentTabWidget?.UpdateTab(InnerPanel, _label);
                     break;
                 case "Layout":
                     InnerPanel.Layout = WeakObjectStore.Get<ILayout>(attributeValue);
@@ -80,6 +81,15 @@ public class Tab : WinterComponentBase
                 }
                 _parentTabWidget = null;
             }
+        }
+
+        public void MoveTo(int index) => _parentTabWidget?.MoveTab(InnerPanel, index);
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            Remove();
+            base.Dispose();
         }
 
         public void AddChild(Element child, int physicalSiblingIndex)

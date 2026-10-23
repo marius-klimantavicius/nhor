@@ -80,22 +80,9 @@ public class Label : WinterComponentBase
             }
         }
 
-        private int _lastTextIndex = -1;
-
         public void HandleText(int index, string text)
         {
-            // Multiple text frames from Blazor expressions (e.g. "Progress: @(val)%")
-            // arrive as separate HandleText calls. Concatenate them.
-            if (index == 0 || index <= _lastTextIndex)
-            {
-                // First fragment: trim leading whitespace only, preserve trailing
-                LabelControl.Text = text?.TrimStart() ?? "";
-            }
-            else
-            {
-                LabelControl.Text += text ?? "";
-            }
-            _lastTextIndex = index;
+            LabelControl.Text = text.TrimStart();
         }
     }
 }

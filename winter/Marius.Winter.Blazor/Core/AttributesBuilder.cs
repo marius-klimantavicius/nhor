@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 
@@ -14,10 +16,17 @@ namespace Marius.Winter.Blazor.Core
     public readonly ref struct AttributesBuilder
     {
         private readonly RenderTreeBuilder _underlyingBuilder;
+        private static readonly ConditionalWeakTable<RenderTreeBuilder, List<object>> References = new();
+        private readonly List<object> _references;
 
         public AttributesBuilder(RenderTreeBuilder underlyingBuilder)
         {
             _underlyingBuilder = underlyingBuilder;
+            // Element frames stringify arbitrary references. Keep transported values
+            // alive with their owning render-tree buffer until that buffer is reused
+            // or collected, including values created inside RenderAttributes itself.
+            _references = References.GetValue(underlyingBuilder, static _ => new List<object>());
+            _references.Clear();
         }
 
         public void AddAttribute(string name, string value)
@@ -75,6 +84,7 @@ namespace Marius.Winter.Blazor.Core
 
         public void AddAttribute(string name, byte[] value)
         {
+            _references.Add(value);
             _underlyingBuilder.AddAttribute(0, name, WeakObjectStore.Add(value));
         }
 
@@ -104,6 +114,7 @@ namespace Marius.Winter.Blazor.Core
         public void AddAttribute(string name, object value)
         {
             Debug.Assert(!value.GetType().IsValueType);
+            _references.Add(value);
             _underlyingBuilder.AddAttribute(0, name, WeakObjectStore.Add(value));
         }
     }

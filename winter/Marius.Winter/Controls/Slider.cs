@@ -36,8 +36,7 @@ public class Slider : Element
         get => _value;
         set
         {
-            float clamped = Math.Clamp(value, _min, _max);
-            if (_step > 0) clamped = MathF.Round(clamped / _step) * _step;
+            float clamped = EffectiveValue(value);
             if (_value == clamped) return;
             _value = clamped;
             UpdateShapes();
@@ -56,16 +55,29 @@ public class Slider : Element
     /// Used by Blazor handler to avoid attribute-ordering bugs.
     /// </summary>
     public void SetRange(float min, float max, float value)
+        => SetRange(min, max, value, _step);
+
+    /// <summary>Commits range, step, and value with a single effective-value notification.</summary>
+    public void SetRange(float min, float max, float value, float step)
     {
+        if (min > max) throw new ArgumentOutOfRangeException(nameof(min), "Minimum exceeds maximum.");
         _min = min;
         _max = max;
-        float clamped = Math.Clamp(value, _min, _max);
-        if (_step > 0) clamped = MathF.Round(clamped / _step) * _step;
+        _step = step;
+        float clamped = EffectiveValue(value);
         bool changed = _value != clamped;
         _value = clamped;
         UpdateShapes();
         MarkDirty();
         if (changed) ValueChanged?.Invoke(_value);
+    }
+
+    private float EffectiveValue(float value)
+    {
+        var clamped = Math.Clamp(value, _min, _max);
+        // Endpoints remain reachable even when the step does not divide the range.
+        if (clamped == _min || clamped == _max || _step <= 0) return clamped;
+        return Math.Clamp(_min + MathF.Round((clamped - _min) / _step) * _step, _min, _max);
     }
 
     public bool ShowValue

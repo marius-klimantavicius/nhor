@@ -30,7 +30,7 @@ public class Menu : WinterComponentBase
 
     protected override RenderFragment? GetChildContent() => ChildContent;
 
-    class Handler : WinterElementHandler, INonPhysicalChild, IWinterContainerElementHandler
+    class Handler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
     {
         private Marius.Winter.MenuBar? _parentMenuBar;
         private Marius.Winter.Menu? _menu;
@@ -45,6 +45,7 @@ public class Menu : WinterComponentBase
             {
                 case "Title":
                     _title = AttributeHelper.GetString(attributeValue) ?? "";
+                    if (_menu != null) _parentMenuBar?.UpdateMenu(_menu, _title);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
@@ -65,8 +66,21 @@ public class Menu : WinterComponentBase
         public void Remove()
         {
             ElementToMenu.Remove(ElementControl);
+            if (_menu != null) _parentMenuBar?.RemoveMenu(_menu);
             _menu = null;
             _parentMenuBar = null;
+        }
+
+        public void MoveTo(int index)
+        {
+            if (_menu != null) _parentMenuBar?.MoveMenu(_menu, index);
+        }
+
+        public override void Dispose()
+        {
+            if (IsDisposed) return;
+            Remove();
+            base.Dispose();
         }
 
         public void AddChild(Element child, int physicalSiblingIndex) { }

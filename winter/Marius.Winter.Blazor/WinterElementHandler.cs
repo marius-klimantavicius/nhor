@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor;
 
-public class WinterElementHandler : IWinterElementHandler
+public class WinterElementHandler : IWinterElementHandler, IHandleAttributeBatch, IDisposable
 {
     private Element? _parent;
     private ulong _doubleClickEventHandlerId;
+    private readonly HashSet<ulong> _eventIds = new();
+    private readonly List<CoalescedEvent> _coalescedEvents = new();
+    protected bool IsDisposed { get; private set; }
 
     public WinterElementHandler(NativeComponentRenderer renderer, Element elementControl)
     {
@@ -17,7 +21,7 @@ public class WinterElementHandler : IWinterElementHandler
         ElementControl.DoubleClicked = () =>
         {
             if (_doubleClickEventHandlerId != 0)
-                Renderer.DispatchEventAsync(_doubleClickEventHandlerId, null, EventArgs.Empty);
+                Renderer.DispatchNativeEventAsync(_doubleClickEventHandlerId, null, EventArgs.Empty);
         };
     }
 
@@ -57,12 +61,47 @@ public class WinterElementHandler : IWinterElementHandler
                 ElementControl.MaxHeight = AttributeHelper.GetNullableFloat(attributeValue);
                 break;
             case "ondoubleclick":
-                Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_doubleClickEventHandlerId == id) _doubleClickEventHandlerId = 0; });
+                RegisterEvent(attributeEventHandlerId, id => { if (_doubleClickEventHandlerId == id) _doubleClickEventHandlerId = 0; });
                 _doubleClickEventHandlerId = attributeEventHandlerId;
                 break;
             default:
                 throw new ArgumentException($"Attribute '{attributeName}' is not supported by {GetType().Name}.");
         }
+    }
+
+    protected void RegisterEvent(ulong id, Action<ulong> unregister)
+    {
+        // Zero is the element diff's clear operation, not a registration.
+        if (id == 0 || IsDisposed) return;
+        _eventIds.Add(id);
+        Renderer.RegisterEvent(id, oldId => { _eventIds.Remove(oldId); unregister(oldId); });
+    }
+
+    public virtual void CommitAttributes() { }
+
+    public virtual void Dispose()
+    {
+        if (IsDisposed) return;
+        IsDisposed = true;
+        foreach (var id in new List<ulong>(_eventIds)) Renderer.UnregisterEvent(id);
+        foreach (var slot in _coalescedEvents) slot.HandlerId = 0;
+        _coalescedEvents.Clear();
+        ElementControl.DoubleClicked = null;
+        switch (ElementControl)
+        {
+            case Marius.Winter.Button button: button.Clicked = null; break;
+            case Marius.Winter.Slider slider: slider.ValueChanged = null; break;
+            case Marius.Winter.ComboBox combo: combo.SelectionChanged = null; break;
+            case Marius.Winter.Checkbox checkbox: checkbox.Changed = null; break;
+            case Marius.Winter.TextBox textBox: textBox.TextChanged = null; break;
+            case Marius.Winter.TextArea textArea: textArea.TextChanged = null; break;
+            case Marius.Winter.DialogWindow dialog: dialog.CloseClicked = null; break;
+            case Marius.Winter.TreeView tree:
+                tree.SelectionChanged = null; tree.NodeExpanded = null; tree.NodeCollapsed = null; tree.NodeDoubleClicked = null;
+                break;
+        }
+        _parent = null;
+        if (ElementControl is IDisposable disposable) disposable.Dispose();
     }
 
     protected static void SetLayoutOn(object parentElement, ILayout layout)
@@ -81,32 +120,44 @@ public class WinterElementHandler : IWinterElementHandler
     protected class CoalescedEvent
     {
         private readonly WinterElementHandler _handler;
-        private bool _pending;
-        private readonly ChangeEventArgs _args = new();
+        private object? _value;
+        private ulong _handlerId;
+        private int _version;
+        private int _pendingVersion = -1;
 
-        public ulong HandlerId;
+        public ulong HandlerId
+        {
+            get => _handlerId;
+            set { if (_handlerId == value) return; _handlerId = value; _version++; _value = null; }
+        }
 
-        public CoalescedEvent(WinterElementHandler handler) => _handler = handler;
+        public CoalescedEvent(WinterElementHandler handler)
+        {
+            _handler = handler;
+            handler._coalescedEvents.Add(this);
+        }
 
         public void Fire(object? value)
         {
-            if (HandlerId == 0) return;
-            _args.Value = value;
-            if (_pending) return;
+            if (HandlerId == 0 || _handler.IsDisposed) return;
+            _value = value;
+            if (_pendingVersion == _version) return;
 
             var window = _handler.ElementControl.OwnerWindow;
             if (window == null)
             {
-                _handler.Renderer.DispatchEventAsync(HandlerId, null, _args);
+                _handler.Renderer.DispatchNativeEventAsync(HandlerId, null, new ChangeEventArgs { Value = value });
                 return;
             }
 
-            _pending = true;
+            var version = _version;
+            var handlerId = HandlerId;
+            _pendingVersion = version;
             window.DispatcherQueue.Enqueue(() =>
             {
-                _pending = false;
-                if (HandlerId != 0)
-                    _handler.Renderer.DispatchEventAsync(HandlerId, null, _args);
+                if (_pendingVersion == version) _pendingVersion = -1;
+                if (!_handler.IsDisposed && version == _version && HandlerId == handlerId)
+                    _handler.Renderer.DispatchNativeEventAsync(handlerId, null, new ChangeEventArgs { Value = _value });
             });
         }
 

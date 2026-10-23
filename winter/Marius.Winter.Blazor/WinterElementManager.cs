@@ -18,6 +18,7 @@ internal class WinterElementManager : ElementManager<IWinterElementHandler>
         if (childHandler is INonPhysicalChild nonPhysicalChild)
         {
             nonPhysicalChild.SetParent(parentHandler.ElementControl);
+            childHandler.SetParent(parentHandler.ElementControl);
             return;
         }
 
@@ -54,6 +55,7 @@ internal class WinterElementManager : ElementManager<IWinterElementHandler>
         {
             container.RemoveChild(childHandler.ElementControl);
         }
+        childHandler.SetParent(null!);
     }
 
     protected override bool IsParentOfChild(

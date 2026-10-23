@@ -103,17 +103,42 @@ public class TreeView : Element
     }
 
     public TreeNode AddNode(string text, TreeNode? parent = null, string? iconSvg = null)
+        => InsertNode(parent?.Children.Count ?? _roots.Count, text, parent, iconSvg);
+
+    public TreeNode InsertNode(int index, string text, TreeNode? parent = null, string? iconSvg = null)
     {
         var node = new TreeNode(text) { Parent = parent, IconSvg = iconSvg };
-        if (parent != null)
-            parent.Children.Add(node);
-        else
-            _roots.Add(node);
+        (parent?.Children ?? _roots).Insert(index, node);
 
         if (_shapesCreated && _updateDepth == 0)
             RebuildVisibleRows();
 
         return node;
+    }
+
+    public void UpdateNode(TreeNode node, string text, string? iconSvg, object? tag, bool mayHaveChildren)
+    {
+        if (node.Text == text && node.IconSvg == iconSvg && Equals(node.Tag, tag) && node.MayHaveChildren == mayHaveChildren) return;
+        node.Text = text;
+        node.IconSvg = iconSvg;
+        node.Tag = tag;
+        node.MayHaveChildren = mayHaveChildren;
+        if (_shapesCreated && _updateDepth == 0) RebuildVisibleRows();
+        InvalidateMeasure();
+        MarkDirty();
+    }
+
+    public void MoveNode(TreeNode node, int index)
+    {
+        var siblings = node.Parent?.Children ?? _roots;
+        var oldIndex = siblings.IndexOf(node);
+        if (oldIndex < 0 || oldIndex == index) return;
+        if ((uint)index >= (uint)siblings.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        siblings.RemoveAt(oldIndex);
+        siblings.Insert(index, node);
+        if (_shapesCreated && _updateDepth == 0) RebuildVisibleRows();
+        InvalidateMeasure();
+        MarkDirty();
     }
 
     public void RemoveNode(TreeNode node)
@@ -126,6 +151,8 @@ public class TreeView : Element
 
         if (_shapesCreated && _updateDepth == 0)
             RebuildVisibleRows();
+        InvalidateMeasure();
+        MarkDirty();
     }
 
     public TreeNode? SelectedNode

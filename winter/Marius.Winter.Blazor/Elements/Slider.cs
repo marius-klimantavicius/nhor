@@ -32,10 +32,9 @@ public class Slider : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        // Shadow state — always holds the latest Blazor-declared values.
-        // On any attribute change we call SetRange with all current values,
-        // making attribute application order irrelevant.
+        // Declared values are committed together after the render batch.
         float _min, _max = 1f, _value, _step;
+        bool _rangeDirty;
         readonly CoalescedEvent _valueChangedEvent;
 
         public Handler(NativeComponentRenderer renderer)
@@ -47,33 +46,38 @@ public class Slider : WinterComponentBase
 
         Marius.Winter.Slider SliderControl => (Marius.Winter.Slider)ElementControl;
 
+        public override void CommitAttributes()
+        {
+            if (!_rangeDirty || IsDisposed) return;
+            _rangeDirty = false;
+            SliderControl.SetRange(_min, _max, _value, _step);
+        }
+
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
             switch (attributeName)
             {
                 case "Value":
                     _value = AttributeHelper.GetFloat(attributeValue);
-                    SliderControl.SetRange(_min, _max, _value);
+                    _rangeDirty = true;
                     break;
                 case "Min":
                     _min = AttributeHelper.GetFloat(attributeValue);
-                    SliderControl.SetRange(_min, _max, _value);
+                    _rangeDirty = true;
                     break;
                 case "Max":
                     _max = AttributeHelper.GetFloat(attributeValue, 1f);
-                    SliderControl.SetRange(_min, _max, _value);
+                    _rangeDirty = true;
                     break;
                 case "Step":
                     _step = AttributeHelper.GetFloat(attributeValue);
-                    SliderControl.Step = _step;
-                    // Re-apply range in case step quantization changes effective value
-                    SliderControl.SetRange(_min, _max, _value);
+                    _rangeDirty = true;
                     break;
                 case "ShowValue":
                     SliderControl.ShowValue = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "onvaluechanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _valueChangedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _valueChangedEvent.Unregister);
                     _valueChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:

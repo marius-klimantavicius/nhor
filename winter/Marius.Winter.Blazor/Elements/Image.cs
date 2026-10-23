@@ -32,14 +32,22 @@ public class Image : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        // Shadow state — always holds the latest Blazor-declared values.
+        // Declared values are committed together after the render batch.
         byte[]? _source;
         string _mimeType = "png";
+        bool _sourceDirty;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Image()) { }
 
         Marius.Winter.Image ImageControl => (Marius.Winter.Image)ElementControl;
+
+        public override void CommitAttributes()
+        {
+            if (!_sourceDirty || IsDisposed) return;
+            _sourceDirty = false;
+            ImageControl.SetSource(_source, _mimeType);
+        }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
@@ -47,11 +55,11 @@ public class Image : WinterComponentBase
             {
                 case "Source":
                     _source = AttributeHelper.GetByteArray(attributeValue);
-                    ImageControl.SetSource(_source, _mimeType);
+                    _sourceDirty = true;
                     break;
                 case "MimeType":
                     _mimeType = AttributeHelper.GetString(attributeValue) ?? "png";
-                    ImageControl.SetSource(_source, _mimeType);
+                    _sourceDirty = true;
                     break;
                 case "RequestedWidth":
                     ImageControl.RequestedWidth = AttributeHelper.GetFloat(attributeValue);

@@ -47,7 +47,7 @@ public class Button : WinterComponentBase
             ButtonControl.Clicked = () =>
             {
                 if (_clickEventHandlerId != 0)
-                    Renderer.DispatchEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
+                    Renderer.DispatchNativeEventAsync(_clickEventHandlerId, null, EventArgs.Empty);
             };
         }
 
@@ -70,7 +70,7 @@ public class Button : WinterComponentBase
                     ButtonControl.TextAlign = AttributeHelper.GetEnum(attributeValue, Alignment.Center);
                     break;
                 case "onclick":
-                    Renderer.RegisterEvent(attributeEventHandlerId, id => { if (_clickEventHandlerId == id) { _clickEventHandlerId = 0; } });
+                    RegisterEvent(attributeEventHandlerId, id => { if (_clickEventHandlerId == id) { _clickEventHandlerId = 0; } });
                     _clickEventHandlerId = attributeEventHandlerId;
                     break;
                 default:
@@ -79,19 +79,9 @@ public class Button : WinterComponentBase
             }
         }
 
-        private int _lastTextIndex = -1;
-
         public void HandleText(int index, string text)
         {
-            if (index == 0 || index <= _lastTextIndex)
-            {
-                ButtonControl.Text = text?.TrimStart() ?? "";
-            }
-            else
-            {
-                ButtonControl.Text += text ?? "";
-            }
-            _lastTextIndex = index;
+            ButtonControl.Text = text.TrimStart();
         }
 
         public void AddChild(Element child, int physicalSiblingIndex)

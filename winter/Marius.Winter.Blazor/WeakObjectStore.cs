@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Blazor;
 
@@ -8,7 +9,7 @@ namespace Marius.Winter.Blazor;
 /// Stores complex objects that can't survive Blazor's render tree serialization
 /// (which stringifies non-primitive values). Objects are held via WeakReference
 /// so they don't prevent GC when the owning component is collected.
-/// Dead entries are swept every 256 additions.
+/// Each live reference has one identity token. Dead entries are swept every 256 new references.
 /// </summary>
 internal static class WeakObjectStore
 {
@@ -16,17 +17,24 @@ internal static class WeakObjectStore
     private const int SweepInterval = 256;
     private static long _nextId;
     private static readonly ConcurrentDictionary<string, WeakReference> _store = new();
+    private sealed class Token
+    {
+        public readonly string Key;
+        public Token(object value)
+        {
+            var id = Interlocked.Increment(ref _nextId);
+            Key = Prefix + id;
+            _store[Key] = new WeakReference(value);
+            if (id % SweepInterval == 0) Sweep();
+        }
+    }
+    private static readonly ConditionalWeakTable<object, Token> _tokens = new();
 
     public static string Add(object value)
     {
-        var id = Interlocked.Increment(ref _nextId);
-        var key = Prefix + id;
-        _store[key] = new WeakReference(value);
-
-        if (id % SweepInterval == 0)
-            Sweep();
-
-        return key;
+        // CWT value factories may execute concurrently for one key. Serialize token
+        // publication so discarded factories cannot leave extra live dictionary entries.
+        lock (_tokens) return _tokens.GetValue(value, static target => new Token(target)).Key;
     }
 
     public static object? Get(string? key)

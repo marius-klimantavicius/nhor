@@ -51,7 +51,7 @@ public class TextArea : WinterComponentBase
                     TextAreaControl.Placeholder = AttributeHelper.GetString(attributeValue) ?? "";
                     break;
                 case "ontextchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);
                     _textChangedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Text;
 
 namespace Marius.Winter.Blazor.Core
 {
@@ -20,6 +21,7 @@ namespace Marius.Winter.Blazor.Core
             Renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
             _closestPhysicalParent = closestPhysicalParent;
             _targetElement = knownTargetElement;
+            _ownsTarget = knownTargetElement == null;
 
             // Assign unique counter value. This *should* all be done on one thread, but just in case, make it thread-safe.
             _debugInstanceCounterValue = Interlocked.Increment(ref DebugInstanceCounter);
@@ -31,10 +33,21 @@ namespace Marius.Winter.Blazor.Core
 
         public NativeComponentAdapter? Parent { get; private set; }
         public List<NativeComponentAdapter> Children { get; } = new List<NativeComponentAdapter>();
+        internal NativeComponentAdapter Root => Parent?.Root ?? this;
+
+        internal void AttachRootComponent(NativeComponentAdapter adapter, IComponent component)
+        {
+            adapter._targetComponent = component;
+            AddChildAdapter(0, adapter);
+        }
 
         private readonly IElementHandler _closestPhysicalParent;
         private IElementHandler? _targetElement;
         private IComponent? _targetComponent;
+        private string? _textContent;
+        private bool _hadTextChildren;
+        private bool _disposed;
+        private readonly bool _ownsTarget;
 
         public NativeComponentRenderer Renderer { get; }
 
@@ -86,14 +99,7 @@ namespace Marius.Winter.Blazor.Core
                     case RenderTreeEditType.UpdateText:
                         {
                             var frame = batch.ReferenceFrames.Array[edit.ReferenceFrameIndex];
-                            if (currentAdapter._targetElement is IHandleChildContentText handleChildContentText)
-                            {
-                                handleChildContentText.HandleText(edit.SiblingIndex, frame.TextContent);
-                            }
-                            else if (!string.IsNullOrWhiteSpace(frame.TextContent))
-                            {
-                                throw new Exception("Cannot set text content on child that doesn't handle inner text content.");
-                            }
+                            currentAdapter.Children[edit.SiblingIndex]._textContent = frame.TextContent;
                             break;
                         }
                     case RenderTreeEditType.StepIn:
@@ -119,20 +125,12 @@ namespace Marius.Winter.Blazor.Core
                     case RenderTreeEditType.UpdateMarkup:
                         {
                             var frame = batch.ReferenceFrames.Array[edit.ReferenceFrameIndex];
-                            if (currentAdapter._targetElement is IHandleChildContentText handleChildContentText)
-                            {
-                                handleChildContentText.HandleText(edit.SiblingIndex, frame.MarkupContent);
-                            }
-                            else if (!string.IsNullOrWhiteSpace(frame.MarkupContent))
-                            {
-                                throw new Exception("Cannot set markup content on child that doesn't handle inner text content.");
-                            }
+                            currentAdapter.Children[edit.SiblingIndex]._textContent = frame.MarkupContent;
                             break;
                         }
                     case RenderTreeEditType.PermutationListEntry:
-                        // MoveToSiblingIndex shares the field offset with ReferenceFrameIndex
                         permutationList ??= new List<(int, int)>();
-                        permutationList.Add((edit.SiblingIndex, edit.ReferenceFrameIndex));
+                        permutationList.Add((edit.SiblingIndex, edit.MoveToSiblingIndex));
                         break;
                     case RenderTreeEditType.PermutationListEnd:
                         currentAdapter.ApplyPermutations(permutationList!);
@@ -162,39 +160,21 @@ namespace Marius.Winter.Blazor.Core
                 Children[permutationList[i].to] = snapshots[i];
             }
 
-            // Phase 3: Reorder physical elements to match the new logical order.
-            var physicalParent = _targetElement ?? _closestPhysicalParent;
-            if (physicalParent == null)
-                return;
-
-            var physicalChildren = new List<IElementHandler>();
-            CollectPhysicalChildren(this, physicalChildren);
-
-            // Use ReorderChildren to swap children in-place without Scene.Remove/Add
-            // (which would break ThorVG ref counts and parent pointers).
-            if (physicalParent is IWinterContainerElementHandler container)
-            {
-                var elements = new List<Element>();
-                foreach (var ph in physicalChildren)
-                {
-                    if (ph is IWinterElementHandler wh)
-                        elements.Add(wh.ElementControl);
-                }
-                container.ReorderChildren(elements);
-            }
+            // The owning container reconciles its complete child order after all edits.
         }
 
-        private static void CollectPhysicalChildren(NativeComponentAdapter adapter, List<IElementHandler> result)
+        private static void CollectChildHandlers(NativeComponentAdapter adapter, List<IElementHandler> result)
         {
             foreach (var child in adapter.Children)
             {
-                if (child._targetElement != null && child._targetElement is not INonPhysicalChild)
+                if (child._disposed) continue;
+                if (child._targetElement != null)
                 {
                     result.Add(child._targetElement);
                 }
                 else
                 {
-                    CollectPhysicalChildren(child, result);
+                    CollectChildHandlers(child, result);
                 }
             }
         }
@@ -208,20 +188,7 @@ namespace Marius.Winter.Blazor.Core
 
         private void RemoveSelfAndDescendants()
         {
-            if (_targetElement != null)
-            {
-                // This adapter represents a physical element, so by removing it, we implicitly
-                // remove all descendants.
-                Renderer.ElementManager.RemoveChildElement(_closestPhysicalParent, _targetElement);
-            }
-            else
-            {
-                // This adapter is just a container for other adapters
-                foreach (var child in Children)
-                {
-                    child.RemoveSelfAndDescendants();
-                }
-            }
+            Dispose();
         }
 
         private void ApplySetAttribute(ref RenderTreeFrame attributeFrame)
@@ -236,6 +203,7 @@ namespace Marius.Winter.Blazor.Core
                 attributeFrame.AttributeName,
                 attributeFrame.AttributeValue,
                 attributeFrame.AttributeEventUpdatesAttributeName);
+            Renderer.AttributesChanged(_targetElement);
         }
 
         private void ApplyRemoveAttribute(string removedAttributeName)
@@ -250,6 +218,7 @@ namespace Marius.Winter.Blazor.Core
                 attributeName: removedAttributeName,
                 attributeValue: null!,
                 attributeEventUpdatesAttributeName: null!);
+            Renderer.AttributesChanged(_targetElement);
         }
 
         private int ApplyPrependFrame(RenderBatch batch, int componentId, int siblingIndex, RenderTreeFrame[] frames, int frameIndex, HashSet<int> processedComponentIds)
@@ -292,11 +261,7 @@ namespace Marius.Winter.Blazor.Core
                     }
                 case RenderTreeFrameType.Markup:
                     {
-                        if (_targetElement is IHandleChildContentText handleChildContentText)
-                        {
-                            handleChildContentText.HandleText(siblingIndex, frame.MarkupContent);
-                        }
-                        else if (!string.IsNullOrWhiteSpace(frame.MarkupContent))
+                        if ((_targetElement ?? _closestPhysicalParent) is not IHandleChildContentText && !string.IsNullOrWhiteSpace(frame.MarkupContent))
                         {
                             throw new NotImplementedException("Nonempty markup: " + frame.MarkupContent);
                         }
@@ -304,16 +269,13 @@ namespace Marius.Winter.Blazor.Core
                         var childAdapter = CreateAdapter(_targetElement ?? _closestPhysicalParent);
 #pragma warning restore CA2000 // Dispose objects before losing scope
                         childAdapter.Name = $"Markup, sib#={siblingIndex}";
+                        childAdapter._textContent = frame.MarkupContent;
                         AddChildAdapter(siblingIndex, childAdapter);
                         return 1;
                     }
                 case RenderTreeFrameType.Text:
                     {
-                        if (_targetElement is IHandleChildContentText handleChildContentText)
-                        {
-                            handleChildContentText.HandleText(siblingIndex, frame.TextContent);
-                        }
-                        else if (!string.IsNullOrWhiteSpace(frame.TextContent))
+                        if ((_targetElement ?? _closestPhysicalParent) is not IHandleChildContentText && !string.IsNullOrWhiteSpace(frame.TextContent))
                         {
                             throw new NotImplementedException("Nonempty text: " + frame.TextContent);
                         }
@@ -321,6 +283,7 @@ namespace Marius.Winter.Blazor.Core
                         var childAdapter = CreateAdapter(_targetElement ?? _closestPhysicalParent);
 #pragma warning restore CA2000 // Dispose objects before losing scope
                         childAdapter.Name = $"Text, sib#={siblingIndex}";
+                        childAdapter._textContent = frame.TextContent;
                         AddChildAdapter(siblingIndex, childAdapter);
                         return 1;
                     }
@@ -563,10 +526,80 @@ namespace Marius.Winter.Blazor.Core
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var child in Children) child.Dispose();
+            Children.Clear();
+            if (_ownsTarget && _targetElement != null)
+                Renderer.ElementManager.RemoveChildElement(_closestPhysicalParent, _targetElement);
             if (_targetElement is IDisposable disposableTargetElement)
             {
-                disposableTargetElement.Dispose();
+                if (_ownsTarget) disposableTargetElement.Dispose();
             }
+            if (_targetComponent is NativeControlComponentBase component)
+                component.ClearElementReference();
+            _targetComponent = null;
+            _targetElement = null;
+            Parent = null;
+        }
+
+        internal void ReconcileChildren()
+        {
+            if (_disposed) return;
+            if (_targetElement != null)
+            {
+                var handlers = new List<IElementHandler>();
+                CollectChildHandlers(this, handlers);
+                var indexes = new Dictionary<Type, int>();
+                foreach (var handler in handlers)
+                {
+                    if (handler is IIndexedNonPhysicalChild indexed)
+                    {
+                        indexes.TryGetValue(handler.GetType(), out var index);
+                        indexed.MoveTo(index);
+                        indexes[handler.GetType()] = index + 1;
+                    }
+                }
+                if (_targetElement is IWinterContainerElementHandler container)
+                {
+                    var ordered = new List<Element>();
+                    foreach (var handler in handlers)
+                        if (handler is IWinterElementHandler native && handler is not INonPhysicalChild)
+                            ordered.Add(native.ElementControl);
+                    // Preserve siblings owned by other roots or imperative callers. Replace
+                    // only this adapter's slots, always passing a complete permutation.
+                    var owned = new HashSet<Element>(ordered);
+                    var complete = new List<Element>(container.ElementControl.Children);
+                    var next = 0;
+                    for (var i = 0; i < complete.Count; i++)
+                        if (owned.Contains(complete[i])) complete[i] = ordered[next++];
+                    if (next != ordered.Count) throw new InvalidOperationException("Adapter children are not attached to their native parent.");
+                    var changed = false;
+                    for (var i = 0; i < complete.Count; i++)
+                        changed |= !ReferenceEquals(complete[i], container.ElementControl.Children[i]);
+                    if (changed) container.ReorderChildren(complete);
+                }
+                if (_targetElement is IHandleChildContentText textHandler)
+                {
+                    var text = new StringBuilder();
+                    var found = AppendText(this, text);
+                    if (found || _hadTextChildren) textHandler.HandleText(0, text.ToString());
+                    _hadTextChildren = found;
+                }
+            }
+            foreach (var child in Children) child.ReconcileChildren();
+        }
+
+        private static bool AppendText(NativeComponentAdapter adapter, StringBuilder text)
+        {
+            var found = false;
+            foreach (var child in adapter.Children)
+            {
+                if (child._targetElement != null) continue;
+                if (child._textContent != null) { text.Append(child._textContent); found = true; }
+                found |= AppendText(child, text);
+            }
+            return found;
         }
     }
 }

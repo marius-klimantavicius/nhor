@@ -14,6 +14,11 @@ namespace Marius.Winter.Blazor.Core
         private readonly Dictionary<int, NativeComponentAdapter> _componentIdToAdapter = new Dictionary<int, NativeComponentAdapter>();
         private ElementManager? _elementManager;
         private readonly Dictionary<ulong, Action<ulong>> _eventRegistrations = new Dictionary<ulong, Action<ulong>>();
+        private readonly HashSet<IHandleAttributeBatch> _pendingAttributes = new();
+        private readonly Queue<(ulong id, EventArgs args)> _nativeEvents = new();
+        private bool _applyingBatch;
+        private bool _dispatchScheduled;
+        internal Task NativeEvents { get; private set; } = Task.CompletedTask;
 
 
         public NativeComponentRenderer(IServiceProvider serviceProvider, ILoggerFactory loggerFactory)
@@ -67,7 +72,8 @@ namespace Marius.Winter.Blazor.Core
                         Name = $"RootAdapter attached to {parent.GetType().FullName}",
                     };
 
-                    _componentIdToAdapter[componentId] = rootAdapter;
+                    var componentAdapter = CreateAdapterForChildComponent(parent, componentId);
+                    rootAdapter.AttachRootComponent(componentAdapter, component);
 
                     SetParameterArguments(component, parameters);
 
@@ -85,6 +91,19 @@ namespace Marius.Winter.Blazor.Core
         }
 
         protected override Task UpdateDisplayAsync(in RenderBatch renderBatch)
+        {
+            _applyingBatch = true;
+            try { ApplyBatch(renderBatch); }
+            finally { _applyingBatch = false; }
+            if (_nativeEvents.Count > 0 && !_dispatchScheduled)
+            {
+                _dispatchScheduled = true;
+                NativeEvents = DispatchPendingNativeEventsAsync();
+            }
+            return NativeEvents;
+        }
+
+        private void ApplyBatch(in RenderBatch renderBatch)
         {
             HashSet<int> processedComponentIds = new HashSet<int>();
 
@@ -121,7 +140,59 @@ namespace Marius.Winter.Blazor.Core
                 }
             }
 
-            return Task.CompletedTask;
+            var roots = new HashSet<NativeComponentAdapter>();
+            foreach (var adapter in _componentIdToAdapter.Values) roots.Add(adapter.Root);
+            foreach (var root in roots) root.ReconcileChildren();
+            var commits = new List<IHandleAttributeBatch>(_pendingAttributes);
+            _pendingAttributes.Clear();
+            foreach (var handler in commits) handler.CommitAttributes();
+        }
+
+        internal Task DispatchNativeEventAsync(ulong id, EventFieldInfo? fieldInfo, EventArgs args)
+        {
+            if (_applyingBatch)
+            {
+                _nativeEvents.Enqueue((id, args));
+                return Task.CompletedTask;
+            }
+            return DispatchEventAsync(id, fieldInfo, args);
+        }
+
+        private async Task DispatchPendingNativeEventsAsync()
+        {
+            // DispatchEventAsync can start a synchronous render. Let Blazor release
+            // its reusable batch buffers before invoking application callbacks.
+            await Task.Yield();
+            await Dispatcher.InvokeAsync(async () =>
+            {
+                var tasks = new List<Task>();
+                try
+                {
+                    while (_nativeEvents.TryDequeue(out var pending))
+                        if (_eventRegistrations.ContainsKey(pending.id))
+                            tasks.Add(DispatchEventAsync(pending.id, null, pending.args));
+                }
+                finally { _dispatchScheduled = false; }
+                await Task.WhenAll(tasks);
+            });
+        }
+
+        internal void AttributesChanged(IElementHandler handler)
+        {
+            if (handler is IHandleAttributeBatch batch) _pendingAttributes.Add(batch);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (var adapter in _componentIdToAdapter.Values) adapter.Dispose();
+                _componentIdToAdapter.Clear();
+                _pendingAttributes.Clear();
+                _nativeEvents.Clear();
+                foreach (var id in new List<ulong>(_eventRegistrations.Keys)) UnregisterEvent(id);
+            }
+            base.Dispose(disposing);
         }
 
         public void RegisterEvent(ulong eventHandlerId, Action<ulong> unregisterCallback)
@@ -137,7 +208,7 @@ namespace Marius.Winter.Blazor.Core
             _eventRegistrations.Add(eventHandlerId, unregisterCallback);
         }
 
-        private void DisposeEvent(ulong eventHandlerId)
+        internal void UnregisterEvent(ulong eventHandlerId)
         {
             if (_eventRegistrations.TryGetValue(eventHandlerId, out var unregisterCallback))
             {
@@ -147,6 +218,8 @@ namespace Marius.Winter.Blazor.Core
             // Silently ignore unknown IDs — typed events (EventCallback<T>) are
             // handled directly by handlers without ConfigureEvent registration.
         }
+
+        private void DisposeEvent(ulong eventHandlerId) => UnregisterEvent(eventHandlerId);
 
         internal NativeComponentAdapter CreateAdapterForChildComponent(IElementHandler physicalParent, int componentId)
         {

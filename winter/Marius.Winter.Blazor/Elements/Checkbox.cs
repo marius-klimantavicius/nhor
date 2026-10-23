@@ -66,7 +66,7 @@ public class Checkbox : WinterComponentBase
                     }
                     break;
                 case "onchanged":
-                    Renderer.RegisterEvent(attributeEventHandlerId, _changedEvent.Unregister);
+                    RegisterEvent(attributeEventHandlerId, _changedEvent.Unregister);
                     _changedEvent.HandlerId = attributeEventHandlerId;
                     break;
                 default:
