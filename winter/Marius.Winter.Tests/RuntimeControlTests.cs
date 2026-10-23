@@ -22,7 +22,7 @@ public class AnimationContractTests
         current.Apply = _ => { calls.Add("apply"); if (mode == "all") manager.CancelAll(); else manager.Cancel(mode); };
         manager.Start(current); manager.Start(other);
         Assert.Null(Record.Exception(() => manager.Tick(1)));
-        Assert.Equal(mode == "other" ? new[] { "apply", "complete" } : new[] { "apply" }, calls);
+        Assert.Equal(mode == "other" ? new[] { "apply", "complete" } : mode == "self" ? new[] { "apply", "other" } : new[] { "apply" }, calls);
     }
 
     [Fact]
