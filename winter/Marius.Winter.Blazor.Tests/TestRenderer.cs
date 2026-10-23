@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Runtime.ExceptionServices;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Marius.Winter.Blazor;
@@ -28,7 +30,18 @@ internal class TestRenderer : NativeComponentRenderer
 
     protected override void HandleException(Exception exception)
     {
-        throw exception;
+        ExceptionDispatchInfo.Capture(exception).Throw();
+    }
+
+    public int SourceAttributeUpdates { get; private set; }
+
+    protected override Task UpdateDisplayAsync(in RenderBatch batch)
+    {
+        for (var i = 0; i < batch.UpdatedComponents.Count; i++)
+            foreach (var edit in batch.UpdatedComponents.Array[i].Edits)
+                if (edit.Type == RenderTreeEditType.SetAttribute && batch.ReferenceFrames.Array[edit.ReferenceFrameIndex].AttributeName == "Source")
+                    SourceAttributeUpdates++;
+        return base.UpdateDisplayAsync(batch);
     }
 
     /// <summary>
