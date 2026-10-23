@@ -8,7 +8,7 @@ namespace ThorVG.Tests
 {
     public class testScene
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void SceneCreation()
@@ -87,7 +87,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -117,7 +117,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 Assert.NotNull(canvas);
 
                 var buffer = new uint[100 * 100];

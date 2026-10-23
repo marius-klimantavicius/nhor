@@ -1,4 +1,4 @@
-// Ported from glfw/src/null_init.c (GLFW 3.5)
+// Ported from glfw/src/null_init.c (GLFW 3.6)
 //
 // Copyright (c) 2016 Google Inc.
 // Copyright (c) 2016-2017 Camilla Loewy <elmindreda@glfw.org>
@@ -210,6 +210,8 @@ namespace Glfw
         /// </summary>
         public void Terminate()
         {
+            Glfw._glfwTerminateOSMesa();
+            Glfw._glfwTerminateEGL();
             if (_glfw.Null != null)
             {
                 _glfw.Null.ClipboardString = null;

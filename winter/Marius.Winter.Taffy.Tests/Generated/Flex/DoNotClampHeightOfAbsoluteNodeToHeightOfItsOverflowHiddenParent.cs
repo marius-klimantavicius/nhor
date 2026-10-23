@@ -13,6 +13,7 @@ public class DoNotClampHeightOfAbsoluteNodeToHeightOfItsOverflowHiddenParent
         var taffy = NewTestTree();
         var node00 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromLength(100f), Dimension.FromLength(100f)),
         });
         var node0 = taffy.NewWithChildren(new Style
@@ -23,6 +24,7 @@ public class DoNotClampHeightOfAbsoluteNodeToHeightOfItsOverflowHiddenParent
         }, new NodeId[] { node00 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             OverflowValue = new Point<Overflow>(Overflow.Hidden, Overflow.Hidden),
             ScrollbarWidthValue = 15f,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(50f)),
@@ -53,6 +55,7 @@ public class DoNotClampHeightOfAbsoluteNodeToHeightOfItsOverflowHiddenParent
         var taffy = NewTestTree();
         var node00 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(100f), Dimension.FromLength(100f)),
         });
@@ -65,6 +68,7 @@ public class DoNotClampHeightOfAbsoluteNodeToHeightOfItsOverflowHiddenParent
         }, new NodeId[] { node00 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             OverflowValue = new Point<Overflow>(Overflow.Hidden, Overflow.Hidden),
             ScrollbarWidthValue = 15f,

@@ -1,0 +1,43 @@
+{
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-trim-source.lot",
+  "sha256": "19f51cbb8690c24bf725b6c994eac1e943065158ecbe80507c514497a01b0e1c",
+  "source": "thorvg/thorvg.unit-test res/test.lot at cc0b61c20384462eaf67c2ebefd02c8ff11d7341",
+  "nativeSource": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "colorspace": "ABGR8888 premultiplied",
+  "size": [
+    96,
+    96
+  ],
+  "expected": [
+    {
+      "frame": 0,
+      "sha256": "1c0273095382988333e2f2b5ae487cea460737ed9be65cbad9c5de537f95bf75",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    },
+    {
+      "frame": 10,
+      "sha256": "0eeea9a01991b158e42b0507adfe682a04be3c9ceeed4bdb7de47312e449fecb",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    },
+    {
+      "frame": 30,
+      "sha256": "e545415bf648e205c4acb248ca178ac951ece0a3f6d62d144e989d8614c295a3",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    },
+    {
+      "frame": 60,
+      "sha256": "038700f373fb79f15af0a0d6c9b6af210bc59a9aea1ea25f68bdbb2b22757af4",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    },
+    {
+      "frame": 75,
+      "sha256": "3a3a7af38b5d1ffdb156c29b59834895a7208391e2d836c6d50a620c45a3ffcf",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    },
+    {
+      "frame": 90,
+      "sha256": "969e598797c7ac47f2eb3cc9b102e8587fb57091186cc0e498fc6344faa6326b",
+      "evidence": "docs/thorvg-update/lottie-single-update-cpu-parity.json"
+    }
+  ]
+}

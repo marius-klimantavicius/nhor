@@ -34,9 +34,13 @@ ThorVG uses GitHub infrastructure to automatically assign code reviewers for you
 <br />
 
 ## Self Test & Verification
-After updating the ThorVG codebase, please ensure that your changes do not break the library. We recommend running unit tests using the following commands:
+After updating the ThorVG codebase, please ensure that your changes do not break the library. The unit tests are maintained in a separate repository, [thorvg.unit-test](https://github.com/thorvg/thorvg.unit-test), and are included as a git submodule under the `test/` directory. Fetch them first:
 ```
-$ meson setup build -Dtests=true -Dloaders="all" -Dsavers="all" -Dbindings="capi" -Dtools="all" -Dlog=true -Db_sanitize="address,undefined"
+$ git submodule update --init test
+```
+Then, we recommend running unit tests using the following commands:
+```
+$ meson setup build -Dtests=true -Dloaders="all" -Dsavers="all" -Dbindings="capi" -Dlog=true -Db_sanitize="address,undefined"
 $ ninja -C build test
 ```
 Please make sure that all tests pass without failures:
@@ -54,7 +58,7 @@ Timeout:            0
 [Description]
 
 - [Module] refers to the sub-module primarily affected by your change. Most of the time, this indicates the name of a sub-folder. This helps identify the appropriate reviewers for your change. If your change doesn't belong to any sub-modules, you can either replace this with a suitable name or skip it. The name should be written entirely in lowercase letters.
-  - e.g., build, doc, infra, common, cpu_engine, gl, svg, wasm, svg2png...
+  - e.g., build, doc, infra, common, cpu_engine, gl, svg, wasm, ...
 
 - [Feature] indicates the primary function or feature you modified. This field is optional.
   - e.g., canvas, shape, paint, scene, picture, task-scheduler, loader, builder, ...

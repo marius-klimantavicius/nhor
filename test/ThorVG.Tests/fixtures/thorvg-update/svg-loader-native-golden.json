@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native291complete ordinary loader records captured before managed corrections. Only valid finite SVG geometry/features, normal XML, colors, transformations/units, gradient inheritance and supported features; no corruption/malformed/fuzz/UTF8 byte fixtures.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "svg-loader-gradient-before.json",
+      "correctedEvidence": "svg-loader-normal-storage-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872.json",
+        "sha256": "20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872",
+        "archive": "docs/thorvg-update/source-snapshots/20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872.tar.gz"
+      },
+      "bytes": 13406,
+      "sha256": "8d15270214eaa7dc455787d6fc519b31a63ba9d6170d1eeb38dd0a340d818fca",
+      "records": 291
+    },
+    "arm64": {
+      "nativeOrigin": "arm-svg-loader-gradient-before.json",
+      "correctedEvidence": "arm-svg-loader-gradient-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872.json",
+        "sha256": "20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872",
+        "archive": "docs/thorvg-update/source-snapshots/20346f00db92214e337f64bff01acba2e43eab2ebdb7158237c8b05d3fbf9872.tar.gz"
+      },
+      "bytes": 13406,
+      "sha256": "c4f60a45104fcca1337d6ff84f6932933fc3bf2993e10d9e53adcc4378b6936e",
+      "records": 291
+    }
+  },
+  "parentReview": "pending"
+}

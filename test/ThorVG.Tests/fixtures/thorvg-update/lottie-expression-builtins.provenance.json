@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "Builtin float32 string-to-number coercion, typed-array constructors/from/element writes, compiled standard errors, strict write errors, function descriptors and native base36 formatting choose animated geometry. No random APIs/external resources.",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "f0988f61a53bae0d8a86dba9a8273c97408ea2f4d5abe7649ff47085ac73dcb1"
+}

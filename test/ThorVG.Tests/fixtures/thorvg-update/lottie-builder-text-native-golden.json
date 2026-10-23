@@ -1,0 +1,22 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "architectures": {
+    "x64": {
+      "originalBefore": "lottie-builder-text-style-before-x86.json",
+      "definedControl": "lottie-builder-text-defined-numeric-x86.json",
+      "records": 64,
+      "sha256": "f4ee3e84a310923e25a16f6f75c138b09e9c267f55901e77a434de3bf5e6bd00",
+      "qualification": "Exact first64original uppercase records, no native byte rewritten. Remaining64original lowercase small-caps records stay failed and outside this defined-control regression, explicitly tracked in native-lottie-small-caps-limit.json."
+    },
+    "arm64": {
+      "originalBefore": "lottie-builder-text-style-before-arm.json",
+      "definedControl": "lottie-builder-text-defined-numeric-arm.json",
+      "records": 64,
+      "sha256": "f74bf0d77f69ea57b96d38614bd2765ca598c6789098d9a998e9b60af744eb96",
+      "qualification": "Exact first64original uppercase records, no native byte rewritten. Remaining64original lowercase small-caps records stay failed and outside this defined-control regression, explicitly tracked in native-lottie-small-caps-limit.json."
+    }
+  },
+  "inputProvenance": "lottie-builder-text-normal-input-provenance.json",
+  "nativeLimit": "native-lottie-small-caps-limit.json",
+  "parentReview": "pending"
+}

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace ThorVG
 {
-    public class GlRenderPass
+    public class GlRenderPass : System.IDisposable
     {
         private GlRenderTarget? mFbo;
         private List<GlRenderTask> mTasks = new List<GlRenderTask>();
@@ -26,6 +26,12 @@ namespace ThorVG
             mTasks.AddRange(other.mTasks);
             other.mTasks.Clear();
             mDrawDepth = other.mDrawDepth;
+        }
+
+        public void Dispose()
+        {
+            foreach (var task in mTasks) task.Dispose();
+            mTasks.Clear();
         }
 
         public bool IsEmpty() => mFbo == null;

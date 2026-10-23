@@ -1,0 +1,33 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "evidence": [
+    "shape-state-dispatch-corrected.json",
+    "arm-shape-state-dispatch-corrected.json"
+  ],
+  "expectedX86": {
+    "pixelsSha256": [
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1"
+    ],
+    "bounds": [
+      "0,40af89be,bfa41778,421c1d90,424f2f84,",
+      "0,c106c282,40c2aabe,42154b42,42521eb1,",
+      "0,c106c282,41529d4b,42154b42,4235ccb6,"
+    ]
+  },
+  "expectedLinuxArm64": {
+    "pixelsSha256": [
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1",
+      "199e9b02a59ba9b934876bacd71498da9b7272f990c668ea964ef2105cf3f9d1"
+    ],
+    "bounds": [
+      "0,40af89be,bfa41778,421c1d90,424f2f84,",
+      "0,c106c282,40c2aabe,42154b42,42521eb1,",
+      "0,c106c282,41529d4b,42154b42,4235ccb6,"
+    ]
+  }
+}

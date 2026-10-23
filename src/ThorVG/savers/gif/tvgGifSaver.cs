@@ -13,6 +13,9 @@ namespace ThorVG
         private string? path;
         private Float2 vsize;
         private float fps;
+        private readonly LoaderTask task;
+
+        public GifSaver() { task = new LoaderTask(_ => Run()); }
 
         /************************************************************************/
         /* Internal Class Implementation                                        */
@@ -20,14 +23,13 @@ namespace ThorVG
 
         private unsafe void Run()
         {
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             if (canvas == null) return;
 
             var w = (uint)vsize[0];
             var h = (uint)vsize[1];
 
-            FreeBuffer();
-            nativeBuffer = (uint*)NativeMemory.AllocZeroed((nuint)(w * h) * (nuint)sizeof(uint));
+            nativeBuffer = (uint*)NativeMemory.Realloc(nativeBuffer, (nuint)w * h * (nuint)sizeof(uint));
             canvas.Target(nativeBuffer, w, w, h, ColorSpace.ABGR8888S);
             if (bg != null) canvas.Add(bg);
             canvas.Add(animation!.GetPicture());
@@ -82,7 +84,8 @@ namespace ThorVG
 
         ~GifSaver()
         {
-            CloseInternal();
+            try { Close(); }
+            catch (Exception exception) { TvgCommon.TVGERR("GIF_SAVER", "Finalizer: {0}", exception.Message); }
         }
 
         private unsafe void FreeBuffer()
@@ -99,10 +102,9 @@ namespace ThorVG
             if (bg != null) bg.Unref();
             bg = null;
 
-            // animation holds the picture, it must be 1 at the bottom.
             if (animation != null && animation.GetPicture().RefCnt() <= 1)
             {
-                // In C# we let GC handle cleanup
+                animation.Dispose();
             }
             animation = null;
 
@@ -112,9 +114,7 @@ namespace ThorVG
 
         public override bool Close()
         {
-            // In C++, this calls this->done() which waits for the task to finish.
-            // In C#, we run synchronously so no waiting needed.
-
+            task.Done();
             CloseInternal();
             return true;
         }
@@ -127,7 +127,6 @@ namespace ThorVG
 
         public override bool Save(Animation animation, Paint? bg, string filename, uint quality, uint fps)
         {
-            if (filename == null) return false;
             Close();
 
             var picture = animation.GetPicture();
@@ -144,7 +143,8 @@ namespace ThorVG
                 return false;
             }
 
-            this.path = filename;
+            if (filename == null) return false;
+            this.path = TvgStr.Duplicate(filename);
             this.animation = animation;
 
             if (bg != null)
@@ -154,16 +154,14 @@ namespace ThorVG
             }
             this.fps = (float)fps;
 
-            // In C++, this dispatches to TaskScheduler::request(this).
-            // In C#, we run synchronously for simplicity.
-            Run();
+            TaskScheduler.Request(task);
 
             return true;
         }
 
         public void Dispose()
         {
-            CloseInternal();
+            Close();
             GC.SuppressFinalize(this);
         }
     }

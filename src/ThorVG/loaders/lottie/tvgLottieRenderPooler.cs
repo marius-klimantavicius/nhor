@@ -1,5 +1,6 @@
 // Ported from ThorVG/src/loaders/lottie/tvgLottieRenderPooler.h
 
+using System;
 using System.Collections.Generic;
 
 namespace ThorVG
@@ -8,7 +9,7 @@ namespace ThorVG
     /// Object pool for reusing Paint objects during rendering.
     /// Mirrors C++ LottieRenderPooler.
     /// </summary>
-    public class LottieRenderPooler<T> where T : Paint
+    public class LottieRenderPooler<T> : IDisposable where T : Paint
     {
         public List<T> pooler = new();
 
@@ -34,11 +35,17 @@ namespace ThorVG
                 else if (typeof(T) == typeof(Scene))
                     p2 = (T)(Paint)Scene.Gen();
                 else
-                    p2 = (T)(Paint)Shape.Gen(); // fallback
+                    throw new NotSupportedException($"Unsupported Lottie paint pool type: {typeof(T)}");
             }
             p2.Ref();
             pooler.Add(p2);
             return p2;
+        }
+
+        public void Dispose()
+        {
+            foreach (var paint in pooler) paint.Unref();
+            pooler.Clear();
         }
     }
 }

@@ -6,7 +6,7 @@ namespace ThorVG.Tests
 {
     public class TtfLoaderTests
     {
-        private static readonly string FontPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources", "PublicSans-Regular.ttf"));
+        private static readonly string FontPath = Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources", "PublicSans-Regular.ttf");
 
         private TtfLoader CreateLoader()
         {
@@ -70,13 +70,19 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void Get_EmptyText_ReturnsFalse()
+        public void Get_EmptyTextInitializesNativeMetricsAndAnEmptyPath()
         {
             var loader = CreateLoader();
             var fm = new FontMetrics { fontSize = 24.0f };
             var path = new RenderPath();
 
-            Assert.False(loader.Get(fm, "", 0, path));
+            Assert.True(loader.Get(fm, "", 0, path));
+            Assert.Equal(0u, path.cmds.count);
+            Assert.Equal(0u, path.pts.count);
+            Assert.Equal(1u, fm.lines);
+            Assert.NotNull(fm.engine);
+            Assert.True(fm.scale > 0);
+            Assert.Equal(0f, fm.size.x);
         }
 
         [Fact]

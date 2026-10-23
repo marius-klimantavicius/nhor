@@ -10,6 +10,7 @@ namespace ThorVG
     public class TtfMetrics
     {
         public float baseWidth;  // Use as the reference glyph width for italic transform
+        internal TtfGlyphMetrics? baseGlyph;
     }
 
     /// <summary>
@@ -20,18 +21,8 @@ namespace ThorVG
         private const uint LINE_FEED_CODEPOINT = 0x0A;
         private const uint DOT_CODEPOINT = 0x2E;
 
-        private static bool IsWordBreak(uint code) => code switch
-        {
-            0x20   => true,  // space
-            0x09   => true,  // tab
-            0xA0   => true,  // no-break space
-            0x1680 => true,  // ogham space mark
-            >= 0x2000 and <= 0x200A => true,  // en/em/thin/hair spaces etc.
-            0x202F => true,  // narrow no-break space
-            0x205F => true,  // medium mathematical space
-            0x3000 => true,  // ideographic space
-            _ => false,
-        };
+        // Match the pinned word-wrap algorithm's SPACE_GLYPH_IDX boundary.
+        private static bool IsWordBreak(uint code) => code == 0x20;
 
         public TtfReader reader = new TtfReader();
         public Dictionary<uint, TtfGlyphMetrics> glyphs = new Dictionary<uint, TtfGlyphMetrics>();
@@ -44,20 +35,20 @@ namespace ThorVG
         //  UTF-8 codepoint decoding
         // ----------------------------------------------------------------
 
-        private static uint DecodeCodepoint(string text, ref int idx, int end)
+        private static uint DecodeCodepoint(ReadOnlySpan<byte> text, ref int idx, int end)
         {
             if (idx >= end) return 0;
-
-            char c = text[idx];
-            // Handle surrogate pairs for codepoints > 0xFFFF
-            if (char.IsHighSurrogate(c) && idx + 1 < end && char.IsLowSurrogate(text[idx + 1]))
-            {
-                var cp = (uint)char.ConvertToUtf32(c, text[idx + 1]);
-                idx += 2;
-                return cp;
-            }
-            idx++;
-            return c;
+            int p = idx;
+            uint c = text[p];
+            if ((c & 0x80) == 0) { ++idx; return c; }
+            if ((c & 0xe0) == 0xc0 && p + 1 < end)
+            { idx += 2; return ((c & 0x1f) << 6) + (uint)(text[p + 1] & 0x3f); }
+            if ((c & 0xf0) == 0xe0 && p + 2 < end)
+            { idx += 3; return ((c & 0x0f) << 12) + (uint)((text[p + 1] & 0x3f) << 6) + (uint)(text[p + 2] & 0x3f); }
+            if ((c & 0xf8) == 0xf0 && p + 3 < end)
+            { idx += 4; return ((c & 7) << 18) + (uint)((text[p + 1] & 0x3f) << 12) + (uint)((text[p + 2] & 0x3f) << 6) + (uint)(text[p + 3] & 0x3f); }
+            TvgCommon.TVGERR("SFNT", "Corrupted UTF8??");
+            ++idx; return 0;
         }
 
         // ----------------------------------------------------------------
@@ -72,7 +63,7 @@ namespace ThorVG
             var end = input.pts.End();
             while (p < end)
             {
-                var pt = new Point(p->x + cursor.x + kerning.x, p->y + cursor.y + kerning.y);
+                var pt = new Point((p->x + cursor.x) + kerning.x, (p->y + cursor.y) + kerning.y);
                 output.pts.Push(pt);
                 p++;
             }
@@ -120,28 +111,44 @@ namespace ThorVG
         //  Private helpers
         // ----------------------------------------------------------------
 
+        private static void SetBaseGlyph(FontMetrics fm, TtfGlyphMetrics glyph)
+        {
+            var metrics = (TtfMetrics)fm.engine!;
+            metrics.baseGlyph = glyph;
+            var bounds = glyph.NativeBounds;
+            metrics.baseWidth = bounds.max.x - bounds.min.x;
+        }
+
         private float Height(uint loc, float spacing)
         {
-            return (reader.metrics.hhea.advance * loc - reader.metrics.hhea.linegap) * spacing;
+            return TvgMath.MultiplyAdd(reader.metrics.hhea.advance, loc, -reader.metrics.hhea.linegap) * spacing;
         }
 
         private uint FeedLine(FontMetrics fm, float box, float x, uint begin, uint end, ref Point cursor, RenderPath output)
         {
             AlignX(fm.align.x, box, x, begin, end, output);
             cursor.x = 0.0f;
-            cursor.y += reader.metrics.hhea.advance * fm.spacing.y;
+            cursor.y = TvgMath.MultiplyAdd(reader.metrics.hhea.advance, fm.spacing.y, cursor.y);
             ++fm.lines;
             return output.pts.count;
         }
 
         private float _hintPixelSize; // [Hinting] Set by Get() for the current render pass
+        private readonly StrictKey glyphKey = new();
 
         private TtfGlyphMetrics? Request(uint code)
         {
+            using var guard = new ScopedLock(glyphKey);
+            if (code == 0) return null;
             // [Hinting] Route through hinted path when pixel size is set
-            if (_hintPixelSize > 0)
+            if (_hintPixelSize > 0 && reader is not OtfReader)
                 return RequestHinted(code, _hintPixelSize);
 
+            return RequestUnhinted(code);
+        }
+
+        private TtfGlyphMetrics? RequestUnhinted(uint code)
+        {
             if (code == 0) return null;
 
             if (glyphs.TryGetValue(code, out var existing))
@@ -150,8 +157,11 @@ namespace ThorVG
             }
 
             var tgm = new TtfGlyphMetrics();
+            // Native Map::operator[] owns the record before conversion,
+            // including any partially constructed path on failure.
             glyphs[code] = tgm;
             var glyphOffset = reader.Glyph(code, tgm);
+            if (tgm.idx == TtfReader.INVALID_GLYPH) return null;
             if (!reader.Convert(tgm.path, tgm, glyphOffset, new Point(0.0f, 0.0f), 1))
             {
                 return null;
@@ -163,7 +173,7 @@ namespace ThorVG
         //  Wrapping modes
         // ----------------------------------------------------------------
 
-        private void WrapNone(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
+        private void WrapNone(FontMetrics fm, in Point box, ReadOnlySpan<byte> utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             var cursor = new Point(0, 0);
@@ -185,13 +195,12 @@ namespace ThorVG
                 if (ltgm != null) reader.Kerning(ltgm.idx, rtgm.idx, ref kerning);
 
                 Build(rtgm.path, cursor, kerning, output);
-                cursor.x += (rtgm.advance + kerning.x) * fm.spacing.x;
+                cursor.x = TvgMath.MultiplyAdd(rtgm.advance + kerning.x, fm.spacing.x, cursor.x);
 
                 if (cursor.x > fm.size.x) fm.size.x = cursor.x;
 
                 // store the base glyph width for italic transform
-                if (ltgm == null && rtgm.w > 0.0f)
-                    ((TtfMetrics)fm.engine!).baseWidth = rtgm.w;
+                if (ltgm == null) SetBaseGlyph(fm, rtgm);
                 ltgm = rtgm;
             }
             fm.size.y = Height(fm.lines, fm.spacing.y);
@@ -199,7 +208,7 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private void WrapChar(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
+        private void WrapChar(FontMetrics fm, in Point box, ReadOnlySpan<byte> utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
@@ -241,8 +250,7 @@ namespace ThorVG
 
                 if (cursor.x > fm.size.x) fm.size.x = cursor.x;
 
-                if (ltgm == null && rtgm.w > 0.0f)
-                    ((TtfMetrics)fm.engine!).baseWidth = rtgm.w;
+                if (ltgm == null) SetBaseGlyph(fm, rtgm);
                 ltgm = rtgm;
             }
             fm.size.y = Height(fm.lines, fm.spacing.y);
@@ -250,7 +258,7 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private unsafe void WrapWord(FontMetrics fm, in Point box, string utf8, int len, RenderPath output, bool smart)
+        private unsafe void WrapWord(FontMetrics fm, in Point box, ReadOnlySpan<byte> utf8, int len, RenderPath output, bool smart)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
@@ -313,8 +321,7 @@ namespace ThorVG
 
                 if (cursor.x > fm.size.x) fm.size.x = cursor.x;
 
-                if (ltgm == null && rtgm.w > 0.0f)
-                    ((TtfMetrics)fm.engine!).baseWidth = rtgm.w;
+                if (ltgm == null) SetBaseGlyph(fm, rtgm);
                 ltgm = rtgm;
             }
             fm.size.y = Height(fm.lines, fm.spacing.y);
@@ -322,7 +329,7 @@ namespace ThorVG
             Align(fm.align, box, new Point(cursor.x, fm.size.y), line, output.pts.count, output);
         }
 
-        private void WrapEllipsis(FontMetrics fm, in Point box, string utf8, int len, RenderPath output)
+        private void WrapEllipsis(FontMetrics fm, in Point box, ReadOnlySpan<byte> utf8, int len, RenderPath output)
         {
             TtfGlyphMetrics? ltgm = null;
             uint line = 0;
@@ -367,7 +374,7 @@ namespace ThorVG
                     kerning = new Point(0, 0);
                     reader.Kerning(rtgm.idx, rtgm.idx, ref kerning);
                     // not enough space, revert one character back
-                    if (cursor.x + (rtgm.advance + kerning.x) * 3 > box.x)
+                    if (TvgMath.MultiplyAdd(rtgm.advance + kerning.x, 3, cursor.x) > box.x)
                     {
                         output.pts.count = capturePts;
                         output.cmds.count = captureCmds;
@@ -385,8 +392,7 @@ namespace ThorVG
 
                 if (cursor.x > fm.size.x) fm.size.x = cursor.x;
 
-                if (ltgm == null && rtgm.w > 0.0f)
-                    ((TtfMetrics)fm.engine!).baseWidth = rtgm.w;
+                if (ltgm == null) SetBaseGlyph(fm, rtgm);
 
                 if (stop) break;
 
@@ -402,50 +408,91 @@ namespace ThorVG
         // ----------------------------------------------------------------
 
         public override bool Open(string path, LoaderOps? ops = null)
-        {
-            name = TvgStr.Filename(path);
+            => OpenResult(path, ops) == Result.Success;
 
+        public override Result OpenResult(string path, LoaderOps? ops = null)
+        {
             try
             {
-                reader.data = File.ReadAllBytes(path);
-                reader.size = (uint)reader.data.Length;
+                var bytes = TvgUtf8.ReadAllBytes(path);
+                var result = OpenFont(bytes, (uint)bytes.Length, Ownership.Transfer);
+                if (result == Result.Success) name = TvgStr.Filename(path);
+                return result;
             }
-            catch
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is ArgumentException)
             {
-                return false;
+                return Result.InvalidArguments;
             }
-            return reader.Header();
         }
 
         /// <summary>Open from raw data buffer (with resource path).</summary>
         public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
             if (data == null || size > data.Length) return false;
-            return Open(data, size, copy);
+            return OpenFont(data, size, copy ? Ownership.Copy : ops?.owner ?? Ownership.Borrow) == Result.Success;
         }
+
+        public override Result OpenResult(byte[] data, uint size, LoaderOps? ops)
+            => OpenFont(data, size, ops?.owner ?? Ownership.Borrow);
 
         /// <summary>Open from raw data buffer.</summary>
         public bool Open(byte[] rawData, uint dataSize, bool copy)
+            => OpenFont(rawData, dataSize, copy ? Ownership.Copy : Ownership.Borrow) == Result.Success;
+
+        private Result OpenFont(byte[] rawData, uint dataSize, Ownership owner)
         {
-            if (rawData == null || dataSize > rawData.Length || dataSize <= 4) return false;
-            if (copy)
+            if (rawData == null || dataSize > rawData.Length || dataSize <= 4) return Result.InvalidArguments;
+            uint signature = (uint)(rawData[0] << 24 | rawData[1] << 16 | rawData[2] << 8 | rawData[3]);
+            TtfReader selected;
+            if (signature == 0x00010000 || signature == 0x74727565) selected = new TtfReader();
+            else if (signature == 0x4f54544f) selected = new OtfReader();
+            else return Result.InvalidArguments;
+            if (owner == Ownership.Copy)
             {
-                reader.data = new byte[dataSize];
-                Buffer.BlockCopy(rawData, 0, reader.data, 0, (int)dataSize);
+                selected.data = new byte[dataSize];
+                Buffer.BlockCopy(rawData, 0, selected.data, 0, (int)dataSize);
             }
             else
             {
-                reader.data = rawData;
+                selected.data = rawData;
             }
-            reader.size = dataSize;
-            return reader.Header();
+            selected.size = dataSize;
+            var result = selected.HeaderResult();
+            if (result != Result.Success) return result;
+            ClearGlyphs();
+            reader = selected;
+            this.owner = owner;
+            _hinter = null;
+            _hintingInitialized = false;
+            return Result.Success;
+        }
+
+        private void ClearGlyphs()
+        {
+            foreach (var glyph in glyphs.Values) glyph.Dispose();
+            foreach (var glyph in _hintedGlyphs.Values) glyph.Dispose();
+            glyphs.Clear();
+            _hintedGlyphs.Clear();
+        }
+
+        internal override void ReleaseResources()
+        {
+            ClearGlyphs();
+            reader.data = null;
+            reader.size = 0;
+            _hinter = null;
+            name = null;
+            base.ReleaseResources();
         }
 
         public override void Transform(Paint paint, FontMetrics fm, float italicShear)
         {
+            var engine = (TtfMetrics)fm.engine!;
+            var bounds = engine.baseGlyph?.NativeBounds;
+            var baseWidth = bounds.HasValue ? bounds.Value.max.x - bounds.Value.min.x : engine.baseWidth;
             var scale = 1.0f / fm.scale;
             var m = new Matrix(
-                scale, -italicShear * scale, italicShear * ((TtfMetrics)fm.engine!).baseWidth * scale,
+                scale, -italicShear * scale, italicShear * baseWidth * scale,
                 0, scale, reader.metrics.hhea.ascent * scale,
                 0, 0, 1);
             paint.Transform(m);
@@ -453,24 +500,32 @@ namespace ThorVG
 
         public override bool Get(FontMetrics fm, string? text, uint len, RenderPath output)
         {
-            output.Clear();
+            using var guard = new ScopedLock(glyphKey);
+            _hintPixelSize = fm.hinting ? fm.fontSize * DPI : 0;
+            try { return GetOutline(fm, text, len, output); }
+            finally { _hintPixelSize = 0; }
+        }
 
-            if (string.IsNullOrEmpty(text) || fm.fontSize == 0.0f) return false;
+        private bool GetOutline(FontMetrics fm, string? text, uint len, RenderPath output)
+        {
+            output.Clear();
+            fm.lines = 1;
+            if (text == null || fm.fontSize == 0.0f) return false;
 
             fm.scale = reader.metrics.unitsPerEm / (fm.fontSize * DPI);
-            _hintPixelSize = _hintingEnabled ? fm.fontSize * DPI : 0; // [Hinting]
             fm.size = new Point(0, 0);
             fm.lines = 1;
             if (fm.engine == null) fm.engine = new TtfMetrics();
 
             var box = new Point(fm.box.x * fm.scale, fm.box.y * fm.scale);
-            var end = (int)Math.Min(len, text.Length);
+            var bytes = TvgUtf8.Encode(text);
+            var end = (int)Math.Min(len, bytes.Length);
 
-            if (fm.wrap == TextWrap.None || fm.box.x == 0.0f) WrapNone(fm, box, text, end, output);
-            else if (fm.wrap == TextWrap.Character) WrapChar(fm, box, text, end, output);
-            else if (fm.wrap == TextWrap.Word) WrapWord(fm, box, text, end, output, false);
-            else if (fm.wrap == TextWrap.Smart) WrapWord(fm, box, text, end, output, true);
-            else if (fm.wrap == TextWrap.Ellipsis) WrapEllipsis(fm, box, text, end, output);
+            if (fm.wrap == TextWrap.None || fm.box.x == 0.0f) WrapNone(fm, box, bytes, end, output);
+            else if (fm.wrap == TextWrap.Character) WrapChar(fm, box, bytes, end, output);
+            else if (fm.wrap == TextWrap.Word) WrapWord(fm, box, bytes, end, output, false);
+            else if (fm.wrap == TextWrap.Smart) WrapWord(fm, box, bytes, end, output, true);
+            else if (fm.wrap == TextWrap.Ellipsis) WrapEllipsis(fm, box, bytes, end, output);
             else return false;
 
             return true;
@@ -490,10 +545,13 @@ namespace ThorVG
             output.box = input.box;
             output.spacing = input.spacing;
             output.fontSize = input.fontSize;
+            output.lines = input.lines;
             output.wrap = input.wrap;
+            output.hinting = input.hinting;
             if (input.engine != null)
             {
-                output.engine = new TtfMetrics { baseWidth = ((TtfMetrics)input.engine).baseWidth };
+                var engine = (TtfMetrics)input.engine;
+                output.engine = new TtfMetrics { baseWidth = engine.baseWidth, baseGlyph = engine.baseGlyph };
             }
         }
 
@@ -504,22 +562,23 @@ namespace ThorVG
 
         public override unsafe bool GlyphMetrics(FontMetrics fm, string ch, out ThorVG.GlyphMetrics output, out int next)
         {
+            using var guard = new ScopedLock(glyphKey);
             output = default;
             next = 0;
             if (string.IsNullOrEmpty(ch)) return false;
             int idx = 0;
-            var code = DecodeCodepoint(ch, ref idx, ch.Length);
+            var bytes = TvgUtf8.Encode(TvgStr.Duplicate(ch)!);
+            var code = DecodeCodepoint(bytes, ref idx, bytes.Length);
             var glyph = Request(code);
             if (glyph == null) return false;
             var scale = (fm.fontSize * DPI) / reader.metrics.unitsPerEm;
             output.advance = glyph.advance * scale;
             output.bearing = glyph.lsb * scale;
 
-            var min = new Point(glyph.x, glyph.y);
-            var max = glyph.w == 0.0f && glyph.h == 0.0f
-                ? min
-                : new Point(glyph.w + glyph.x - 1.0f, glyph.h + glyph.y - 1.0f);
-            if (TvgMath.Zero(min.x) && TvgMath.Zero(min.y) && TvgMath.Zero(max.x) && TvgMath.Zero(max.y))
+            var storedBounds = glyph.NativeBounds;
+            var min = storedBounds.min;
+            var max = storedBounds.max;
+            if (max.x == 0.0f && max.y == 0.0f)
             {
                 var bounds = new BBox();
                 if (glyph.path.Bounds(null, ref bounds))
@@ -529,11 +588,13 @@ namespace ThorVG
                     var y = min.y;
                     min.y = -max.y;
                     max.y = -y;
+                    glyph.NativeBounds = new BBox { min = min, max = max };
                 }
             }
             output.min = new Point(min.x * scale, min.y * scale);
             output.max = new Point(max.x * scale, max.y * scale);
-            next = idx;
+            // The managed public API returns a UTF-16 substring index.
+            next = TvgUtf8.Decode(bytes.AsSpan(0, idx)).Length;
             return true;
         }
 

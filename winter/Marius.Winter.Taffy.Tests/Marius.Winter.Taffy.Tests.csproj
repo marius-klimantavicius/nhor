@@ -16,4 +16,18 @@
     <ProjectReference Include="..\Marius.Winter\Marius.Winter.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Native\float-corpus.json" />
+    <EmbeddedResource Include="Native\handwritten-corpus.json.gz" />
+    <EmbeddedResource Include="Native\numeric-corpus.json.gz" />
+    <EmbeddedResource Include="Native\parse-corpus.json.gz" />
+    <EmbeddedResource Include="Native\helpers-corpus.json.gz" />
+    <EmbeddedResource Include="Native\serde-corpus.json.gz" />
+    <EmbeddedResource Include="Native\tree-corpus.json.gz" />
+    <EmbeddedResource Include="Native\geometry-corpus.json.gz" />
+    <EmbeddedResource Include="Native\wire-corpus.json.gz" />
+    <EmbeddedResource Include="Native\correction-round4-corpus.json.gz" />
+    <Content Include="../../ref/taffy/tests/xml/**/*.xml" Link="TargetFixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

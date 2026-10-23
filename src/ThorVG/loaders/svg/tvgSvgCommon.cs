@@ -122,7 +122,12 @@ namespace ThorVG
         StrokeDashOffset = 0x40000,
         Filter = 0x80000,
         BlendMode = 0x100000,
-        TextAnchor = 0x200000
+        TextAnchor = 0x200000,
+        AlignmentBaseline = 0x400000,
+        DominantBaseline = 0x800000,
+        FontWeight = 0x1000000,
+        LetterSpacing = 0x2000000,
+        WordSpacing = 0x4000000
     }
 
     [Flags]
@@ -360,7 +365,7 @@ namespace ThorVG
         public SvgStyleGradient? gradient;
         public SvgNode? pattern;
         public string? url;
-        public RGB color;
+        public RGBA color;
         public bool none;
         public bool curColor;
     }
@@ -423,6 +428,18 @@ namespace ThorVG
         public SvgNode? node;
     }
 
+    public enum SvgBaseline : byte
+    {
+        Auto = 0,
+        Alphabetic,
+        BeforeEdge,
+        AfterEdge,
+        Central,
+        Middle,
+        Hanging,
+        Mathematical
+    }
+
     public class SvgStyleProperty
     {
         public SvgStyleFill fill = new SvgStyleFill();
@@ -431,9 +448,14 @@ namespace ThorVG
         public SvgComposite mask = new SvgComposite();
         public SvgFilter filter = new SvgFilter();
         public int opacity;
-        public RGB color;
+        public RGBA color;
         public string? cssClass;
         public float textAnchor;
+        public SvgBaseline alignmentBaseline;
+        public SvgBaseline dominantBaseline;
+        public SvgFontWeight fontWeight;
+        public float letterSpacing, wordSpacing;
+        public bool letterSpacingRelative, wordSpacingRelative;
         public SvgStyleFlags flags;
         public SvgStyleFlags flagsImportance;
         public bool curColorSet;
@@ -444,7 +466,8 @@ namespace ThorVG
 
     /// <summary>
     /// SVG DOM node. In C++ this uses a union of node-type-specific data;
-    /// in C# we use individual nullable fields (only one is populated at a time).
+    /// in C# the loader allocates the matching auxiliary record. The legacy public
+    /// constructor retains all records for compatibility with direct field callers.
     /// </summary>
     public class SvgNode
     {
@@ -457,24 +480,51 @@ namespace ThorVG
         public SvgXmlSpace xmlSpace = SvgXmlSpace.None;
 
         // Union-like members (only one is populated based on type)
-        public SvgDocNode doc = new SvgDocNode();
-        public SvgDefsNode defs = new SvgDefsNode();
-        public SvgUseNode use = new SvgUseNode();
-        public SvgCircleNode circle = new SvgCircleNode();
-        public SvgEllipseNode ellipse = new SvgEllipseNode();
-        public SvgPolygonNode polygon = new SvgPolygonNode();
-        public SvgPolygonNode polyline = new SvgPolygonNode();
-        public SvgRectNode rect = new SvgRectNode();
-        public SvgPathNode path = new SvgPathNode();
-        public SvgLineNode line = new SvgLineNode();
-        public SvgImageNode image = new SvgImageNode();
-        public SvgMaskNode maskNode = new SvgMaskNode();
-        public SvgClipNode clip = new SvgClipNode();
-        public SvgSymbolNode symbol = new SvgSymbolNode();
-        public SvgTextNode text = new SvgTextNode();
-        public SvgFilterNode filter = new SvgFilterNode();
-        public SvgGaussianBlurNode gaussianBlur = new SvgGaussianBlurNode();
-        public SvgPatternNode pattern = new SvgPatternNode();
+        public SvgDocNode doc = null!;
+        public SvgDefsNode defs = null!;
+        public SvgUseNode use = null!;
+        public SvgCircleNode circle = null!;
+        public SvgEllipseNode ellipse = null!;
+        public SvgPolygonNode polygon = null!;
+        public SvgPolygonNode polyline = null!;
+        public SvgRectNode rect = null!;
+        public SvgPathNode path = null!;
+        public SvgLineNode line = null!;
+        public SvgImageNode image = null!;
+        public SvgMaskNode maskNode = null!;
+        public SvgClipNode clip = null!;
+        public SvgSymbolNode symbol = null!;
+        public SvgTextNode text = null!;
+        public SvgFilterNode filter = null!;
+        public SvgGaussianBlurNode gaussianBlur = null!;
+        public SvgPatternNode pattern = null!;
+
+        // The legacy public constructor exposes all auxiliary records. The
+        // loader uses native union ownership: only its node type needs storage.
+        public SvgNode() : this(SvgNodeType.Doc, true) { }
+        internal SvgNode(SvgNodeType type) : this(type, false) { }
+        private SvgNode(SvgNodeType type, bool initializeAll)
+        {
+            this.type = type;
+            if (initializeAll || type == SvgNodeType.Doc) doc = new SvgDocNode();
+            if (initializeAll || type == SvgNodeType.Defs) defs = new SvgDefsNode();
+            if (initializeAll || type == SvgNodeType.Use) use = new SvgUseNode();
+            if (initializeAll || type == SvgNodeType.Circle) circle = new SvgCircleNode();
+            if (initializeAll || type == SvgNodeType.Ellipse) ellipse = new SvgEllipseNode();
+            if (initializeAll || type == SvgNodeType.Polygon) polygon = new SvgPolygonNode();
+            if (initializeAll || type == SvgNodeType.Polyline) polyline = new SvgPolygonNode();
+            if (initializeAll || type == SvgNodeType.Rect) rect = new SvgRectNode();
+            if (initializeAll || type == SvgNodeType.Path) path = new SvgPathNode();
+            if (initializeAll || type == SvgNodeType.Line) line = new SvgLineNode();
+            if (initializeAll || type == SvgNodeType.Image) image = new SvgImageNode();
+            if (initializeAll || type == SvgNodeType.Mask) maskNode = new SvgMaskNode();
+            if (initializeAll || type == SvgNodeType.ClipPath) clip = new SvgClipNode();
+            if (initializeAll || type == SvgNodeType.Symbol) symbol = new SvgSymbolNode();
+            if (initializeAll || type == SvgNodeType.Text || type == SvgNodeType.Tspan) text = new SvgTextNode();
+            if (initializeAll || type == SvgNodeType.Filter) filter = new SvgFilterNode();
+            if (initializeAll || type == SvgNodeType.GaussianBlur) gaussianBlur = new SvgGaussianBlurNode();
+            if (initializeAll || type == SvgNodeType.Pattern) pattern = new SvgPatternNode();
+        }
     }
 
     public class SvgParser

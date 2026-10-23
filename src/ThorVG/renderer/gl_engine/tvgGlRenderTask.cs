@@ -14,7 +14,7 @@ namespace ThorVG
         public uint type;
         public byte normalized;
         // Optional VBO for this attribute. 0 means use the GL_ARRAY_BUFFER binding
-        // captured at the start of GlRenderTask.Run().
+        // captured at the start of GlRenderTask.Run(state).
         public uint arrayBufferId;
 
         public GlVertexLayout()
@@ -68,8 +68,16 @@ namespace ThorVG
     /* GlRenderTask                                                         */
     /************************************************************************/
 
-    public unsafe class GlRenderTask
+    public unsafe class GlRenderTask : IDisposable
     {
+#if THORVG_GL_TARGET_GLES
+        protected static void ClearColorTarget(GlStateCache state, uint width, uint height)
+        {
+            state.Scissor(0, 0, (int)width, (int)height);
+            state.ClearColor(0, 0, 0, 0);
+            GL.glClear(GL.GL_COLOR_BUFFER_BIT);
+        }
+#endif
         internal GlProgram? mProgram;
         internal RenderRegion mViewport;
         internal uint mIndexOffset;
@@ -84,6 +92,32 @@ namespace ThorVG
         internal bool mUseVertexColor;
         internal bool mUseDrawArrays;
         private float mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3;
+
+        private bool storageDisposed;
+
+        // A task owns only its CPU arrays. Programs, VBOs and render targets
+        // are borrowed and are released by their renderer on the GL thread.
+        ~GlRenderTask() => ReleaseStorage();
+
+        private void ReleaseStorage()
+        {
+            mVertexLayout.Dispose();
+            mBindingResources.Dispose();
+        }
+
+        public void Dispose()
+        {
+            if (storageDisposed) return;
+            storageDisposed = true;
+            try { DisposeOwnedTasks(); }
+            finally
+            {
+                ReleaseStorage();
+                GC.SuppressFinalize(this);
+            }
+        }
+
+        protected virtual void DisposeOwnedTasks() { }
 
         public GlRenderTask(GlProgram? program)
         {
@@ -102,7 +136,12 @@ namespace ThorVG
 
         public virtual void Run()
         {
-            RunDraw();
+            Run(new GlStateCache());
+        }
+
+        public virtual void Run(GlStateCache state)
+        {
+            RunDraw(state);
         }
 
         /// <summary>
@@ -110,18 +149,18 @@ namespace ThorVG
         /// Subclasses that need to call the base GlRenderTask draw logic
         /// (bypassing intermediate overrides) can call this directly.
         /// </summary>
-        protected void RunDraw()
+        protected void RunDraw(GlStateCache state)
         {
             // bind shader
-            mProgram!.Load();
+            state.UseProgram(mProgram!.GetProgramId());
 
-            var dLoc = mProgram.GetUniformLocation("uDepth\0"u8);
+            var dLoc = mProgram.GetUniformLocation(GlShaderUniform.Depth);
             if (dLoc >= 0)
             {
                 GL.glUniform1f(dLoc, mDrawDepth);
             }
 
-            var vLoc = mProgram.GetUniformLocation("uViewMatrix\0"u8);
+            var vLoc = mProgram.GetUniformLocation(GlShaderUniform.ViewMatrix);
             if (vLoc >= 0)
             {
                 var viewMatrix = mUseViewMatrix ? mViewMatrix : TvgMath.Identity();
@@ -131,28 +170,29 @@ namespace ThorVG
             }
 
             // setup scissor rect
-            GL.glScissor(mViewport.Sx(), mViewport.Sy(), mViewport.Sw(), mViewport.Sh());
+            state.Scissor(mViewport.Sx(), mViewport.Sy(), mViewport.Sw(), mViewport.Sh());
 
-            if (mUseVertexColor)
-            {
-                GL.glDisableVertexAttribArray(1);
-                GL.glVertexAttrib4f(1, mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3);
-            }
-
-            int defaultArrayBuffer = 0;
-            GL.glGetIntegerv(GL.GL_ARRAY_BUFFER_BINDING, &defaultArrayBuffer);
-
-            // setup attribute layout
-            for (uint i = 0; i < mVertexLayout.count; i++)
+            state.BeginVertexLayout();
+            bool hasVertexColorLayout = false;
+            uint defaultArrayBuffer = 0;
+            for (uint i = 0; i < mVertexLayout.count; ++i)
             {
                 ref var layout = ref mVertexLayout[i];
-                var sourceBuffer = layout.arrayBufferId != 0 ? layout.arrayBufferId : (uint)defaultArrayBuffer;
-                GL.glBindBuffer(GL.GL_ARRAY_BUFFER, sourceBuffer);
-                GL.glEnableVertexAttribArray(layout.index);
-                GL.glVertexAttribPointer(layout.index, (int)layout.size, layout.type,
-                    layout.normalized, (int)layout.stride,
-                    (void*)(nuint)layout.offset);
+                uint source = layout.arrayBufferId;
+                if (source == 0)
+                {
+                    // Compatibility with callers constructing the older public
+                    // layout type; every internal layout supplies its source VBO.
+                    if (defaultArrayBuffer == 0) { int current; GL.glGetIntegerv(GL.GL_ARRAY_BUFFER_BINDING, &current); defaultArrayBuffer = (uint)current; }
+                    source = defaultArrayBuffer;
+                }
+                if (layout.index == 1) hasVertexColorLayout = true;
+                state.SetVertexAttribPointer(layout.index, (int)layout.size, layout.type, layout.normalized,
+                    (int)layout.stride, layout.offset, source);
             }
+            if (mUseVertexColor && !hasVertexColorLayout)
+                state.SetVertexAttrib4f(1, mVertexColor0, mVertexColor1, mVertexColor2, mVertexColor3);
+            state.EndVertexLayout();
 
             // binding uniforms
             for (uint i = 0; i < mBindingResources.count; i++)
@@ -160,31 +200,21 @@ namespace ThorVG
                 ref var binding = ref mBindingResources[i];
                 if (binding.type == GlBindingType.kTexture)
                 {
-                    GL.glActiveTexture(GL.GL_TEXTURE0 + binding.bindPoint);
-                    GL.glBindTexture(GL.GL_TEXTURE_2D, binding.resourceId);
+                    state.BindTexture2D(GL.GL_TEXTURE0 + binding.bindPoint, binding.resourceId);
 
-                    var bp = (int)binding.bindPoint;
-                    mProgram.SetUniform1Value(binding.location, 1, &bp);
+                    mProgram.SetSampler(binding.location, (int)binding.bindPoint);
                 }
                 else if (binding.type == GlBindingType.kUniformBuffer)
                 {
-                    GL.glUniformBlockBinding(mProgram.GetProgramId(), (uint)binding.location, binding.bindPoint);
                     GL.glBindBufferRange(GL.GL_UNIFORM_BUFFER, binding.bindPoint, binding.resourceId,
-                        (int)binding.bufferOffset, (int)binding.bufferRange);
+                        (nint)binding.bufferOffset, (nint)binding.bufferRange);
                 }
             }
 
             if (mUseDrawArrays) GL.glDrawArrays(mArrayMode, (int)mArrayOffset, (int)mIndexCount);
             else GL.glDrawElements(GL.GL_TRIANGLES, (int)mIndexCount, GL.GL_UNSIGNED_INT, (void*)(nuint)mIndexOffset);
 
-            // disable attribute layout
-            for (uint i = 0; i < mVertexLayout.count; i++)
-            {
-                ref var layout = ref mVertexLayout[i];
-                GL.glDisableVertexAttribArray(layout.index);
-            }
 
-            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, (uint)defaultArrayBuffer);
         }
 
         public void AddVertexLayout(in GlVertexLayout layout)
@@ -203,6 +233,8 @@ namespace ThorVG
 
         public void AddBindResource(in GlBindingResource binding)
         {
+            if (binding.type == GlBindingType.kUniformBuffer &&
+                !mProgram!.SetUniformBlockBinding(binding.location, binding.bindPoint)) return;
             mBindingResources.Push(binding);
         }
 
@@ -250,43 +282,51 @@ namespace ThorVG
             mStencilMode = mode;
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
         {
-            GL.glEnable(GL.GL_STENCIL_TEST);
+            foreach (var task in mStencilTasks) task.Dispose();
+            foreach (var task in mCoverTasks) task.Dispose();
+            mStencilTasks.Clear();
+            mCoverTasks.Clear();
+        }
+
+        public override void Run(GlStateCache state)
+        {
+            state.Enable(GL.GL_STENCIL_TEST);
 
             if (mStencilMode == GlStencilMode.Stroke)
             {
-                GL.glStencilFunc(GL.GL_NOTEQUAL, 0x1, 0xFF);
-                GL.glStencilOp(GL.GL_KEEP, GL.GL_KEEP, GL.GL_REPLACE);
+                state.StencilFunc(GL.GL_NOTEQUAL, 0x1, 0xFF);
+                state.StencilOp(GL.GL_KEEP, GL.GL_KEEP, GL.GL_REPLACE);
             }
             else
             {
-                GL.glStencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x0, 0xFF);
-                GL.glStencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
+                state.StencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x0, 0xFF);
+                state.StencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
 
-                GL.glStencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x0, 0xFF);
-                GL.glStencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
+                state.StencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x0, 0xFF);
+                state.StencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
             }
-            GL.glColorMask(0, 0, 0, 0);
+            state.ColorMask(0, 0, 0, 0);
 
-            for (int i = 0; i < mStencilTasks.Count; ++i) mStencilTasks[i].Run();
+            for (int i = 0; i < mStencilTasks.Count; ++i) mStencilTasks[i].Run(state);
 
             if (mStencilMode == GlStencilMode.FillEvenOdd)
             {
-                GL.glStencilFunc(GL.GL_NOTEQUAL, 0x00, 0x01);
-                GL.glStencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
+                state.StencilFunc(GL.GL_NOTEQUAL, 0x00, 0x01);
+                state.StencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
             }
             else
             {
-                GL.glStencilFunc(GL.GL_NOTEQUAL, 0x0, 0xFF);
-                GL.glStencilOp(GL.GL_KEEP, GL.GL_KEEP, GL.GL_REPLACE);
+                state.StencilFunc(GL.GL_NOTEQUAL, 0x0, 0xFF);
+                state.StencilOp(GL.GL_KEEP, GL.GL_KEEP, GL.GL_REPLACE);
             }
 
-            GL.glColorMask(1, 1, 1, 1);
+            state.ColorMask(1, 1, 1, 1);
 
-            for (int i = 0; i < mCoverTasks.Count; ++i) mCoverTasks[i].Run();
+            for (int i = 0; i < mCoverTasks.Count; ++i) mCoverTasks[i].Run(state);
 
-            GL.glDisable(GL.GL_STENCIL_TEST);
+            state.Disable(GL.GL_STENCIL_TEST);
         }
 
         public override void NormalizeDrawDepth(int maxDepth)
@@ -319,32 +359,42 @@ namespace ThorVG
             tasks.Clear();
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
         {
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, GetSelfFbo());
+            foreach (var task in mTasks) task.Dispose();
+            mTasks.Clear();
+        }
+
+        public override void Run(GlStateCache state)
+        {
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, GetSelfFbo());
 
             // we must clear all area of fbo
-            GL.glViewport(0, 0, (int)mFbo!.width, (int)mFbo.height);
-            GL.glScissor(0, 0, (int)mFbo.width, (int)mFbo.height);
-            GL.glClearColor(0, 0, 0, 0);
-            GL.glClearStencil(0);
-            GL.glClearDepth(0.0);
-            GL.glDepthMask(1);
+            state.Viewport(0, 0, (int)mFbo!.width, (int)mFbo.height);
+            state.Scissor(0, 0, (int)mFbo.width, (int)mFbo.height);
+            state.ClearColor(0, 0, 0, 0);
+            state.ClearStencil(0);
+            state.ClearDepth(0.0);
+            state.DepthMask(1);
 
             GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_STENCIL_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT);
-            GL.glDepthMask(0);
+            state.DepthMask(0);
 
-            GL.glViewport(0, 0, (int)mRenderWidth, (int)mRenderHeight);
-            GL.glScissor(0, 0, (int)mRenderWidth, (int)mRenderHeight);
+            state.Viewport(0, 0, (int)mRenderWidth, (int)mRenderHeight);
+            state.Scissor(0, 0, (int)mRenderWidth, (int)mRenderHeight);
 
             for (int i = 0; i < mTasks.Count; i++)
             {
-                mTasks[i].Run();
+                mTasks[i].Run(state);
             }
 
+#if THORVG_GL_TARGET_GLES
+            uint* attachments = stackalloc uint[2] { GL.GL_STENCIL_ATTACHMENT, GL.GL_DEPTH_ATTACHMENT };
+            GL.glInvalidateFramebuffer(GL.GL_FRAMEBUFFER, 2, attachments);
+#endif
             // reset scissor box
-            GL.glScissor(0, 0, (int)mFbo.width, (int)mFbo.height);
-            OnResolve();
+            state.Scissor(0, 0, (int)mFbo.width, (int)mFbo.height);
+            OnResolve(state);
         }
 
         public void SetRenderSize(uint width, uint height) { mRenderWidth = width; mRenderHeight = height; }
@@ -353,10 +403,10 @@ namespace ThorVG
         protected uint GetSelfFbo() { return mFbo!.fbo; }
         protected uint GetResolveFboId() { return mFbo!.resolvedFbo; }
 
-        protected void OnResolve()
+        protected void OnResolve(GlStateCache state)
         {
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, GetSelfFbo());
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, GetResolveFboId());
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, GetSelfFbo());
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, GetResolveFboId());
             GL.glBlitFramebuffer(0, 0, (int)mRenderWidth, (int)mRenderHeight, 0, 0, (int)mRenderWidth, (int)mRenderHeight, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
         }
 
@@ -378,25 +428,25 @@ namespace ThorVG
             mColorTex = fbo?.colorTex ?? 0;
         }
 
-        public override void Run()
+        public override void Run(GlStateCache state)
         {
-            base.Run();
+            base.Run(state);
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
-            GL.glViewport(mTargetViewport.Sx(), mTargetViewport.Sy(), mTargetViewport.Sw(), mTargetViewport.Sh());
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
+            state.Viewport(mTargetViewport.Sx(), mTargetViewport.Sy(), mTargetViewport.Sw(), mTargetViewport.Sh());
 
             if (mClearBuffer)
             {
-                GL.glClearColor(0, 0, 0, 0);
+                state.ClearColor(0, 0, 0, 0);
                 GL.glClear(GL.GL_COLOR_BUFFER_BIT);
             }
 
-            GL.glDisable(GL.GL_DEPTH_TEST);
+            state.Disable(GL.GL_DEPTH_TEST);
             // make sure the blending is correct
-            GL.glEnable(GL.GL_BLEND);
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
+            state.Enable(GL.GL_BLEND);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
 
-            RunDraw(); // calls GlRenderTask's draw logic directly
+            RunDraw(state); // calls GlRenderTask's draw logic directly
         }
 
         public uint GetColorTexture() { return mColorTex; }
@@ -421,18 +471,25 @@ namespace ThorVG
         public void SetPrevTask(GlRenderTask? task) { mPrevTask = task; }
         public void SetParentSize(uint width, uint height) { mParentWidth = width; mParentHeight = height; }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
         {
-            mPrevTask?.Run();
+            mPrevTask?.Dispose();
+            mPrevTask = null;
+            base.DisposeOwnedTasks();
+        }
 
-            base.Run();
+        public override void Run(GlStateCache state)
+        {
+            mPrevTask?.Run(state);
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
+            base.Run(state);
 
-            GL.glViewport(0, 0, (int)mParentWidth, (int)mParentHeight);
-            GL.glScissor(0, 0, (int)mParentWidth, (int)mParentHeight);
-            // Call GlRenderTask's draw logic directly, bypassing GlComposeTask.Run()
-            RunDraw();
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
+
+            state.Viewport(0, 0, (int)mParentWidth, (int)mParentHeight);
+            state.Scissor(0, 0, (int)mParentWidth, (int)mParentHeight);
+            // Call GlRenderTask's draw logic directly, bypassing GlComposeTask.Run(state)
+            RunDraw(state);
         }
     }
 
@@ -456,31 +513,40 @@ namespace ThorVG
         public void SetSrcTarget(GlRenderTarget? srcFbo) { mSrcFbo = srcFbo; }
         public void SetDstCopy(GlRenderTarget? dstCopyFbo) { mDstCopyFbo = dstCopyFbo; }
 
-        public override void Run()
+        public override void Run(GlStateCache state)
         {
-            base.Run();
+            base.Run(state);
 
             ref var vp = ref GetViewport();
             var width = mSrcFbo!.width;
             var height = mSrcFbo.height;
             if (width <= 0 || height <= 0) return;
 
-            // Desktop GL path: read from target FBO (parent), not src FBO
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, GetTargetFbo());
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
-            GL.glViewport(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
-            GL.glScissor(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
+#if THORVG_GL_TARGET_GLES
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
+            if (vp.min.x != 0 || vp.min.y != 0 || mDstCopyFbo.width != (uint)vp.Sw() || mDstCopyFbo.height != (uint)vp.Sh())
+                ClearColorTarget(state, mDstCopyFbo.width, mDstCopyFbo.height);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mSrcFbo.fbo);
+            state.Viewport(0, 0, (int)width, (int)height);
+            state.Scissor(vp.min.x, vp.min.y, vp.Sw(), vp.Sh());
+            GL.glBlitFramebuffer(vp.min.x, vp.min.y, vp.max.x, vp.max.y, vp.min.x, vp.min.y, vp.max.x, vp.max.y, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
+#else
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, GetTargetFbo());
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
+            state.Viewport(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
+            state.Scissor(0, 0, (int)mDstCopyFbo.width, (int)mDstCopyFbo.height);
             GL.glBlitFramebuffer(vp.min.x, vp.min.y, vp.max.x, vp.max.y, 0, 0, vp.Sw(), vp.Sh(), GL.GL_COLOR_BUFFER_BIT, GL.GL_LINEAR);
+#endif
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
-            GL.glViewport(0, 0, (int)mParentWidth, (int)mParentHeight);
-            GL.glScissor(0, 0, (int)mParentWidth, (int)mParentHeight);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, GetTargetFbo());
+            state.Viewport(0, 0, (int)mParentWidth, (int)mParentHeight);
+            state.Scissor(0, 0, (int)mParentWidth, (int)mParentHeight);
 
-            GL.glDisable(GL.GL_DEPTH_TEST);
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ZERO);
-            RunDraw(); // calls GlRenderTask's draw logic directly, bypassing GlComposeTask.Run()
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
-            GL.glEnable(GL.GL_DEPTH_TEST);
+            state.Disable(GL.GL_DEPTH_TEST);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ZERO);
+            RunDraw(state); // calls GlRenderTask's draw logic directly, bypassing GlComposeTask.Run(state)
+            state.BlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
+            state.Enable(GL.GL_DEPTH_TEST);
         }
     }
 
@@ -500,29 +566,36 @@ namespace ThorVG
             mMaskTask = mask;
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
         {
-            GL.glEnable(GL.GL_STENCIL_TEST);
-            GL.glColorMask(0, 0, 0, 0);
+            mClipTask?.Dispose();
+            mMaskTask?.Dispose();
+            mClipTask = mMaskTask = null!;
+        }
+
+        public override void Run(GlStateCache state)
+        {
+            state.Enable(GL.GL_STENCIL_TEST);
+            state.ColorMask(0, 0, 0, 0);
             // draw clip path as normal stencil mask
-            GL.glStencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x1, 0xFF);
-            GL.glStencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
+            state.StencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x1, 0xFF);
+            state.StencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
 
-            GL.glStencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x1, 0xFF);
-            GL.glStencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
+            state.StencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x1, 0xFF);
+            state.StencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
 
-            mClipTask.Run();
+            mClipTask.Run(state);
 
             // draw clip mask
-            GL.glDepthMask(1);
-            GL.glStencilFunc(GL.GL_EQUAL, 0x0, 0xFF);
-            GL.glStencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
+            state.DepthMask(1);
+            state.StencilFunc(GL.GL_EQUAL, 0x0, 0xFF);
+            state.StencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
 
-            mMaskTask.Run();
+            mMaskTask.Run(state);
 
-            GL.glColorMask(1, 1, 1, 1);
-            GL.glDepthMask(0);
-            GL.glDisable(GL.GL_STENCIL_TEST);
+            state.ColorMask(1, 1, 1, 1);
+            state.DepthMask(0);
+            state.Disable(GL.GL_STENCIL_TEST);
         }
 
         public override void NormalizeDrawDepth(int maxDepth)
@@ -550,7 +623,7 @@ namespace ThorVG
             mCopyRegion = copyRegion;
         }
 
-        public override void Run()
+        public override void Run(GlStateCache state)
         {
             var width = mCopyRegion.Sw();
             var height = mCopyRegion.Sh();
@@ -561,21 +634,28 @@ namespace ThorVG
             var fboH = (int)mDstFbo.height;
             if (fboW <= 0 || fboH <= 0) return;
 
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
 
-            // Desktop GL path
-            GL.glViewport(0, 0, width, height);
-            GL.glScissor(0, 0, width, height);
+#if THORVG_GL_TARGET_GLES
+            if (x != 0 || y != 0 || mDstCopyFbo.width != (uint)width || mDstCopyFbo.height != (uint)height)
+                ClearColorTarget(state, mDstCopyFbo.width, mDstCopyFbo.height);
+            state.Viewport(0, 0, fboW, fboH);
+            state.Scissor(x, y, width, height);
+            GL.glBlitFramebuffer(x, y, x + width, y + height, x, y, x + width, y + height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
+#else
+            state.Viewport(0, 0, width, height);
+            state.Scissor(0, 0, width, height);
             GL.glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_LINEAR);
+#endif
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
             var dstVp = mDstFbo.viewport;
-            GL.glViewport(0, 0, dstVp.Sw(), dstVp.Sh());
+            state.Viewport(0, 0, dstVp.Sw(), dstVp.Sh());
 
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ZERO);
-            base.Run();
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ZERO);
+            base.Run(state);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
         }
     }
 
@@ -599,46 +679,61 @@ namespace ThorVG
             mComposeTask = composeTask;
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
         {
-            mComposeTask.Run();
+            mStencilTask?.Dispose();
+            mComposeTask?.Dispose();
+            mStencilTask = null!;
+            mComposeTask = null!;
+        }
+
+        public override void Run(GlStateCache state)
+        {
+            mComposeTask.Run(state);
 
             ref var vp = ref GetViewport();
             var width = mDstFbo!.width;
             var height = mDstFbo.height;
             if (width <= 0 || height <= 0) return;
 
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo!.resolvedFbo);
 
-            // Desktop GL path
+#if THORVG_GL_TARGET_GLES
+            if (vp.min.x != 0 || vp.min.y != 0 || mDstCopyFbo.width != (uint)vp.Sw() || mDstCopyFbo.height != (uint)vp.Sh())
+                ClearColorTarget(state, mDstCopyFbo.width, mDstCopyFbo.height);
+            state.Viewport(0, 0, (int)width, (int)height);
+            state.Scissor(vp.min.x, vp.min.y, vp.Sw(), vp.Sh());
+            GL.glBlitFramebuffer(vp.min.x, vp.min.y, vp.max.x, vp.max.y, vp.min.x, vp.min.y, vp.max.x, vp.max.y, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
+#else
             var dstVp = mDstFbo.viewport;
-            GL.glViewport(0, 0, dstVp.Sw(), dstVp.Sh());
-            GL.glScissor(0, 0, dstVp.Sw(), dstVp.Sh());
+            state.Viewport(0, 0, dstVp.Sw(), dstVp.Sh());
+            state.Scissor(0, 0, dstVp.Sw(), dstVp.Sh());
             GL.glBlitFramebuffer(vp.min.x, vp.min.y, vp.max.x, vp.max.y, 0, 0, vp.Sw(), vp.Sh(), GL.GL_COLOR_BUFFER_BIT, GL.GL_LINEAR);
+#endif
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
 
-            GL.glEnable(GL.GL_STENCIL_TEST);
-            GL.glColorMask(0, 0, 0, 0);
-            GL.glStencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x0, 0xFF);
-            GL.glStencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
+            state.Enable(GL.GL_STENCIL_TEST);
+            state.ColorMask(0, 0, 0, 0);
+            state.StencilFuncSeparate(GL.GL_FRONT, GL.GL_ALWAYS, 0x0, 0xFF);
+            state.StencilOpSeparate(GL.GL_FRONT, GL.GL_KEEP, GL.GL_KEEP, GL.GL_INCR_WRAP);
 
-            GL.glStencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x0, 0xFF);
-            GL.glStencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
+            state.StencilFuncSeparate(GL.GL_BACK, GL.GL_ALWAYS, 0x0, 0xFF);
+            state.StencilOpSeparate(GL.GL_BACK, GL.GL_KEEP, GL.GL_KEEP, GL.GL_DECR_WRAP);
 
-            mStencilTask.Run();
+            mStencilTask.Run(state);
 
-            GL.glColorMask(1, 1, 1, 1);
-            GL.glStencilFunc(GL.GL_NOTEQUAL, 0x0, 0xFF);
-            GL.glStencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
+            state.ColorMask(1, 1, 1, 1);
+            state.StencilFunc(GL.GL_NOTEQUAL, 0x0, 0xFF);
+            state.StencilOp(GL.GL_REPLACE, GL.GL_KEEP, GL.GL_REPLACE);
 
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ZERO);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ZERO);
 
-            base.Run();
+            base.Run(state);
 
-            GL.glDisable(GL.GL_STENCIL_TEST);
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
+            state.Disable(GL.GL_STENCIL_TEST);
+            state.BlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
         }
 
         public override void NormalizeDrawDepth(int maxDepth)
@@ -670,7 +765,14 @@ namespace ThorVG
             mDstCopyFbo1 = dstCopyFbo1;
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
+        {
+            horzTask?.Dispose();
+            vertTask?.Dispose();
+            horzTask = vertTask = null;
+        }
+
+        public override void Run(GlStateCache state)
         {
             ref var vp = ref GetViewport();
             var width = (int)mDstFbo!.width;
@@ -682,49 +784,49 @@ namespace ThorVG
             // get program properties
             var programHorz = horzTask!.GetProgram()!;
             var programVert = vertTask!.GetProgram()!;
-            var horzSrcTextureLoc = programHorz.GetUniformLocation("uSrcTexture\0"u8);
-            var vertSrcTextureLoc = programVert.GetUniformLocation("uSrcTexture\0"u8);
+            var horzSrcTextureLoc = programHorz.GetUniformLocation(GlShaderUniform.SourceTexture);
+            var vertSrcTextureLoc = programVert.GetUniformLocation(GlShaderUniform.SourceTexture);
 
-            GL.glViewport(0, 0, width, height);
-            GL.glScissor(0, 0, width, height);
+            state.Viewport(0, 0, width, height);
+            state.Scissor(0, 0, width, height);
             // make a full copy of dst to intermediate buffers
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
             GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
 
-            GL.glDisable(GL.GL_BLEND);
-            GL.glDepthFunc(GL.GL_ALWAYS);
+            state.Disable(GL.GL_BLEND);
+            state.DepthFunc(GL.GL_ALWAYS);
             if (effect!.direction == 0)
             {
-                GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-                GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
+                state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+                state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
                 GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
                 // horizontal blur
-                GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
+                state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
                 horzTask.SetViewport(vp);
                 horzTask.AddBindResource(new GlBindingResource(0, dstCopyTexId0, horzSrcTextureLoc));
-                horzTask.Run();
+                horzTask.Run(state);
                 // vertical blur
-                GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+                state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
                 vertTask.SetViewport(vp);
                 vertTask.AddBindResource(new GlBindingResource(0, dstCopyTexId1, vertSrcTextureLoc));
-                vertTask.Run();
+                vertTask.Run(state);
             }
             else if (effect.direction == 1) // horizontal
             {
                 horzTask.SetViewport(vp);
                 horzTask.AddBindResource(new GlBindingResource(0, dstCopyTexId0, horzSrcTextureLoc));
-                horzTask.Run();
+                horzTask.Run(state);
             }
             else if (effect.direction == 2) // vertical
             {
                 vertTask.SetViewport(vp);
                 vertTask.AddBindResource(new GlBindingResource(0, dstCopyTexId0, vertSrcTextureLoc));
-                vertTask.Run();
+                vertTask.Run(state);
             }
-            GL.glDepthFunc(GL.GL_GREATER);
-            GL.glEnable(GL.GL_BLEND);
+            state.DepthFunc(GL.GL_GREATER);
+            state.Enable(GL.GL_BLEND);
         }
     }
 
@@ -750,7 +852,14 @@ namespace ThorVG
             mDstCopyFbo1 = dstCopyFbo1;
         }
 
-        public override void Run()
+        protected override void DisposeOwnedTasks()
+        {
+            horzTask?.Dispose();
+            vertTask?.Dispose();
+            horzTask = vertTask = null;
+        }
+
+        public override void Run(GlStateCache state)
         {
             ref var vp = ref GetViewport();
             var width = (int)mDstFbo!.width;
@@ -762,50 +871,50 @@ namespace ThorVG
             // get program properties
             var programHorz = horzTask!.GetProgram()!;
             var programVert = vertTask!.GetProgram()!;
-            var horzSrcTextureLoc = programHorz.GetUniformLocation("uSrcTexture\0"u8);
-            var vertSrcTextureLoc = programVert.GetUniformLocation("uSrcTexture\0"u8);
+            var horzSrcTextureLoc = programHorz.GetUniformLocation(GlShaderUniform.SourceTexture);
+            var vertSrcTextureLoc = programVert.GetUniformLocation(GlShaderUniform.SourceTexture);
 
-            var srcTextureLoc = GetProgram()!.GetUniformLocation("uSrcTexture\0"u8);
-            var blrTextureLoc = GetProgram()!.GetUniformLocation("uBlrTexture\0"u8);
+            var srcTextureLoc = GetProgram()!.GetUniformLocation(GlShaderUniform.SourceTexture);
+            var blrTextureLoc = GetProgram()!.GetUniformLocation(GlShaderUniform.BlurTexture);
             AddBindResource(new GlBindingResource(0, dstCopyTexId0, srcTextureLoc));
             AddBindResource(new GlBindingResource(1, dstCopyTexId1, blrTextureLoc));
 
-            GL.glViewport(0, 0, width, height);
-            GL.glScissor(0, 0, width, height);
+            state.Viewport(0, 0, width, height);
+            state.Scissor(0, 0, width, height);
 
             // make full copies of dst to intermediate buffers
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
             GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
             GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
 
-            GL.glDisable(GL.GL_BLEND);
-            GL.glDepthFunc(GL.GL_ALWAYS);
+            state.Disable(GL.GL_BLEND);
+            state.DepthFunc(GL.GL_ALWAYS);
             // when sigma is 0, no blur is applied
             if (!TvgMath.Zero(effect!.sigma))
             {
                 // horizontal blur
-                GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
+                state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
                 horzTask.SetViewport(vp);
                 horzTask.AddBindResource(new GlBindingResource(0, dstCopyTexId1, horzSrcTextureLoc));
-                horzTask.Run();
+                horzTask.Run(state);
                 // vertical blur
-                GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
+                state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstCopyFbo1.resolvedFbo);
                 vertTask.SetViewport(vp);
                 vertTask.AddBindResource(new GlBindingResource(0, dstCopyTexId0, vertSrcTextureLoc));
-                vertTask.Run();
+                vertTask.Run(state);
                 // copy original image to intermediate buffer
-                GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-                GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
+                state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+                state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo0.resolvedFbo);
                 GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
             }
             // run drop shadow effect
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
-            base.Run();
-            GL.glDepthFunc(GL.GL_GREATER);
-            GL.glEnable(GL.GL_BLEND);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+            base.Run(state);
+            state.DepthFunc(GL.GL_GREATER);
+            state.Enable(GL.GL_BLEND);
         }
     }
 
@@ -825,29 +934,29 @@ namespace ThorVG
             mDstCopyFbo = dstCopyFbo;
         }
 
-        public override void Run()
+        public override void Run(GlStateCache state)
         {
             var width = (int)mDstFbo!.width;
             var height = (int)mDstFbo.height;
             // get target handles and pass to shader
             var dstCopyTexId = mDstCopyFbo!.colorTex;
-            var srcTextureLoc = GetProgram()!.GetUniformLocation("uSrcTexture\0"u8);
+            var srcTextureLoc = GetProgram()!.GetUniformLocation(GlShaderUniform.SourceTexture);
             AddBindResource(new GlBindingResource(0, dstCopyTexId, srcTextureLoc));
 
-            GL.glViewport(0, 0, width, height);
-            GL.glScissor(0, 0, width, height);
+            state.Viewport(0, 0, width, height);
+            state.Scissor(0, 0, width, height);
             // make full copy of dst to intermediate buffer
-            GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
-            GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo.resolvedFbo);
+            state.BindFramebuffer(GL.GL_READ_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, mDstCopyFbo.resolvedFbo);
             GL.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
+            state.BindFramebuffer(GL.GL_FRAMEBUFFER, mDstFbo.fbo);
 
             // run transform
-            GL.glDisable(GL.GL_BLEND);
-            GL.glDepthFunc(GL.GL_ALWAYS);
-            base.Run();
-            GL.glDepthFunc(GL.GL_GREATER);
-            GL.glEnable(GL.GL_BLEND);
+            state.Disable(GL.GL_BLEND);
+            state.DepthFunc(GL.GL_ALWAYS);
+            base.Run(state);
+            state.DepthFunc(GL.GL_GREATER);
+            state.Enable(GL.GL_BLEND);
         }
     }
 }

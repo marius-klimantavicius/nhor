@@ -1,5 +1,6 @@
 // Ported from ThorVG/src/loaders/ttf/tvgTtfReader.h and tvgTtfReader.cpp
 
+using System;
 using System.Runtime.CompilerServices;
 
 namespace ThorVG
@@ -14,7 +15,7 @@ namespace ThorVG
     }
 
     /// <summary>Glyph metrics with outline path. Mirrors C++ TtfGlyphMetrics.</summary>
-    public class TtfGlyphMetrics
+    public class TtfGlyphMetrics : IDisposable
     {
         // Embedded glyph fields (mirrors C++ struct inheritance from TtfGlyph)
         public uint idx;
@@ -22,7 +23,40 @@ namespace ThorVG
         public float lsb;
         public float x, y, w, h;
 
+        private BBox? nativeBounds;
+        // Retain legacy inclusive w/h fields for the local hinting API while
+        // preserving the target's exact min/max (including fractional CFF
+        // bounds calculated lazily by GlyphMetrics).
+        internal BBox NativeBounds
+        {
+            get => nativeBounds ?? new BBox
+            {
+                min = new Point(x, y),
+                max = w == 0.0f && h == 0.0f ? new Point(x, y) : new Point(x + w - 1.0f, y + h - 1.0f)
+            };
+            set => nativeBounds = value;
+        }
+
         public RenderPath path = new RenderPath();
+
+        ~TtfGlyphMetrics() => ReleasePathStorage();
+
+        public void Dispose()
+        {
+            ReleasePathStorage();
+            GC.SuppressFinalize(this);
+        }
+
+        private void ReleasePathStorage()
+        {
+            // Native SfntGlyphMetrics owns RenderPath/Array members. Releasing
+            // this CPU storage requires neither a font reader nor a GL context.
+            if (path != null)
+            {
+                path.cmds.Dispose();
+                path.pts.Dispose();
+            }
+        }
 
         /// <summary>Copy glyph base fields to a TtfGlyph.</summary>
         public TtfGlyph ToGlyph()
@@ -34,6 +68,7 @@ namespace ThorVG
         public void FromGlyph(in TtfGlyph g)
         {
             idx = g.idx; advance = g.advance; lsb = g.lsb; x = g.x; y = g.y; w = g.w; h = g.h;
+            nativeBounds = null;
         }
     }
 
@@ -58,43 +93,43 @@ namespace ThorVG
         public MetricsData metrics;
 
         // Table offsets (eagerly loaded in Header())
-        private uint _cmap;
-        private uint _hmtx;
+        protected uint _cmap;
+        protected uint _hmtx;
         private uint _loca;
         private uint _glyf;
         private uint _kern;
-        private uint _maxp;
+        protected uint _maxp;
 
         // ----------------------------------------------------------------
         //  Binary read helpers
         // ----------------------------------------------------------------
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static uint U32(byte[] d, uint offset)
+        protected static uint U32(byte[] d, uint offset)
         {
             return (uint)(d[offset] << 24 | d[offset + 1] << 16 | d[offset + 2] << 8 | d[offset + 3]);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ushort U16(byte[] d, uint offset)
+        protected static ushort U16(byte[] d, uint offset)
         {
             return (ushort)(d[offset] << 8 | d[offset + 1]);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static short I16(byte[] d, uint offset)
+        protected static short I16(byte[] d, uint offset)
         {
             return (short)U16(d, offset);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static byte U8(byte[] d, uint offset)
+        protected static byte U8(byte[] d, uint offset)
         {
             return d[offset];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static sbyte I8(byte[] d, uint offset)
+        protected static sbyte I8(byte[] d, uint offset)
         {
             return (sbyte)d[offset];
         }
@@ -103,9 +138,9 @@ namespace ThorVG
         //  Validation
         // ----------------------------------------------------------------
 
-        private bool Validate(uint offset, uint margin)
+        protected bool Validate(uint offset, uint margin)
         {
-            if (offset > size || size - offset < margin)
+            if (data == null || size > data.Length || offset > size || size - offset < margin)
             {
                 return false;
             }
@@ -116,9 +151,9 @@ namespace ThorVG
         //  Table lookup (binary search of TTF table directory)
         // ----------------------------------------------------------------
 
-        private uint Table(string tag)
+        protected uint Table(string tag)
         {
-            if (data == null) return 0;
+            if (data == null || !Validate(0, 12)) return 0;
             var tableCnt = U16(data, 4);
             if (!Validate(12, (uint)tableCnt * 16)) return 0;
 
@@ -162,6 +197,7 @@ namespace ThorVG
             if (!Validate(table, len)) return INVALID_GLYPH;
 
             var entryCnt = U32(data, table + 12);
+            if (entryCnt > (len - 16) / 12) return INVALID_GLYPH;
             for (uint i = 0; i < entryCnt; ++i)
             {
                 var firstCode = U32(data, table + i * 12 + 16);
@@ -362,60 +398,71 @@ namespace ThorVG
         // ----------------------------------------------------------------
 
         /// <summary>Parse the TTF header tables. Returns true on success.</summary>
-        public bool Header()
+        public virtual Result HeaderResult() => Header() ? Result.Success : Result.InvalidArguments;
+
+        public virtual bool Header()
         {
             if (data == null || !Validate(0, 12)) return false;
-
-            // verify ttf (scalable font)
             var type = U32(data, 0);
             if (type != 0x00010000 && type != 0x74727565) return false;
+            if (!HeaderSfnt()) return false;
+            _kern = Table("kern");
+            if (_kern != 0)
+            {
+                var length = SfntTableLength("kern");
+                if (length < 4 || !Validate(_kern, length)) return false;
+                _kernEnd = _kern + length;
+                if (U16(data, _kern) != 0 && (length < 8 || U32(data, _kern) != 0x00010000)) return false;
+            }
+            _loca = Table("loca");
+            _glyf = Table("glyf");
+            return _loca != 0 && _glyf != 0;
+        }
 
-            // header
+        private uint _kernEnd;
+
+        protected uint SfntTableLength(string tag)
+        {
+            if (data == null || !Validate(0, 12)) return 0;
+            uint count = U16(data, 4);
+            if (!Validate(12, count * 16)) return 0;
+            int low = 0, high = (int)count - 1;
+            while (low <= high)
+            {
+                int mid = low + (high - low) / 2;
+                uint entry = 12 + (uint)mid * 16;
+                int cmp = Compare4(data, entry, (byte)tag[0], (byte)tag[1], (byte)tag[2], (byte)tag[3]);
+                if (cmp == 0)
+                    return U32(data, entry + 12);
+                if (cmp < 0) low = mid + 1;
+                else high = mid - 1;
+            }
+            return 0;
+        }
+
+        // Shared header used by both TrueType and CFF outlines. Mirrors SfntReader::header().
+        protected bool HeaderSfnt()
+        {
+            if (data == null || !Validate(0, 12)) return false;
             var head = Table("head");
             if (head == 0 || !Validate(head, 54)) return false;
-
             metrics.unitsPerEm = U16(data, head + 18);
             metrics.locaFormat = (byte)U16(data, head + 50);
-
-            // horizontal header
             var hhea = Table("hhea");
             if (hhea == 0 || !Validate(hhea, 36)) return false;
-
             metrics.hhea.ascent = I16(data, hhea + 4);
             metrics.hhea.descent = I16(data, hhea + 6);
             metrics.hhea.linegap = I16(data, hhea + 8);
             metrics.hhea.advance = metrics.hhea.ascent - metrics.hhea.descent + metrics.hhea.linegap;
             metrics.numHmtx = U16(data, hhea + 34);
-
             _maxp = Table("maxp");
             if (_maxp == 0 || !Validate(_maxp, 6)) return false;
-
-            // glyph outlines count
             var glyphs = U16(data, _maxp + 4);
-            if (glyphs == 0) return false;
-
-            // horizontal metrics count
-            var hmtxs = U16(data, hhea + 34);
-            if (hmtxs == 0 || hmtxs > glyphs) return false;
-
+            if (glyphs == 0 || metrics.numHmtx == 0 || metrics.numHmtx > glyphs) return false;
             _cmap = Table("cmap");
             if (_cmap == 0 || !Validate(_cmap, 4)) return false;
-
-            // kerning
-            _kern = Table("kern");
-            if (_kern != 0)
-            {
-                if (!Validate(_kern, 4)) return false;
-                if (U16(data, _kern) != 0) return false;
-            }
-
             _hmtx = Table("hmtx");
-            _loca = Table("loca");
-            _glyf = Table("glyf");
-
-            if (_hmtx == 0 || _loca == 0 || _glyf == 0) return false;
-
-            return true;
+            return _hmtx != 0 && Validate(_hmtx, (uint)metrics.numHmtx * 4);
         }
 
         /// <summary>
@@ -433,9 +480,9 @@ namespace ThorVG
             for (int idx = 0; idx < entryCnt; ++idx)
             {
                 var entry = _cmap + 4 + (uint)idx * 8;
-                var entryType = U16(data, entry) * 0100 + U16(data, entry + 2);
+                var entryType = U16(data, entry) * 64 + U16(data, entry + 2);
                 // unicode map
-                if (entryType == 0004 || entryType == 0312)
+                if (entryType == 0x04 || entryType == 0xca)
                 {
                     var tbl = _cmap + U32(data, entry + 4);
                     if (!Validate(tbl, 8)) return INVALID_GLYPH;
@@ -452,9 +499,9 @@ namespace ThorVG
             for (int idx = 0; idx < entryCnt; ++idx)
             {
                 var entry = _cmap + 4 + (uint)idx * 8;
-                var entryType = U16(data, entry) * 0100 + U16(data, entry + 2);
+                var entryType = U16(data, entry) * 64 + U16(data, entry + 2);
                 // Unicode BMP
-                if (entryType == 0003 || entryType == 0301)
+                if (entryType == 0x01 || entryType == 0x03 || entryType == 0xc1)
                 {
                     var tbl = _cmap + U32(data, entry + 4);
                     if (!Validate(tbl, 6)) return INVALID_GLYPH;
@@ -473,7 +520,7 @@ namespace ThorVG
         /// Look up glyph for a codepoint and populate metrics + index.
         /// Returns outline offset (0 if glyph has no outline).
         /// </summary>
-        public uint Glyph(uint codepoint, TtfGlyphMetrics tgm)
+        public virtual uint Glyph(uint codepoint, TtfGlyphMetrics tgm)
         {
             tgm.idx = Glyph(codepoint);
             if (tgm.idx == INVALID_GLYPH) return 0;
@@ -484,37 +531,18 @@ namespace ThorVG
         /// Read glyph horizontal metrics and bounding box.
         /// Returns outline offset (0 if glyph has no outline or an error).
         /// </summary>
-        public uint GlyphMetrics(TtfGlyphMetrics glyph)
+        public virtual uint GlyphMetrics(TtfGlyphMetrics glyph)
         {
             if (data == null) return 0;
 
-            // glyph is inside long metrics segment.
-            if (glyph.idx < metrics.numHmtx)
-            {
-                var offset = _hmtx + 4 * glyph.idx;
-                if (!Validate(offset, 4)) return 0;
-                glyph.advance = U16(data, offset);
-                glyph.lsb = I16(data, offset + 2);
-            }
-            else
-            {
-                // glyph is inside short metrics segment.
-                var boundary = _hmtx + 4U * metrics.numHmtx;
-                if (boundary < 4) return 0;
-
-                var offset = boundary - 4;
-                if (!Validate(offset, 4)) return 0;
-                glyph.advance = U16(data, offset);
-                offset = boundary + 2 * (glyph.idx - metrics.numHmtx);
-                if (!Validate(offset, 2)) return 0;
-                glyph.lsb = I16(data, offset);
-            }
+            if (!ReadHorizontalMetrics(glyph)) return 0;
 
             var glyphOffset = OutlineOffset(glyph.idx);
             // glyph without outline
             if (glyphOffset == 0)
             {
                 glyph.x = glyph.y = glyph.w = glyph.h = 0.0f;
+                glyph.NativeBounds = default;
                 return 0;
             }
             if (!Validate(glyphOffset, 10)) return 0;
@@ -529,14 +557,43 @@ namespace ThorVG
             glyph.y = bbox1;
             glyph.w = bbox2 - bbox0 + 1;
             glyph.h = bbox3 - bbox1 + 1;
+            glyph.NativeBounds = new BBox { min = new Point(bbox0, bbox1), max = new Point(bbox2, bbox3) };
 
             return glyphOffset;
+        }
+
+        protected bool ReadHorizontalMetrics(TtfGlyphMetrics glyph)
+        {
+            if (data == null) return false;
+            // glyph is inside long metrics segment.
+            if (glyph.idx < metrics.numHmtx)
+            {
+                var offset = _hmtx + 4 * glyph.idx;
+                if (!Validate(offset, 4)) return false;
+                glyph.advance = U16(data, offset);
+                glyph.lsb = I16(data, offset + 2);
+            }
+            else
+            {
+                // glyph is inside short metrics segment.
+                var boundary = _hmtx + 4U * metrics.numHmtx;
+                if (boundary < 4) return false;
+
+                var offset = boundary - 4;
+                if (!Validate(offset, 4)) return false;
+                glyph.advance = U16(data, offset);
+                offset = boundary + 2 * (glyph.idx - metrics.numHmtx);
+                if (!Validate(offset, 2)) return false;
+                glyph.lsb = I16(data, offset);
+            }
+
+            return true;
         }
 
         /// <summary>
         /// Convert a glyph outline to path commands.
         /// </summary>
-        public bool Convert(RenderPath path, TtfGlyphMetrics glyph, uint glyphOffset, in Point offset, ushort depth)
+        public virtual bool Convert(RenderPath path, TtfGlyphMetrics glyph, uint glyphOffset, in Point offset, ushort depth)
         {
             const byte ON_CURVE = 0x01;
 
@@ -547,7 +604,7 @@ namespace ThorVG
             if (outlineCnt == 0) return false;
             if (outlineCnt < 0)
             {
-                ushort maxComponentDepth = 1;
+                ushort maxComponentDepth = 16;
                 if (Validate(_maxp, 32) && U32(data, _maxp) >= 0x00010000U)
                 {
                     maxComponentDepth = U16(data, _maxp + 30);
@@ -609,8 +666,8 @@ namespace ThorVG
                             var prev = pts[begin + x - 1];
                             var cur = pts[begin + x];
                             path.CubicTo(
-                                new Point(last.x + (2.0f / 3.0f) * (prev.x - last.x), last.y + (2.0f / 3.0f) * (prev.y - last.y)),
-                                new Point(cur.x + (2.0f / 3.0f) * (prev.x - cur.x), cur.y + (2.0f / 3.0f) * (prev.y - cur.y)),
+                                new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - last.x, last.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - last.y, last.y)),
+                                new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - cur.x, cur.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - cur.y, cur.y)),
                                 cur);
                             offCurve = false;
                         }
@@ -629,8 +686,8 @@ namespace ThorVG
                             var last = path.pts.Last();
                             var prev = pts[begin + x - 1];
                             path.CubicTo(
-                                new Point(last.x + (2.0f / 3.0f) * (prev.x - last.x), last.y + (2.0f / 3.0f) * (prev.y - last.y)),
-                                new Point(end.x + (2.0f / 3.0f) * (prev.x - end.x), end.y + (2.0f / 3.0f) * (prev.y - end.y)),
+                                new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - last.x, last.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - last.y, last.y)),
+                                new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - end.x, end.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - end.y, end.y)),
                                 end);
                         }
                         else
@@ -645,8 +702,8 @@ namespace ThorVG
                     var last = path.pts.Last();
                     var prev = pts[begin + cnt - 1];
                     path.CubicTo(
-                        new Point(last.x + (2.0f / 3.0f) * (prev.x - last.x), last.y + (2.0f / 3.0f) * (prev.y - last.y)),
-                        new Point(ptsBegin.x + (2.0f / 3.0f) * (prev.x - ptsBegin.x), ptsBegin.y + (2.0f / 3.0f) * (prev.y - ptsBegin.y)),
+                        new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - last.x, last.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - last.y, last.y)),
+                        new Point(TvgMath.MultiplyAdd(2.0f / 3.0f, prev.x - ptsBegin.x, ptsBegin.x), TvgMath.MultiplyAdd(2.0f / 3.0f, prev.y - ptsBegin.y, ptsBegin.y)),
                         ptsBegin);
                 }
                 // contour must end with close
@@ -727,57 +784,53 @@ namespace ThorVG
         /// <summary>
         /// Look up kerning between two glyphs.
         /// </summary>
-        public bool Kerning(uint lglyph, uint rglyph, ref Point output)
+        public virtual bool Kerning(uint lglyph, uint rglyph, ref Point output)
         {
             if (data == null || _kern == 0) return false;
-
-            const byte HORIZONTAL_KERNING = 0x01;
-            const byte MINIMUM_KERNING = 0x02;
-            const byte CROSS_STREAM_KERNING = 0x04;
-
             var kern = _kern;
-            var tableCnt = U16(data, kern + 2);
-            kern += 4;
-
-            while (tableCnt > 0)
+            bool apple = U16(data, kern) != 0;
+            uint tableCnt = apple ? U32(data, kern + 4) : U16(data, kern + 2);
+            kern += apple ? 8u : 4u;
+            while (tableCnt-- > 0)
             {
-                if (!Validate(kern, 6)) return false;
-                var length = U16(data, kern + 2);
-                var format = U8(data, kern + 4);
-                var kernFlags = U8(data, kern + 5);
-                kern += 6;
-
-                if (format == 0 && (kernFlags & HORIZONTAL_KERNING) != 0 && (kernFlags & MINIMUM_KERNING) == 0)
+                uint headerSize = apple ? 8u : 6u;
+                if (kern > _kernEnd || _kernEnd - kern < headerSize) return false;
+                uint length = apple ? U32(data, kern) : U16(data, kern + 2);
+                if (length < headerSize || length > _kernEnd - kern) return false;
+                uint next = kern + length;
+                var coverage = U16(data, kern + 4);
+                int format = apple ? coverage & 0xff : coverage >> 8;
+                bool horizontal = apple ? (coverage & 0x8000) == 0 : (coverage & 0x01) != 0;
+                bool unsupported = apple ? (coverage & 0x2000) != 0 : (coverage & 0x02) != 0;
+                bool crossStream = apple ? (coverage & 0x4000) != 0 : (coverage & 0x04) != 0;
+                kern += headerSize;
+                if (format == 0 && horizontal && !unsupported)
                 {
-                    if (!Validate(kern, 8)) return false;
+                    if (next - kern < 8) return false;
                     var pairCnt = U16(data, kern);
                     kern += 8;
-
-                    // Binary search for the kerning pair
-                    var key0 = (byte)((lglyph >> 8) & 0xff);
-                    var key1 = (byte)(lglyph & 0xff);
-                    var key2 = (byte)((rglyph >> 8) & 0xff);
-                    var key3 = (byte)(rglyph & 0xff);
-
+                    if (pairCnt > (next - kern) / 6) return false;
                     int lo = 0, hi = pairCnt - 1;
+                    uint key = ((lglyph & 0xffff) << 16) | (rglyph & 0xffff);
                     while (lo <= hi)
                     {
                         int mid = lo + (hi - lo) / 2;
-                        uint entryOff = kern + (uint)mid * 6;
-                        int cmp = Compare4(data, entryOff, key0, key1, key2, key3);
-                        if (cmp == 0)
+                        uint entry = kern + (uint)mid * 6;
+                        uint pair = U32(data, entry);
+                        if (pair == key)
                         {
-                            var value = I16(data, entryOff + 4);
-                            if ((kernFlags & CROSS_STREAM_KERNING) != 0) output.y += value;
-                            else output.x += value;
+                            short value = I16(data, entry + 4);
+                            ref float offset = ref (crossStream ? ref output.y : ref output.x);
+                            if (crossStream && value == short.MinValue) offset = 0;
+                            else if (!apple && (coverage & 0x08) != 0) offset = value;
+                            else offset += value;
                             break;
                         }
-                        if (cmp < 0) lo = mid + 1;
+                        if (pair < key) lo = mid + 1;
                         else hi = mid - 1;
                     }
                 }
-                kern += length;
-                --tableCnt;
+                kern = next;
             }
             return true;
         }

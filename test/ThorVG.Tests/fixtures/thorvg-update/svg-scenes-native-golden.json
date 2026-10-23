@@ -1,0 +1,42 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "inputs": [
+    "svg-normal-nested-groups.svg",
+    "svg-normal-transform-priority.svg",
+    "svg-normal-cross-gradient.svg",
+    "svg-normal-root-opacity.svg",
+    "svg-normal-root-transform.svg"
+  ],
+  "architectures": {
+    "x64": {
+      "evidence": "svg-normal-regression-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/b4e85c729e62ff99d255d24cebe19ea40dc8b318d81d2ee6959b1cc33f40d871.json",
+        "sha256": "b4e85c729e62ff99d255d24cebe19ea40dc8b318d81d2ee6959b1cc33f40d871",
+        "archive": "docs/thorvg-update/source-snapshots/b4e85c729e62ff99d255d24cebe19ea40dc8b318d81d2ee6959b1cc33f40d871.tar.gz"
+      },
+      "bytes": 491520,
+      "sha256": "3a9d6f3134a8639634dbf64ffb013aefc89fc84726efa024cd3617ae4addf3ad",
+      "frames": 5,
+      "width": 192,
+      "height": 128,
+      "workers": 0
+    },
+    "arm64": {
+      "evidence": "svg-normal-regression-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/6722bf073513924d163b0a28520fbcb1e4a2e1f0b7efec3b9422d376534d7323.json",
+        "sha256": "6722bf073513924d163b0a28520fbcb1e4a2e1f0b7efec3b9422d376534d7323",
+        "archive": "docs/thorvg-update/source-snapshots/6722bf073513924d163b0a28520fbcb1e4a2e1f0b7efec3b9422d376534d7323.tar.gz"
+      },
+      "bytes": 491520,
+      "sha256": "3a9d6f3134a8639634dbf64ffb013aefc89fc84726efa024cd3617ae4addf3ad",
+      "frames": 5,
+      "width": 192,
+      "height": 128,
+      "workers": 0
+    }
+  },
+  "provenance": "Actual original pinned native complete ABGR8888 premultiplied CPU frames; no native source changed. All x86 expected bytes also verified identical to originals captured before the managed feature corrections. ARM original native first captured after managed fixes, independently of managed output. Valid normal nested groups, transform precedence, cross-gradient reference, root opacity/transform. No malformed/corruption/fuzz/UTF8 probes.",
+  "parentReview": "pending"
+}

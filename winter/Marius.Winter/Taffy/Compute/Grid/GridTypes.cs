@@ -32,15 +32,15 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public OriginZeroLine IntoOriginZeroLine(ushort explicitTrackCount)
         {
-            var explicitLineCount = (ushort)(explicitTrackCount + 1);
-            short ozLine;
+            int explicitLineCount = explicitTrackCount + 1;
+            int ozLine;
             if (_value > 0)
-                ozLine = (short)(_value - 1);
+                ozLine = _value - 1;
             else if (_value < 0)
-                ozLine = (short)(_value + explicitLineCount);
+                ozLine = _value + explicitLineCount;
             else
                 throw new InvalidOperationException("Grid line of zero is invalid");
-            return new OriginZeroLine(ozLine);
+            return new OriginZeroLine((short)Math.Clamp(ozLine, -10000, 10000));
         }
 
         public static implicit operator GridLine(short value) => new(value);
@@ -279,6 +279,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>A temporary scratch value when sizing tracks. Note: can be infinity</summary>
         public float GrowthLimit;
+        private float _resolvedFitContentLimit = float.PositiveInfinity;
 
         /// <summary>
         /// A temporary scratch value when sizing tracks. Is used as an additional amount to add to the
@@ -342,6 +343,15 @@ namespace Marius.Winter.Taffy
         public bool HasIntrinsicSizingFunction() =>
             MinTrackSizingFunction.IsIntrinsic() || MaxTrackSizingFunction.IsIntrinsic();
 
+        public void ResolveFitContentLimit(float? basis, Func<IntPtr, float, float> calc)
+        {
+            var value = MaxTrackSizingFunction.Inner;
+            _resolvedFitContentLimit = value.IsFitContentCalc() ? basis.HasValue ? calc(value.CalcValue, basis.Value) : float.PositiveInfinity
+                : FitContentLimit(basis);
+        }
+        public float CachedFitContentLimit() => _resolvedFitContentLimit;
+        public float CachedFitContentLimitedGrowthLimit() => TaffySys.F32Min(GrowthLimit, _resolvedFitContentLimit);
+
         /// <summary>Returns the fit-content limit for this track</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float FitContentLimit(float? axisAvailableGridSpace)
@@ -359,7 +369,7 @@ namespace Marius.Winter.Taffy
         /// <summary>Returns the fit-content limited growth limit</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float FitContentLimitedGrowthLimit(float? axisAvailableGridSpace) =>
-            MathF.Min(GrowthLimit, FitContentLimit(axisAvailableGridSpace));
+            TaffySys.F32Min(GrowthLimit, FitContentLimit(axisAvailableGridSpace));
 
         /// <summary>Returns the track's flex factor if it is a flex track, else 0.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -382,295 +392,6 @@ namespace Marius.Winter.Taffy
         AutoPlaced,
     }
 
-    /// <summary>
-    /// A dynamically sized matrix (2d grid) which tracks the occupancy of each grid cell during auto-placement.
-    /// It also keeps tabs on how many tracks there are and which tracks are implicit and which are explicit.
-    /// </summary>
-    public class CellOccupancyMatrix
-    {
-        /// <summary>The grid of occupancy states (row-major)</summary>
-        private CellOccupancyState[] _data = Array.Empty<CellOccupancyState>();
-        private int _rows;
-        private int _cols;
-
-        /// <summary>The counts of implicit and explicit columns</summary>
-        private TrackCounts _columns;
-        /// <summary>The counts of implicit and explicit rows</summary>
-        private TrackCounts _rowCounts;
-
-        /// <summary>Create a CellOccupancyMatrix given a set of provisional track counts.</summary>
-        public static CellOccupancyMatrix WithTrackCounts(TrackCounts columns, TrackCounts rows)
-        {
-            var rowLen = rows.Len();
-            var colLen = columns.Len();
-            return new CellOccupancyMatrix
-            {
-                _data = new CellOccupancyState[rowLen * colLen],
-                _rows = rowLen,
-                _cols = colLen,
-                _columns = columns,
-                _rowCounts = rows,
-            };
-        }
-
-        private CellOccupancyState Get(int row, int col)
-        {
-            if (row < 0 || row >= _rows || col < 0 || col >= _cols) return CellOccupancyState.Unoccupied;
-            return _data[row * _cols + col];
-        }
-
-        private void Set(int row, int col, CellOccupancyState value)
-        {
-            _data[row * _cols + col] = value;
-        }
-
-        /// <summary>Returns the track counts of this CellOccupancyMatrix in the relevant axis</summary>
-        public TrackCounts GetTrackCounts(AbsoluteAxis trackType) => trackType switch
-        {
-            AbsoluteAxis.Horizontal => _columns,
-            AbsoluteAxis.Vertical => _rowCounts,
-            _ => throw new ArgumentOutOfRangeException(nameof(trackType)),
-        };
-
-        /// <summary>Determines whether the specified area fits within the tracks currently represented by the matrix</summary>
-        public bool IsAreaInRange(AbsoluteAxis primaryAxis, (short Start, short End) primaryRange, (short Start, short End) secondaryRange)
-        {
-            var primaryCounts = GetTrackCounts(primaryAxis);
-            var secondaryCounts = GetTrackCounts(primaryAxis.OtherAxis());
-            if (primaryRange.Start < 0 || primaryRange.End > primaryCounts.Len())
-                return false;
-            if (secondaryRange.Start < 0 || secondaryRange.End > secondaryCounts.Len())
-                return false;
-            return true;
-        }
-
-        /// <summary>Expands the grid (potentially in all 4 directions) to accommodate the passed area.</summary>
-        private void ExpandToFitRange((short Start, short End) rowRange, (short Start, short End) colRange)
-        {
-            var reqNegativeRows = Math.Max(-rowRange.Start, 0);
-            var reqPositiveRows = Math.Max(rowRange.End - _rowCounts.Len(), 0);
-            var reqNegativeCols = Math.Max(-colRange.Start, 0);
-            var reqPositiveCols = Math.Max(colRange.End - _columns.Len(), 0);
-
-            var oldRowCount = _rows;
-            var oldColCount = _cols;
-            var newRowCount = oldRowCount + reqNegativeRows + reqPositiveRows;
-            var newColCount = oldColCount + reqNegativeCols + reqPositiveCols;
-
-            var data = new CellOccupancyState[newRowCount * newColCount];
-
-            // Push new negative rows (already zeroed as Unoccupied == 0)
-
-            // Push existing rows
-            for (int row = 0; row < oldRowCount; row++)
-            {
-                // Existing columns go at offset reqNegativeCols
-                for (int col = 0; col < oldColCount; col++)
-                {
-                    data[(reqNegativeRows + row) * newColCount + (reqNegativeCols + col)] = _data[row * oldColCount + col];
-                }
-            }
-
-            // New positive rows (already zeroed)
-
-            _data = data;
-            _rows = newRowCount;
-            _cols = newColCount;
-            _rowCounts.NegativeImplicit += (ushort)reqNegativeRows;
-            _rowCounts.PositiveImplicit += (ushort)reqPositiveRows;
-            _columns.NegativeImplicit += (ushort)reqNegativeCols;
-            _columns.PositiveImplicit += (ushort)reqPositiveCols;
-        }
-
-        /// <summary>Mark an area of the matrix as occupied, expanding as necessary.</summary>
-        public void MarkAreaAs(
-            AbsoluteAxis primaryAxis,
-            Line<OriginZeroLine> primarySpan,
-            Line<OriginZeroLine> secondarySpan,
-            CellOccupancyState value)
-        {
-            var (rowSpan, columnSpan) = primaryAxis switch
-            {
-                AbsoluteAxis.Horizontal => (secondarySpan, primarySpan),
-                AbsoluteAxis.Vertical => (primarySpan, secondarySpan),
-                _ => throw new ArgumentOutOfRangeException(nameof(primaryAxis)),
-            };
-
-            var colRange = _columns.OzLineRangeToTrackRange(columnSpan);
-            var rowRange = _rowCounts.OzLineRangeToTrackRange(rowSpan);
-
-            // Check if ranges fit, expand if needed
-            var isInRange = IsAreaInRange(AbsoluteAxis.Horizontal, colRange, rowRange);
-            if (!isInRange)
-            {
-                ExpandToFitRange(rowRange, colRange);
-                colRange = _columns.OzLineRangeToTrackRange(columnSpan);
-                rowRange = _rowCounts.OzLineRangeToTrackRange(rowSpan);
-            }
-
-            for (int x = rowRange.Start; x < rowRange.End; x++)
-            {
-                for (int y = colRange.Start; y < colRange.End; y++)
-                {
-                    Set(x, y, value);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Determines whether a grid area specified by bounding grid lines in OriginZero coordinates
-        /// is entirely unoccupied.
-        /// </summary>
-        public bool LineAreaIsUnoccupied(
-            AbsoluteAxis primaryAxis,
-            Line<OriginZeroLine> primarySpan,
-            Line<OriginZeroLine> secondarySpan)
-        {
-            var primaryRange = GetTrackCounts(primaryAxis).OzLineRangeToTrackRange(primarySpan);
-            var secondaryRange = GetTrackCounts(primaryAxis.OtherAxis()).OzLineRangeToTrackRange(secondarySpan);
-            return TrackAreaIsUnoccupied(primaryAxis, primaryRange, secondaryRange);
-        }
-
-        /// <summary>
-        /// Determines whether a grid area specified by a range of indexes is entirely unoccupied.
-        /// </summary>
-        public bool TrackAreaIsUnoccupied(
-            AbsoluteAxis primaryAxis,
-            (short Start, short End) primaryRange,
-            (short Start, short End) secondaryRange)
-        {
-            var (rowRange, colRange) = primaryAxis switch
-            {
-                AbsoluteAxis.Horizontal => (secondaryRange, primaryRange),
-                AbsoluteAxis.Vertical => (primaryRange, secondaryRange),
-                _ => throw new ArgumentOutOfRangeException(nameof(primaryAxis)),
-            };
-
-            for (int x = rowRange.Start; x < rowRange.End; x++)
-            {
-                for (int y = colRange.Start; y < colRange.End; y++)
-                {
-                    var cell = Get(x, y);
-                    if (cell != CellOccupancyState.Unoccupied)
-                        return false;
-                }
-            }
-            return true;
-        }
-
-        /// <summary>Determines whether the specified row contains any items</summary>
-        public bool RowIsOccupied(int rowIndex)
-        {
-            if (rowIndex < 0 || rowIndex >= _rows) return false;
-            for (int col = 0; col < _cols; col++)
-            {
-                if (_data[rowIndex * _cols + col] != CellOccupancyState.Unoccupied)
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>Determines whether the specified column contains any items</summary>
-        public bool ColumnIsOccupied(int columnIndex)
-        {
-            if (columnIndex < 0 || columnIndex >= _cols) return false;
-            for (int row = 0; row < _rows; row++)
-            {
-                if (_data[row * _cols + columnIndex] != CellOccupancyState.Unoccupied)
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Given an axis and a track index, search backwards from the end and find the last grid cell
-        /// matching the specified state (if any). Return the index of that cell or null.
-        /// </summary>
-        public OriginZeroLine? LastOfType(AbsoluteAxis trackType, OriginZeroLine startAt, CellOccupancyState kind)
-        {
-            var trackCounts = GetTrackCounts(trackType.OtherAxis());
-            var trackComputedIndex = trackCounts.OzLineToNextTrack(startAt);
-
-            int? maybeIndex = null;
-            if (trackType == AbsoluteAxis.Horizontal)
-            {
-                if (trackComputedIndex < 0 || trackComputedIndex >= _rows)
-                    return null;
-                // Search row for last match (rposition)
-                for (int col = _cols - 1; col >= 0; col--)
-                {
-                    if (_data[trackComputedIndex * _cols + col] == kind)
-                    {
-                        maybeIndex = col;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                if (trackComputedIndex < 0 || trackComputedIndex >= _cols)
-                    return null;
-                // Search column for last match (rposition)
-                for (int row = _rows - 1; row >= 0; row--)
-                {
-                    if (_data[row * _cols + trackComputedIndex] == kind)
-                    {
-                        maybeIndex = row;
-                        break;
-                    }
-                }
-            }
-
-            if (maybeIndex.HasValue)
-                return trackCounts.TrackToPrevOzLine((ushort)maybeIndex.Value);
-            return null;
-        }
-
-        /// <summary>
-        /// Given an axis and a track index, search forwards from the start and find the first grid cell
-        /// matching the specified state (if any). Return the index of that cell or null.
-        /// </summary>
-        public OriginZeroLine? FirstOfType(AbsoluteAxis trackType, OriginZeroLine startAt, CellOccupancyState kind)
-        {
-            var trackCounts = GetTrackCounts(trackType.OtherAxis());
-            var trackComputedIndex = trackCounts.OzLineToNextTrack(startAt);
-
-            int? maybeIndex = null;
-            if (trackType == AbsoluteAxis.Horizontal)
-            {
-                if (trackComputedIndex < 0 || trackComputedIndex >= _rows)
-                    return null;
-                // Search row for first match (position)
-                for (int col = 0; col < _cols; col++)
-                {
-                    if (_data[trackComputedIndex * _cols + col] == kind)
-                    {
-                        maybeIndex = col;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                if (trackComputedIndex < 0 || trackComputedIndex >= _cols)
-                    return null;
-                // Search column for first match (position)
-                for (int row = 0; row < _rows; row++)
-                {
-                    if (_data[row * _cols + trackComputedIndex] == kind)
-                    {
-                        maybeIndex = row;
-                        break;
-                    }
-                }
-            }
-
-            if (maybeIndex.HasValue)
-                return trackCounts.TrackToPrevOzLine((ushort)maybeIndex.Value);
-            return null;
-        }
-    }
-
     // =========================================================================
     // GridItem (from grid_item.rs)
     // =========================================================================
@@ -680,6 +401,7 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public class GridItem
     {
+        public OofCandidates OofCandidates;
         /// <summary>The id of the node that this item represents</summary>
         public NodeId Node;
         /// <summary>The order of the item in the children array</summary>
@@ -692,6 +414,9 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Is it a compressible replaced element?</summary>
         public bool IsCompressibleReplaced;
+        public bool IsReplaced;
+        private Size<float?>? _knownDimensionsArea;
+        private Size<float?> _knownDimensions;
         /// <summary>The item's overflow style</summary>
         public Point<Overflow> OverflowStyle;
         /// <summary>The item's box_sizing style</summary>
@@ -748,6 +473,11 @@ namespace Marius.Winter.Taffy
         /// <summary>Final height. Used to compute baseline alignment for the container.</summary>
         public float Height;
 
+        public bool HasCyclicBlockSizeDependency => SizeStyle.Height.IntoRaw().UsesPercentage() && (CrossesIntrinsicRow || CrossesFlexibleRow);
+        public bool ParticipatesInBaselineAlignment => AlignSelfStyle.Keyword == AlignItemsKeyword.Baseline
+            && !MarginStyle.Top.IsAuto() && !MarginStyle.Bottom.IsAuto() && !HasCyclicBlockSizeDependency;
+        public void ClearKnownDimensionsCache() => _knownDimensionsArea = null;
+
         /// <summary>Create a new item given a concrete placement in both axes</summary>
         public static GridItem NewWithPlacementStyleAndOrder(
             NodeId node,
@@ -765,6 +495,7 @@ namespace Marius.Winter.Taffy
                 Row = rowSpan,
                 Column = colSpan,
                 IsCompressibleReplaced = style.IsCompressibleReplaced(),
+                IsReplaced = style.IsReplaced(),
                 OverflowStyle = style.Overflow(),
                 BoxSizingStyle = style.BoxSizing(),
                 SizeStyle = style.Size(),
@@ -900,6 +631,7 @@ namespace Marius.Winter.Taffy
             ILayoutPartialTree tree,
             Size<float?> gridAreaSize)
         {
+            if (_knownDimensionsArea is { } cached && cached.Equals(gridAreaSize)) return _knownDimensions;
             var margins = MarginsAxisSumsWithBaselineShims(gridAreaSize.Width, tree);
 
             var aspectRatio = AspectRatio;
@@ -914,30 +646,35 @@ namespace Marius.Winter.Taffy
             var minSize = MinSizeStyle
                 .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
                 .MaybeApplyAspectRatio(aspectRatio)
-                .MaybeAdd(boxSizingAdj);
+                .MaybeAdd(boxSizingAdj).Or(paddingBorderSize.Map<float?>(v => v)).MaybeMax(paddingBorderSize.Map<float?>(v => v));
             var maxSize = MaxSizeStyle
                 .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
                 .MaybeApplyAspectRatio(aspectRatio)
                 .MaybeAdd(boxSizingAdj);
 
-            var gridAreaMinusMargins = gridAreaSize.MaybeSub(margins.Map<float?>(v => v));
+            var gridAreaMinusMargins = gridAreaSize.MaybeSub(margins.Map<float?>(v => v)).MaybeMax(new Size<float?>(0, 0));
 
+            float? ResolveKeyword(Dimension style, float? stretch, float? basis)
+            {
+                var result = SizingKeywordUtils.ResolveSizingKeyword(style, stretch, basis, tree.Calc);
+                return result is { IsExact: true } exact ? exact.Size : null;
+            }
             // Width
-            var width = inherentSize.Width ?? (
-                !MarginStyle.Left.IsAuto() && !MarginStyle.Right.IsAuto() && JustifySelfStyle == AlignItems.Stretch
+            var width = inherentSize.Width ?? (SizeStyle.Width.IsSizingKeyword() ? ResolveKeyword(SizeStyle.Width, gridAreaMinusMargins.Width, gridAreaSize.Width) : (
+                !MarginStyle.Left.IsAuto() && !MarginStyle.Right.IsAuto() && (JustifySelfStyle.Keyword == AlignItemsKeyword.Stretch || (JustifySelfStyle.Keyword == AlignItemsKeyword.Normal && !IsReplaced))
                     ? gridAreaMinusMargins.Width
                     : null
-            );
+            ));
             // Reapply aspect ratio after stretch
             var ar1 = new Size<float?>(width, inherentSize.Height).MaybeApplyAspectRatio(aspectRatio);
             width = ar1.Width;
             var height = ar1.Height;
 
-            height = height ?? (
-                !MarginStyle.Top.IsAuto() && !MarginStyle.Bottom.IsAuto() && AlignSelfStyle == AlignItems.Stretch
+            height = height ?? (SizeStyle.Height.IsSizingKeyword() ? ResolveKeyword(SizeStyle.Height, gridAreaMinusMargins.Height, gridAreaSize.Height) : (
+                !MarginStyle.Top.IsAuto() && !MarginStyle.Bottom.IsAuto() && (AlignSelfStyle.Keyword == AlignItemsKeyword.Stretch || (AlignSelfStyle.Keyword == AlignItemsKeyword.Normal && !IsReplaced))
                     ? gridAreaMinusMargins.Height
                     : null
-            );
+            ));
             // Reapply aspect ratio
             var ar2 = new Size<float?>(width, height).MaybeApplyAspectRatio(aspectRatio);
             width = ar2.Width;
@@ -945,6 +682,7 @@ namespace Marius.Winter.Taffy
 
             // Clamp
             var clamped = new Size<float?>(width, height).MaybeClamp(minSize, maxSize);
+            _knownDimensionsArea = gridAreaSize; _knownDimensions = clamped;
             return clamped;
         }
 
@@ -1037,9 +775,19 @@ namespace Marius.Winter.Taffy
             Size<float?> availableSpace)
         {
             var knownDims = KnownDimensions(tree, gridAreaSize);
+            if (knownDims.Get(axis) is { } definite) return definite;
+            var margin = MarginStyle.ResolveOrZero(gridAreaSize.Width, tree.Calc).SumAxes();
+            margin.Height += BaselineShim;
+            availableSpace = availableSpace.MaybeSub(margin.Map<float?>(v => v)).MaybeMax(new Size<float?>(0, 0));
+            var space = availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MinContent);
+            foreach (var keywordAxis in new[] { AbsoluteAxis.Horizontal, AbsoluteAxis.Vertical })
+            {
+                var keyword = SizingKeywordUtils.ResolveSizingKeyword(SizeStyle.GetAbs(keywordAxis), gridAreaSize.GetAbs(keywordAxis).MaybeSub(MarginsAxisSumsWithBaselineShims(gridAreaSize.Width, tree).GetAbs(keywordAxis)).MaybeMax(0), gridAreaSize.GetAbs(keywordAxis), tree.Calc);
+                if (keyword is { IsExact: false } measure) space.SetAbs(keywordAxis, measure.AvailableSpace);
+            }
             return tree.MeasureChildSize(
                 Node, knownDims, gridAreaSize,
-                availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MinContent),
+                space,
                 SizingMode.InherentSize,
                 axis.AsAbsNaive(),
                 LineExtensions.FalseLine);
@@ -1069,9 +817,19 @@ namespace Marius.Winter.Taffy
             Size<float?> availableSpace)
         {
             var knownDims = KnownDimensions(tree, gridAreaSize);
+            if (knownDims.Get(axis) is { } definite) return definite;
+            var margin = MarginStyle.ResolveOrZero(gridAreaSize.Width, tree.Calc).SumAxes();
+            margin.Height += BaselineShim;
+            availableSpace = availableSpace.MaybeSub(margin.Map<float?>(v => v)).MaybeMax(new Size<float?>(0, 0));
+            var space = availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MaxContent);
+            foreach (var keywordAxis in new[] { AbsoluteAxis.Horizontal, AbsoluteAxis.Vertical })
+            {
+                var keyword = SizingKeywordUtils.ResolveSizingKeyword(SizeStyle.GetAbs(keywordAxis), gridAreaSize.GetAbs(keywordAxis).MaybeSub(MarginsAxisSumsWithBaselineShims(gridAreaSize.Width, tree).GetAbs(keywordAxis)).MaybeMax(0), gridAreaSize.GetAbs(keywordAxis), tree.Calc);
+                if (keyword is { IsExact: false } measure) space.SetAbs(keywordAxis, measure.AvailableSpace);
+            }
             return tree.MeasureChildSize(
                 Node, knownDims, gridAreaSize,
-                availableSpace.Map(opt => opt.HasValue ? AvailableSpace.Definite(opt.Value) : AvailableSpace.MaxContent),
+                space,
                 SizingMode.InherentSize,
                 axis.AsAbsNaive(),
                 LineExtensions.FalseLine);
@@ -1097,92 +855,40 @@ namespace Marius.Winter.Taffy
         /// The minimum contribution of an item is the smallest outer size it can have.
         /// See: https://www.w3.org/TR/css-grid-1/#min-size-auto
         /// </summary>
-        public float MinimumContribution(
-            ILayoutPartialTree tree,
-            AbstractAxis axis,
-            ref ValueList<GridTrack> axisTracks,
-            Size<float?> gridAreaSize,
-            Size<float?> innerNodeSize)
+        public float MinimumContribution(ILayoutPartialTree tree, AbstractAxis axis, ref ValueList<GridTrack> axisTracks,
+            Size<float?> gridAreaSize, Size<float?> innerNodeSize)
         {
-            var padding = PaddingStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
-            var border = BorderStyle.ResolveOrZero(gridAreaSize.Width, (val, basis) => tree.Calc(val, basis));
-            var paddingBorderSize = padding.Add(border).SumAxes();
-            var boxSizingAdj = (BoxSizingStyle == BoxSizing.ContentBox ? paddingBorderSize : SizeExtensions.ZeroF32).Map<float?>(v => v);
-            var resolvedSize = SizeStyle
-                .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
-                .MaybeApplyAspectRatio(AspectRatio)
-                .MaybeAdd(boxSizingAdj)
-                .Get(axis);
-
-            var resolvedMinSize = MinSizeStyle
-                .MaybeResolve(gridAreaSize, (val, basis) => tree.Calc(val, basis))
-                .MaybeApplyAspectRatio(AspectRatio)
-                .MaybeAdd(boxSizingAdj)
-                .Get(axis);
-
-            float? overflowMinSize = OverflowStyle.Get(axis).MaybeIntoAutomaticMinSize();
-
-            var size = resolvedSize
-                ?? resolvedMinSize
-                ?? overflowMinSize
-                ?? ComputeAutoMinimumSize(tree, axis, ref axisTracks, gridAreaSize, innerNodeSize);
-
-            // Clamp by spanned fixed track limit
-            var limit = SpannedFixedTrackLimit(axis, ref axisTracks, innerNodeSize.Get(axis),
-                (val, basis) => tree.ResolveCalcValue(val, basis));
-            return limit.HasValue ? MathF.Min(size, limit.Value) : size;
-        }
-
-        private float ComputeAutoMinimumSize(
-            ILayoutPartialTree tree,
-            AbstractAxis axis,
-            ref ValueList<GridTrack> axisTracks,
-            Size<float?> gridAreaSize,
-            Size<float?> innerNodeSize)
-        {
-            // Automatic minimum size. See https://www.w3.org/TR/css-grid-1/#min-size-auto
+            var pb = PaddingStyle.ResolveOrZero(gridAreaSize.Width, tree.Calc).Add(BorderStyle.ResolveOrZero(gridAreaSize.Width, tree.Calc)).SumAxes();
+            var adjustment = BoxSizingStyle == BoxSizing.ContentBox ? pb : SizeExtensions.ZeroF32;
+            float? preferred = SizeStyle.MaybeResolve(gridAreaSize, tree.Calc).MaybeApplyAspectRatio(AspectRatio).MaybeAdd(adjustment.Map<float?>(v => v)).Get(axis);
+            if (preferred is { } size)
+            {
+                var minStyle = MinSizeStyle.Get(axis); var maxStyle = MaxSizeStyle.Get(axis);
+                if (minStyle.IsAuto() && maxStyle.IsAuto()) return size;
+                float? basis = gridAreaSize.Get(axis);
+                return size.MaybeClamp(minStyle.MaybeResolve(basis, tree.Calc).MaybeAdd(adjustment.Get(axis)),
+                    maxStyle.MaybeResolve(IsReplaced ? basis ?? 0 : basis, tree.Calc).MaybeAdd(adjustment.Get(axis)));
+            }
+            var dimension = SizeStyle.Get(axis);
+            if (dimension.IsSizingKeyword() && !dimension.IsStretch()) return MinContentContributionCached(axis, tree, gridAreaSize, gridAreaSize);
+            var explicitMin = MinSizeStyle.MaybeResolve(gridAreaSize.Map<float?>(v => v ?? 0), tree.Calc)
+                .MaybeApplyAspectRatio(AspectRatio).MaybeAdd(adjustment.Map<float?>(v => v)).Get(axis);
+            if (explicitMin is { } min) return min;
+            if (OverflowStyle.Get(axis).MaybeIntoAutomaticMinSize() is { } overflowMin) return overflowMin;
             var range = TrackRangeExcludingLines(axis);
-            var itemAxisTracks = new ValueList<GridTrack>();
-            for (int i = range.Start; i < range.End; i += 2)
-                itemAxisTracks.Add(axisTracks[i]);
-
-            var spansAutoMinTrack = false;
-            for (int i = range.Start; i < range.End; i += 2)
+            bool auto = false, flex = false;
+            for (int i = range.Start; i < range.End; i++)
             {
-                if (axisTracks[i].MinTrackSizingFunction.IsAuto())
-                {
-                    spansAutoMinTrack = true;
-                    break;
-                }
+                var track = axisTracks[i];
+                auto |= track.MinTrackSizingFunction.IsAuto() || (track.MinTrackSizingFunction.UsesPercentage() && !innerNodeSize.Get(axis).HasValue);
+                flex |= track.MaxTrackSizingFunction.IsFr();
             }
-
-            var onlySpanOneTrack = itemAxisTracks.Count == 1;
-            var spansFlexTrack = false;
-            for (int i = range.Start; i < range.End; i += 2)
-            {
-                if (axisTracks[i].MaxTrackSizingFunction.IsFr())
-                {
-                    spansFlexTrack = true;
-                    break;
-                }
-            }
-
-            var useContentBasedMinimum = spansAutoMinTrack && (onlySpanOneTrack || !spansFlexTrack);
-
-            if (useContentBasedMinimum)
-            {
-                var minimumContribution = MinContentContributionCached(axis, tree, gridAreaSize, gridAreaSize);
-
-                if (IsCompressibleReplaced)
-                {
-                    var sizeVal = SizeStyle.Get(axis).MaybeResolve(0f, (val, basis) => tree.Calc(val, basis));
-                    var maxSizeVal = MaxSizeStyle.Get(axis).MaybeResolve(0f, (val, basis) => tree.Calc(val, basis));
-                    if (sizeVal.HasValue) minimumContribution = MathF.Min(minimumContribution, sizeVal.Value);
-                    if (maxSizeVal.HasValue) minimumContribution = MathF.Min(minimumContribution, maxSizeVal.Value);
-                }
-                return minimumContribution;
-            }
-            return 0f;
+            if (!auto || (range.End - range.Start != 1 && flex)) return 0;
+            float contribution = MinContentContributionCached(axis, tree, gridAreaSize, gridAreaSize);
+            if (IsCompressibleReplaced) contribution = contribution.MaybeMin(SizeStyle.Get(axis).MaybeResolve(0, tree.Calc)).MaybeMin(MaxSizeStyle.Get(axis).MaybeResolve(0, tree.Calc));
+            var limit = SpannedFixedTrackLimit(axis, ref axisTracks, innerNodeSize.Get(axis), tree.Calc);
+            if (limit is { } maximum) contribution = TaffySys.F32Min(contribution, TaffySys.F32Max(maximum, pb.Get(axis)));
+            return contribution;
         }
 
         /// <summary>Retrieve minimum contribution from cache or compute it</summary>
@@ -1222,7 +928,7 @@ namespace Marius.Winter.Taffy
             return self.Kind switch
             {
                 GridPlacement.GridPlacementKind.Auto => GenericGridPlacement<OriginZeroLine>.AutoPlacement,
-                GridPlacement.GridPlacementKind.Span => GenericGridPlacement<OriginZeroLine>.FromSpan((ushort)self.Value),
+                GridPlacement.GridPlacementKind.Span => GenericGridPlacement<OriginZeroLine>.FromSpan((ushort)Math.Clamp((int)(ushort)self.Value, 1, 10000)),
                 GridPlacement.GridPlacementKind.Line => self.Value == 0
                     ? GenericGridPlacement<OriginZeroLine>.AutoPlacement
                     : GenericGridPlacement<OriginZeroLine>.FromLine(
@@ -1238,7 +944,7 @@ namespace Marius.Winter.Taffy
             this GenericGridPlacement<GridLine> self, ushort explicitTrackCount)
         {
             if (self.IsAuto) return GenericGridPlacement<OriginZeroLine>.AutoPlacement;
-            if (self.IsSpan) return GenericGridPlacement<OriginZeroLine>.FromSpan(self.SpanValue);
+            if (self.IsSpan) return GenericGridPlacement<OriginZeroLine>.FromSpan((ushort)Math.Clamp((int)self.SpanValue, 1, 10000));
             if (self.IsLine)
             {
                 var line = self.LineValue;
@@ -1281,6 +987,7 @@ namespace Marius.Winter.Taffy
         /// <summary>Resolves the span for an indefinite placement</summary>
         public static ushort IndefiniteSpan(this Line<GenericGridPlacement<OriginZeroLine>> self)
         {
+            if (self.Start.IsLine && self.End.IsLine) throw new InvalidOperationException("indefinite_span should only be called on indefinite grid tracks");
             if (self.Start.IsSpan) return self.Start.SpanValue;
             if (self.End.IsSpan) return self.End.SpanValue;
             return 1;
@@ -1343,308 +1050,6 @@ namespace Marius.Winter.Taffy
             if (self.Start.IsSpan && self.End.IsSpan) return new Line<OriginZeroLine>(start, start + self.Start.SpanValue);
             throw new InvalidOperationException("resolve_indefinite_grid_tracks should only be called on indefinite grid tracks");
         }
-    }
-
-    // =========================================================================
-    // Named line resolver (simplified, from named.rs)
-    // =========================================================================
-
-    /// <summary>
-    /// Resolver that takes grid line names and area names as input and can then be used to
-    /// resolve line names of grid placement properties into line numbers.
-    ///
-    /// This is a simplified version that works with string-based naming.
-    /// </summary>
-    public class NamedLineResolver
-    {
-        /// <summary>Map of row line names to line numbers</summary>
-        private readonly SortedDictionary<string, List<ushort>> _rowLines = new();
-        /// <summary>Map of column line names to line numbers</summary>
-        private readonly SortedDictionary<string, List<ushort>> _columnLines = new();
-        /// <summary>Map of area names to area definitions</summary>
-        private readonly SortedDictionary<string, GridTemplateArea> _areas = new();
-        /// <summary>Number of columns implied by grid area definitions</summary>
-        private ushort _areaColumnCount;
-        /// <summary>Number of rows implied by grid area definitions</summary>
-        private ushort _areaRowCount;
-        /// <summary>The number of explicit columns in the grid</summary>
-        private ushort _explicitColumnCount;
-        /// <summary>The number of explicit rows in the grid</summary>
-        private ushort _explicitRowCount;
-
-        private static void UpsertLineNameMap(SortedDictionary<string, List<ushort>> map, string key, ushort value)
-        {
-            if (map.TryGetValue(key, out var lines))
-                lines.Add(value);
-            else
-                map[key] = new List<ushort> { value };
-        }
-
-        /// <summary>Create and initialise a new NamedLineResolver</summary>
-        public NamedLineResolver(Style style, ushort columnAutoRepetitions, ushort rowAutoRepetitions)
-        {
-            _areaColumnCount = 0;
-            _areaRowCount = 0;
-
-            // Process grid areas
-            foreach (var area in style.GridTemplateAreas)
-            {
-                _areas[area.Name] = area;
-                _areaColumnCount = Math.Max(_areaColumnCount, (ushort)(Math.Max(area.ColumnEnd, (ushort)1) - 1));
-                _areaRowCount = Math.Max(_areaRowCount, (ushort)(Math.Max(area.RowEnd, (ushort)1) - 1));
-
-                UpsertLineNameMap(_columnLines, $"{area.Name}-start", area.ColumnStart);
-                UpsertLineNameMap(_columnLines, $"{area.Name}-end", area.ColumnEnd);
-                UpsertLineNameMap(_rowLines, $"{area.Name}-start", area.RowStart);
-                UpsertLineNameMap(_rowLines, $"{area.Name}-end", area.RowEnd);
-            }
-
-            // Process column line names
-            ProcessLineNames(
-                style.GetGridTemplateColumns(), style.GetGridTemplateColumnNames(),
-                _columnLines, columnAutoRepetitions);
-
-            // Process row line names
-            ProcessLineNames(
-                style.GetGridTemplateRows(), style.GetGridTemplateRowNames(),
-                _rowLines, rowAutoRepetitions);
-        }
-
-        private static void ProcessLineNames(
-            ImmutableList<GridTemplateComponent> template,
-            ImmutableList<ImmutableList<string>> lineNames,
-            SortedDictionary<string, List<ushort>> lineMap,
-            ushort autoRepetitions)
-        {
-            if (template.Count == 0 || lineNames.Count == 0) return;
-
-            ushort currentLine = 0;
-            int templateIdx = 0;
-
-            foreach (var names in lineNames)
-            {
-                currentLine++;
-                foreach (var name in names)
-                {
-                    UpsertLineNameMap(lineMap, name, currentLine);
-                }
-
-                if (templateIdx < template.Count)
-                {
-                    var comp = template[templateIdx];
-                    if (comp.Kind == GridTemplateComponent.GridTemplateComponentKind.Repeat && comp.Repetition != null)
-                    {
-                        var repeat = comp.Repetition;
-                        var repeatCount = repeat.Count.IsCount ? repeat.Count.CountValue : autoRepetitions;
-
-                        for (int r = 0; r < repeatCount; r++)
-                        {
-                            foreach (var lineNameSet in repeat.LineNames)
-                            {
-                                foreach (var name in lineNameSet)
-                                {
-                                    UpsertLineNameMap(lineMap, name, currentLine);
-                                }
-                                currentLine++;
-                            }
-                            // Last line name set collapses with following
-                            currentLine--;
-                        }
-                        // Last line name set collapses with following
-                        currentLine--;
-                    }
-                    templateIdx++;
-                }
-            }
-
-            // Sort and dedup
-            foreach (var lines in lineMap.Values)
-            {
-                lines.Sort();
-                // Dedup
-                int write = 0;
-                for (int read = 0; read < lines.Count; read++)
-                {
-                    if (write == 0 || lines[read] != lines[write - 1])
-                    {
-                        lines[write] = lines[read];
-                        write++;
-                    }
-                }
-                lines.RemoveRange(write, lines.Count - write);
-            }
-        }
-
-        /// <summary>Resolve named lines for both start and end of a row-axis grid placement</summary>
-        public Line<GenericGridPlacement<GridLine>> ResolveRowNames(Line<GridPlacement> line) =>
-            ResolveLineNames(line, GridAreaAxis.Row);
-
-        /// <summary>Resolve named lines for both start and end of a column-axis grid placement</summary>
-        public Line<GenericGridPlacement<GridLine>> ResolveColumnNames(Line<GridPlacement> line) =>
-            ResolveLineNames(line, GridAreaAxis.Column);
-
-        /// <summary>Resolve named lines for both start and end of a grid placement</summary>
-        public Line<GenericGridPlacement<GridLine>> ResolveLineNames(Line<GridPlacement> line, GridAreaAxis axis)
-        {
-            var startResolved = ResolveOnePlacement(line.Start, axis, GridAreaEnd.Start);
-            var endResolved = ResolveOnePlacement(line.End, axis, GridAreaEnd.End);
-
-            // Handle NamedSpan + Line combinations
-            if (startResolved.IsLine && endResolved.kind == ResolvedKind.NamedSpan)
-            {
-                var explicitTrackCount = axis == GridAreaAxis.Row ? _explicitRowCount : _explicitColumnCount;
-                var normalizedStart = startResolved.lineValue.AsI16() > 0
-                    ? (ushort)startResolved.lineValue.AsI16()
-                    : (ushort)Math.Max(0, explicitTrackCount + 1 + startResolved.lineValue.AsI16());
-                var endLine = FindLineIndex(endResolved.name!, endResolved.idx, axis, GridAreaEnd.End,
-                    lines => FilterLinesAfter(lines, normalizedStart));
-                return new Line<GenericGridPlacement<GridLine>>(
-                    GenericGridPlacement<GridLine>.FromLine(startResolved.lineValue),
-                    GenericGridPlacement<GridLine>.FromLine(endLine));
-            }
-            if (startResolved.kind == ResolvedKind.NamedSpan && endResolved.IsLine)
-            {
-                var explicitTrackCount = axis == GridAreaAxis.Row ? _explicitRowCount : _explicitColumnCount;
-                var normalizedEnd = endResolved.lineValue.AsI16() > 0
-                    ? (ushort)endResolved.lineValue.AsI16()
-                    : (ushort)Math.Max(0, explicitTrackCount + 1 + endResolved.lineValue.AsI16());
-                var startLine = FindLineIndex(startResolved.name!, startResolved.idx, axis, GridAreaEnd.Start,
-                    lines => FilterLinesBefore(lines, normalizedEnd));
-                return new Line<GenericGridPlacement<GridLine>>(
-                    GenericGridPlacement<GridLine>.FromLine(startLine),
-                    GenericGridPlacement<GridLine>.FromLine(endResolved.lineValue));
-            }
-
-            return new Line<GenericGridPlacement<GridLine>>(
-                startResolved.ToGenericGridPlacement(),
-                endResolved.ToGenericGridPlacement());
-        }
-
-        private static List<ushort> FilterLinesAfter(List<ushort> lines, ushort normalizedStart)
-        {
-            var point = lines.BinarySearch(normalizedStart);
-            if (point < 0) point = ~point;
-            else point++; // skip equal
-            // partition_point: first where *line > normalizedStart
-            int pp = 0;
-            foreach (var l in lines) { if (l <= normalizedStart) pp++; else break; }
-            return lines.GetRange(pp, lines.Count - pp);
-        }
-
-        private static List<ushort> FilterLinesBefore(List<ushort> lines, ushort normalizedEnd)
-        {
-            int pp = 0;
-            foreach (var l in lines) { if (l < normalizedEnd) pp++; else break; }
-            return lines.GetRange(0, pp);
-        }
-
-        private enum ResolvedKind { Auto, Line, Span, NamedSpan }
-
-        private struct ResolvedPlacement
-        {
-            public ResolvedKind kind;
-            public GridLine lineValue;
-            public ushort spanValue;
-            public string? name;
-            public short idx;
-
-            public bool IsLine => kind == ResolvedKind.Line;
-
-            public GenericGridPlacement<GridLine> ToGenericGridPlacement() => kind switch
-            {
-                ResolvedKind.Auto => GenericGridPlacement<GridLine>.AutoPlacement,
-                ResolvedKind.Line => GenericGridPlacement<GridLine>.FromLine(lineValue),
-                ResolvedKind.Span => GenericGridPlacement<GridLine>.FromSpan(spanValue),
-                ResolvedKind.NamedSpan => GenericGridPlacement<GridLine>.FromSpan(1), // fallback
-                _ => GenericGridPlacement<GridLine>.AutoPlacement,
-            };
-        }
-
-        private ResolvedPlacement ResolveOnePlacement(GridPlacement p, GridAreaAxis axis, GridAreaEnd end)
-        {
-            if (p.Kind == GridPlacement.GridPlacementKind.NamedLine)
-            {
-                var line = FindLineIndex(p.Name!, p.Value, axis, end, l => l);
-                return new ResolvedPlacement { kind = ResolvedKind.Line, lineValue = line };
-            }
-            if (p.Kind == GridPlacement.GridPlacementKind.NamedSpan)
-            {
-                return new ResolvedPlacement { kind = ResolvedKind.NamedSpan, name = p.Name, idx = p.Value, spanValue = (ushort)p.Value };
-            }
-            return p.Kind switch
-            {
-                GridPlacement.GridPlacementKind.Auto => new ResolvedPlacement { kind = ResolvedKind.Auto },
-                GridPlacement.GridPlacementKind.Line => new ResolvedPlacement { kind = ResolvedKind.Line, lineValue = new GridLine(p.Value) },
-                GridPlacement.GridPlacementKind.Span => new ResolvedPlacement { kind = ResolvedKind.Span, spanValue = (ushort)p.Value },
-                _ => new ResolvedPlacement { kind = ResolvedKind.Auto },
-            };
-        }
-
-        /// <summary>Resolve the grid line for a named grid line or span</summary>
-        private GridLine FindLineIndex(
-            string name,
-            short idx,
-            GridAreaAxis axis,
-            GridAreaEnd end,
-            Func<List<ushort>, List<ushort>> filterLines)
-        {
-            var explicitTrackCount = axis == GridAreaAxis.Row ? (short)_explicitRowCount : (short)_explicitColumnCount;
-
-            if (idx == 0) idx = 1;
-
-            short GetLine(List<ushort> lines, short explTrackCount, short index)
-            {
-                var absIdx = Math.Abs(index);
-                var enoughLines = absIdx <= lines.Count;
-                if (enoughLines)
-                {
-                    return index > 0
-                        ? (short)lines[absIdx - 1]
-                        : (short)lines[lines.Count - absIdx];
-                }
-                else
-                {
-                    var remainingLines = (absIdx - lines.Count) * Math.Sign(index);
-                    return index > 0
-                        ? (short)(explTrackCount + 1 + remainingLines)
-                        : (short)(-(explTrackCount + 1 + remainingLines));
-                }
-            }
-
-            // Lookup lines
-            var lineLookup = axis == GridAreaAxis.Row ? _rowLines : _columnLines;
-            if (lineLookup.TryGetValue(name, out var foundLines))
-            {
-                var filtered = filterLines(foundLines);
-                return new GridLine(GetLine(filtered, explicitTrackCount, idx));
-            }
-
-            // Try implicit name
-            var implicitName = end == GridAreaEnd.Start ? $"{name}-start" : $"{name}-end";
-            if (lineLookup.TryGetValue(implicitName, out var implicitLines))
-            {
-                var filtered = filterLines(implicitLines);
-                return new GridLine(GetLine(filtered, explicitTrackCount, idx));
-            }
-
-            // Fallback: non-existent name
-            var fallbackLine = idx > 0
-                ? (short)(explicitTrackCount + 1 + idx)
-                : (short)(-(explicitTrackCount + 1 + idx));
-            return new GridLine(fallbackLine);
-        }
-
-        /// <summary>Get the number of columns defined by the grid areas</summary>
-        public ushort AreaColumnCount => _areaColumnCount;
-
-        /// <summary>Get the number of rows defined by the grid areas</summary>
-        public ushort AreaRowCount => _areaRowCount;
-
-        /// <summary>Set the number of columns in the explicit grid</summary>
-        public void SetExplicitColumnCount(ushort count) => _explicitColumnCount = count;
-
-        /// <summary>Set the number of rows in the explicit grid</summary>
-        public void SetExplicitRowCount(ushort count) => _explicitRowCount = count;
     }
 
     // =========================================================================

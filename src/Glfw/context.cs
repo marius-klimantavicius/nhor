@@ -1,4 +1,4 @@
-// GLFW 3.5 - www.glfw.org
+// GLFW 3.6 - www.glfw.org
 // Ported from glfw/src/context.c
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
@@ -51,13 +51,13 @@ public unsafe partial class GlfwContext
 
     // GL function pointers loaded via GetProcAddress
     // glGetString(GLenum) -> const GLubyte*
-    internal delegate* unmanaged[Cdecl]<uint, nint> GetString;
+    internal delegate* unmanaged<uint, nint> GetString;
     // glGetIntegerv(GLenum, GLint*)
-    internal delegate* unmanaged[Cdecl]<uint, int*, void> GetIntegerv;
+    internal delegate* unmanaged<uint, int*, void> GetIntegerv;
     // glGetStringi(GLenum, GLuint) -> const GLubyte*
-    internal delegate* unmanaged[Cdecl]<uint, uint, nint> GetStringi;
+    internal delegate* unmanaged<uint, uint, nint> GetStringi;
     // glFlush(void)
-    internal delegate* unmanaged[Cdecl]<void> Flush;
+    internal delegate* unmanaged<void> Flush;
 
     // Context operation delegates (set by platform backend)
     public Action<GlfwWindow?>? makeCurrent;
@@ -412,11 +412,11 @@ public static unsafe partial class Glfw
             return false;
 
         // Load GetIntegerv, GetString and Flush via getProcAddress
-        window.context.GetIntegerv = (delegate* unmanaged[Cdecl]<uint, int*, void>)
+        window.context.GetIntegerv = (delegate* unmanaged<uint, int*, void>)
             window.context.getProcAddress!("glGetIntegerv");
-        window.context.GetString = (delegate* unmanaged[Cdecl]<uint, nint>)
+        window.context.GetString = (delegate* unmanaged<uint, nint>)
             window.context.getProcAddress!("glGetString");
-        window.context.Flush = (delegate* unmanaged[Cdecl]<void>)
+        window.context.Flush = (delegate* unmanaged<void>)
             window.context.getProcAddress!("glFlush");
 
         if (window.context.GetIntegerv == null ||
@@ -519,7 +519,7 @@ public static unsafe partial class Glfw
             // We cache it here instead of in glfwExtensionSupported mostly to alert
             // users as early as possible that their build may be broken
 
-            window.context.GetStringi = (delegate* unmanaged[Cdecl]<uint, uint, nint>)
+            window.context.GetStringi = (delegate* unmanaged<uint, uint, nint>)
                 window.context.getProcAddress!("glGetStringi");
             if (window.context.GetStringi == null)
             {
@@ -631,7 +631,7 @@ public static unsafe partial class Glfw
         // Clearing the front buffer to black to avoid garbage pixels left over from
         // previous uses of our bit of VRAM
         {
-            var glClear = (delegate* unmanaged[Cdecl]<uint, void>)
+            var glClear = (delegate* unmanaged<uint, void>)
                 window.context.getProcAddress!("glClear");
             glClear(GL_COLOR_BUFFER_BIT);
 

@@ -1,0 +1,12 @@
+{
+  "kind": "authored deterministic regression derived from recorded fixture",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "tmp/thorvg-target/test/res/embedded_font.lot",
+  "basedOnSha256": "26521f12bcea5b05b4716b5b0fd748a330d73ab1e6702bfb37b969f1071ab371",
+  "sha256": "a09bdfeddd68aec3a05795e025f5723d1826d72a80793d650111fd60a118e0ff",
+  "description": "Pinned embedded-font animation with the native-supported URL-safe Base64 alphabet and period padding. Geometry, text and all frames are retained.",
+  "detail": {
+    "fontsChanged": 1,
+    "testSubmodule": "cc0b61c20384462eaf67c2ebefd02c8ff11d7341"
+  }
+}

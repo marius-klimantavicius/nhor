@@ -41,7 +41,7 @@ namespace ThorVG
         {
             if (rhs.count == 0) return;
             Grow(rhs.count);
-            Unsafe.CopyBlock(data + count, rhs.data, rhs.count * (uint)sizeof(T));
+            NativeMemory.Copy(rhs.data, data + count, (nuint)rhs.count * (nuint)sizeof(T));
             count += rhs.count;
         }
 
@@ -82,7 +82,7 @@ namespace ThorVG
         {
             Reserve(rhs.count);
             if (rhs.count > 0)
-                Unsafe.CopyBlock(data, rhs.data, rhs.count * (uint)sizeof(T));
+                NativeMemory.Copy(rhs.data, data, (nuint)rhs.count * (nuint)sizeof(T));
             count = rhs.count;
         }
 
@@ -157,7 +157,7 @@ namespace ThorVG
             var arr = new T[count];
             fixed (T* dst = arr)
             {
-                Unsafe.CopyBlock(dst, data, count * (uint)sizeof(T));
+                NativeMemory.Copy(data, dst, (nuint)count * (nuint)sizeof(T));
             }
             return arr;
         }
@@ -178,7 +178,7 @@ namespace ThorVG
 
         private static T* Realloc(T* ptr, uint elementCount)
         {
-            var bytes = (nuint)(elementCount * (uint)sizeof(T));
+            var bytes = (nuint)elementCount * (nuint)sizeof(T);
             return (T*)NativeMemory.Realloc(ptr, bytes);
         }
     }

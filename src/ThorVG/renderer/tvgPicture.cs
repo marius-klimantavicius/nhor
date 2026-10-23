@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace ThorVG
 {
@@ -11,20 +12,20 @@ namespace ThorVG
         private readonly Paint? _paint;
         private Paint? _ptr;
 
-        public PictureIterator(Paint? p) { _paint = p; }
+        public PictureIterator(Paint? p) { _paint = p; _ptr = p; }
 
         public override Paint? Next()
         {
-            if (_ptr == null) _ptr = _paint;
-            else _ptr = null;
-            return _ptr;
+            var paint = _ptr;
+            _ptr = null;
+            return paint;
         }
 
         public override uint Count() => _paint != null ? 1u : 0u;
 
         public override void Begin()
         {
-            _ptr = null;
+            _ptr = _paint;
         }
     }
 
@@ -56,34 +57,29 @@ namespace ThorVG
             if (filename == null) return Result.InvalidArguments;
             if (vector != null || bitmap != null) return Result.InsufficientCondition;
 
-            bool invalid;
-            var ops = new PictureOps(resolver, null, accessible);
-            var loader = LoaderMgr.Loader(filename, out invalid, ops) as ImageLoader;
-            if (loader == null)
-            {
-                if (invalid) return Result.InvalidArguments;
-                return Result.NonSupport;
-            }
+            var ops = new PictureOps(Ownership.Transfer, resolver, null, accessible);
+            var loader = LoaderMgr.Loader(filename, ops, out Result result) as ImageLoader;
+            if (loader == null) return result == Result.Success ? Result.NonSupport : result;
             return LoadImpl(loader);
         }
 
         public Result Load(byte[] data, uint size, string? mimeType, string? rpath = null, bool copy = false)
         {
-            if (data == null || size <= 0) return Result.InvalidArguments;
+            if (data == null || size == 0 || size > data.Length) return Result.InvalidArguments;
             if (vector != null || bitmap != null) return Result.InsufficientCondition;
-            var ops = new PictureOps(resolver, rpath, accessible);
-            var loader = LoaderMgr.Loader(data, size, mimeType, ops, copy) as ImageLoader;
-            if (loader == null) return Result.NonSupport;
+            var ops = new PictureOps(copy ? Ownership.Copy : Ownership.Borrow, resolver, rpath, accessible);
+            var loader = LoaderMgr.Loader(data, size, mimeType, ops, out Result result) as ImageLoader;
+            if (loader == null) return result == Result.Success ? Result.NonSupport : result;
             return LoadImpl(loader);
         }
 
         public Result Load(uint[] data, uint w, uint h, ColorSpace cs, bool copy = false)
         {
-            if (data == null || w <= 0 || h <= 0 || cs == ColorSpace.Unknown) return Result.InvalidArguments;
+            if (data == null || w == 0 || h == 0 || cs == ColorSpace.Unknown || (ulong)w * h > (ulong)data.LongLength) return Result.InvalidArguments;
             if (vector != null) return Result.InsufficientCondition;
 
             var loader = LoaderMgr.Loader(data, w, h, cs, copy) as ImageLoader;
-            if (loader == null) return Result.FailedAllocation;
+            if (loader == null) return Result.NonSupport;
 
             return LoadImpl(loader);
         }
@@ -181,7 +177,7 @@ namespace ThorVG
         public uint[]? Data(out uint w, out uint h)
         {
             // Try it, if not loaded yet.
-            InternalLoad();
+            pImpl.Mark(InternalLoad());
 
             if (loader != null)
             {
@@ -201,13 +197,13 @@ namespace ThorVG
 
         internal bool PaintSkip(RenderUpdateFlag flag)
         {
-            if (flag == RenderUpdateFlag.None) return true;
-            return false;
+            return loader == null || (flag == RenderUpdateFlag.None && loader.type != FileType.Media);
         }
 
         internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
         {
-            InternalLoad();
+            flag |= InternalLoad();
+            if (flag == RenderUpdateFlag.None) return true;
 
             var pivot = new Point(-origin.x * w, -origin.y * h);
 
@@ -286,7 +282,7 @@ namespace ThorVG
         internal bool Intersects(in RenderRegion region, bool visibleOnly)
         {
             if (pImpl.renderer == null) return false;
-            InternalLoad();
+            pImpl.Mark(InternalLoad());
             if (pImpl.rd != null) return pImpl.renderer.IntersectsImage(pImpl.rd, region);
             else if (vector != null)
             {
@@ -302,7 +298,7 @@ namespace ThorVG
                 TvgCommon.TVGERR("RENDERER", "TODO: duplicate()");
             }
 
-            InternalLoad();
+            pImpl.Mark(InternalLoad());
 
             var picture = Gen();
 
@@ -315,7 +311,7 @@ namespace ThorVG
             if (loader != null)
             {
                 picture.loader = loader;
-                ++picture.loader.sharing;
+                picture.loader.IncrementSharing();
                 picture.pImpl.Mark(RenderUpdateFlag.Image);
             }
 
@@ -331,7 +327,7 @@ namespace ThorVG
 
         internal Iterator GetPictureIterator()
         {
-            InternalLoad();
+            pImpl.Mark(InternalLoad());
             return new PictureIterator(vector);
         }
 
@@ -347,34 +343,34 @@ namespace ThorVG
 
         // --- Private helpers ---
 
-        private void InternalLoad()
+        private RenderUpdateFlag InternalLoad()
         {
-            if (loader != null)
+            if (loader == null) return RenderUpdateFlag.None;
+            if (vector != null || bitmap != null)
             {
-                if (vector != null)
+                if (loader.Sync() && bitmap != null) return RenderUpdateFlag.Image;
+            }
+            else if ((vector = loader.GetPaint()) != null)
+            {
+                vector.Ref();
+                vector.pImpl.parent = this;
+                if (w != loader.w || h != loader.h)
                 {
-                    loader.Sync();
-                }
-                else if ((vector = loader.GetPaint()) != null)
-                {
-                    vector.Ref();
-                    vector.pImpl.parent = this;
-                    if (w != loader.w || h != loader.h)
+                    if (!resizing)
                     {
-                        if (!resizing)
-                        {
-                            w = loader.w;
-                            h = loader.h;
-                        }
-                        loader.Resize(vector, w, h);
-                        resizing = false;
+                        w = loader.w;
+                        h = loader.h;
                     }
-                }
-                else if (bitmap == null)
-                {
-                    bitmap = loader.Bitmap();
+                    loader.Resize(vector, w, h);
+                    resizing = false;
                 }
             }
+            else
+            {
+                bitmap = loader.Bitmap();
+                if (bitmap != null) return RenderUpdateFlag.Image;
+            }
+            return RenderUpdateFlag.None;
         }
 
         private void NeedComposition(byte opacity)
@@ -395,7 +391,7 @@ namespace ThorVG
             // Same resource has been loaded.
             if (this.loader == loader)
             {
-                this.loader.sharing--; // make it sure the reference counting.
+                this.loader.DecrementSharing();
                 if (bitmap != null) pImpl.Mark(RenderUpdateFlag.Image);
                 return Result.Success;
             }
@@ -413,6 +409,24 @@ namespace ThorVG
             pImpl.Mark(RenderUpdateFlag.All);
 
             return Result.Success;
+        }
+
+        internal T? Fetch<T>(FileType expected) where T : ImageLoader
+        {
+            if (loader == null) return null;
+            if (loader.type == expected) return loader as T;
+            TvgCommon.TVGERR("RENDERER", "Invalid loaded data type (expected: {0}, got: {1})", expected, loader.type);
+            return null;
+        }
+
+        internal void CleanupPicture()
+        {
+            if (loader != null) LoaderMgr.Retrieve(loader);
+            loader = null;
+            vector?.Unref();
+            vector = null;
+            bitmap = null;
+            resolver = null;
         }
     }
 }

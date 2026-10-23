@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "Indirect/direct eval, dynamic Function, lexical scope, numeric string coercion/grammar and private binding/builtin descriptors influence animated geometry. No random API or external glyph is used.",
+  "basedOn": "lottie-expressions.lot",
+  "basedOnSha256": "68ef139066c6ae2d38e0dbc2a9ff4111ab56683314107aa830b4e7f7fefc2de8",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182"
+}

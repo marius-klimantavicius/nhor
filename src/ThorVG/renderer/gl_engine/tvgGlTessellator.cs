@@ -12,6 +12,8 @@ namespace ThorVG
             public Point firstPtDir;
             public Point prevPt;
             public Point prevPtDir;
+            public float firstLength, prevLength;
+            public uint firstIndex, prevIndex;
         }
 
         private GlGeometryBuffer mBuffer;
@@ -23,6 +25,10 @@ namespace ThorVG
         private State mState;
         private Point mLeftTop;
         private Point mRightBottom;
+        private bool mThinFill;
+        private byte mDirections;
+        private GpuConvexProbe mProbe;
+        public bool overlapFree;
 
         public Stroker(GlGeometryBuffer buffer, float strokeWidth, StrokeCap cap, StrokeJoin join, float miterLimit = 4.0f, float qualityScale = 1.0f)
         {
@@ -36,10 +42,22 @@ namespace ThorVG
 
         private float Radius() => mWidth * 0.5f;
 
-        public void Run(RenderPath path)
+        private static Point AddProduct(Point p, Point direction, float scale) => new Point(
+            TvgMath.MultiplyAdd(direction.x, scale, p.x),
+            TvgMath.MultiplyAdd(direction.y, scale, p.y));
+
+        private static Point SubtractProduct(Point p, Point direction, float scale) => new Point(
+            TvgMath.MultiplyAdd(-direction.x, scale, p.x),
+            TvgMath.MultiplyAdd(-direction.y, scale, p.y));
+
+        public void Run(RenderPath path, bool thinFill = false)
         {
-            mBuffer.vertex.Reserve(path.pts.count * 4 + 16);
-            mBuffer.index.Reserve(path.pts.count * 3);
+            mThinFill = thinFill;
+            overlapFree = !thinFill;
+            mProbe = GpuConvexProbe.Create();
+            mDirections = 0;
+            mBuffer.vertex.Reserve(path.pts.count * 8 + 16);
+            mBuffer.index.Reserve(path.pts.count * 6);
 
             var validStrokeCap = false;
             var pts = path.pts.Begin();
@@ -56,11 +74,8 @@ namespace ThorVG
                             Cap();
                             validStrokeCap = false;
                         }
-                        mState.firstPt = *pts;
-                        mState.firstPtDir = new Point(0.0f, 0.0f);
-                        mState.prevPt = *pts;
-                        mState.prevPtDir = new Point(0.0f, 0.0f);
-                        pts++;
+                        mState.firstLength = 0;
+                        mState.firstPt = mState.prevPt = *pts++;
                         validStrokeCap = false;
                     } break;
                     case PathCommand.LineTo:
@@ -97,6 +112,10 @@ namespace ThorVG
 
         private void Cap()
         {
+            bool monotone = (mDirections & 3) != 3 || (mDirections & 12) != 12;
+            overlapFree = overlapFree && mState.firstLength > 0 && (mCap == StrokeCap.Butt || !PointEqual(mState.firstPt, mState.prevPt)) &&
+                (monotone || (mProbe.convex && mProbe.xDirChanges <= 1 && mProbe.yDirChanges <= 1 &&
+                 mProbe.winding * TvgMath.Cross(mState.firstPtDir, mState.prevPtDir) >= 0));
             if (mCap == StrokeCap.Butt) return;
 
             if (mCap == StrokeCap.Square)
@@ -122,41 +141,42 @@ namespace ThorVG
         private void LineTo(Point curr)
         {
             var dir = TvgMath.PointSub(curr, mState.prevPt);
-            TvgMath.Normalize(ref dir);
-
-            if (dir.x == 0f && dir.y == 0f) return; // same point
+            float length = TvgMath.PointLength(dir);
+            if (TvgMath.Zero(length) || !float.IsFinite(length)) return;
+            dir = TvgMath.PointMul(dir, 1 / length);
+            if (overlapFree)
+            {
+                if (mState.firstLength == 0) overlapFree &= !mProbe.contourHasEdges;
+                mDirections |= (byte)((dir.x > 0 ? 1 : 0) | (dir.x < 0 ? 2 : 0) | (dir.y > 0 ? 4 : 0) | (dir.y < 0 ? 8 : 0));
+                mProbe.AddEdge(dir);
+            }
 
             var normal = new Point(-dir.y, dir.x);
-            var a = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(normal, Radius()));
-            var b = TvgMath.PointSub(mState.prevPt, TvgMath.PointMul(normal, Radius()));
-            var c = TvgMath.PointAdd(curr, TvgMath.PointMul(normal, Radius()));
-            var d = TvgMath.PointSub(curr, TvgMath.PointMul(normal, Radius()));
+            var a = AddProduct(mState.prevPt, normal, Radius());
+            var b = SubtractProduct(mState.prevPt, normal, Radius());
+            var c = AddProduct(curr, normal, Radius());
+            var d = SubtractProduct(curr, normal, Radius());
 
             var ia = PushVertex(ref mBuffer.vertex, a.x, a.y);
             var ib = PushVertex(ref mBuffer.vertex, b.x, b.y);
             var ic = PushVertex(ref mBuffer.vertex, c.x, c.y);
             var id = PushVertex(ref mBuffer.vertex, d.x, d.y);
 
-            mBuffer.index.Push(ia);
-            mBuffer.index.Push(ib);
-            mBuffer.index.Push(ic);
+            PushTriangle(ia, ib, ic);
 
-            mBuffer.index.Push(ib);
-            mBuffer.index.Push(id);
-            mBuffer.index.Push(ic);
+            PushTriangle(ib, id, ic);
 
-            if (PointEqual(mState.prevPt, mState.firstPt))
+            if (mState.firstLength == 0)
             {
-                mState.prevPt = curr;
-                mState.prevPtDir = dir;
                 mState.firstPtDir = dir;
+                mState.firstLength = length;
+                mState.firstIndex = ia;
             }
-            else
-            {
-                Join(dir);
-                mState.prevPtDir = dir;
-                mState.prevPt = curr;
-            }
+            else Join(dir, length, ia);
+            mState.prevPtDir = dir;
+            mState.prevPt = curr;
+            mState.prevLength = length;
+            mState.prevIndex = ia;
 
             if (ia == 0)
             {
@@ -174,15 +194,15 @@ namespace ThorVG
         {
             var curve = new Bezier(mState.prevPt, cnt1, cnt2, end);
 
-            var scaled = new Bezier(
-                TvgMath.PointMul(curve.start, mQualityScale),
-                TvgMath.PointMul(curve.ctrl1, mQualityScale),
-                TvgMath.PointMul(curve.ctrl2, mQualityScale),
-                TvgMath.PointMul(curve.end, mQualityScale));
-            var count = scaled.Segments();
+            var count = curve.Segments(mQualityScale);
+            uint joins = count - (mState.firstLength == 0 ? 1u : 0u);
+            uint vertices = count * 8, indices = count * 6;
+            if (mJoin == StrokeJoin.Bevel) { vertices += joins * 6; indices += joins * 3; }
+            else if (mJoin == StrokeJoin.Miter) { vertices += joins * 8; indices += joins * 6; }
+            mBuffer.vertex.Grow(vertices); mBuffer.index.Grow(indices);
             var step = 1f / count;
 
-            for (uint i = 0; i <= count; i++)
+            for (uint i = 1; i <= count; i++)
             {
                 LineTo(curve.At(step * i));
             }
@@ -190,60 +210,70 @@ namespace ThorVG
 
         private void Close()
         {
-            if (TvgMath.PointLength(TvgMath.PointSub(mState.prevPt, mState.firstPt)) > 0.015625f)
+            if (mState.firstLength == 0) return;
+            var delta = TvgMath.PointSub(mState.prevPt, mState.firstPt);
+            if (TvgMath.Dot(delta, delta) > 0.015625f * 0.015625f)
             {
                 LineTo(mState.firstPt);
             }
-            Join(mState.firstPtDir);
+            float length = PointEqual(mState.prevPt, mState.firstPt) ? mState.firstLength : 0;
+            if (length == 0) overlapFree = false;
+            if (overlapFree) mProbe.AddEdge(mState.firstPtDir);
+            Join(mState.firstPtDir, length, mState.firstIndex);
+            overlapFree &= mProbe.convex;
+            mState.firstLength = 0;
+            mState.prevPt = mState.firstPt;
         }
 
-        private void Join(Point dir)
+        private void Join(Point dir, float length, uint index)
         {
-            var orient = TvgMath.GetOrientation(
-                TvgMath.PointSub(mState.prevPt, mState.prevPtDir),
-                mState.prevPt,
-                TvgMath.PointAdd(mState.prevPt, dir));
+            float turn = TvgMath.Cross(mState.prevPtDir, dir);
 
-            if (orient == Orientation.Linear)
+            if (TvgMath.Zero(turn))
             {
+                overlapFree &= PointEqual(mState.prevPtDir, dir);
                 if (PointEqual(mState.prevPtDir, dir)) return;
                 if (mJoin != StrokeJoin.Round) return;
-
-                var normal = new Point(-dir.y, dir.x);
-                var p1 = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(normal, Radius()));
-                var p2 = TvgMath.PointSub(mState.prevPt, TvgMath.PointMul(normal, Radius()));
-                var oc = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(dir, Radius()));
-
-                RoundJoin(p1, oc, mState.prevPt);
-                RoundJoin(oc, p2, mState.prevPt);
+                RoundCap(mState.prevPt, dir);
             }
             else
             {
                 var normal = new Point(-dir.y, dir.x);
                 var prevNormal = new Point(-mState.prevPtDir.y, mState.prevPtDir.x);
-                Point prevJoin, currJoin;
-
-                if (orient == Orientation.CounterClockwise)
+                float offset = turn < 0 ? Radius() : -Radius();
+                var prevJoin = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(prevNormal, offset));
+                var currJoin = AddProduct(mState.prevPt, normal, offset);
+                var apex = mState.prevPt;
+                float cosine = TvgMath.MultiplyAdd(mState.prevPtDir.y, dir.y, mState.prevPtDir.x * dir.x);
+                float denom = 1 + cosine;
+                bool trimmed = false;
+                if (!mThinFill && denom > MathConstants.FLOAT_EPSILON)
                 {
-                    prevJoin = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(prevNormal, Radius()));
-                    currJoin = TvgMath.PointAdd(mState.prevPt, TvgMath.PointMul(normal, Radius()));
+                    float setback = Radius() * (cosine < 0 ? (1 - cosine) / MathF.Abs(turn) : MathF.Abs(turn) / denom);
+                    float scale = MathF.Max(MathF.Max(MathF.Abs(apex.x), MathF.Abs(apex.y)), MathF.Max(Radius(), MathF.Max(mState.prevLength, length)));
+                    if (TvgMath.MultiplyAdd(2, setback, MathConstants.FLOAT_EPSILON * scale) < MathF.Min(mState.prevLength, length))
+                    {
+                        // The previous normal product also supplies prevJoin;
+                        // native rounds it before the final subtraction.
+                        var inner = TvgMath.PointSub(SubtractProduct(apex, mState.prevPtDir, setback), TvgMath.PointMul(prevNormal, offset));
+                        uint side = turn < 0 ? 1u : 0u;
+                        uint prev = (mState.prevIndex + 2 + side) * 2, curr = (index + side) * 2;
+                        mBuffer.vertex.data[prev] = mBuffer.vertex.data[curr] = inner.x;
+                        mBuffer.vertex.data[prev + 1] = mBuffer.vertex.data[curr + 1] = inner.y;
+                        apex = inner; trimmed = true;
+                    }
                 }
-                else
-                {
-                    prevJoin = TvgMath.PointSub(mState.prevPt, TvgMath.PointMul(prevNormal, Radius()));
-                    currJoin = TvgMath.PointSub(mState.prevPt, TvgMath.PointMul(normal, Radius()));
-                }
-
-                if (mJoin == StrokeJoin.Miter) Miter(prevJoin, currJoin, mState.prevPt);
-                else if (mJoin == StrokeJoin.Bevel) Bevel(prevJoin, currJoin, mState.prevPt);
-                else RoundJoin(prevJoin, currJoin, mState.prevPt);
+                overlapFree &= trimmed;
+                if (mJoin == StrokeJoin.Miter) Miter(prevJoin, currJoin, mState.prevPt, apex);
+                else if (mJoin == StrokeJoin.Bevel) Bevel(prevJoin, currJoin, apex);
+                else RoundJoin(prevJoin, currJoin, mState.prevPt, apex);
             }
         }
 
-        private void RoundJoin(Point prev, Point curr, Point center)
+        private void RoundJoin(Point prev, Point curr, Point center, Point apex)
         {
-            var orient = TvgMath.GetOrientation(prev, center, curr);
-            if (orient == Orientation.Linear) return;
+            float turn = TvgMath.Cross(TvgMath.PointSub(center, prev), TvgMath.PointSub(curr, prev));
+            if (turn == 0) return;
 
             mLeftTop.x = MathF.Min(mLeftTop.x, MathF.Min(center.x, MathF.Min(prev.x, curr.x)));
             mLeftTop.y = MathF.Min(mLeftTop.y, MathF.Min(center.y, MathF.Min(prev.y, curr.y)));
@@ -253,7 +283,7 @@ namespace ThorVG
             var startAngle = TvgMath.Atan2(prev.y - center.y, prev.x - center.x);
             var endAngle = TvgMath.Atan2(curr.y - center.y, curr.x - center.x);
 
-            if (orient == Orientation.Clockwise)
+            if (turn > 0)
             {
                 if (endAngle > startAngle) endAngle -= 2 * MathConstants.MATH_PI;
             }
@@ -263,21 +293,19 @@ namespace ThorVG
             }
 
             var arcAngle = endAngle - startAngle;
-            var count = GpuCommon.GpuArcSegmentsCnt(arcAngle, Radius() * mQualityScale);
+            var count = Math.Max(2u, GpuCommon.GpuArcSegmentsCnt(arcAngle, Radius() * mQualityScale));
 
-            var ci = PushVertex(ref mBuffer.vertex, center.x, center.y);
+            var ci = PushVertex(ref mBuffer.vertex, apex.x, apex.y);
             var pi = PushVertex(ref mBuffer.vertex, prev.x, prev.y);
             var step = (endAngle - startAngle) / (count - 1);
 
             for (uint i = 1; i < count; i++)
             {
-                var angle = startAngle + step * i;
-                var outPt = new Point(center.x + MathF.Cos(angle) * Radius(), center.y + MathF.Sin(angle) * Radius());
+                var angle = TvgMath.MultiplyAdd(step, i, startAngle);
+                var outPt = i + 1 == count ? curr : AddProduct(center, new Point(MathF.Cos(angle), MathF.Sin(angle)), Radius());
                 var oi = PushVertex(ref mBuffer.vertex, outPt.x, outPt.y);
 
-                mBuffer.index.Push(ci);
-                mBuffer.index.Push(pi);
-                mBuffer.index.Push(oi);
+                PushTriangle(ci, pi, oi);
 
                 pi = oi;
 
@@ -298,14 +326,12 @@ namespace ThorVG
             {
                 float angle = i * step;
                 var dir = new Point(MathF.Cos(angle), MathF.Sin(angle));
-                var outPt = TvgMath.PointAdd(p, TvgMath.PointMul(dir, Radius()));
+                var outPt = AddProduct(p, dir, Radius());
                 var oi = PushVertex(ref mBuffer.vertex, outPt.x, outPt.y);
 
                 if (oi > 1)
                 {
-                    mBuffer.index.Push(ci);
-                    mBuffer.index.Push(oi);
-                    mBuffer.index.Push(oi - 1);
+                    PushTriangle(ci, oi, oi - 1);
                 }
             }
 
@@ -315,33 +341,30 @@ namespace ThorVG
             mRightBottom.y = MathF.Max(mRightBottom.y, p.y + Radius());
         }
 
-        private void Miter(Point prev, Point curr, Point center)
+        private void Miter(Point prev, Point curr, Point center, Point apex)
         {
             var pp1 = TvgMath.PointSub(prev, center);
             var pp2 = TvgMath.PointSub(curr, center);
             var outDir = TvgMath.PointAdd(pp1, pp2);
-            var k = 2f * Radius() * Radius() / (outDir.x * outDir.x + outDir.y * outDir.y);
+            var k = 2f * Radius() * Radius() / TvgMath.Dot(outDir, outDir);
             var pe = TvgMath.PointMul(outDir, k);
 
-            if (TvgMath.PointLength(pe) >= mMiterLimit * Radius())
+            float limit = mMiterLimit * Radius();
+            if (TvgMath.Dot(pe, pe) >= limit * limit)
             {
-                Bevel(prev, curr, center);
+                Bevel(prev, curr, apex);
                 return;
             }
 
             var joinPt = TvgMath.PointAdd(center, pe);
-            var ci = PushVertex(ref mBuffer.vertex, center.x, center.y);
+            var ci = PushVertex(ref mBuffer.vertex, apex.x, apex.y);
             var cp1 = PushVertex(ref mBuffer.vertex, prev.x, prev.y);
             var cp2 = PushVertex(ref mBuffer.vertex, curr.x, curr.y);
             var e = PushVertex(ref mBuffer.vertex, joinPt.x, joinPt.y);
 
-            mBuffer.index.Push(ci);
-            mBuffer.index.Push(cp1);
-            mBuffer.index.Push(e);
+            PushTriangle(ci, cp1, e);
 
-            mBuffer.index.Push(e);
-            mBuffer.index.Push(cp2);
-            mBuffer.index.Push(ci);
+            PushTriangle(e, cp2, ci);
 
             mLeftTop.x = MathF.Min(mLeftTop.x, joinPt.x);
             mLeftTop.y = MathF.Min(mLeftTop.y, joinPt.y);
@@ -355,32 +378,26 @@ namespace ThorVG
             var bi = PushVertex(ref mBuffer.vertex, curr.x, curr.y);
             var ci = PushVertex(ref mBuffer.vertex, center.x, center.y);
 
-            mBuffer.index.Push(ai);
-            mBuffer.index.Push(bi);
-            mBuffer.index.Push(ci);
+            PushTriangle(ai, bi, ci);
         }
 
         private void Square(Point p, Point outDir)
         {
             var normal = new Point(-outDir.y, outDir.x);
 
-            var a = TvgMath.PointAdd(p, TvgMath.PointMul(normal, Radius()));
-            var b = TvgMath.PointSub(p, TvgMath.PointMul(normal, Radius()));
-            var c = TvgMath.PointAdd(a, TvgMath.PointMul(outDir, Radius()));
-            var d = TvgMath.PointAdd(b, TvgMath.PointMul(outDir, Radius()));
+            var a = AddProduct(p, normal, Radius());
+            var b = SubtractProduct(p, normal, Radius());
+            var c = AddProduct(a, outDir, Radius());
+            var d = AddProduct(b, outDir, Radius());
 
             var ai = PushVertex(ref mBuffer.vertex, a.x, a.y);
             var bi = PushVertex(ref mBuffer.vertex, b.x, b.y);
             var ci = PushVertex(ref mBuffer.vertex, c.x, c.y);
             var di = PushVertex(ref mBuffer.vertex, d.x, d.y);
 
-            mBuffer.index.Push(ai);
-            mBuffer.index.Push(bi);
-            mBuffer.index.Push(ci);
+            PushTriangle(ai, bi, ci);
 
-            mBuffer.index.Push(ci);
-            mBuffer.index.Push(bi);
-            mBuffer.index.Push(di);
+            PushTriangle(ci, bi, di);
 
             mLeftTop.x = MathF.Min(mLeftTop.x, MathF.Min(MathF.Min(a.x, b.x), MathF.Min(c.x, d.x)));
             mLeftTop.y = MathF.Min(mLeftTop.y, MathF.Min(MathF.Min(a.y, b.y), MathF.Min(c.y, d.y)));
@@ -403,13 +420,9 @@ namespace ThorVG
             var ci = PushVertex(ref mBuffer.vertex, c.x, c.y);
             var di = PushVertex(ref mBuffer.vertex, d.x, d.y);
 
-            mBuffer.index.Push(ai);
-            mBuffer.index.Push(bi);
-            mBuffer.index.Push(ci);
+            PushTriangle(ai, bi, ci);
 
-            mBuffer.index.Push(ci);
-            mBuffer.index.Push(di);
-            mBuffer.index.Push(ai);
+            PushTriangle(ci, di, ai);
 
             mLeftTop.x = MathF.Min(mLeftTop.x, MathF.Min(MathF.Min(a.x, b.x), MathF.Min(c.x, d.x)));
             mLeftTop.y = MathF.Min(mLeftTop.y, MathF.Min(MathF.Min(a.y, b.y), MathF.Min(c.y, d.y)));
@@ -420,19 +433,29 @@ namespace ThorVG
         private void RoundCap(Point p, Point outDir)
         {
             var normal = new Point(-outDir.y, outDir.x);
-            var a = TvgMath.PointAdd(p, TvgMath.PointMul(normal, Radius()));
-            var b = TvgMath.PointSub(p, TvgMath.PointMul(normal, Radius()));
-            var c = TvgMath.PointAdd(p, TvgMath.PointMul(outDir, Radius()));
+            var a = AddProduct(p, normal, Radius());
+            var b = SubtractProduct(p, normal, Radius());
+            var c = AddProduct(p, outDir, Radius());
 
-            RoundJoin(a, c, p);
-            RoundJoin(c, b, p);
+            RoundJoin(a, c, p, p);
+            RoundJoin(c, b, p, p);
+        }
+
+        private void PushTriangle(uint a, uint b, uint c)
+        {
+            mBuffer.index.Grow(3);
+            mBuffer.index.data[mBuffer.index.count++] = a;
+            mBuffer.index.data[mBuffer.index.count++] = b;
+            mBuffer.index.data[mBuffer.index.count++] = c;
         }
 
         private static uint PushVertex(ref Array<float> array, float x, float y)
         {
-            array.Push(x);
-            array.Push(y);
-            return (array.count - 2) / 2;
+            uint index = array.count / 2;
+            array.Grow(2);
+            array.data[array.count++] = x;
+            array.data[array.count++] = y;
+            return index;
         }
 
         private static bool PointEqual(Point a, Point b)
@@ -516,6 +539,9 @@ namespace ThorVG
 
                         var stepCount = curve.Segments();
                         if (stepCount <= 1) stepCount = 2;
+                        uint subdivisions = (uint)stepCount;
+                        mBuffer.vertex.Grow(subdivisions * 2);
+                        mBuffer.index.Grow(subdivisions * 3);
                         float step = 1f / stepCount;
                         var curvePrevPt = prevPt;
 
@@ -563,9 +589,10 @@ namespace ThorVG
 
         private uint PushVertex(float x, float y)
         {
-            mBuffer.vertex.Push(x);
-            mBuffer.vertex.Push(y);
-            var index = (mBuffer.vertex.count - 2) / 2;
+            var index = mBuffer.vertex.count / 2;
+            mBuffer.vertex.Grow(2);
+            mBuffer.vertex.data[mBuffer.vertex.count++] = x;
+            mBuffer.vertex.data[mBuffer.vertex.count++] = y;
             if (index == 0) bbox.max = bbox.min = new Point(x, y);
             else bbox = new BBox { min = new Point(MathF.Min(bbox.min.x, x), MathF.Min(bbox.min.y, y)), max = new Point(MathF.Max(bbox.max.x, x), MathF.Max(bbox.max.y, y)) };
             return index;
@@ -573,9 +600,10 @@ namespace ThorVG
 
         private void PushTriangle(uint a, uint b, uint c)
         {
-            mBuffer.index.Push(a);
-            mBuffer.index.Push(b);
-            mBuffer.index.Push(c);
+            mBuffer.index.Grow(3);
+            mBuffer.index.data[mBuffer.index.count++] = a;
+            mBuffer.index.data[mBuffer.index.count++] = b;
+            mBuffer.index.data[mBuffer.index.count++] = c;
         }
     }
 }

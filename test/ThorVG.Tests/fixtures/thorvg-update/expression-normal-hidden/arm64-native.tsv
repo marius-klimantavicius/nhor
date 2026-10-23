@@ -1,0 +1,13 @@
+unscopables-own-keys	at,copyWithin,entries,fill,find,findIndex,flat,flatMap,includes,keys,values|	0
+iterator-own-keys	|Symbol(Symbol.iterator)	0
+array-iterator-own-keys	next|Symbol(Symbol.toStringTag)	0
+string-iterator-own-keys	next|Symbol(Symbol.toStringTag)	0
+map-iterator-own-keys	next|Symbol(Symbol.toStringTag)	0
+set-iterator-own-keys	next|Symbol(Symbol.toStringTag)	0
+generator-function-own-keys	constructor,prototype|Symbol(Symbol.toStringTag)	0
+generator-own-keys	constructor,next,return,throw|Symbol(Symbol.toStringTag)	0
+async-function-own-keys	constructor|Symbol(Symbol.toStringTag)	0
+async-generator-function-own-keys	constructor,prototype|Symbol(Symbol.toStringTag)	0
+async-generator-own-keys	constructor,next,return,throw|Symbol(Symbol.toStringTag)	0
+async-iterator-own-keys	|Symbol(Symbol.asyncIterator)	0
+ordinary-generator-resume	40f66666	0

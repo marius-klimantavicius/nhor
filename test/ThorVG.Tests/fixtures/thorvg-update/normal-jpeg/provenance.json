@@ -1,0 +1,353 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "kind": "authored ordinary valid JPEG compatibility corpus",
+  "encoder": "cjpeg, fixed valid pattern PPM inputs; original source and exact command generation in tooling/jpeg-normal-stream-corrected-thorvg_update_jpeg_normal_oracle.py.txt",
+  "encoderVersion": "See ordinary-jpeg-encoder-version.txt",
+  "cases": [
+    {
+      "file": "1x1-gray-baseline.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "65f083b669fa83996c86b33bce8d43635c6284133f1fd3f7373c8488bb2def77",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-gray-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-gray-progressive.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "bc5d7f26f4557757201effb9a87a33cc7ce410c400cd9aeeb04217d197987d03",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-gray-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-444-baseline.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "74bbb3675f6acd84763aa1962a9f944f34957477ae079bb410af0245605a81dd",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-444-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-444-progressive.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "254d1e1d839ac809ad44093d16983c246dc1b7324df8539f2737efb99078176e",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-444-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-422-baseline.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "6e6c349d72a38db2b146246d6904a9c512e8f3c6011af75b3fcb81a3f800724d",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-422-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-422-progressive.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "aad2ea241146a99d48001cd9587991dbc586a8a9642abfce72e1422625da20f4",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-422-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-440-baseline.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "45355d0e5edd9ee384bab834fa4b791f4a389c3d2ecc4e7305f26abae5169285",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-440-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-440-progressive.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "c16b0cf7d49fdcec2381adadf892834cafc49b24508a20aaf28f4881b4064833",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-440-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-420-baseline.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "32b88d170f15fab564494d94c50d31e6868451c0e5acc92e94f023ac5929b54c",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-420-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "1x1-420-progressive.jpg",
+      "width": 1,
+      "height": 1,
+      "inputSha256": "4db07f228d77e3d85aacf195fb6f1d89af79babf8d2f73680f27cb7d9d5400ed",
+      "decodedSha256": "e3820096cb82366b860b8a4e668453a7aaaf423af03bdf289fa308ea03a79332",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/1x1-420-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-gray-baseline.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "4d0af538acb9dd441babd46d0571fc9c067cabb55c095f65d592872d8befcac4",
+      "decodedSha256": "190a5355c34f1e67f17f3ec43df7b48899cfca0862aadd7e54fea535199d1571",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-gray-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-gray-progressive.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "9f865c224fbcee83b4e0eb8b060aa6a1bffe4c99443b5195b009dc71448db95c",
+      "decodedSha256": "190a5355c34f1e67f17f3ec43df7b48899cfca0862aadd7e54fea535199d1571",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-gray-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-444-baseline.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "2d9996d6dae8c89e152c42e8c2138a6a49f032240f9b63a855cc58e93a1212e5",
+      "decodedSha256": "a73a528b1ca2331bf5e135742e4af4332be0fd49e3cec057736eb41cb5a711c4",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-444-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-444-progressive.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "5d2c515f66a6b972688931ec7fe159003298e912f377dfe4cfefc49f4aaf2326",
+      "decodedSha256": "a73a528b1ca2331bf5e135742e4af4332be0fd49e3cec057736eb41cb5a711c4",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-444-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-422-baseline.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "67b8c5162259c89b3a98ec1595c058814cb6cd3ddcef83db2dceb08f4c5422c3",
+      "decodedSha256": "4c8fb0cfd375bab82c7886d0cd82dc356cd1284d1148d19cb69daffb59194496",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-422-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-422-progressive.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "d48066ffbea0d1c66cfaffaca3b40b5aaaf731f12f6f66adb2425dfaa6410d14",
+      "decodedSha256": "4c8fb0cfd375bab82c7886d0cd82dc356cd1284d1148d19cb69daffb59194496",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-422-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-440-baseline.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "76156d286b442a1832e9a10fcbd3163d56b5f16d32276cbaab49be732062dd7e",
+      "decodedSha256": "d3fde707d1a51c5e6be593691314e95d216b2b89659c1d48e19eb5dc6bc7a6a7",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-440-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-440-progressive.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "932b0ebc39aeff60c61755f9db2790a45b8c2fedab1717cb10d01e00ca7aa47c",
+      "decodedSha256": "d3fde707d1a51c5e6be593691314e95d216b2b89659c1d48e19eb5dc6bc7a6a7",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-440-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-420-baseline.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "3459f7cb6348085252540837787a9b4873a2dd79e7e80e001472eb849f90f5e4",
+      "decodedSha256": "11b9d2fa9b6852559eb99aacb682519edd8e4178632c8c281ab37f70bb57ab2d",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-420-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "8x8-420-progressive.jpg",
+      "width": 8,
+      "height": 8,
+      "inputSha256": "3de06d977a8a3d4e51f57765fdfb3e262f57da1f0039ed192b40b189763d23b3",
+      "decodedSha256": "11b9d2fa9b6852559eb99aacb682519edd8e4178632c8c281ab37f70bb57ab2d",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/8x8-420-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-gray-baseline.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "db131e871327919581fc6fcf167ae046c232f9a0111dce4856def84dd05879c5",
+      "decodedSha256": "66c6bba2cce9c3b9c681e5a96f1a27a94bf823886ac164f4ca09f88deda5722e",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-gray-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-gray-progressive.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "4dffb9a085d2a40a10f701f87d3188eb48b2a0e19b123e68eec4c3a1d98e08f1",
+      "decodedSha256": "66c6bba2cce9c3b9c681e5a96f1a27a94bf823886ac164f4ca09f88deda5722e",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-gray-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-444-baseline.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "e8b22e3a2597e298ddfafce975be0a1513b3bb03ce376005ed17ef61a18e3fa2",
+      "decodedSha256": "595facff8a6213285f73ca8c51396150a11fba73106f9b83b9fd05e8d21e4c8a",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-444-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-444-progressive.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "9cd90bdc95df837b0f92c78f462d537c1970033497acb81ac9b6d0bc77dffb7e",
+      "decodedSha256": "595facff8a6213285f73ca8c51396150a11fba73106f9b83b9fd05e8d21e4c8a",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-444-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-422-baseline.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "954627cd7414bbf9801c3d84765023f1eac2a6a3fd0711643e10df25f4b0b9fa",
+      "decodedSha256": "19f31666dc3762191c8e1f519259e0495b1a22093f339670896da11d884493a1",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-422-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-422-progressive.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "5682d5df6350f341fc3e6910985aa50cb1efb37fa03dfb944dedfbb818c28008",
+      "decodedSha256": "19f31666dc3762191c8e1f519259e0495b1a22093f339670896da11d884493a1",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-422-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-440-baseline.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "806b71f569cee887dd6655a24e2037ab3cf46cb64d0553ed3ca3a807dcc9bc15",
+      "decodedSha256": "e98e79e3507c0c5eb9ecc5b05f9279aea861976349d66b6847d100a2470aa07d",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-440-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-440-progressive.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "d25ba29d32ea483cfbd4325992f94ad62b09ab0db39c8e803be16f9112fb7f12",
+      "decodedSha256": "e98e79e3507c0c5eb9ecc5b05f9279aea861976349d66b6847d100a2470aa07d",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-440-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-420-baseline.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "536237b8508153fca8b73dc5ec7d19db8e8303fc475f80db6ef5d0e647e3860a",
+      "decodedSha256": "3a842a63f7336bf3a61278e47b53adbfbeeaf4434221c218492ff9a310d41106",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-420-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "17x19-420-progressive.jpg",
+      "width": 17,
+      "height": 19,
+      "inputSha256": "2ae2bd277bca5886a7fe8b3bdb9f41d096a0936fd0f8cdb4e0664b1ae466564b",
+      "decodedSha256": "3a842a63f7336bf3a61278e47b53adbfbeeaf4434221c218492ff9a310d41106",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/17x19-420-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-gray-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "f58fb245ce7a4ab346357f25cb9ef45e19f8d92d92c6190390a02f161d80185e",
+      "decodedSha256": "e238b4477e6148c3d7ee856040a24dbd4bc9450daa7e931f0de2dceeb9c03e13",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-gray-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-gray-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "32192210f8c5bf0f8a1d7046957af7027c4c16e3dfe502949aa51799fb5596af",
+      "decodedSha256": "e238b4477e6148c3d7ee856040a24dbd4bc9450daa7e931f0de2dceeb9c03e13",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-gray-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-444-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "3c191eec356e2caf2df239087f2a25fc7430601eedb954bd45333eb0fb22659f",
+      "decodedSha256": "66691ada23101ee6b61a862623651ff1e824b1a271d93c7b660f00473cafbb73",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-444-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-444-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "ed8d27b114e470199907d5fdf2bc3f72d6902ce94fb804f72e592b8081885794",
+      "decodedSha256": "66691ada23101ee6b61a862623651ff1e824b1a271d93c7b660f00473cafbb73",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-444-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-422-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "c4dad0332a0901cad5e13cd9a704b39d3fa779ffa4f8332fc6e41ec154670bdc",
+      "decodedSha256": "129b7ebac1a7700f8fa32383dc590a3ba26f0c4eb3668c77b61cb20393ed8879",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-422-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-422-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "9d6f74cd230654b29551d832367a009855d1cfb58746805ca23a2f68a7ee6fc6",
+      "decodedSha256": "129b7ebac1a7700f8fa32383dc590a3ba26f0c4eb3668c77b61cb20393ed8879",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-422-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-440-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "ec387284765fd24c1cee138189ab35380ea7f3cdd17f4a85e2b2ffa0ce461790",
+      "decodedSha256": "c7c0b7b523a6db11345629601674b2d1ff972e7fe879311bea5ae13dd5e3be38",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-440-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-440-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "6311db5c2556dd9a0912a5ab1c5d8496e63e0c4d0589c2e86d6ced4ee60a158d",
+      "decodedSha256": "c7c0b7b523a6db11345629601674b2d1ff972e7fe879311bea5ae13dd5e3be38",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-440-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-420-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "566d5e6b634105d00da8ff8adacf5970116f81b60d599855465e80d0fc679709",
+      "decodedSha256": "dfba0cfc4e22e22b86e3aaf4e5ec3636916e7f7b16ad8efef1265dde9dcc696b",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-420-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "97x65-420-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "c9d2a5b7082a73ce4ded21d026dd67c7312708dcb52886c779ddcf6a20f77188",
+      "decodedSha256": "dfba0cfc4e22e22b86e3aaf4e5ec3636916e7f7b16ad8efef1265dde9dcc696b",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/97x65-420-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "restart-baseline.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "fe57d8c2b8252ccf75e915bcfd27c3f20fb3b3870243f7821e40973bf915cf6c",
+      "decodedSha256": "dfba0cfc4e22e22b86e3aaf4e5ec3636916e7f7b16ad8efef1265dde9dcc696b",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/restart-baseline.jpg-memory-native.rgba"
+    },
+    {
+      "file": "restart-progressive.jpg",
+      "width": 97,
+      "height": 65,
+      "inputSha256": "3e8e06e5b7815a6448ed075f0609da4d6e2e9deffeca4ef0a331e1e5879a1356",
+      "decodedSha256": "dfba0cfc4e22e22b86e3aaf4e5ec3636916e7f7b16ad8efef1265dde9dcc696b",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/restart-progressive.jpg-memory-native.rgba"
+    },
+    {
+      "file": "stream-large.jpg",
+      "width": 511,
+      "height": 513,
+      "inputSha256": "2d0a921a1fac8f90a3aff2990487d5765051fd560eac5c0743b8a6da52201ae4",
+      "decodedSha256": "303d28bf1b3555602b420badc8321017de9fc652df7ebb240f248de78894436b",
+      "nativeOutput": "tmp/thorvg-jpeg-normal/jpeg-normal-stream-corrected/stream-large.jpg-memory-native.rgba"
+    }
+  ],
+  "qualification": "All43 original JPEG files and decoded expected native .rgba bytes remain retained. No malformed/corrupt/fuzz input. Cover grayscale,444,422,440,420, baseline/progressive,1x1/8x8/17x19/97x65, standard restart intervals and a511x513 streaming/allocation case."
+}

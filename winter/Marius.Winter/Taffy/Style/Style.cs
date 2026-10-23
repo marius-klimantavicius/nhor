@@ -20,7 +20,7 @@ namespace Marius.Winter.Taffy
     /// introduction to the box model (https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Box_Model/Introduction_to_the_CSS_box_model).
     /// </summary>
     public class Style : ICoreStyle, IFlexboxContainerStyle, IFlexboxItemStyle,
-        IBlockContainerStyle, IBlockItemStyle, IGridContainerStyle, IGridItemStyle
+        IBlockContainerStyle, IBlockItemStyle, IGridContainerStyle, IGridItemStyle, IOofItemStyle
     {
         // Static shared empty lists to avoid allocations for non-grid styles
         private static readonly ImmutableList<GridTemplateComponent> s_emptyGridTemplateComponents = ImmutableList<GridTemplateComponent>.Empty;
@@ -38,6 +38,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Is it a replaced element like an image or form field?</summary>
         public bool ItemIsReplaced;
+        public bool ItemIsCompressibleReplaced;
 
         /// <summary>Should size styles apply to the content box or the border box of the node</summary>
         public BoxSizing BoxSizingValue;
@@ -67,6 +68,12 @@ namespace Marius.Winter.Taffy
 
         /// <summary>What should the position value of this struct use as a base offset?</summary>
         public Position PositionValue;
+        public Contain ContainValue;
+        public ContainingBlockClaims? ContainingBlockValue;
+        public ushort FlexLineCountValue = 1;
+        public ushort GridTemplateAreaRowCount;
+        public ushort GridTemplateAreaColumnCount;
+        public bool GridTemplateAreasSpecified;
 
         /// <summary>How should the position of this element be tweaked relative to the layout defined?</summary>
         public Rect<LengthPercentageAuto> Inset;
@@ -196,7 +203,7 @@ namespace Marius.Winter.Taffy
             ScrollbarWidthValue = 0f;
             FloatValue = Float.None;
             ClearValue = Clear.None;
-            PositionValue = Position.Relative;
+            PositionValue = Position.Static;
             Inset = new Rect<LengthPercentageAuto>(
                 LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO,
                 LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO);
@@ -213,12 +220,12 @@ namespace Marius.Winter.Taffy
             BorderValue = new Rect<LengthPercentage>(
                 LengthPercentage.ZERO, LengthPercentage.ZERO,
                 LengthPercentage.ZERO, LengthPercentage.ZERO);
-            AlignItemsValue = null;
+            AlignItemsValue = AlignItems.Normal;
             AlignSelfValue = null;
-            JustifyItemsValue = null;
+            JustifyItemsValue = AlignItems.Normal;
             JustifySelfValue = null;
-            AlignContentValue = null;
-            JustifyContentValue = null;
+            AlignContentValue = AlignContent.Normal;
+            JustifyContentValue = AlignContent.Normal;
             GapValue = new Size<LengthPercentage>(LengthPercentage.ZERO, LengthPercentage.ZERO);
             TextAlignValue = TextAlign.Auto;
             FlexDirectionValue = FlexDirection.Row;
@@ -258,7 +265,16 @@ namespace Marius.Winter.Taffy
         bool ICoreStyle.IsBlock() => Display == Display.Block;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        bool ICoreStyle.IsCompressibleReplaced() => ItemIsReplaced;
+        bool ICoreStyle.IsCompressibleReplaced() => ItemIsReplaced || ItemIsCompressibleReplaced;
+        bool ICoreStyle.IsReplaced() => ItemIsReplaced;
+        Contain ICoreStyle.Contain() => ContainValue;
+        ContainingBlockClaims ICoreStyle.IsContainingBlock() => ContainingBlockValue ?? new(PositionValue.IsPositioned(), false);
+        AlignItems? IOofItemStyle.AlignSelf() => AlignSelfValue;
+        AlignItems? IOofItemStyle.JustifySelf() => JustifySelfValue;
+        bool IOofItemStyle.IsTable() => ItemIsTable;
+        Line<GridPlacement> IOofItemStyle.GridRow() => GridRow;
+        Line<GridPlacement> IOofItemStyle.GridColumn() => GridColumn;
+        ushort IFlexboxContainerStyle.FlexLineCount() => FlexLineCountValue;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         BoxSizing ICoreStyle.BoxSizing() => BoxSizingValue;
@@ -305,6 +321,11 @@ namespace Marius.Winter.Taffy
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         TextAlign IBlockContainerStyle.TextAlign() => TextAlignValue;
+        AlignItems? IBlockContainerStyle.JustifyItems() => JustifyItemsValue;
+        AlignItems? IBlockItemStyle.AlignSelf() => AlignSelfValue;
+        AlignItems? IBlockItemStyle.JustifySelf() => JustifySelfValue;
+        AlignContent? IBlockItemStyle.AlignContent() => AlignContentValue;
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         AlignContent? IBlockContainerStyle.AlignContent() => AlignContentValue;
@@ -423,6 +444,8 @@ namespace Marius.Winter.Taffy
         /// <summary>Gets the grid template areas</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ImmutableList<GridTemplateArea> GetGridTemplateAreas() => GridTemplateAreas;
+        public ushort GetGridTemplateAreaRowCount() => GridTemplateAreaRowCount;
+        public ushort GetGridTemplateAreaColumnCount() => GridTemplateAreaColumnCount;
 
         /// <summary>Gets the grid template column names</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -450,6 +473,6 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Is it a compressible replaced element?</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsCompressibleReplaced() => ItemIsReplaced;
+        public bool IsCompressibleReplaced() => ItemIsReplaced || ItemIsCompressibleReplaced;
     }
 }

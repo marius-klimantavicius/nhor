@@ -9,7 +9,7 @@ namespace ThorVG.Tests
 {
     public class testText
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
         private static readonly string EXAMPLE_FONT_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "thorvg.example", "res", "font"));
 
         [Fact]
@@ -104,7 +104,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -152,7 +152,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -177,7 +177,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -211,7 +211,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -297,7 +297,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -337,7 +337,7 @@ namespace ThorVG.Tests
         {
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[100 * 100];
                 canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 

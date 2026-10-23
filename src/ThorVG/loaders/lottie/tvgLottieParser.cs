@@ -31,18 +31,41 @@ namespace ThorVG
 
         private static ulong Int2Str(int num)
         {
-            return TvgCompressor.Djb2Encode(num.ToString());
+            return TvgCompressor.Djb2EncodeNative(num.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
         private RGB32 GetColor(string? str)
         {
-            var color = new RGB32(0, 0, 0);
-            if (str == null) return color;
-            if (str.Length != 7 || str[0] != '#') return color;
-            color.r = Convert.ToInt32(str.Substring(1, 2), 16);
-            color.g = Convert.ToInt32(str.Substring(3, 2), 16);
-            color.b = Convert.ToInt32(str.Substring(5, 2), 16);
-            return color;
+            if (str == null) return new RGB32(0, 0, 0);
+            var text = str.AsSpan();
+            int nul = text.IndexOf('\0');
+            if (nul >= 0) text = text[..nul];
+            int length = TvgUtf8.ByteCount(TvgStr.Duplicate(str)!);
+            int at = !text.IsEmpty && text[0] == '#' ? 1 : 0;
+            // Match strtoul(base16), including partial input, signs, native
+            // unsigned-long overflow and C-locale whitespace. The target
+            // ignores alpha according to the original CString byte length.
+            while (at < text.Length && text[at] is ' ' or '\t' or '\n' or '\r' or '\v' or '\f') ++at;
+            bool negative = at < text.Length && text[at] == '-';
+            if (at < text.Length && text[at] is '+' or '-') ++at;
+            if (at + 1 < text.Length && text[at] == '0' && text[at + 1] is 'x' or 'X') at += 2;
+            ulong maximum = OperatingSystem.IsWindows() || IntPtr.Size == 4 ? uint.MaxValue : ulong.MaxValue;
+            ulong hex = 0;
+            bool overflow = false;
+            for (; at < text.Length; ++at)
+            {
+                char c = text[at];
+                int digit = c is >= '0' and <= '9' ? c - '0' :
+                            c is >= 'a' and <= 'f' ? c - 'a' + 10 :
+                            c is >= 'A' and <= 'F' ? c - 'A' + 10 : -1;
+                if (digit < 0) break;
+                if (hex > (maximum - (uint)digit) / 16) overflow = true;
+                if (!overflow) hex = hex * 16 + (uint)digit;
+            }
+            if (overflow) hex = maximum;
+            else if (negative) hex = unchecked(0UL - hex) & maximum;
+            if (length > 7) hex >>= 8;
+            return new RGB32((int)((hex >> 16) & 0xff), (int)((hex >> 8) & 0xff), (int)(hex & 0xff));
         }
 
         private FillRule GetFillRule()
@@ -71,7 +94,10 @@ namespace ThorVG
             string buf;
             if (key == null)
             {
-                buf = $"{@in.x:F2}_{@in.y:F2}_{@out.x:F2}_{@out.y:F2}";
+                static string Fixed(float value) => float.IsFinite(value)
+                    ? ((double)value).ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    : (BitConverter.SingleToInt32Bits(value) < 0 ? "-" : "") + (float.IsNaN(value) ? "nan" : "inf");
+                buf = $"{Fixed(@in.x)}_{Fixed(@in.y)}_{Fixed(@out.x)}_{Fixed(@out.y)}";
                 // Match C++ char buf[20] + snprintf(buf, sizeof(buf), ...) truncation
                 if (buf.Length > 19) buf = buf.Substring(0, 19);
                 key = buf;
@@ -79,13 +105,13 @@ namespace ThorVG
 
             // get a cached interpolator if it has any.
             // Match C++ strncmp((*p)->key, key, sizeof(buf)) where sizeof(buf) = 20
-            const int BufSize = 20;
+            var keyPrefix = LottieInterpolator.KeyPrefix(key);
             if (comp != null)
             {
                 LottieInterpolator? cached = null;
                 foreach (var p in comp.interpolators)
                 {
-                    if (string.Compare(p.key, 0, key, 0, BufSize, StringComparison.Ordinal) == 0)
+                    if (p.KeyEquals(keyPrefix))
                         cached = p;
                 }
                 if (cached != null) return cached;
@@ -376,8 +402,8 @@ namespace ThorVG
         // Helper: parse tangent for vector frames (LottieVector uses LottieVectorFrame<Point>)
         private bool ParseTangent(string key, LottieVectorFrame<Point> value)
         {
-            if (key == "ti") { var pt = new Point(); GetValue(ref pt); value.inTangent = pt; value.hasTangent = true; return true; }
-            if (key == "to") { var pt = new Point(); GetValue(ref pt); value.outTangent = pt; value.hasTangent = true; return true; }
+            if (key == "ti" && GetValue(ref value.inTangent)) { value.hasTangent = true; return true; }
+            if (key == "to" && GetValue(ref value.outTangent)) { value.hasTangent = true; return true; }
             return false;
         }
 
@@ -925,7 +951,7 @@ namespace ThorVG
         private void RegisterSlot(LottieObject obj, string? sid, LottieProperty prop)
         {
             if (sid == null || comp == null) return;
-            var val = TvgCompressor.Djb2Encode(sid);
+            var val = TvgCompressor.Djb2EncodeNative(sid);
 
             foreach (var s in comp.slots)
             {
@@ -941,7 +967,7 @@ namespace ThorVG
         private bool ParseCommon(LottieObject? obj, string key)
         {
             if (obj == null) return false;
-            if (key == "nm") { obj.id = TvgCompressor.Djb2Encode(GetString()); return true; }
+            if (key == "nm") { obj.id = TvgCompressor.Djb2EncodeNative(GetString()); return true; }
             if (key == "hd") { obj.hidden = GetBool(); return true; }
             return false;
         }
@@ -974,9 +1000,9 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(rect, key)) continue;
-                else if (key == "s") ParseProperty(rect.size);
-                else if (key == "p") ParseProperty(rect.position);
-                else if (key == "r") ParseProperty(rect.radius);
+                else if (key == "s") ParseProperty(rect.size, rect);
+                else if (key == "p") ParseProperty(rect.position, rect);
+                else if (key == "r") ParseProperty(rect.radius, rect);
                 else if (ParseDirection(rect, key)) continue;
                 else Skip();
             }
@@ -992,8 +1018,8 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(ellipse, key)) continue;
-                else if (key == "p") ParseProperty(ellipse.position);
-                else if (key == "s") ParseProperty(ellipse.size);
+                else if (key == "p") ParseProperty(ellipse.position, ellipse);
+                else if (key == "s") ParseProperty(ellipse.size, ellipse);
                 else if (ParseDirection(ellipse, key)) continue;
                 else Skip();
             }
@@ -1036,7 +1062,7 @@ namespace ThorVG
                         else Skip();
                     }
                 }
-                else if (key == "a") ParseProperty(transform.anchor);
+                else if (key == "a") ParseProperty(transform.anchor, transform);
                 else if (key == "s") ParseProperty(transform.scale, transform);
                 else if (key == "r") ParseProperty(transform.rotation, transform);
                 else if (key == "o") ParseProperty(transform.opacity, transform);
@@ -1188,13 +1214,13 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(star, key)) continue;
-                else if (key == "p") ParseProperty(star.position);
-                else if (key == "pt") ParseProperty(star.ptsCnt);
-                else if (key == "ir") ParseProperty(star.innerRadius);
-                else if (key == "is") ParseProperty(star.innerRoundness);
-                else if (key == "or") ParseProperty(star.outerRadius);
-                else if (key == "os") ParseProperty(star.outerRoundness);
-                else if (key == "r") ParseProperty(star.rotation);
+                else if (key == "p") ParseProperty(star.position, star);
+                else if (key == "pt") ParseProperty(star.ptsCnt, star);
+                else if (key == "ir") ParseProperty(star.innerRadius, star);
+                else if (key == "is") ParseProperty(star.innerRoundness, star);
+                else if (key == "or") ParseProperty(star.outerRadius, star);
+                else if (key == "os") ParseProperty(star.outerRoundness, star);
+                else if (key == "r") ParseProperty(star.rotation, star);
                 else if (key == "sy") star.starType = (LottiePolyStar.StarType)GetInt();
                 else if (ParseDirection(star, key)) continue;
                 else Skip();
@@ -1211,7 +1237,7 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(corner, key)) continue;
-                else if (key == "r") ParseProperty(corner.radius);
+                else if (key == "r") ParseProperty(corner.radius, corner);
                 else Skip();
             }
             return corner;
@@ -1270,7 +1296,7 @@ namespace ThorVG
                 else if (key == "lc") stroke.stroke.cap = (StrokeCap)(GetInt() - 1);
                 else if (key == "lj") stroke.stroke.join = (StrokeJoin)(GetInt() - 1);
                 else if (key == "ml") stroke.stroke.miterLimit = GetFloat();
-                else if (key == "w") ParseProperty(stroke.stroke.width);
+                else if (key == "w") ParseProperty(stroke.stroke.width, stroke);
                 else if (key == "d") ParseStrokeDash(stroke.stroke);
                 else ParseGradient(stroke, key);
             }
@@ -1287,9 +1313,9 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(trim, key)) continue;
-                else if (key == "s") ParseProperty(trim.start);
-                else if (key == "e") ParseProperty(trim.end);
-                else if (key == "o") ParseProperty(trim.offset);
+                else if (key == "s") ParseProperty(trim.start, trim);
+                else if (key == "e") ParseProperty(trim.end, trim);
+                else if (key == "o") ParseProperty(trim.offset, trim);
                 else if (key == "m") trim.trimType = (LottieTrimpath.TrimType)(byte)GetInt();
                 else Skip();
             }
@@ -1305,8 +1331,8 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(repeater, key)) continue;
-                else if (key == "c") ParseProperty(repeater.copies);
-                else if (key == "o") ParseProperty(repeater.offset);
+                else if (key == "c") ParseProperty(repeater.copies, repeater);
+                else if (key == "o") ParseProperty(repeater.offset, repeater);
                 else if (key == "m") repeater.inorder = GetInt() == 2;
                 else if (key == "tr")
                 {
@@ -1314,12 +1340,12 @@ namespace ThorVG
                     string? k2;
                     while ((k2 = NextObjectKey()) != null)
                     {
-                        if (k2 == "a") ParseProperty(repeater.anchor);
-                        else if (k2 == "p") ParseProperty(repeater.position);
-                        else if (k2 == "r") ParseProperty(repeater.rotation);
-                        else if (k2 == "s") ParseProperty(repeater.scale);
-                        else if (k2 == "so") ParseProperty(repeater.startOpacity);
-                        else if (k2 == "eo") ParseProperty(repeater.endOpacity);
+                        if (k2 == "a") ParseProperty(repeater.anchor, repeater);
+                        else if (k2 == "p") ParseProperty(repeater.position, repeater);
+                        else if (k2 == "r") ParseProperty(repeater.rotation, repeater);
+                        else if (k2 == "s") ParseProperty(repeater.scale, repeater);
+                        else if (k2 == "so") ParseProperty(repeater.startOpacity, repeater);
+                        else if (k2 == "eo") ParseProperty(repeater.endOpacity, repeater);
                         else Skip();
                     }
                 }
@@ -1337,9 +1363,9 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(offsetPath, key)) continue;
-                else if (key == "a") ParseProperty(offsetPath.offset);
+                else if (key == "a") ParseProperty(offsetPath.offset, offsetPath);
                 else if (key == "lj") offsetPath.join = (StrokeJoin)(GetInt() - 1);
-                else if (key == "ml") ParseProperty(offsetPath.miterLimit);
+                else if (key == "ml") ParseProperty(offsetPath.miterLimit, offsetPath);
                 else Skip();
             }
             return offsetPath;
@@ -1354,7 +1380,7 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(puckerBloat, key)) continue;
-                else if (key == "a") ParseProperty(puckerBloat.amount);
+                else if (key == "a") ParseProperty(puckerBloat.amount, puckerBloat);
                 else Skip();
             }
             return puckerBloat;
@@ -1369,7 +1395,7 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (ParseCommon(zigzag, key)) continue;
-                else if (key == "s") ParseProperty(zigzag.amplitude);
+                else if (key == "s") ParseProperty(zigzag.amplitude, zigzag);
                 else if (key == "r") ParseProperty(zigzag.frequency);
                 else if (key == "pt") ParseProperty(zigzag.point);
                 else Skip();
@@ -1407,16 +1433,44 @@ namespace ThorVG
             return null;
         }
 
+        // The selected native parser scans the unconsumed source, rather than
+        // JSON tokens, when ty follows other properties. Preserve that profile,
+        // including raw spelling, brace counting and its first matching token.
+        private string? CaptureType()
+        {
+            if (!IsPrimitive() || TvgStr.Equal(CurrentString, "ty")) return null;
+            var source = SourceBytes;
+            int level = 0;
+            for (int p = GetPos(); p < source.Length && source[p] != 0; ++p)
+            {
+                if (source[p] == (byte)'{') ++level;
+                else if (source[p] == (byte)'}')
+                {
+                    if (--level < 0) break;
+                }
+                else if (level == 0 && source[p..].StartsWith("\"ty\""u8))
+                {
+                    p += 4;
+                    while (p < source.Length && CaptureWhitespace(source[p])) ++p;
+                    if (p >= source.Length || source[p++] != (byte)':') return null;
+                    while (p < source.Length && CaptureWhitespace(source[p])) ++p;
+                    if (p >= source.Length || source[p++] != (byte)'"') return null;
+                    int start = p;
+                    while (p < source.Length && source[p] != 0 && source[p] != (byte)'"') ++p;
+                    return p < source.Length && source[p] == (byte)'"'
+                        ? TvgUtf8.Decode(source[start..p]) : null;
+                }
+            }
+            return null;
+        }
+
+        private static bool CaptureWhitespace(byte value) => value == 32 || value >= 9 && value <= 13;
+
         private void ParseObject(List<LottieObject> parent)
         {
-            // DOM-based lookahead: find "ty" before entering the object,
-            // so sub-parsers see all keys. This mirrors C++ captureType().
-            var type = PeekStringProperty("ty");
-
             EnterObject();
+            var type = CaptureType();
 
-            // If lookahead didn't find it (shouldn't happen in well-formed Lottie),
-            // fall back to scanning for "ty" as the first key.
             if (type == null)
             {
                 var key = NextObjectKey();
@@ -1452,23 +1506,23 @@ namespace ThorVG
                 var mimeTypeStart = 11;
                 var semicolonIdx = data.IndexOf(';', mimeTypeStart);
                 if (semicolonIdx <= 0) return;
-                image.bitmap.mimeType = data.Substring(mimeTypeStart, semicolonIdx - mimeTypeStart);
+                image.bitmap.mimeType = TvgUtf8.Slice(data, mimeTypeStart, semicolonIdx - mimeTypeStart);
 
                 var commaIdx = data.IndexOf(',');
                 if (commaIdx <= 0) return;
-                var b64Str = data.Substring(commaIdx + 1);
+                var b64Str = TvgUtf8.Slice(data, commaIdx + 1);
                 image.bitmap.b64Data = TvgCompressor.B64Decode(b64Str);
                 image.bitmap.size = (uint)image.bitmap.b64Data.Length;
             }
             //remote image resource (https:// or http://)
-            else if (data.StartsWith("https://") || data.StartsWith("http://"))
+            else if (data.StartsWith("https://", StringComparison.Ordinal) || data.StartsWith("http://", StringComparison.Ordinal))
             {
                 image.bitmap.path = data;
             }
             //external image resource
             else
             {
-                image.bitmap.path = $"{dirName}/{subPath ?? ""}{data}";
+                image.bitmap.path = TvgUtf8.Concat(TvgUtf8.Concat(dirName ?? "", "/"), TvgUtf8.Concat(subPath ?? "", data));
                 external = true;
             }
 
@@ -1495,10 +1549,10 @@ namespace ThorVG
             {
                 var semi = data.IndexOf(';', 11);
                 if (semi < 0) return;
-                audio.mimeType = data.Substring(11, semi - 11);
+                audio.mimeType = TvgUtf8.Slice(data, 11, semi - 11);
                 var comma = data.IndexOf(',', semi);
                 if (comma < 0) return;
-                var decoded = TvgCompressor.B64Decode(data.Substring(comma + 1));
+                var decoded = TvgCompressor.B64Decode(TvgUtf8.Slice(data, comma + 1));
                 audio.data = decoded;
                 audio.size = (uint)decoded.Length;
             }
@@ -1508,7 +1562,8 @@ namespace ThorVG
             }
             else
             {
-                audio.data = $"{dirName}/{subPath ?? ""}{data}";
+                audio.data = TvgUtf8.Concat(TvgUtf8.Concat(dirName ?? "", "/"), TvgUtf8.Concat(subPath ?? "", data));
+                audio.external = true;
             }
         }
 
@@ -1529,10 +1584,10 @@ namespace ThorVG
             {
                 if (key == "id")
                 {
-                    if (PeekType() == kStringType) id = TvgCompressor.Djb2Encode(GetString());
+                    if (PeekType() == kStringType) id = TvgCompressor.Djb2EncodeNative(GetString());
                     else id = Int2Str(GetInt());
                 }
-                else if (key == "layers") obj = ParseLayers(comp!.root!);
+                else if (key == "layers") obj = ParseLayers();
                 else if (key == "u") subPath = GetString();
                 else if (key == "p") data = GetString();
                 else if (key == "w") width = GetFloat();
@@ -1542,7 +1597,7 @@ namespace ThorVG
                 else Skip();
             }
 
-            if (data != null)
+            if (data != null && obj == null)
             {
                 if (data.StartsWith("data:image/", StringComparison.Ordinal) || width != 0.0f || height != 0.0f)
                 {
@@ -1569,16 +1624,16 @@ namespace ThorVG
 
             if (data.StartsWith("data:font/", StringComparison.Ordinal))
             {
-                var fontData = data.Substring("data:font/".Length);
+                var fontData = TvgUtf8.Slice(data, "data:font/".Length);
                 if (fontData.StartsWith("ttf", StringComparison.OrdinalIgnoreCase))
                 {
                     font.mime = "ttf";
-                    fontData = fontData.Substring(3);
+                    fontData = TvgUtf8.Slice(fontData, 3);
                 }
                 else if (fontData.StartsWith("otf", StringComparison.OrdinalIgnoreCase))
                 {
                     font.mime = "otf";
-                    fontData = fontData.Substring(3);
+                    fontData = TvgUtf8.Slice(fontData, 3);
                 }
                 else
                 {
@@ -1588,14 +1643,15 @@ namespace ThorVG
                 var comma = fontData.IndexOf(',');
                 if (comma >= 0 && comma + 1 < fontData.Length)
                 {
-                    var b64Str = fontData.Substring(comma + 1);
+                    var b64Str = TvgUtf8.Slice(fontData, comma + 1);
                     font.b64src = b64Str;
-                    font.size = (uint)b64Str.Length;
+                    font.size = (uint)TvgUtf8.ByteCount(b64Str);
                 }
             }
             else
             {
                 font.path = data;
+                font.external = true;
             }
         }
 
@@ -1723,7 +1779,7 @@ namespace ThorVG
 
         private void ParseTimeRemap(LottieLayer layer)
         {
-            ParseProperty(layer.timeRemap);
+            ParseProperty(layer.timeRemap, layer);
         }
 
         private void ParseShapes(List<LottieObject> parent)
@@ -1743,7 +1799,7 @@ namespace ThorVG
             while ((key = NextObjectKey()) != null)
             {
                 if (key == "g") text.alignOp.group = (LottieText.AlignOption.Group)GetInt();
-                else if (key == "a") ParseProperty(text.alignOp.anchor);
+                else if (key == "a") ParseProperty(text.alignOp.anchor, text);
                 else Skip();
             }
         }
@@ -1769,19 +1825,19 @@ namespace ThorVG
                             if (k2 == "t") selector.expressible = GetInt() != 0;
                             else if (k2 == "xe")
                             {
-                                ParseProperty(selector.maxEase);
+                                ParseProperty(selector.maxEase, selector);
                                 selector.interpolator = new LottieInterpolator();
                             }
-                            else if (k2 == "ne") ParseProperty(selector.minEase);
-                            else if (k2 == "a") ParseProperty(selector.maxAmount);
+                            else if (k2 == "ne") ParseProperty(selector.minEase, selector);
+                            else if (k2 == "a") ParseProperty(selector.maxAmount, selector);
                             else if (k2 == "b") selector.based = (LottieTextRange.Based)GetInt();
-                            else if (k2 == "rn") selector.random = GetInt() != 0 ? (byte)(new Random().Next() & 0xFF) : (byte)0;
+                            else if (k2 == "rn") selector.random = GetInt() != 0 ? (byte)LottieExpressions.NextRandom() : (byte)0;
                             else if (k2 == "sh") selector.shape = (LottieTextRange.RangeShape)GetInt();
-                            else if (k2 == "o") ParseProperty(selector.offset);
+                            else if (k2 == "o") ParseProperty(selector.offset, selector);
                             else if (k2 == "r") selector.rangeUnit = (LottieTextRange.Unit)GetInt();
-                            else if (k2 == "sm") ParseProperty(selector.smoothness);
-                            else if (k2 == "s") ParseProperty(selector.start);
-                            else if (k2 == "e") ParseProperty(selector.end);
+                            else if (k2 == "sm") ParseProperty(selector.smoothness, selector);
+                            else if (k2 == "s") ParseProperty(selector.start, selector);
+                            else if (k2 == "e") ParseProperty(selector.end, selector);
                             else Skip();
                         }
                     }
@@ -1821,6 +1877,7 @@ namespace ThorVG
             {
                 if (key == "m") text.follow.maskIdx = (sbyte)GetInt();
                 else if (key == "f") ParseProperty(text.follow.firstMargin);
+                else if (key == "p") ParseProperty(text.follow.perpendicular);
                 else Skip();
             } while ((key = NextObjectKey()) != null);
         }
@@ -1885,18 +1942,17 @@ namespace ThorVG
         private bool ParseEffect(LottieEffect effect, Action<LottieEffect, int> func)
         {
             var custom = (effect.type == LottieEffect.EffectType.Custom);
-            LottieFxCustom.Property? property = null;
-
             EnterArray();
             int idx = 0;
             while (NextArrayValue())
             {
                 EnterObject();
+                LottieFxCustom.Property? property = null;
                 string? key;
                 while ((key = NextObjectKey()) != null)
                 {
                     if (custom && key == "ty") property = ((LottieFxCustom)effect).CreateProperty(GetInt());
-                    else if (key == "v")
+                    else if (key == "v" && (!custom || property != null))
                     {
                         if (PeekType() == kObjectType)
                         {
@@ -1910,8 +1966,8 @@ namespace ThorVG
                         }
                         else func(effect, idx++);
                     }
-                    else if (property != null && key == "nm") property.nm = TvgCompressor.Djb2Encode(GetString());
-                    else if (property != null && key == "mn") property.mn = TvgCompressor.Djb2Encode(GetString());
+                    else if (property != null && key == "nm") property.nm = TvgCompressor.Djb2EncodeNative(GetString());
+                    else if (property != null && key == "mn") property.mn = TvgCompressor.Djb2EncodeNative(GetString());
                     else Skip();
                 }
             }
@@ -2027,8 +2083,8 @@ namespace ThorVG
                         if (effect == null) break;
                         invalid = false;
                     }
-                    else if (effect != null && key == "nm") effect.nm = TvgCompressor.Djb2Encode(GetString());
-                    else if (effect != null && key == "mn") effect.mn = TvgCompressor.Djb2Encode(GetString());
+                    else if (effect != null && key == "nm") effect.nm = TvgCompressor.Djb2EncodeNative(GetString());
+                    else if (effect != null && key == "mn") effect.mn = TvgCompressor.Djb2EncodeNative(GetString());
                     else if (effect != null && key == "ix") effect.ix = (short)GetInt();
                     else if (effect != null && key == "en") effect.enable = GetInt() != 0;
                     else if (effect != null && key == "ef") ParseEffect(effect);
@@ -2050,10 +2106,10 @@ namespace ThorVG
 
         #region Layer parsing
 
-        private LottieLayer ParseLayer(LottieLayer? precomp)
+        private LottieLayer ParseLayer(LottieRootLayer? precomp)
         {
             var layer = new LottieLayer();
-            layer.comp = precomp;
+            layer.precomp = precomp;
             context.layer = layer;
 
             var ddd = false;
@@ -2063,7 +2119,7 @@ namespace ThorVG
             string? key;
             while ((key = NextObjectKey()) != null)
             {
-                if (key == "nm") { layer.name = GetStringCopy(); layer.id = TvgCompressor.Djb2Encode(layer.name); }
+                if (key == "nm") { layer.name = GetStringCopy(); layer.id = TvgCompressor.Djb2EncodeNative(layer.name); }
                 else if (key == "ddd") ddd = GetInt() != 0;
                 else if (key == "ind") layer.ix = (short)GetInt();
                 else if (key == "ty") layer.layerType = (LottieLayer.LayerType)GetInt();
@@ -2084,7 +2140,7 @@ namespace ThorVG
                 else if (key == "tp") layer.mix = (short)GetInt();
                 else if (key == "masksProperties") ParseMasks(layer);
                 else if (key == "hd") layer.hidden = GetBool();
-                else if (key == "refId") layer.rid = TvgCompressor.Djb2Encode(GetString());
+                else if (key == "refId") layer.rid = TvgCompressor.Djb2EncodeNative(GetString());
                 else if (key == "td") layer.matteSrc = GetInt() != 0;
                 else if (key == "t") ParseText(layer.children);
                 else if (key == "ef") ParseEffects(layer);
@@ -2098,11 +2154,9 @@ namespace ThorVG
             return layer;
         }
 
-        private LottieLayer ParseLayers(LottieLayer root)
+        private LottieRootLayer ParseLayers()
         {
-            var precomp = new LottieLayer();
-            precomp.layerType = LottieLayer.LayerType.Precomp;
-            precomp.comp = root;
+            var precomp = new LottieRootLayer();
 
             EnterArray();
             while (NextArrayValue())
@@ -2123,6 +2177,7 @@ namespace ThorVG
                     if (font.family == glyph.family && font.style == glyph.style)
                     {
                         font.chars.Add(glyph);
+                        glyph.family = glyph.style = null;
                         break;
                     }
                 }
@@ -2135,8 +2190,23 @@ namespace ThorVG
 
         private void CaptureSlots(string key)
         {
-            // In the DOM-based approach, we just capture the raw JSON text of the slots object
-            slots = GetCurrentValueRawText();
+            slots = null;
+            var source = SourceBytes;
+            int begin = GetPos(), end = begin, depth = 1;
+            while (depth > 0 && end < source.Length && source[end] != 0)
+            {
+                ++end;
+                if (end >= source.Length) break;
+                if (source[end] == (byte)'}') --depth;
+                else if (source[end] == (byte)'{') ++depth;
+            }
+            if (depth > 0)
+            {
+                TvgCommon.TVGERR("LOTTIE", "Invalid Slots!");
+                Skip();
+                return;
+            }
+            slots = TvgUtf8.Concat("{", TvgUtf8.Decode(source.Slice(begin, end - begin + 1)));
             Skip();
         }
 
@@ -2208,7 +2278,22 @@ namespace ThorVG
                         else Skip();
                     }
                     obj.Prepare();
-                    prop = new LottieColorStop(obj.colorStops);
+                    var stops = new LottieColorStop();
+                    stops.CopyFrom(obj.colorStops);
+                    obj.colorStops.Dispose();
+                    prop = stops;
+                    break;
+                }
+                case LottieProperty.PropertyType.PathSet:
+                {
+                    var p = new LottiePathSet();
+                    string? k;
+                    while ((k = NextObjectKey()) != null)
+                    {
+                        if (k == "p") GetPathSet(null, p);
+                        else Skip();
+                    }
+                    prop = p;
                     break;
                 }
                 case LottieProperty.PropertyType.TextDoc:
@@ -2228,7 +2313,10 @@ namespace ThorVG
                         else Skip();
                     }
                     if (obj == null) return null;
-                    prop = new LottieBitmap(((LottieImage)obj).bitmap);
+                    var asset = new LottieBitmap();
+                    asset.CopyFrom(((LottieImage)obj).bitmap);
+                    ((LottieImage)obj).Release();
+                    prop = asset;
                     break;
                 }
             }
@@ -2242,7 +2330,7 @@ namespace ThorVG
             if (!ParseNext()) return false;
             EnterObject();
 
-            if (comp != null) comp = null;
+            comp?.Release();
             comp = new LottieComposition();
 
             var glyphs = new List<LottieGlyph>();
@@ -2260,7 +2348,7 @@ namespace ThorVG
                 else if (key == "h") comp.h = GetFloat();
                 else if (key == "nm") comp.name = GetStringCopy();
                 else if (key == "assets") ParseAssets();
-                else if (key == "layers") comp.root = ParseLayers(comp.root!);
+                else if (key == "layers") comp.root = ParseLayers();
                 else if (key == "fonts") ParseFonts();
                 else if (key == "chars") ParseChars(glyphs);
                 else if (key == "markers") ParseMarkers();
@@ -2270,6 +2358,7 @@ namespace ThorVG
 
             if (Invalid() || comp.root == null)
             {
+                comp.Release();
                 comp = null;
                 return false;
             }

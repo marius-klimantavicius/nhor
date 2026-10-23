@@ -1,4 +1,4 @@
-// Ported from glfw/src/win32_platform.h -- GLFW 3.5 Win32 platform types
+// Ported from glfw/src/win32_platform.h -- GLFW 3.6 Win32 platform types
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -23,6 +23,7 @@
 //    distribution.
 
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 
 namespace Glfw
 {
@@ -178,11 +179,11 @@ namespace Glfw
         public uint cbSize;
         public RECT rcTitleBar;
         public fixed uint rgstate[6]; // CCHILDREN_TITLEBAR + 1 = 6
-        public fixed int rgrect_left[6];
-        public fixed int rgrect_top[6];
-        public fixed int rgrect_right[6];
-        public fixed int rgrect_bottom[6];
+        public TitlebarRectangles rgrect;
     }
+
+    [InlineArray(6)]
+    public struct TitlebarRectangles { private RECT element; }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct HIGHCONTRASTW
@@ -217,17 +218,17 @@ namespace Glfw
         public nuint wParam;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
     public struct RAWMOUSE
     {
-        public ushort usFlags;
+        [FieldOffset(0)] public ushort usFlags;
         // union { ULONG ulButtons; struct { USHORT usButtonFlags; USHORT usButtonData; } }
-        public ushort usButtonFlags;
-        public ushort usButtonData;
-        public uint ulRawButtons;
-        public int lLastX;
-        public int lLastY;
-        public uint ulExtraInformation;
+        [FieldOffset(4)] public ushort usButtonFlags;
+        [FieldOffset(6)] public ushort usButtonData;
+        [FieldOffset(8)] public uint ulRawButtons;
+        [FieldOffset(12)] public int lLastX;
+        [FieldOffset(16)] public int lLastY;
+        [FieldOffset(20)] public uint ulExtraInformation;
     }
 
     [StructLayout(LayoutKind.Sequential)]

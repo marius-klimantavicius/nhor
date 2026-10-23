@@ -11,36 +11,21 @@ namespace ThorVG
         // ========== Paint handling ==========
         private static void HandlePaintAttr(SvgPaint paint, string value)
         {
-            if (SvgHelper.StrAs(value, "none"))
+            if (SvgHelper.StrAs(value, "none")) { paint.none = true; return; }
+            if (SvgHelper.StrAs(value, "currentColor")) { paint.curColor = true; paint.none = false; paint.url = null; return; }
+            paint.color.a = 255;
+            if (ToColor(value, ref paint.color.r, ref paint.color.g, ref paint.color.b, ref paint.color.a, ref paint.url))
             {
-                paint.none = true;
-                return;
+                paint.none = false; paint.curColor = false;
+                if (!value.StartsWith("url", StringComparison.Ordinal)) paint.url = null;
             }
-            if (SvgHelper.StrAs(value, "currentColor"))
-            {
-                paint.curColor = true;
-                paint.none = false;
-                return;
-            }
-            byte r = 0, g = 0, b = 0;
-            string? url = paint.url;
-            if (ToColor(value, ref r, ref g, ref b, ref url))
-            {
-                paint.color = new RGB { r = r, g = g, b = b };
-                paint.none = false;
-            }
-            paint.url = url;
         }
 
         // ========== Style attribute handlers ==========
         private static void HandleColorAttr(SvgParserContext ctx, SvgNode node, string value)
         {
-            byte r = 0, g = 0, b = 0;
-            if (ToColorNoPaint(value, ref r, ref g, ref b))
-            {
-                node.style!.color = new RGB { r = r, g = g, b = b };
-                node.style.curColorSet = true;
-            }
+            var style = node.style!; style.color.a = 255; string? unused = null;
+            if (ToColor(value, ref style.color.r, ref style.color.g, ref style.color.b, ref style.color.a, ref unused, false)) style.curColorSet = true;
         }
 
         private static void HandleFillAttr(SvgParserContext ctx, SvgNode node, string value)
@@ -63,8 +48,7 @@ namespace ThorVG
 
         private static void HandleStrokeDashArrayAttr(SvgParserContext ctx, SvgNode node, string value)
         {
-            node.style!.stroke.flags |= SvgStrokeFlags.Dash;
-            ParseDashArray(ctx, value, node.style.stroke.dash);
+            if (ParseDashArray(ctx, value, node.style!.stroke.dash)) node.style.stroke.flags |= SvgStrokeFlags.Dash;
         }
 
         private static void HandleStrokeDashOffsetAttr(SvgParserContext ctx, SvgNode node, string value)
@@ -129,6 +113,7 @@ namespace ThorVG
             {
                 node.style!.clipPath.url = IdFromUrl(value.Substring(3));
             }
+            else if (value == "none") node.style!.clipPath.url = null;
         }
 
         private static void HandleMaskAttr(SvgParserContext ctx, SvgNode node, string value)
@@ -137,6 +122,7 @@ namespace ThorVG
             {
                 node.style!.mask.url = IdFromUrl(value.Substring(3));
             }
+            else if (value == "none") node.style!.mask.url = null;
         }
 
         private static void HandleFilterAttr(SvgParserContext ctx, SvgNode node, string value)
@@ -149,6 +135,7 @@ namespace ThorVG
 
         private static void HandleMaskTypeAttr(SvgParserContext ctx, SvgNode node, string value)
         {
+            if (node.type != SvgNodeType.Mask) return;
             node.maskNode.type = ToMaskType(value);
         }
 
@@ -178,6 +165,24 @@ namespace ThorVG
             else node.style.textAnchor = 0.0f;
         }
 
+        private static SvgBaseline ToBaseline(string str)
+        {
+            if (SvgHelper.StrAs(str, "alphabetic")) return SvgBaseline.Alphabetic;
+            if (SvgHelper.StrAs(str, "before-edge") || SvgHelper.StrAs(str, "text-before-edge") || SvgHelper.StrAs(str, "text-top")) return SvgBaseline.BeforeEdge;
+            if (SvgHelper.StrAs(str, "after-edge") || SvgHelper.StrAs(str, "text-after-edge") || SvgHelper.StrAs(str, "ideographic") || SvgHelper.StrAs(str, "text-bottom")) return SvgBaseline.AfterEdge;
+            if (SvgHelper.StrAs(str, "central")) return SvgBaseline.Central;
+            if (SvgHelper.StrAs(str, "middle")) return SvgBaseline.Middle;
+            if (SvgHelper.StrAs(str, "hanging")) return SvgBaseline.Hanging;
+            if (SvgHelper.StrAs(str, "mathematical")) return SvgBaseline.Mathematical;
+            return SvgBaseline.Auto;
+        }
+
+        private static void HandleAlignmentBaselineAttr(SvgParserContext ctx, SvgNode node, string value)
+        {
+            node.style!.flags |= SvgStyleFlags.AlignmentBaseline;
+            node.style.alignmentBaseline = ToBaseline(value);
+        }
+
         private static void HandleCssClassAttr(SvgParserContext ctx, SvgNode node, string value)
         {
             node.style!.cssClass = CopyId(value);
@@ -192,10 +197,10 @@ namespace ThorVG
         private static bool ParseStyleAttr(SvgParserContext ctx, string key, string value, bool style)
         {
             var node = ctx.svgParse!.node!;
-            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) return false;
+            if (key == null || value == null) return false;
 
-            key = key.Trim();
-            value = value.Trim();
+            key = key.Substring(SvgUtil.SkipWhiteSpace(key, 0, -1));
+            value = value.Substring(SvgUtil.SkipWhiteSpace(value, 0, -1));
 
             if (!style && SvgHelper.StrAs(key, "xml:space"))
             {
@@ -210,11 +215,17 @@ namespace ThorVG
                     bool importance = false;
                     var valueToUse = value;
                     int impIdx = value.IndexOf("!important", StringComparison.Ordinal);
+                    if (impIdx < 0 && style)
+                    {
+                        int upper = value.IndexOf("!IMPORTANT", StringComparison.Ordinal);
+                        if (upper >= 0 && SvgUtil.SkipWhiteSpace(value, upper + 10, value.Length) == value.Length) impIdx = upper;
+                    }
                     if (impIdx >= 0)
                     {
-                        valueToUse = value.Substring(0, impIdx).TrimEnd();
+                        valueToUse = value.Substring(0, SvgUtil.UnskipWhiteSpace(value, impIdx, 0));
                         importance = true;
                     }
+                    if (!ValidTypographyStyle(StyleTags[i].flag, valueToUse)) return true;
                     if (style)
                     {
                         if (importance || (node.style!.flagsImportance & StyleTags[i].flag) == 0)
@@ -229,7 +240,7 @@ namespace ThorVG
                     }
                     if (importance)
                     {
-                        node.style!.flagsImportance = node.style.flags | StyleTags[i].flag;
+                        node.style!.flagsImportance |= StyleTags[i].flag;
                     }
                     return true;
                 }
@@ -269,24 +280,22 @@ namespace ThorVG
             else if (SvgHelper.StrAs(key, "viewBox"))
             {
                 int pos = 0;
-                float x = 0, y = 0, w = 0, h = 0;
-                if (ParseNumber(value, ref pos, out x))
+                if (ParseNumber(value, ref pos, out doc.vbox.x))
                 {
-                    if (ParseNumber(value, ref pos, out y))
+                    if (ParseNumber(value, ref pos, out doc.vbox.y))
                     {
-                        if (ParseNumber(value, ref pos, out w))
+                        if (ParseNumber(value, ref pos, out doc.vbox.w))
                         {
-                            if (ParseNumber(value, ref pos, out h))
+                            if (ParseNumber(value, ref pos, out doc.vbox.h))
                             {
-                                doc.vbox = new Box(x, y, w, h);
                                 doc.viewFlag |= SvgViewFlag.Viewbox;
-                                ctx.svgParse.global.h = h;
+                                ctx.svgParse.global.h = doc.vbox.h;
                             }
-                            ctx.svgParse.global.w = w;
+                            ctx.svgParse.global.w = doc.vbox.w;
                         }
-                        ctx.svgParse.global.y = y;
+                        ctx.svgParse.global.y = doc.vbox.y;
                     }
-                    ctx.svgParse.global.x = x;
+                    ctx.svgParse.global.x = doc.vbox.x;
                 }
                 if ((doc.viewFlag & SvgViewFlag.Viewbox) != 0 && (doc.vbox.w < 0.0f || doc.vbox.h < 0.0f))
                 {
@@ -322,16 +331,10 @@ namespace ThorVG
 
             if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "transform"))
-                node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
                 HandleCssClassAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else
@@ -345,8 +348,6 @@ namespace ThorVG
 
             if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "transform"))
-                node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
@@ -368,8 +369,6 @@ namespace ThorVG
 
             if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "transform"))
-                node.transform = ParseTransformationMatrix(value);
             else if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else if (SvgHelper.StrAs(key, "class"))
@@ -395,7 +394,7 @@ namespace ThorVG
             if (SvgHelper.StrAs(key, "id"))
                 node.id = CopyId(value);
             else
-                return ParseStyleAttr(ctx, key, value, false);
+                return ParseStyleAttr(ctx, key, value, true);
             return true;
         }
 
@@ -446,10 +445,6 @@ namespace ThorVG
                 node.path.path = CopyId(value);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
@@ -472,10 +467,6 @@ namespace ThorVG
 
             if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
@@ -503,10 +494,6 @@ namespace ThorVG
                 HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else
@@ -538,10 +525,6 @@ namespace ThorVG
                 return AttrParsePolygonPoints(value, polygon);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
@@ -583,10 +566,6 @@ namespace ThorVG
                 HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else
@@ -610,10 +589,6 @@ namespace ThorVG
                 HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else
@@ -639,16 +614,16 @@ namespace ThorVG
                 HandleCssClassAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "transform"))
-                node.transform = ParseTransformationMatrix(value);
             else
-                return ParseStyleAttr(ctx, key, value, true);
+                return ParseStyleAttr(ctx, key, value, false);
+            return true;
+        }
+
+        private static bool AttrPrescanTextFontSize(SvgParserContext ctx, string key, string value)
+        {
+            if (key == "font-size") ctx.svgParse!.node!.text.fontSize = ToFontSize(ctx.svgParse, value);
             return true;
         }
 
@@ -661,16 +636,12 @@ namespace ThorVG
             if (SvgHelper.StrAs(key, "y")) { text.y = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
             if (SvgHelper.StrAs(key, "dx")) { text.dx = ToFloat(ctx.svgParse, value, SvgParserLengthType.Horizontal); return true; }
             if (SvgHelper.StrAs(key, "dy")) { text.dy = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
-            if (SvgHelper.StrAs(key, "font-size")) { text.fontSize = ToFloat(ctx.svgParse, value, SvgParserLengthType.Vertical); return true; }
+            if (SvgHelper.StrAs(key, "font-size")) { text.fontSize = ToFontSize(ctx.svgParse, value); return true; }
 
             if (SvgHelper.StrAs(key, "font-family"))
                 text.fontFamily = value;
             else if (SvgHelper.StrAs(key, "style"))
                 return XmlParser.ParseW3CAttribute(value, 0, value.Length, ParseStyleAttrCb, ctx);
-            else if (SvgHelper.StrAs(key, "clip-path"))
-                HandleClipPathAttr(ctx, node, value);
-            else if (SvgHelper.StrAs(key, "mask"))
-                HandleMaskAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "filter"))
                 HandleFilterAttr(ctx, node, value);
             else if (SvgHelper.StrAs(key, "id"))
@@ -810,9 +781,9 @@ namespace ThorVG
 
         private static bool AttrParseFontFace(SvgParserContext ctx, string key, string value)
         {
-            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) return false;
-            key = key.Trim();
-            value = value.Trim();
+            if (key == null || value == null) return false;
+            key = key.Substring(SvgUtil.SkipWhiteSpace(key, 0, -1));
+            value = value.Substring(SvgUtil.SkipWhiteSpace(value, 0, -1));
             var font = ctx.fonts[ctx.fonts.Count - 1];
 
             if (SvgHelper.StrAs(key, "font-family"))
@@ -913,7 +884,7 @@ namespace ThorVG
             return true;
         }
 
-        private static RGB? FindLatestColor(SvgParserContext ctx)
+        private static RGBA? FindLatestColor(SvgParserContext ctx)
         {
             var parent = ctx.stack.Count > 0 ? ctx.stack[ctx.stack.Count - 1] : ctx.doc;
             while (parent != null)
@@ -928,14 +899,17 @@ namespace ThorVG
 
         private static SvgNode CreateNode(SvgNode? parent, SvgNodeType type)
         {
-            var node = new SvgNode();
+            var node = new SvgNode(type);
             node.style = new SvgStyleProperty();
 
             // Default values
             node.style.opacity = 255;
+            node.style.color.a = 255;
             node.style.fill.opacity = 255;
+            node.style.fill.paint.color.a = 255;
             node.style.fill.fillRule = FillRule.NonZero;
             node.style.stroke.paint.none = true;
+            node.style.stroke.paint.color.a = 255;
             node.style.stroke.opacity = 255;
             node.style.stroke.width = 1;
             node.style.stroke.cap = StrokeCap.Butt;
@@ -944,6 +918,7 @@ namespace ThorVG
             node.style.stroke.scale = 1.0f;
             node.style.paintOrder = ToPaintOrder("fill stroke");
             node.style.display = true;
+            node.style.fontWeight = SvgFontWeight.Normal;
             node.parent = parent;
             node.type = type;
             node.xmlSpace = SvgXmlSpace.None;
@@ -1043,6 +1018,7 @@ namespace ThorVG
         private static SvgNode? CreateEllipseNode(SvgParserContext ctx, SvgNode? parent, string buf, int bufOffset, int bufLength, ParseAttributesFunc? func)
         {
             ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Ellipse);
+            ctx.svgParse.node.ellipse.rx = ctx.svgParse.node.ellipse.ry = -1;
             func?.Invoke(buf, bufOffset, bufLength, AttrParseEllipseNode, ctx);
             return ctx.svgParse.node;
         }
@@ -1086,6 +1062,7 @@ namespace ThorVG
         {
             ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Text);
             ctx.svgParse.node.text.fontSize = 10.0f;
+            func?.Invoke(buf, bufOffset, bufLength, AttrPrescanTextFontSize, ctx);
             func?.Invoke(buf, bufOffset, bufLength, AttrParseTextNode, ctx);
             return ctx.svgParse.node;
         }
@@ -1095,6 +1072,7 @@ namespace ThorVG
             ctx.svgParse!.node = CreateNode(parent, SvgNodeType.Tspan);
             ctx.svgParse.node.text.x = float.MaxValue;
             ctx.svgParse.node.text.y = float.MaxValue;
+            func?.Invoke(buf, bufOffset, bufLength, AttrPrescanTextFontSize, ctx);
             func?.Invoke(buf, bufOffset, bufLength, AttrParseTextNode, ctx);
             return ctx.svgParse.node;
         }
@@ -1203,36 +1181,43 @@ namespace ThorVG
         }
 
         // ========== Tag lookup tables ==========
-        private static readonly (string tag, FactoryMethod handler)[] GraphicsTags = {
-            ("use", CreateUseNode!),
-            ("circle", CreateCircleNode!),
-            ("ellipse", CreateEllipseNode!),
-            ("path", CreatePathNode!),
-            ("polygon", CreatePolygonNode!),
-            ("rect", CreateRectNode!),
-            ("polyline", CreatePolylineNode!),
-            ("line", CreateLineNode!),
-            ("image", CreateImageNode!),
-            ("text", CreateTextNode!),
-            ("feGaussianBlur", CreateGaussianBlurNode!)
+        private static readonly (string tag, FactoryMethod handler, SvgNodeType type)[] GraphicsTags = {
+            ("use", CreateUseNode!, SvgNodeType.Use),
+            ("circle", CreateCircleNode!, SvgNodeType.Circle),
+            ("ellipse", CreateEllipseNode!, SvgNodeType.Ellipse),
+            ("path", CreatePathNode!, SvgNodeType.Path),
+            ("polygon", CreatePolygonNode!, SvgNodeType.Polygon),
+            ("rect", CreateRectNode!, SvgNodeType.Rect),
+            ("polyline", CreatePolylineNode!, SvgNodeType.Polyline),
+            ("line", CreateLineNode!, SvgNodeType.Line),
+            ("image", CreateImageNode!, SvgNodeType.Image),
+            ("text", CreateTextNode!, SvgNodeType.Text),
+            ("feGaussianBlur", CreateGaussianBlurNode!, SvgNodeType.GaussianBlur)
         };
 
-        private static readonly (string tag, FactoryMethod handler)[] GroupTags = {
-            ("defs", CreateDefsNode!),
-            ("g", CreateGNode!),
-            ("svg", CreateSvgNode!),
-            ("mask", CreateMaskNode!),
-            ("clipPath", CreateClipPathNode!),
-            ("style", CreateCssStyleNode!),
-            ("symbol", CreateSymbolNode!),
-            ("filter", CreateFilterNode!),
-            ("pattern", CreatePatternNode!)
+        private static readonly (string tag, FactoryMethod handler, SvgNodeType type)[] GroupTags = {
+            ("defs", CreateDefsNode!, SvgNodeType.Defs),
+            ("g", CreateGNode!, SvgNodeType.G),
+            ("svg", CreateSvgNode!, SvgNodeType.Doc),
+            ("mask", CreateMaskNode!, SvgNodeType.Mask),
+            ("clipPath", CreateClipPathNode!, SvgNodeType.ClipPath),
+            ("style", CreateCssStyleNode!, SvgNodeType.CssStyle),
+            ("symbol", CreateSymbolNode!, SvgNodeType.Symbol),
+            ("filter", CreateFilterNode!, SvgNodeType.Filter),
+            ("pattern", CreatePatternNode!, SvgNodeType.Pattern)
         };
 
         private static readonly (string tag, GradientFactoryMethod handler)[] GradientTags = {
             ("linearGradient", CreateLinearGradient),
             ("radialGradient", CreateRadialGradient)
         };
+
+        private static FactoryMethod? FindTypedFactory(string name, out SvgNodeType type)
+        {
+            foreach (var entry in GroupTags) if (SvgHelper.StrAs(entry.tag, name)) { type = entry.type; return entry.handler; }
+            foreach (var entry in GraphicsTags) if (SvgHelper.StrAs(entry.tag, name)) { type = entry.type; return entry.handler; }
+            type = SvgNodeType.Unknown; return null;
+        }
 
         private static FactoryMethod? FindGroupFactory(string name)
         {
@@ -1371,7 +1356,12 @@ namespace ThorVG
 
         private static void StyleInherit(SvgStyleProperty? child, SvgStyleProperty? parent)
         {
-            if (parent == null || child == null) return;
+            if (child == null) return;
+            var weight = parent?.fontWeight ?? SvgFontWeight.Normal;
+            if ((child.flags & SvgStyleFlags.FontWeight) == 0 || child.fontWeight == SvgFontWeight.Inherit) child.fontWeight = weight;
+            else if (child.fontWeight == SvgFontWeight.Bolder) child.fontWeight = weight <= SvgFontWeight.Weight300 ? SvgFontWeight.Normal : weight <= SvgFontWeight.Weight500 ? SvgFontWeight.Bold : SvgFontWeight.Weight900;
+            else if (child.fontWeight == SvgFontWeight.Lighter) child.fontWeight = weight <= SvgFontWeight.Weight500 ? SvgFontWeight.Weight100 : weight <= SvgFontWeight.Bold ? SvgFontWeight.Normal : SvgFontWeight.Bold;
+            if (parent == null) return;
 
             if (!child.curColorSet)
             {
@@ -1413,6 +1403,9 @@ namespace ThorVG
             if ((child.stroke.flags & SvgStrokeFlags.Join) == 0) child.stroke.join = parent.stroke.join;
             if ((child.stroke.flags & SvgStrokeFlags.Miterlimit) == 0) child.stroke.miterlimit = parent.stroke.miterlimit;
             if ((child.flags & SvgStyleFlags.TextAnchor) == 0) child.textAnchor = parent.textAnchor;
+            if ((child.flags & SvgStyleFlags.WordSpacing) == 0) child.wordSpacing = parent.wordSpacing;
+            if ((child.flags & SvgStyleFlags.LetterSpacing) == 0) child.letterSpacing = parent.letterSpacing;
+            if ((child.flags & SvgStyleFlags.DominantBaseline) == 0) child.dominantBaseline = parent.dominantBaseline;
         }
 
         private static void StyleCopy(SvgStyleProperty? to, SvgStyleProperty? from)
@@ -1429,6 +1422,11 @@ namespace ThorVG
             if ((from.flags & SvgStyleFlags.Display) != 0) to.display = from.display;
             if ((from.flags & SvgStyleFlags.BlendMode) != 0) to.blendMode = from.blendMode;
             if ((from.flags & SvgStyleFlags.TextAnchor) != 0) to.textAnchor = from.textAnchor;
+            if ((from.flags & SvgStyleFlags.AlignmentBaseline) != 0) to.alignmentBaseline = from.alignmentBaseline;
+            if ((from.flags & SvgStyleFlags.FontWeight) != 0) to.fontWeight = from.fontWeight;
+            if ((from.flags & SvgStyleFlags.WordSpacing) != 0) { to.wordSpacing = from.wordSpacing; to.wordSpacingRelative = from.wordSpacingRelative; }
+            if ((from.flags & SvgStyleFlags.LetterSpacing) != 0) { to.letterSpacing = from.letterSpacing; to.letterSpacingRelative = from.letterSpacingRelative; }
+            if ((from.flags & SvgStyleFlags.DominantBaseline) != 0) { to.dominantBaseline = from.dominantBaseline; }
             // Fill
             to.fill.flags |= from.fill.flags;
             if ((from.fill.flags & SvgFillFlags.Paint) != 0)
@@ -1581,10 +1579,11 @@ namespace ThorVG
             if (classString == null || styleRoot == null) return false;
 
             bool allFound = true;
-            var tempNode = new SvgNode();
+            var tempNode = new SvgNode(SvgNodeType.Unknown);
             tempNode.style = new SvgStyleProperty();
             tempNode.type = node.type;
             tempNode.style.opacity = 255;
+            tempNode.style.color.a = 255;
             tempNode.style.fill.opacity = 255;
             tempNode.style.stroke.opacity = 255;
 
@@ -1593,7 +1592,7 @@ namespace ThorVG
 
             foreach (var cls in classes)
             {
-                var name = cls.Trim();
+                var name = SvgUtil.Trim(cls);
                 if (string.IsNullOrEmpty(name)) continue;
                 if (!appliedClasses.Add(name)) continue;
 
@@ -1621,7 +1620,7 @@ namespace ThorVG
         {
             foreach (var pair in postponeds)
             {
-                CssApplyClass(pair.node, pair.id, style);
+                CssApplyClass(pair.node, pair.node.style!.cssClass, style);
             }
         }
 
@@ -1643,20 +1642,20 @@ namespace ThorVG
             {
                 grad.linear = new SvgLinearGradient
                 {
-                    x1 = from.linear.x1, y1 = from.linear.y1, x2 = from.linear.x2, y2 = from.linear.y2,
-                    isX1Percentage = from.linear.isX1Percentage, isY1Percentage = from.linear.isY1Percentage,
-                    isX2Percentage = from.linear.isX2Percentage, isY2Percentage = from.linear.isY2Percentage
+                    x1 = (from.linear?.x1 ?? 0), y1 = (from.linear?.y1 ?? 0), x2 = (from.linear?.x2 ?? 0), y2 = (from.linear?.y2 ?? 0),
+                    isX1Percentage = (from.linear?.isX1Percentage ?? false), isY1Percentage = (from.linear?.isY1Percentage ?? false),
+                    isX2Percentage = (from.linear?.isX2Percentage ?? false), isY2Percentage = from.linear.isY2Percentage
                 };
             }
             if (from.radial != null)
             {
                 grad.radial = new SvgRadialGradient
                 {
-                    cx = from.radial.cx, cy = from.radial.cy, fx = from.radial.fx, fy = from.radial.fy,
-                    r = from.radial.r, fr = from.radial.fr,
-                    isCxPercentage = from.radial.isCxPercentage, isCyPercentage = from.radial.isCyPercentage,
-                    isFxPercentage = from.radial.isFxPercentage, isFyPercentage = from.radial.isFyPercentage,
-                    isRPercentage = from.radial.isRPercentage, isFrPercentage = from.radial.isFrPercentage
+                    cx = from.radial!.cx, cy = from.radial!.cy, fx = from.radial!.fx, fy = from.radial!.fy,
+                    r = from.radial!.r, fr = from.radial!.fr,
+                    isCxPercentage = from.radial!.isCxPercentage, isCyPercentage = from.radial!.isCyPercentage,
+                    isFxPercentage = from.radial!.isFxPercentage, isFyPercentage = from.radial!.isFyPercentage,
+                    isRPercentage = from.radial!.isRPercentage, isFrPercentage = from.radial!.isFrPercentage
                 };
             }
             grad.stops.AddRange(from.stops);
@@ -1680,50 +1679,50 @@ namespace ThorVG
 
             var g = ctx.svgParse!.global;
 
-            if (to.type == SvgGradientType.Linear && to.linear != null && from.linear != null)
+            if (to.type == SvgGradientType.Linear && to.linear != null)
             {
-                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X1, gradUnitSet, ref to.linear.x1, from.linear.x1, ref to.linear.isX1Percentage, from.linear.isX1Percentage, true);
-                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y1, gradUnitSet, ref to.linear.y1, from.linear.y1, ref to.linear.isY1Percentage, from.linear.isY1Percentage, false);
-                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X2, gradUnitSet, ref to.linear.x2, from.linear.x2, ref to.linear.isX2Percentage, from.linear.isX2Percentage, true);
-                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y2, gradUnitSet, ref to.linear.y2, from.linear.y2, ref to.linear.isY2Percentage, from.linear.isY2Percentage, false);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X1, gradUnitSet, ref to.linear.x1, (from.linear?.x1 ?? 0), ref to.linear.isX1Percentage, (from.linear?.isX1Percentage ?? false), true);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y1, gradUnitSet, ref to.linear.y1, (from.linear?.y1 ?? 0), ref to.linear.isY1Percentage, (from.linear?.isY1Percentage ?? false), false);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.X2, gradUnitSet, ref to.linear.x2, (from.linear?.x2 ?? 0), ref to.linear.isX2Percentage, (from.linear?.isX2Percentage ?? false), true);
+                InheritLinearCoord(ctx, to, from, SvgGradientFlags.Y2, gradUnitSet, ref to.linear.y2, (from.linear?.y2 ?? 0), ref to.linear.isY2Percentage, (from.linear?.isY2Percentage ?? false), false);
             }
-            else if (to.type == SvgGradientType.Radial && to.radial != null && from.radial != null)
+            else if (to.type == SvgGradientType.Radial && to.radial != null)
             {
                 var diag = MathF.Sqrt(g.w * g.w + g.h * g.h) / MathF.Sqrt(2.0f);
 
                 // cx
                 bool cxSet = (to.flags & SvgGradientFlags.Cx) != 0;
-                if (!cxSet && (from.flags & SvgGradientFlags.Cx) != 0) { to.radial.cx = from.radial.cx; to.radial.isCxPercentage = from.radial.isCxPercentage; to.flags |= SvgGradientFlags.Cx; }
+                if (!cxSet && (from.flags & SvgGradientFlags.Cx) != 0) { to.radial.cx = from.radial!.cx; to.radial.isCxPercentage = from.radial!.isCxPercentage; to.flags |= SvgGradientFlags.Cx; }
                 if (!gradUnitSet && cxSet) { if (to.userSpace && !to.radial.isCxPercentage) to.radial.cx /= g.w; if ((to.flags & SvgGradientFlags.Fx) == 0) to.radial.fx = to.radial.cx; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !cxSet) { if (!to.radial.isCxPercentage) { if (to.userSpace) to.radial.cx /= g.w; else to.radial.cx *= g.w; } }
 
                 // cy
                 bool cySet = (to.flags & SvgGradientFlags.Cy) != 0;
-                if (!cySet && (from.flags & SvgGradientFlags.Cy) != 0) { to.radial.cy = from.radial.cy; to.radial.isCyPercentage = from.radial.isCyPercentage; to.flags |= SvgGradientFlags.Cy; }
+                if (!cySet && (from.flags & SvgGradientFlags.Cy) != 0) { to.radial.cy = from.radial!.cy; to.radial.isCyPercentage = from.radial!.isCyPercentage; to.flags |= SvgGradientFlags.Cy; }
                 if (!gradUnitSet && cySet) { if (to.userSpace && !to.radial.isCyPercentage) to.radial.cy /= g.h; if ((to.flags & SvgGradientFlags.Fy) == 0) to.radial.fy = to.radial.cy; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !cySet) { if (!to.radial.isCyPercentage) { if (to.userSpace) to.radial.cy /= g.h; else to.radial.cy *= g.h; } }
 
                 // fx
                 bool fxSet = (to.flags & SvgGradientFlags.Fx) != 0;
-                if (!fxSet && (from.flags & SvgGradientFlags.Fx) != 0) { to.radial.fx = from.radial.fx; to.radial.isFxPercentage = from.radial.isFxPercentage; to.flags |= SvgGradientFlags.Fx; }
+                if (!fxSet && (from.flags & SvgGradientFlags.Fx) != 0) { to.radial.fx = from.radial!.fx; to.radial.isFxPercentage = from.radial!.isFxPercentage; to.flags |= SvgGradientFlags.Fx; }
                 if (!gradUnitSet && fxSet) { if (to.userSpace && !to.radial.isFxPercentage) to.radial.fx /= g.w; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !fxSet) { if ((to.flags & SvgGradientFlags.Fx) == 0) { /* skip recalc for unset fx */ } else if (!to.radial.isFxPercentage) { if (to.userSpace) to.radial.fx /= g.w; else to.radial.fx *= g.w; } }
 
                 // fy
                 bool fySet = (to.flags & SvgGradientFlags.Fy) != 0;
-                if (!fySet && (from.flags & SvgGradientFlags.Fy) != 0) { to.radial.fy = from.radial.fy; to.radial.isFyPercentage = from.radial.isFyPercentage; to.flags |= SvgGradientFlags.Fy; }
+                if (!fySet && (from.flags & SvgGradientFlags.Fy) != 0) { to.radial.fy = from.radial!.fy; to.radial.isFyPercentage = from.radial!.isFyPercentage; to.flags |= SvgGradientFlags.Fy; }
                 if (!gradUnitSet && fySet) { if (to.userSpace && !to.radial.isFyPercentage) to.radial.fy /= g.h; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !fySet) { if ((to.flags & SvgGradientFlags.Fy) == 0) { /* skip recalc for unset fy */ } else if (!to.radial.isFyPercentage) { if (to.userSpace) to.radial.fy /= g.h; else to.radial.fy *= g.h; } }
 
                 // r
                 bool rSet = (to.flags & SvgGradientFlags.R) != 0;
-                if (!rSet && (from.flags & SvgGradientFlags.R) != 0) { to.radial.r = from.radial.r; to.radial.isRPercentage = from.radial.isRPercentage; to.flags |= SvgGradientFlags.R; }
+                if (!rSet && (from.flags & SvgGradientFlags.R) != 0) { to.radial.r = from.radial!.r; to.radial.isRPercentage = from.radial!.isRPercentage; to.flags |= SvgGradientFlags.R; }
                 if (!gradUnitSet && rSet && diag > 0) { if (to.userSpace && !to.radial.isRPercentage) to.radial.r /= diag; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !rSet && diag > 0) { if (!to.radial.isRPercentage) { if (to.userSpace) to.radial.r /= diag; else to.radial.r *= diag; } }
 
                 // fr
                 bool frSet = (to.flags & SvgGradientFlags.Fr) != 0;
-                if (!frSet && (from.flags & SvgGradientFlags.Fr) != 0) { to.radial.fr = from.radial.fr; to.radial.isFrPercentage = from.radial.isFrPercentage; to.flags |= SvgGradientFlags.Fr; }
+                if (!frSet && (from.flags & SvgGradientFlags.Fr) != 0) { to.radial.fr = from.radial!.fr; to.radial.isFrPercentage = from.radial!.isFrPercentage; to.flags |= SvgGradientFlags.Fr; }
                 if (!gradUnitSet && frSet && diag > 0) { if (to.userSpace && !to.radial.isFrPercentage) to.radial.fr /= diag; }
                 if (to.userSpace != from.userSpace && gradUnitSet && !frSet && diag > 0) { if (!to.radial.isFrPercentage) { if (to.userSpace) to.radial.fr /= diag; else to.radial.fr *= diag; } }
             }

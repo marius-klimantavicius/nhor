@@ -1,471 +1,316 @@
-// Ported from ThorVG/src/loaders/lottie/tvgLottieParserHandler.h and .cpp
-// Replaces RapidJSON with System.Text.Json JsonDocument-based DOM walking.
-
-using System.Collections.Generic;
+// Ported from ThorVG/src/loaders/lottie/tvgLottieParserHandler.h and .cpp.
+// System.Text.Json supplies incremental tokens; advancement, conversion and
+// recovery follow the native SAX wrapper.
+using System;
+using System.Text;
 using System.Text.Json;
 
 namespace ThorVG
 {
-    /// <summary>
-    /// Lookahead parser handler that walks a pre-parsed JsonDocument.
-    /// Replaces the C++ RapidJSON SAX-based streaming approach with a DOM walker.
-    /// The public API mirrors the C++ LookaheadParserHandler methods.
-    /// </summary>
     public class LookaheadParserHandler
     {
         public enum LookaheadParsingState
         {
-            Init = 0,
-            Error,
-            HasNull,
-            HasBool,
-            HasNumber,
-            HasString,
-            HasKey,
-            EnteringObject,
-            ExitingObject,
-            EnteringArray,
-            ExitingArray
+            Init = 0, Error, HasNull, HasBool, HasNumber, HasString, HasKey,
+            EnteringObject, ExitingObject, EnteringArray, ExitingArray
         }
 
-        // Peek types (matching RapidJSON type constants)
-        public const int kNullType = 0;
-        public const int kFalseType = 1;
-        public const int kTrueType = 2;
-        public const int kObjectType = 3;
-        public const int kArrayType = 4;
-        public const int kStringType = 5;
-        public const int kNumberType = 6;
-
-        protected JsonDocument? _doc;
+        public const int kNullType = 0, kFalseType = 1, kTrueType = 2,
+                         kObjectType = 3, kArrayType = 4, kStringType = 5, kNumberType = 6;
         protected LookaheadParsingState _state = LookaheadParsingState.Init;
-
-        // Stack-based DOM walker
-        private readonly struct WalkerFrame
+        private static readonly JsonReaderOptions Options = new JsonReaderOptions
         {
-            public readonly JsonElement Element;
-            public readonly bool IsObject;
-            public readonly JsonElement.ObjectEnumerator ObjEnum;
-            public readonly JsonElement.ArrayEnumerator ArrEnum;
-            public readonly bool HasCurrent;
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = int.MaxValue
+        };
+        private readonly string _rawJson;
+        private readonly byte[] _source;
+        private JsonReaderState _readerState = new JsonReaderState(Options);
+        private int _offset, _tokenStart, _tokenEnd;
+        private bool _parseError, _rootComplete, _preflightInvalid, _boolean;
+        private bool _preflightPending = true;
+        private string? _string;
+        private int _stringStart, _stringLength;
+        private bool _stringPending;
+        private double _number;
+        private int _integer;
+        private bool _isInteger;
 
-            public WalkerFrame(JsonElement element, bool isObject,
-                               JsonElement.ObjectEnumerator objEnum,
-                               JsonElement.ArrayEnumerator arrEnum,
-                               bool hasCurrent)
+        protected ReadOnlySpan<byte> SourceBytes => _source;
+        protected string? CurrentString
+        {
+            get
             {
-                Element = element;
-                IsObject = isObject;
-                ObjEnum = objEnum;
-                ArrEnum = arrEnum;
-                HasCurrent = hasCurrent;
+                if (_stringPending)
+                {
+                    _string = TvgUtf8.Decode(_source.AsSpan(_stringStart, _stringLength));
+                    _stringPending = false;
+                }
+                return _string;
             }
         }
-
-        // Current value being consumed
-        private JsonElement _currentValue;
-        private string? _currentKey;
-        private bool _hasCurrentValue;
-
-        // Object/array iteration stacks
-        private readonly Stack<JsonElement.ObjectEnumerator> _objStack = new();
-        private readonly Stack<JsonElement.ArrayEnumerator> _arrStack = new();
-        private readonly Stack<bool> _isObjStack = new(); // true = object context, false = array context
-
-        // For tracking where we are in raw JSON (used by captureType/getPos)
-        private string? _rawJson;
-        #pragma warning disable CS0414 // field assigned but never used
-        private int _rawPos;
-        #pragma warning restore CS0414
 
         public LookaheadParserHandler(string json)
         {
-            _rawJson = json;
-            _rawPos = 0;
+            _rawJson = TvgStr.Duplicate(json)!;
+            _source = TvgUtf8.Encode(_rawJson);
+        }
+
+        private void ValidateInitialQuery()
+        {
+            _preflightPending = false;
+            // Preserve an early Invalid() query without making ordinary
+            // incremental parsing scan the complete document a second time.
             try
             {
-                _doc = JsonDocument.Parse(json, new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                });
-                _state = LookaheadParsingState.Init;
+                var reader = new Utf8JsonReader(_source, Options);
+                bool any = false;
+                while (reader.Read()) any = true;
+                _preflightInvalid = !any;
             }
-            catch (JsonException)
-            {
-                _state = LookaheadParsingState.Error;
-            }
+            catch (JsonException) { _preflightInvalid = true; }
         }
 
         public bool Invalid()
         {
-            return _state == LookaheadParsingState.Error;
+            if (_preflightPending) ValidateInitialQuery();
+            return _preflightInvalid || _state == LookaheadParsingState.Error;
         }
 
         public void Error()
         {
             TvgCommon.TVGERR("LOTTIE", "Invalid JSON: unexpected or misaligned data fields.");
             _state = LookaheadParsingState.Error;
+            ReadNext(); // Native attempts one token of recovery after a type error.
         }
 
         public bool ParseNext()
         {
-            if (_doc == null)
-            {
-                Error();
-                return false;
-            }
-            // Set up the root element
-            _currentValue = _doc.RootElement;
-            _hasCurrentValue = true;
-            SetStateFromElement(_currentValue);
-            return true;
-        }
-
-        public bool EnterObject()
-        {
-            if (!_hasCurrentValue || _currentValue.ValueKind != JsonValueKind.Object)
-            {
-                Error();
-                return false;
-            }
-            var enumerator = _currentValue.EnumerateObject();
-            _objStack.Push(enumerator);
-            _isObjStack.Push(true);
-            _hasCurrentValue = false;
-            return true;
-        }
-
-        public bool EnterArray()
-        {
-            if (!_hasCurrentValue || _currentValue.ValueKind != JsonValueKind.Array)
-            {
-                Error();
-                return false;
-            }
-            var enumerator = _currentValue.EnumerateArray();
-            _arrStack.Push(enumerator);
-            _isObjStack.Push(false);
-            _hasCurrentValue = false;
-            return true;
-        }
-
-        public string? NextObjectKey()
-        {
-            if (_isObjStack.Count == 0 || !_isObjStack.Peek())
-            {
-                // Not in an object context - return null gracefully if we just
-                // exited an object/array or are entering a new container.
-                // This handles the case where a sub-parser (e.g. ParseGroup)
-                // already fully consumed the object, and the caller tries to
-                // iterate remaining keys.
-                if (_state == LookaheadParsingState.ExitingArray ||
-                    _state == LookaheadParsingState.ExitingObject ||
-                    _state == LookaheadParsingState.EnteringObject)
-                    return null;
-                Error();
-                return null;
-            }
-
-            var enumerator = _objStack.Pop();
-            if (enumerator.MoveNext())
-            {
-                var prop = enumerator.Current;
-                _currentKey = prop.Name;
-                _currentValue = prop.Value;
-                _hasCurrentValue = true;
-                SetStateFromElement(_currentValue);
-                _objStack.Push(enumerator);
-                return _currentKey;
-            }
-            else
-            {
-                // Exiting object - pop the context flag but do NOT push
-                // the exhausted enumerator back onto _objStack
-                _isObjStack.Pop();
-                _state = LookaheadParsingState.ExitingObject;
-                _hasCurrentValue = false;
-                return null;
-            }
-        }
-
-        public bool NextArrayValue()
-        {
-            // Not in an array context — handle gracefully if we just
-            // exited an object/array from a nested sub-parser.
-            if (_isObjStack.Count == 0 || _isObjStack.Peek())
-            {
-                if (_state == LookaheadParsingState.ExitingObject ||
-                    _state == LookaheadParsingState.ExitingArray)
-                    return false;
-                Error();
-                return false;
-            }
-
-            // If AutoAdvance already provided the next value, just return true.
-            if (_hasCurrentValue) return true;
-
-            // Advance the array enumerator (first call after EnterArray,
-            // or after AutoAdvance found the array exhausted).
-            var enumerator = _arrStack.Pop();
-            if (enumerator.MoveNext())
-            {
-                _currentValue = enumerator.Current;
-                _hasCurrentValue = true;
-                SetStateFromElement(_currentValue);
-                _arrStack.Push(enumerator);
-                return true;
-            }
-            else
-            {
-                // Exiting array — pop context and set state for callers that
-                // check it (e.g., graceful returns in NextObjectKey).
-                _isObjStack.Pop();
-                _state = LookaheadParsingState.ExitingArray;
-                _hasCurrentValue = false;
-                return false;
-            }
-        }
-
-        public int GetInt()
-        {
-            if (!_hasCurrentValue)
-            {
-                Error();
-                return 0;
-            }
-            _hasCurrentValue = false;
-            try
-            {
-                if (_currentValue.ValueKind == JsonValueKind.Number)
-                {
-                    int result;
-                    if (_currentValue.TryGetInt32(out int i)) result = i;
-                    // Lottie JSON sometimes stores integers as floats (e.g. 1.0)
-                    else result = (int)_currentValue.GetDouble();
-                    AutoAdvance();
-                    return result;
-                }
-                if (_currentValue.ValueKind == JsonValueKind.True) { AutoAdvance(); return 1; }
-                if (_currentValue.ValueKind == JsonValueKind.False) { AutoAdvance(); return 0; }
-            }
-            catch { }
-            Error();
-            return 0;
-        }
-
-        public float GetFloat()
-        {
-            if (!_hasCurrentValue)
-            {
-                Error();
-                return 0;
-            }
-            _hasCurrentValue = false;
-            try
-            {
-                if (_currentValue.ValueKind == JsonValueKind.Number)
-                {
-                    float result;
-                    if (_currentValue.TryGetSingle(out float f)) result = f;
-                    else result = (float)_currentValue.GetDouble();
-                    AutoAdvance();
-                    return result;
-                }
-            }
-            catch { }
-            Error();
-            return 0;
-        }
-
-        public string? GetString()
-        {
-            if (!_hasCurrentValue)
-            {
-                Error();
-                return null;
-            }
-            _hasCurrentValue = false;
-            if (_currentValue.ValueKind == JsonValueKind.String)
-            {
-                var result = _currentValue.GetString();
-                AutoAdvance();
-                return result;
-            }
-            Error();
-            return null;
-        }
-
-        public string? GetStringCopy()
-        {
-            var str = GetString();
-            return str != null ? new string(str) : null;
-        }
-
-        public bool GetBool()
-        {
-            if (!_hasCurrentValue)
-            {
-                Error();
-                return false;
-            }
-            _hasCurrentValue = false;
-            if (_currentValue.ValueKind == JsonValueKind.True) { AutoAdvance(); return true; }
-            if (_currentValue.ValueKind == JsonValueKind.False) { AutoAdvance(); return false; }
-            // Some Lottie files use 0/1 for booleans
-            if (_currentValue.ValueKind == JsonValueKind.Number)
-            {
-                var result = _currentValue.GetInt32() != 0;
-                AutoAdvance();
-                return result;
-            }
+            _preflightPending = false;
+            _preflightInvalid = false;
+            if (ReadNext()) return true;
             Error();
             return false;
         }
 
+        private bool ReadNext()
+        {
+            if (_parseError) return false;
+            if (_rootComplete) return true;
+            try
+            {
+                var reader = new Utf8JsonReader(_source.AsSpan(_offset), true, _readerState);
+                if (!reader.Read()) { _parseError = true; return false; }
+                _tokenStart = _offset + checked((int)reader.TokenStartIndex);
+                _tokenEnd = _offset + checked((int)reader.BytesConsumed);
+                _offset = _tokenEnd;
+                _readerState = reader.CurrentState;
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject: _state = LookaheadParsingState.EnteringObject; break;
+                    case JsonTokenType.EndObject: _state = LookaheadParsingState.ExitingObject; break;
+                    case JsonTokenType.StartArray: _state = LookaheadParsingState.EnteringArray; break;
+                    case JsonTokenType.EndArray: _state = LookaheadParsingState.ExitingArray; break;
+                    case JsonTokenType.PropertyName:
+                        if (!ReadTokenString(ref reader)) return false;
+                        _state = LookaheadParsingState.HasKey; break;
+                    case JsonTokenType.String:
+                        if (!ReadTokenString(ref reader)) return false;
+                        _state = LookaheadParsingState.HasString; break;
+                    case JsonTokenType.True:
+                    case JsonTokenType.False:
+                        _boolean = reader.TokenType == JsonTokenType.True; _state = LookaheadParsingState.HasBool; break;
+                    case JsonTokenType.Null: _state = LookaheadParsingState.HasNull; break;
+                    case JsonTokenType.Number:
+                        _isInteger = reader.TryGetInt32(out _integer);
+                        if (!LottieJsonNumber.TryParse(reader.ValueSpan, out _number)) { _parseError = true; return false; }
+                        _state = LookaheadParsingState.HasNumber;
+                        break;
+                    default: _parseError = true; return false;
+                }
+                if (reader.CurrentDepth == 0 && reader.TokenType != JsonTokenType.StartObject && reader.TokenType != JsonTokenType.StartArray)
+                {
+                    for (int i = _offset; i < _source.Length; ++i)
+                    {
+                        byte c = _source[i];
+                        if (c != 32 && c != 9 && c != 10 && c != 13) { _parseError = true; return false; }
+                    }
+                    _rootComplete = true;
+                }
+                return true;
+            }
+            catch (JsonException) { _parseError = true; return false; }
+        }
+
+        private bool ReadTokenString(ref Utf8JsonReader reader)
+        {
+            try
+            {
+                if (!reader.ValueIsEscaped)
+                {
+                    // Native SAX strings borrow the insitu input. Defer the
+                    // immutable managed string until a caller consumes it so
+                    // SkipOut does not allocate every ignored key/value.
+                    _stringStart = _tokenStart + 1;
+                    _stringLength = reader.ValueSpan.Length;
+                    _string = null;
+                    _stringPending = true;
+                }
+                else
+                {
+                    Span<byte> value = reader.ValueSpan.Length <= 512
+                        ? stackalloc byte[reader.ValueSpan.Length] : new byte[reader.ValueSpan.Length];
+                    int length = reader.CopyString(value);
+                    _string = TvgUtf8.Decode(value.Slice(0, length));
+                    _stringPending = false;
+                }
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                // Utf8JsonReader defers escaped-surrogate validation until
+                // string conversion. Native reports a parse error here.
+                _parseError = true;
+                return false;
+            }
+        }
+
+        public bool EnterObject()
+        {
+            if (_state == LookaheadParsingState.EnteringObject) { ParseNext(); return true; }
+            Error(); return false;
+        }
+        public bool EnterArray()
+        {
+            if (_state == LookaheadParsingState.EnteringArray) { ParseNext(); return true; }
+            Error(); return false;
+        }
+        public bool NextArrayValue()
+        {
+            if (_state == LookaheadParsingState.ExitingArray) { ParseNext(); return false; }
+            if (_state == LookaheadParsingState.ExitingObject) return false;
+            if (_state == LookaheadParsingState.Error || _state == LookaheadParsingState.HasKey) { Error(); return false; }
+            return true;
+        }
+        public string? NextObjectKey()
+        {
+            if (_state == LookaheadParsingState.HasKey)
+            {
+                string? result = TvgStr.Duplicate(CurrentString);
+                ParseNext(); return result;
+            }
+            if (_state == LookaheadParsingState.ExitingArray || _state == LookaheadParsingState.EnteringObject) return null;
+            if (_state != LookaheadParsingState.ExitingObject) { Error(); return null; }
+            ParseNext(); return null;
+        }
+        public int GetInt()
+        {
+            if (_state == LookaheadParsingState.HasNumber)
+            {
+                // Non-Int32 numeric tags violate native Value.GetInt's
+                // assertion contract. Retain the managed numeric fallback;
+                // there is no defined native return value for those calls.
+                int result = _isInteger ? _integer : (int)_number;
+                ParseNext(); return result;
+            }
+            Error(); return 0;
+        }
+        public float GetFloat()
+        {
+            if (_state == LookaheadParsingState.HasNumber)
+            {
+                // Native converts its stored double/integer. Direct Single
+                // parsing changes values immediately beside float midpoints.
+                float result = (float)_number;
+                ParseNext(); return result;
+            }
+            Error(); return 0;
+        }
+        public string? GetString()
+        {
+            if (_state == LookaheadParsingState.HasString)
+            {
+                string? result = TvgStr.Duplicate(CurrentString);
+                ParseNext(); return result;
+            }
+            Error(); return null;
+        }
+        public string? GetStringCopy() => TvgStr.Duplicate(GetString());
+        public bool GetBool()
+        {
+            if (_state == LookaheadParsingState.HasBool)
+            {
+                bool result = _boolean;
+                ParseNext(); return result;
+            }
+            Error(); return false;
+        }
         public void GetNull()
         {
-            if (!_hasCurrentValue || _currentValue.ValueKind != JsonValueKind.Null)
-            {
-                Error();
-                return;
-            }
-            _hasCurrentValue = false;
-            AutoAdvance();
+            if (_state == LookaheadParsingState.HasNull) { ParseNext(); return; }
+            Error();
         }
-
-        public int PeekType()
+        public int PeekType() => _state switch
         {
-            if (!_hasCurrentValue) return -1;
-            return _currentValue.ValueKind switch
-            {
-                JsonValueKind.Null => kNullType,
-                JsonValueKind.False => kFalseType,
-                JsonValueKind.True => kTrueType,
-                JsonValueKind.Object => kObjectType,
-                JsonValueKind.Array => kArrayType,
-                JsonValueKind.String => kStringType,
-                JsonValueKind.Number => kNumberType,
-                _ => -1
-            };
-        }
-
-        public bool IsPrimitive()
-        {
-            return _hasCurrentValue &&
-                   _currentValue.ValueKind != JsonValueKind.Object &&
-                   _currentValue.ValueKind != JsonValueKind.Array;
-        }
-
+            LookaheadParsingState.HasNull => kNullType,
+            LookaheadParsingState.HasBool => _boolean ? kTrueType : kFalseType,
+            LookaheadParsingState.HasNumber => kNumberType,
+            LookaheadParsingState.HasString or LookaheadParsingState.HasKey => kStringType,
+            LookaheadParsingState.EnteringArray => kArrayType,
+            LookaheadParsingState.EnteringObject => kObjectType,
+            _ => -1
+        };
+        public bool IsPrimitive() => _state >= LookaheadParsingState.HasNull && _state <= LookaheadParsingState.HasKey;
         public void Skip()
         {
-            if (!_hasCurrentValue)
-            {
-                // try to advance past current object/array
-                return;
-            }
-            // Simply consume the current value
-            _hasCurrentValue = false;
-            AutoAdvance();
+            if (PeekType() == kArrayType) { EnterArray(); SkipOut(1); }
+            else if (PeekType() == kObjectType) { EnterObject(); SkipOut(1); }
+            else SkipOut(0);
         }
-
         public void SkipOut(int depth)
         {
-            // For DOM-based approach: skip remaining keys/values until we exit 'depth' levels
-            while (depth > 0)
+            do
             {
-                if (_isObjStack.Count == 0) break;
-                if (_isObjStack.Peek()) // object context
-                {
-                    if (NextObjectKey() == null)
-                        depth--;
-                    else
-                        Skip();
-                }
-                else // array context
-                {
-                    if (NextArrayValue())
-                        Skip();
-                    else
-                        depth--;
-                }
+                if (_state == LookaheadParsingState.EnteringArray || _state == LookaheadParsingState.EnteringObject) ++depth;
+                else if (_state == LookaheadParsingState.ExitingArray || _state == LookaheadParsingState.ExitingObject) --depth;
+                else if (_state == LookaheadParsingState.Error) return;
+                ParseNext();
             }
+            while (depth > 0);
         }
-
-        /// <summary>
-        /// Returns the raw JSON string (used for captureSlots).
-        /// </summary>
-        public string? GetRawJson() => _rawJson;
-
-        /// <summary>
-        /// Returns the raw text of the current value (for captureType lookahead).
-        /// </summary>
+        public string GetRawJson() => _rawJson;
+        public int GetPos() => _offset; // Native src_ pointer as a UTF-8 byte offset.
         public string? GetCurrentValueRawText()
         {
-            if (_hasCurrentValue) return _currentValue.GetRawText();
-            return null;
+            if (PeekType() < 0 || _state == LookaheadParsingState.HasKey) return null;
+            if (IsPrimitive()) return TvgUtf8.Decode(_source.AsSpan(_tokenStart, _tokenEnd - _tokenStart));
+            try
+            {
+                var reader = new Utf8JsonReader(_source.AsSpan(_tokenStart), Options);
+                using var value = JsonDocument.ParseValue(ref reader);
+                return TvgUtf8.Decode(_source.AsSpan(_tokenStart, checked((int)reader.BytesConsumed)));
+            }
+            catch (JsonException) { Error(); return null; }
         }
-
-        /// <summary>
-        /// Peek at a string property in the current value (before EnterObject).
-        /// This is used as the DOM equivalent of C++ captureType(): it finds
-        /// the "ty" key value in a JSON object without consuming any tokens.
-        /// Must be called BEFORE EnterObject() while _currentValue still
-        /// points to the object element.
-        /// Returns null if not found or if current value is not an object.
-        /// </summary>
         public string? PeekStringProperty(string keyName)
         {
-            if (!_hasCurrentValue || _currentValue.ValueKind != JsonValueKind.Object) return null;
-            if (_currentValue.TryGetProperty(keyName, out var prop) && prop.ValueKind == JsonValueKind.String)
-                return prop.GetString();
+            if (_state != LookaheadParsingState.EnteringObject) return null;
+            try
+            {
+                var reader = new Utf8JsonReader(_source.AsSpan(_tokenStart), Options);
+                if (!reader.Read()) return null;
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+                {
+                    if (reader.TokenType != JsonTokenType.PropertyName) return null;
+                    bool found = TvgStr.Equal(reader.GetString(), keyName);
+                    if (!reader.Read()) return null;
+                    if (found) return reader.TokenType == JsonTokenType.String ? TvgStr.Duplicate(reader.GetString()) : null;
+                    reader.Skip();
+                }
+            }
+            catch (JsonException) { Error(); }
             return null;
-        }
-
-        /// <summary>
-        /// Mirrors C++ parseNext(): after consuming a primitive value, advance
-        /// the current array enumerator (if in an array context) so the next
-        /// value is immediately available for consecutive GetFloat()/GetInt()/etc. calls.
-        /// In object context, NextObjectKey() handles advancement, so we skip.
-        /// Note: Does NOT pop context when array is exhausted — NextArrayValue() handles that.
-        /// </summary>
-        private void AutoAdvance()
-        {
-            if (_isObjStack.Count == 0) return;
-            if (_isObjStack.Peek()) return; // in object context — NextObjectKey handles it
-
-            // In array context: advance the enumerator
-            if (_arrStack.Count == 0) return;
-            var enumerator = _arrStack.Pop();
-            if (enumerator.MoveNext())
-            {
-                _currentValue = enumerator.Current;
-                _hasCurrentValue = true;
-                SetStateFromElement(_currentValue);
-                _arrStack.Push(enumerator);
-            }
-            else
-            {
-                // Array exhausted — leave context in place for NextArrayValue() to clean up.
-                // Push the exhausted enumerator back so NextArrayValue() can pop it properly.
-                _arrStack.Push(enumerator);
-                _hasCurrentValue = false;
-            }
-        }
-
-        private void SetStateFromElement(JsonElement element)
-        {
-            _state = element.ValueKind switch
-            {
-                JsonValueKind.Null => LookaheadParsingState.HasNull,
-                JsonValueKind.True => LookaheadParsingState.HasBool,
-                JsonValueKind.False => LookaheadParsingState.HasBool,
-                JsonValueKind.Number => LookaheadParsingState.HasNumber,
-                JsonValueKind.String => LookaheadParsingState.HasString,
-                JsonValueKind.Object => LookaheadParsingState.EnteringObject,
-                JsonValueKind.Array => LookaheadParsingState.EnteringArray,
-                _ => LookaheadParsingState.Error
-            };
         }
     }
 }

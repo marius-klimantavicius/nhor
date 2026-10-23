@@ -1,43 +1,53 @@
 // Ported from ThorVG/src/loaders/lottie/tvgLottieModifier.h and tvgLottieModifier.cpp
-
 using System;
 
 namespace ThorVG
 {
     public abstract class LottieModifier
     {
-        public enum ModifierType : byte { Roundness = 0, Offset, PuckerBloat, ZigZag }
+        public enum ModifierType : byte
+        {
+            Roundness = 0,
+            Offset,
+            PuckerBloat,
+            ZigZag
+        }
 
         public LottieModifier? next;
         public ModifierType type;
-
         protected LottieModifier(ModifierType type)
         {
             this.type = type;
         }
 
         public abstract unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform);
-        public abstract void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness);
-        public abstract void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise);
-        public abstract void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise);
+        public virtual void Polystar(in RenderPath input, RenderPath output, float outerRoundness, bool hasRoundness)
+        {
+            unsafe
+            {
+                Path(input, output, null);
+            }
+        }
 
+        public virtual void Rect(in RenderPath input, RenderPath output, Point pos, Point size, float r, bool clockwise)
+        {
+            unsafe
+            {
+                Path(input, output, null);
+            }
+        }
+
+        public virtual void Ellipse(in RenderPath input, RenderPath output, Point center, Point radius, bool clockwise)
+        {
+            unsafe
+            {
+                Path(input, output, null);
+            }
+        }
+
+        // Retain the previous public helper with the target prepend semantics.
         public LottieModifier Decorate(LottieModifier next)
         {
-            // let the offset modifier be at the end in this chain
-            // roundness doesn't handle lines so far, so roundness should be handled earlier
-            // remove this trick once roundness has full coverage.
-            // see LottieRoundnessModifier.Modify()
-            var p = this;
-            while (p != null)
-            {
-                if (p.next == null && next.type == ModifierType.Offset)
-                {
-                    p.next = next;
-                    return this;
-                }
-                p = p.next;
-            }
-
             next.next = this;
             return next;
         }
@@ -46,32 +56,33 @@ namespace ThorVG
     /************************************************************************/
     /* Internal helper functions                                            */
     /************************************************************************/
-
     internal static class LottieModifierHelpers
     {
-        internal static bool Colinear(Point[] pts, int idx)
+        internal static Point ScaleAdd(Point origin, Point value, float scale) => new(TvgMath.MultiplyAdd(value.x, scale, origin.x), TvgMath.MultiplyAdd(value.y, scale, origin.y));
+        internal static Point ScaleSubtract(Point origin, Point value, float scale) => new(TvgMath.MultiplyAdd(-value.x, scale, origin.x), TvgMath.MultiplyAdd(-value.y, scale, origin.y));
+        internal static void LineTo(RenderPath output, Point to)
         {
-            return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) &&
-                   TvgMath.Zero(TvgMath.PointSub(pts[idx + 2], pts[idx + 3]));
+            output.CubicTo(output.pts.Last(), to, to);
         }
 
-        internal static bool SharpCorner(Point[] pts, int idx)
+        internal static bool Colinear(ReadOnlySpan<Point> pts, int idx)
         {
-            return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) &&
-                   TvgMath.Zero(TvgMath.PointSub(pts[idx + 1], pts[idx + 2]));
+            return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) && TvgMath.Zero(TvgMath.PointSub(pts[idx + 2], pts[idx + 3]));
+        }
+
+        internal static bool SharpCorner(ReadOnlySpan<Point> pts, int idx)
+        {
+            return TvgMath.Zero(TvgMath.PointSub(pts[idx], pts[idx + 1])) && TvgMath.Zero(TvgMath.PointSub(pts[idx + 1], pts[idx + 2]));
         }
     }
 
     /************************************************************************/
     /* LottieRoundnessModifier                                              */
     /************************************************************************/
-
     public class LottieRoundnessModifier : LottieModifier
     {
         public const float ROUNDNESS_EPSILON = 1.0f;
-
         public float r;
-
         public LottieRoundnessModifier(float r) : base(ModifierType.Roundness)
         {
             this.r = r;
@@ -85,8 +96,7 @@ namespace ThorVG
             var rNext = lenNext > 0.0f ? 0.5f * MathF.Min(lenNext * 0.5f, r) / lenNext : 0.0f;
             var dPrev = TvgMath.PointMul(rPrev, TvgMath.PointSub(curr, prev));
             var dNext = TvgMath.PointMul(rNext, TvgMath.PointSub(curr, nextPt));
-
-            @out.LineTo(TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dPrev)));
+            LottieModifierHelpers.LineTo(@out, TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dPrev)));
             var ret = TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dNext));
             @out.CubicTo(TvgMath.PointSub(curr, dPrev), TvgMath.PointSub(curr, dNext), ret);
             return ret;
@@ -98,21 +108,18 @@ namespace ThorVG
             var tPrev = lenPrev > 0.0f ? MathF.Min(lenPrev * 0.5f, r) / lenPrev : 0.0f;
             var arcStart = TvgMath.Lerp(curr, prev, tPrev);
             path.CubicTo(rounded ? roundTo : ctrl1, arcStart, arcStart);
-
             var lenNext = TvgMath.PointLength(TvgMath.PointSub(nextPt, curr));
             var tNext = lenNext > 0.0f ? MathF.Min(lenNext * 0.5f, r) / lenNext : 0.0f;
             var arcEnd = TvgMath.Lerp(curr, nextPt, tNext);
             path.CubicTo(TvgMath.Lerp(arcStart, curr, 0.5f), TvgMath.Lerp(arcEnd, curr, 0.5f), arcEnd);
-
             return arcEnd;
         }
 
         private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            var inCmds = @in.cmds.ToArray();
-            var inPts = @in.pts.ToArray();
+            var inCmds = new ReadOnlySpan<PathCommand>(@in.cmds.data, checked((int)@in.cmds.count));
+            var inPts = new ReadOnlySpan<Point>(@in.pts.data, checked((int)@in.pts.count));
             var inCmdsCnt = inCmds.Length;
-
             var path = (next != null) ? RenderPath.Scratch() : @out;
             path.cmds.Reserve((uint)(inCmdsCnt * 2));
             path.pts.Reserve((uint)(inPts.Length * 1.5f));
@@ -120,9 +127,7 @@ namespace ThorVG
             uint startIndex = 0;
             var rounded = false;
             var roundTo = default(Point);
-
             // TODO: the line case is omitted.
-
             for (int iCmds = 0, iPts = 0; iCmds < inCmdsCnt; ++iCmds)
             {
                 switch (inCmds[iCmds])
@@ -133,6 +138,7 @@ namespace ThorVG
                         path.MoveTo(inPts[iPts++]);
                         break;
                     }
+
                     case PathCommand.CubicTo:
                     {
                         var hasNext = iCmds < inCmdsCnt - 1;
@@ -153,6 +159,8 @@ namespace ThorVG
                                 else if (nextCmd == PathCommand.Close)
                                 {
                                     roundTo = RoundLineCorner(path, prev, curr, inPts[2], r);
+                                    if (TvgMath.Zero(TvgMath.PointSub(path.pts[startIndex], path.pts[startIndex + 1])))
+                                        path.pts[startIndex + 1] = path.pts.Last();
                                     path.pts[startIndex] = path.pts.Last();
                                     iPts += 3;
                                     rounded = true;
@@ -167,18 +175,22 @@ namespace ThorVG
                                 continue;
                             }
                         }
+
                         path.CubicTo(rounded ? roundTo : inPts[iPts], inPts[iPts + 1], inPts[iPts + 2]);
                         iPts += 3;
                         break;
                     }
+
                     case PathCommand.Close:
                     {
                         path.Close();
                         break;
                     }
+
                     default:
                         break;
                 }
+
                 rounded = false;
             }
 
@@ -196,26 +208,22 @@ namespace ThorVG
         public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
             var result = Modify(@in, @out, transform);
-            if (next != null) next.Path(result, @out, null);
+            if (next != null)
+                next.Path(result, @out, null);
         }
 
         public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
         {
             const float ROUNDED_POLYSTAR_MAGIC_NUMBER = 0.47829f;
-
             var path = (next != null) ? RenderPath.Scratch() : @out;
-
             var len = TvgMath.PointLength(TvgMath.PointSub(@in.pts[1], @in.pts[2]));
             var rr = len > 0.0f ? ROUNDED_POLYSTAR_MAGIC_NUMBER * MathF.Min(len * 0.5f, this.r) / len : 0.0f;
-
             if (hasRoundness)
             {
                 path.cmds.Grow((uint)(1.5f * @in.cmds.count));
                 path.pts.Grow((uint)(4.5f * @in.cmds.count));
-
                 int start = 3 * (TvgMath.Zero(outerRoundness) ? 1 : 0);
                 path.MoveTo(@in.pts[(uint)start]);
-
                 for (uint i = (uint)(1 + start); i < @in.pts.count; i += 6)
                 {
                     var prev = @in.pts[i];
@@ -224,12 +232,10 @@ namespace ThorVG
                     var nextCtrl = (i < @in.pts.count - (uint)start) ? @in.pts[i + 5] : @in.pts[3];
                     var dNext = TvgMath.PointMul(rr, TvgMath.PointSub(curr, nextPt));
                     var dPrev = TvgMath.PointMul(rr, TvgMath.PointSub(curr, prev));
-
                     var p0 = TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dPrev));
                     var p1 = TvgMath.PointSub(curr, dPrev);
                     var p2 = TvgMath.PointSub(curr, dNext);
                     var p3 = TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dNext));
-
                     path.CubicTo(prev, p0, p0);
                     path.CubicTo(p1, p2, p3);
                     path.CubicTo(p3, nextPt, nextCtrl);
@@ -238,50 +244,46 @@ namespace ThorVG
             else
             {
                 path.cmds.Grow(2 * @in.cmds.count);
-                path.pts.Grow(4 * @in.cmds.count);
-
+                path.pts.Grow(1 + 6 * (@in.pts.count - 1));
                 var dPrev = TvgMath.PointMul(rr, TvgMath.PointSub(@in.pts[1], @in.pts[0]));
                 var p = TvgMath.PointAdd(@in.pts[0], TvgMath.PointMul(2.0f, dPrev));
                 path.MoveTo(p);
-
                 for (uint i = 1; i < @in.pts.count; ++i)
                 {
                     var curr = @in.pts[i];
                     var nextPt = (i == @in.pts.count - 1) ? @in.pts[1] : @in.pts[i + 1];
                     var dNext = TvgMath.PointMul(rr, TvgMath.PointSub(curr, nextPt));
-
                     var p0 = TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dPrev));
                     var p1 = TvgMath.PointSub(curr, dPrev);
                     var p2 = TvgMath.PointSub(curr, dNext);
                     var p3 = TvgMath.PointSub(curr, TvgMath.PointMul(2.0f, dNext));
-
-                    path.LineTo(p0);
+                    LottieModifierHelpers.LineTo(path, p0);
                     path.CubicTo(p1, p2, p3);
-
                     dPrev = TvgMath.PointMul(-1.0f, dNext);
                 }
             }
-            path.cmds.Push(PathCommand.Close);
 
-            if (next != null) next.Polystar(path, @out, outerRoundness, hasRoundness);
+            path.cmds.Push(PathCommand.Close);
+            if (next != null)
+                next.Polystar(path, @out, outerRoundness, hasRoundness);
         }
 
         public override unsafe void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
         {
             var path = (next != null) ? RenderPath.Scratch() : @out;
-
-            if (r == 0.0f) r = MathF.Min(this.r, MathF.Max(size.x, size.y) * 0.5f);
-
+            if (r == 0.0f)
+                r = MathF.Min(this.r, MathF.Max(size.x, size.y) * 0.5f);
             // we know this is the first request in the chain because other modifiers would not trigger Rect() call
             path.AddRect(pos.x, pos.y, size.x, size.y, r, r, clockwise);
-
-            if (next != null) next.Path(path, @out, null);
+            if (next != null)
+                next.Path(path, @out, null);
         }
 
         public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
         {
             // bypass because it's already a circle.
-            if (next != null) next.Ellipse(@in, @out, center, radius, clockwise);
+            if (next != null)
+                next.Ellipse(@in, @out, center, radius, clockwise);
             else
             {
                 @out.cmds.Push(@in.cmds);
@@ -293,7 +295,6 @@ namespace ThorVG
     /************************************************************************/
     /* LottieOffsetModifier                                                 */
     /************************************************************************/
-
     public class LottieOffsetModifier : LottieModifier
     {
         public struct State
@@ -308,7 +309,6 @@ namespace ThorVG
         public float offset;
         public float miterLimit;
         public StrokeJoin join;
-
         public LottieOffsetModifier(float offset, float miter = 4.0f, StrokeJoin join = StrokeJoin.Round) : base(ModifierType.Offset)
         {
             this.offset = offset;
@@ -316,11 +316,9 @@ namespace ThorVG
             this.join = join;
         }
 
-        private static bool Intersected(ref Line line1, ref Line line2, out Point intersection, out bool inside)
+        private static bool Intersected(ref Line line1, ref Line line2, ref Point intersection, out bool inside)
         {
-            intersection = default;
             inside = false;
-
             if (TvgMath.Zero(TvgMath.PointSub(line1.pt2, line2.pt1)))
             {
                 intersection = line1.pt2;
@@ -329,71 +327,70 @@ namespace ThorVG
             }
 
             const float epsilon = 1e-3f;
-            float denom = (line1.pt2.x - line1.pt1.x) * (line2.pt2.y - line2.pt1.y) -
-                          (line1.pt2.y - line1.pt1.y) * (line2.pt2.x - line2.pt1.x);
-            if (MathF.Abs(denom) < epsilon) return false;
-
-            float t = ((line2.pt1.x - line1.pt1.x) * (line2.pt2.y - line2.pt1.y) -
-                       (line2.pt1.y - line1.pt1.y) * (line2.pt2.x - line2.pt1.x)) / denom;
-            float u = ((line2.pt1.x - line1.pt1.x) * (line1.pt2.y - line1.pt1.y) -
-                       (line2.pt1.y - line1.pt1.y) * (line1.pt2.x - line1.pt1.x)) / denom;
-
-            intersection.x = line1.pt1.x + t * (line1.pt2.x - line1.pt1.x);
-            intersection.y = line1.pt1.y + t * (line1.pt2.y - line1.pt1.y);
+            float denom = TvgMath.MultiplyAdd(line1.pt2.x - line1.pt1.x, line2.pt2.y - line2.pt1.y, -(line1.pt2.y - line1.pt1.y) * (line2.pt2.x - line2.pt1.x));
+            if (MathF.Abs(denom) < epsilon)
+                return false;
+            float t = TvgMath.MultiplyAdd(line2.pt1.x - line1.pt1.x, line2.pt2.y - line2.pt1.y, -(line2.pt1.y - line1.pt1.y) * (line2.pt2.x - line2.pt1.x)) / denom;
+            float u = TvgMath.MultiplyAdd(-(line2.pt1.y - line1.pt1.y), line1.pt2.x - line1.pt1.x, (line2.pt1.x - line1.pt1.x) * (line1.pt2.y - line1.pt1.y)) / denom;
+            intersection.x = TvgMath.MultiplyAdd(t, line1.pt2.x - line1.pt1.x, line1.pt1.x);
+            intersection.y = TvgMath.MultiplyAdd(t, line1.pt2.y - line1.pt1.y, line1.pt1.y);
             inside = t >= -epsilon && t <= 1.0f + epsilon && u >= -epsilon && u <= 1.0f + epsilon;
-
             return true;
         }
 
         private static Line Shift(Point p1, Point p2, float offset)
         {
-            var scaledNormal = TvgMath.PointMul(TvgMath.Normal(p1, p2), offset);
-            return new Line { pt1 = TvgMath.PointAdd(p1, scaledNormal), pt2 = TvgMath.PointAdd(p2, scaledNormal) };
+            var normal = TvgMath.Normal(p1, p2);
+            return new Line
+            {
+                pt1 = LottieModifierHelpers.ScaleAdd(p1, normal, offset),
+                pt2 = LottieModifierHelpers.ScaleAdd(p2, normal, offset)
+            };
         }
 
-        public void Corner(RenderPath @out, ref Line line, ref Line nextLine, uint movetoOutIndex, bool nextClose)
+        public void Corner(RenderPath output, ref Line line, ref Line nextLine, uint movetoOutIndex, bool nextClose)
         {
-            if (Intersected(ref line, ref nextLine, out var intersect, out var inside))
+            Point intersect = default;
+            if (Intersected(ref line, ref nextLine, ref intersect, out var inside))
             {
                 if (inside)
                 {
-                    if (nextClose) @out.pts[movetoOutIndex] = intersect;
-                    @out.pts.Push(intersect);
+                    if (nextClose)
+                    {
+                        if (TvgMath.Zero(TvgMath.PointSub(output.pts[movetoOutIndex], output.pts[movetoOutIndex + 1])))
+                            output.pts[movetoOutIndex + 1] = intersect;
+                        output.pts[movetoOutIndex] = intersect;
+                    }
+
+                    LottieModifierHelpers.LineTo(output, intersect);
                 }
                 else
                 {
-                    @out.pts.Push(line.pt2);
+                    LottieModifierHelpers.LineTo(output, line.pt2);
                     if (join == StrokeJoin.Round)
                     {
-                        @out.CubicTo(
-                            TvgMath.PointMul(TvgMath.PointAdd(line.pt2, intersect), 0.5f),
-                            TvgMath.PointMul(TvgMath.PointAdd(nextLine.pt1, intersect), 0.5f),
-                            nextLine.pt1);
+                        output.CubicTo(TvgMath.PointMul(TvgMath.PointAdd(line.pt2, intersect), .5f), TvgMath.PointMul(TvgMath.PointAdd(nextLine.pt1, intersect), .5f), nextLine.pt1);
                     }
                     else if (join == StrokeJoin.Miter)
                     {
                         var norm = TvgMath.Normal(line.pt1, line.pt2);
                         var nextNorm = TvgMath.Normal(nextLine.pt1, nextLine.pt2);
-                        var sumNorm = TvgMath.PointAdd(norm, nextNorm);
-                        var sumLen = TvgMath.PointLength(sumNorm);
-                        var miterDirection = TvgMath.PointDiv(sumNorm, sumLen);
-                        if (1.0f <= miterLimit * MathF.Abs(miterDirection.x * norm.x + miterDirection.y * norm.y))
-                            @out.LineTo(intersect);
-                        @out.LineTo(nextLine.pt1);
+                        var sum = TvgMath.PointAdd(norm, nextNorm);
+                        var direction = TvgMath.PointDiv(sum, TvgMath.PointLength(sum));
+                        if (1 <= miterLimit * MathF.Abs(TvgMath.MultiplyAdd(direction.x, norm.x, direction.y * norm.y)))
+                            LottieModifierHelpers.LineTo(output, intersect);
+                        LottieModifierHelpers.LineTo(output, nextLine.pt1);
                     }
                     else
-                    {
-                        @out.LineTo(nextLine.pt1);
-                    }
+                        LottieModifierHelpers.LineTo(output, nextLine.pt1);
                 }
             }
             else
-            {
-                @out.pts.Push(line.pt2);
-            }
+                LottieModifierHelpers.LineTo(output, line.pt2);
         }
 
-        public void Line(RenderPath @out, PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, ref int curPt, int curCmd, ref State state, float offsetVal, bool degenerated)
+        public void Line(RenderPath @out, PathCommand[] inCmds, int inCmdsCnt, Point[] inPts, ref int curPt, int curCmd, ref State state, float offsetVal, bool degenerated) => LineCore(@out, inCmds, inCmdsCnt, inPts, ref curPt, curCmd, ref state, offsetVal, degenerated);
+        private void LineCore(RenderPath @out, ReadOnlySpan<PathCommand> inCmds, int inCmdsCnt, ReadOnlySpan<Point> inPts, ref int curPt, int curCmd, ref State state, float offsetVal, bool degenerated)
         {
             if (TvgMath.Zero(TvgMath.PointSub(inPts[curPt - 1], inPts[curPt])))
             {
@@ -403,7 +400,6 @@ namespace ThorVG
 
             if (inCmds[curCmd - 1] != PathCommand.LineTo)
                 state.line = Shift(inPts[curPt - 1], inPts[curPt], offsetVal);
-
             if (state.moveto)
             {
                 state.movetoOutIndex = @out.pts.count;
@@ -412,22 +408,15 @@ namespace ThorVG
                 state.moveto = false;
             }
 
-            // Lambda equivalent for nonDegeneratedCubic
-            bool NonDegeneratedCubic(int cmd, int pt)
+            static bool NonDegeneratedCubic(ReadOnlySpan<PathCommand> commands, ReadOnlySpan<Point> points, int cmd, int pt)
             {
-                return inCmds[cmd] == PathCommand.CubicTo &&
-                       !TvgMath.Zero(TvgMath.PointSub(inPts[pt], inPts[pt + 1])) &&
-                       !TvgMath.Zero(TvgMath.PointSub(inPts[pt + 2], inPts[pt + 3]));
+                return commands[cmd] == PathCommand.CubicTo && !TvgMath.Zero(TvgMath.PointSub(points[pt], points[pt + 1])) && !TvgMath.Zero(TvgMath.PointSub(points[pt + 2], points[pt + 3]));
             }
 
-            @out.cmds.Push(PathCommand.LineTo);
-
             int degInt = degenerated ? 1 : 0;
-
-            if (curCmd + 1 == inCmdsCnt || inCmds[curCmd + 1] == PathCommand.MoveTo ||
-                NonDegeneratedCubic(curCmd + 1, curPt + degInt))
+            if (curCmd + 1 == inCmdsCnt || inCmds[curCmd + 1] == PathCommand.MoveTo || NonDegeneratedCubic(inCmds, inPts, curCmd + 1, curPt + degInt))
             {
-                @out.pts.Push(state.line.pt2);
+                LottieModifierHelpers.LineTo(@out, state.line.pt2);
                 ++curPt;
                 return;
             }
@@ -437,108 +426,107 @@ namespace ThorVG
                 nextLine = Shift(inPts[curPt + degInt], inPts[curPt + 1 + degInt], offsetVal);
             else if (inCmds[curCmd + 1] == PathCommand.CubicTo)
                 nextLine = Shift(inPts[curPt + 1 + degInt], inPts[curPt + 2 + degInt], offsetVal);
-            else if (inCmds[curCmd + 1] == PathCommand.Close &&
-                     !TvgMath.Zero(TvgMath.PointSub(inPts[curPt + degInt], inPts[state.movetoInIndex + degInt])))
+            else if (inCmds[curCmd + 1] == PathCommand.Close && !TvgMath.Zero(TvgMath.PointSub(inPts[curPt + degInt], inPts[state.movetoInIndex + degInt])))
                 nextLine = Shift(inPts[curPt + degInt], inPts[state.movetoInIndex + degInt], offsetVal);
-
             Corner(@out, ref state.line, ref nextLine, state.movetoOutIndex, inCmds[curCmd + 1] == PathCommand.Close);
-
             state.line = nextLine;
             ++curPt;
         }
 
-        private void Cubic(RenderPath path, Point[] pts, int ptsOffset, ref State state, float offsetVal, float threshold, ref bool degeneratedLine3)
+        private void Cubic(RenderPath path, ReadOnlySpan<Point> points, int position, ref State state, float offset, float threshold, ref uint pending)
         {
+            Point intersect = default;
             var stack = new Array<Bezier>(5);
-            bool degeneratedLine1;
-            stack.Push(new Bezier(pts[ptsOffset], pts[ptsOffset + 1], pts[ptsOffset + 2], pts[ptsOffset + 3]));
-
-            while (!stack.Empty())
+            stack.Push(new Bezier(points[position], points[position + 1], points[position + 2], points[position + 3]));
+            try
             {
-                ref var bezier = ref stack.Last();
-                var len = TvgMath.PointLength(TvgMath.PointSub(bezier.start, bezier.ctrl1)) +
-                          TvgMath.PointLength(TvgMath.PointSub(bezier.ctrl1, bezier.ctrl2)) +
-                          TvgMath.PointLength(TvgMath.PointSub(bezier.ctrl2, bezier.end));
-
-                if (len > threshold * bezier.Length() && len > 1.0f)
+                while (!stack.Empty())
                 {
-                    bezier.Split(0.5f, out Bezier leftHalf);
-                    stack.Push(leftHalf);
-                    continue;
-                }
+                    ref var last = ref stack.Last();
+                    var length = TvgMath.PointLength(TvgMath.PointSub(last.start, last.ctrl1)) + TvgMath.PointLength(TvgMath.PointSub(last.ctrl1, last.ctrl2)) + TvgMath.PointLength(TvgMath.PointSub(last.ctrl2, last.end));
+                    if (length > threshold * last.Length() && length > 1)
+                    {
+                        last.Split(.5f, out Bezier left);
+                        stack.Push(left);
+                        continue;
+                    }
 
-                var current = bezier;
-                stack.Pop();
+                    var bezier = last;
+                    stack.Pop();
+                    bool degenerated1 = TvgMath.Zero(TvgMath.PointSub(bezier.start, bezier.ctrl1));
+                    var line1 = degenerated1 ? state.line : Shift(bezier.start, bezier.ctrl1, offset);
+                    var line2 = Shift(bezier.ctrl1, bezier.ctrl2, offset);
+                    if (pending == path.pts.count && !state.moveto)
+                    {
+                        var previous = degenerated1 ? line2 : line1;
+                        if (!Intersected(ref previous, ref state.line, ref intersect, out _))
+                            intersect = state.line.pt2;
+                        path.pts[path.pts.count - 2] = path.pts[path.pts.count - 1] = intersect;
+                    }
 
-                degeneratedLine1 = TvgMath.Zero(TvgMath.PointSub(current.start, current.ctrl1));
-                var line1 = degeneratedLine1 ? state.line : Shift(current.start, current.ctrl1, offsetVal);
-                var line2 = Shift(current.ctrl1, current.ctrl2, offsetVal);
+                    bool degenerated3 = TvgMath.Zero(TvgMath.PointSub(bezier.ctrl2, bezier.end));
+                    var line3 = state.line = degenerated3 ? line2 : Shift(bezier.ctrl2, bezier.end, offset);
+                    if (state.moveto)
+                    {
+                        state.movetoOutIndex = path.pts.count;
+                        path.MoveTo(line1.pt1);
+                        state.firstLine = line1;
+                        state.moveto = false;
+                    }
 
-                // line3 from the previous iteration was degenerated to a point - calculate intersection with the last valid line (state.line)
-                if (degeneratedLine3)
-                {
-                    var tempLine = degeneratedLine1 ? line2 : line1;
-                    Intersected(ref tempLine, ref state.line, out var intersect, out _);
+                    if (degenerated1)
+                        path.pts.Push(path.pts.Last());
+                    else
+                    {
+                        Intersected(ref line1, ref line2, ref intersect, out _);
+                        path.pts.Push(intersect);
+                    }
+
+                    if (degenerated3)
+                    {
+                        intersect = line3.pt2;
+                        pending = path.pts.count + 2;
+                    }
+                    else
+                        Intersected(ref line2, ref line3, ref intersect, out _);
                     path.pts.Push(intersect);
-                    path.pts.Push(intersect);
-                }
-
-                degeneratedLine3 = TvgMath.Zero(TvgMath.PointSub(current.ctrl2, current.end));
-                var line3 = degeneratedLine3 ? line2 : Shift(current.ctrl2, current.end, offsetVal);
-                state.line = line3;
-
-                if (state.moveto)
-                {
-                    state.movetoOutIndex = path.pts.count;
-                    path.MoveTo(line1.pt1);
-                    state.firstLine = line1;
-                    state.moveto = false;
-                }
-
-                if (degeneratedLine1) path.pts.Push(path.pts.Last());
-                else
-                {
-                    Intersected(ref line1, ref line2, out var intersect, out _);
-                    path.pts.Push(intersect);
-                }
-
-                if (!degeneratedLine3)
-                {
-                    Intersected(ref line2, ref line3, out var intersect2, out _);
-                    path.pts.Push(intersect2);
                     path.pts.Push(line3.pt2);
+                    path.cmds.Push(PathCommand.CubicTo);
                 }
-                path.cmds.Push(PathCommand.CubicTo);
+            }
+            finally
+            {
+                stack.Dispose();
             }
         }
 
         private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            var inCmds = @in.cmds.ToArray();
-            var inPts = @in.pts.ToArray();
+            var inCmds = new ReadOnlySpan<PathCommand>(@in.cmds.data, checked((int)@in.cmds.count));
+            var inPts = new ReadOnlySpan<Point>(@in.pts.data, checked((int)@in.pts.count));
             var inCmdsCnt = inCmds.Length;
             var inPtsCnt = inPts.Length;
-
-            bool Clockwise(Point[] pts, int n)
+            static bool Clockwise(ReadOnlySpan<Point> pts, int n)
             {
                 var area = 0.0f;
                 for (int i = 0; i < n - 1; i++)
                 {
                     area += TvgMath.Cross(pts[i], pts[i + 1]);
                 }
+
                 area += TvgMath.Cross(pts[n - 1], pts[0]);
                 return area < 0.0f;
             }
 
             var path = (next != null) ? RenderPath.Scratch() : @out;
+            if (inPtsCnt == 0)
+                return path;
             path.cmds.Reserve((uint)(inCmdsCnt * 2));
             path.pts.Reserve((uint)(inPtsCnt * (join == StrokeJoin.Round ? 4 : 2)));
-
             var state = new State();
             var offsetVal = Clockwise(inPts, inPtsCnt) ? this.offset : -this.offset;
             var threshold = 1.0f / MathF.Abs(offsetVal) + 1.0f;
-            bool degeneratedLine3 = false;
-
+            uint pending = 0;
             for (int iCmd = 0, iPt = 0; iCmd < inCmdsCnt; ++iCmd)
             {
                 switch (inCmds[iCmd])
@@ -549,57 +537,50 @@ namespace ThorVG
                         state.movetoInIndex = iPt++;
                         break;
                     }
+
                     case PathCommand.LineTo:
                     {
-                        Line(path, inCmds, inCmdsCnt, inPts, ref iPt, iCmd, ref state, offsetVal, false);
+                        LineCore(path, inCmds, inCmdsCnt, inPts, ref iPt, iCmd, ref state, offsetVal, false);
                         break;
                     }
+
                     case PathCommand.CubicTo:
                     {
                         // cubic degenerated to a line (colinear)
                         if (LottieModifierHelpers.Colinear(inPts, iPt - 1))
                         {
                             ++iPt;
-                            Line(path, inCmds, inCmdsCnt, inPts, ref iPt, iCmd, ref state, offsetVal, true);
+                            LineCore(path, inCmds, inCmdsCnt, inPts, ref iPt, iCmd, ref state, offsetVal, true);
                             ++iPt;
                             continue;
                         }
-                        Cubic(path, inPts, iPt - 1, ref state, offsetVal, threshold, ref degeneratedLine3);
+
+                        Cubic(path, inPts, iPt - 1, ref state, offsetVal, threshold, ref pending);
                         iPt += 3;
                         break;
                     }
+
                     default:
                     {
                         if (!TvgMath.Zero(TvgMath.PointSub(inPts[iPt - 1], inPts[state.movetoInIndex])))
                         {
-                            path.cmds.Push(PathCommand.LineTo);
                             Corner(path, ref state.line, ref state.firstLine, state.movetoOutIndex, true);
                         }
+
                         path.cmds.Push(PathCommand.Close);
                         break;
                     }
                 }
             }
+
             return path;
         }
 
         public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
             var result = Modify(@in, @out, null);
-            if (next != null) next.Path(result, @out, null);
-        }
-
-        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
-        {
-            unsafe {
-                var result = Modify(@in, @out, null);
-                if (next != null) next.Polystar(result, @out, outerRoundness, hasRoundness);
-            }
-        }
-
-        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
-        {
-            unsafe { Path(@in, @out, null); }
+            if (next != null)
+                next.Path(result, @out, transform);
         }
 
         public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
@@ -607,30 +588,28 @@ namespace ThorVG
             var path = (next != null) ? RenderPath.Scratch() : @out;
             // we know this is the first request in the chain because other modifiers would not trigger Ellipse() call
             path.AddCircle(center.x, center.y, radius.x + offset, radius.y + offset, clockwise);
-            if (next != null) next.Ellipse(path, @out, center, radius, clockwise);
+            if (next != null)
+                next.Ellipse(path, @out, center, radius, clockwise);
         }
     }
 
     /************************************************************************/
     /* LottiePuckerBloatModifier                                            */
     /************************************************************************/
-
     public class LottiePuckerBloatModifier : LottieModifier
     {
         public float amount;
-
         public LottiePuckerBloatModifier(float amount) : base(ModifierType.PuckerBloat)
         {
             this.amount = amount;
         }
 
-        private static Point Center(PathCommand[] cmds, int cmdsCnt, Point[] pts)
+        private static Point Center(ReadOnlySpan<PathCommand> cmds, int cmdsCnt, ReadOnlySpan<Point> pts)
         {
             var center = new Point(0, 0);
             var count = 0;
             var pIdx = 0;
             var startIdx = 0;
-
             for (int i = 0; i < cmdsCnt; ++i)
             {
                 switch (cmds[i])
@@ -641,52 +620,53 @@ namespace ThorVG
                         ++pIdx;
                         break;
                     }
+
                     case PathCommand.CubicTo:
                     {
-                        center = TvgMath.PointAdd(center, TvgMath.PointAdd(pts[pIdx - 1], TvgMath.PointAdd(pts[pIdx], TvgMath.PointAdd(pts[pIdx + 1], pts[pIdx + 2]))));
+                        center = TvgMath.PointAdd(TvgMath.PointAdd(TvgMath.PointAdd(TvgMath.PointAdd(center, pts[pIdx - 1]), pts[pIdx]), pts[pIdx + 1]), pts[pIdx + 2]);
                         pIdx += 3;
                         count += 4;
                         break;
                     }
+
                     case PathCommand.LineTo:
                     {
-                        center = TvgMath.PointAdd(center, TvgMath.PointAdd(pts[pIdx - 1], pts[pIdx]));
+                        center = TvgMath.PointAdd(TvgMath.PointAdd(center, pts[pIdx - 1]), pts[pIdx]);
                         ++pIdx;
                         count += 2;
                         break;
                     }
+
                     case PathCommand.Close:
                     {
                         if (!TvgMath.Zero(TvgMath.PointSub(pts[pIdx - 1], pts[startIdx])))
                         {
-                            center = TvgMath.PointAdd(center, TvgMath.PointAdd(pts[pIdx - 1], pts[startIdx]));
+                            center = TvgMath.PointAdd(TvgMath.PointAdd(center, pts[pIdx - 1]), pts[startIdx]);
                             count += 2;
                         }
+
                         break;
                     }
                 }
             }
+
             return count > 0 ? TvgMath.PointDiv(center, (float)count) : new Point(0, 0);
         }
 
         public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
-            var inCmds = @in.cmds.ToArray();
-            var inPts = @in.pts.ToArray();
+            var inCmds = new ReadOnlySpan<PathCommand>(@in.cmds.data, checked((int)@in.cmds.count));
+            var inPts = new ReadOnlySpan<Point>(@in.pts.data, checked((int)@in.pts.count));
             var inCmdsCnt = inCmds.Length;
             var inPtsCnt = inPts.Length;
-
             var path = next != null ? RenderPath.Scratch() : @out;
-
             // LineTo segments are expanded to CubicTo, so pts capacity can grow up to 3x
             path.cmds.Reserve((uint)inCmdsCnt);
             path.pts.Reserve((uint)(inPtsCnt * 3));
-
             var center = Center(inCmds, inCmdsCnt, inPts);
             var a = amount * 0.01f;
             var ptsIdx = 0;
             var startPtsIdx = 0;
-
             for (int i = 0; i < inCmdsCnt; ++i)
             {
                 switch (inCmds[i])
@@ -695,41 +675,45 @@ namespace ThorVG
                     {
                         startPtsIdx = ptsIdx;
                         // anchor points move toward center
-                        path.pts.Push(TvgMath.PointAdd(inPts[ptsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx]), a)));
+                        path.pts.Push(LottieModifierHelpers.ScaleAdd(inPts[ptsIdx], TvgMath.PointSub(center, inPts[ptsIdx]), a));
                         path.cmds.Push(PathCommand.MoveTo);
                         ++ptsIdx;
                         break;
                     }
+
                     case PathCommand.CubicTo:
                     {
                         // control points move away from center, end (anchor) moves toward center
-                        path.pts.Push(TvgMath.PointSub(inPts[ptsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx]), a)));
-                        path.pts.Push(TvgMath.PointSub(inPts[ptsIdx + 1], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx + 1]), a)));
-                        path.pts.Push(TvgMath.PointAdd(inPts[ptsIdx + 2], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx + 2]), a)));
+                        path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[ptsIdx], TvgMath.PointSub(center, inPts[ptsIdx]), a));
+                        path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[ptsIdx + 1], TvgMath.PointSub(center, inPts[ptsIdx + 1]), a));
+                        path.pts.Push(LottieModifierHelpers.ScaleAdd(inPts[ptsIdx + 2], TvgMath.PointSub(center, inPts[ptsIdx + 2]), a));
                         path.cmds.Push(PathCommand.CubicTo);
                         ptsIdx += 3;
                         break;
                     }
+
                     case PathCommand.LineTo:
                     {
                         // convert to CubicTo: prev and curr as control points (away), curr as end (toward)
-                        path.pts.Push(TvgMath.PointSub(inPts[ptsIdx - 1], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx - 1]), a)));
-                        path.pts.Push(TvgMath.PointSub(inPts[ptsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx]), a)));
-                        path.pts.Push(TvgMath.PointAdd(inPts[ptsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx]), a)));
+                        path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[ptsIdx - 1], TvgMath.PointSub(center, inPts[ptsIdx - 1]), a));
+                        path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[ptsIdx], TvgMath.PointSub(center, inPts[ptsIdx]), a));
+                        path.pts.Push(LottieModifierHelpers.ScaleAdd(inPts[ptsIdx], TvgMath.PointSub(center, inPts[ptsIdx]), a));
                         path.cmds.Push(PathCommand.CubicTo);
                         ++ptsIdx;
                         break;
                     }
+
                     case PathCommand.Close:
                     {
                         // if last pt != start pt, add implicit closing segment as CubicTo
                         if (!TvgMath.Zero(TvgMath.PointSub(inPts[ptsIdx - 1], inPts[startPtsIdx])))
                         {
-                            path.pts.Push(TvgMath.PointSub(inPts[ptsIdx - 1], TvgMath.PointMul(TvgMath.PointSub(center, inPts[ptsIdx - 1]), a)));
-                            path.pts.Push(TvgMath.PointSub(inPts[startPtsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[startPtsIdx]), a)));
-                            path.pts.Push(TvgMath.PointAdd(inPts[startPtsIdx], TvgMath.PointMul(TvgMath.PointSub(center, inPts[startPtsIdx]), a)));
+                            path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[ptsIdx - 1], TvgMath.PointSub(center, inPts[ptsIdx - 1]), a));
+                            path.pts.Push(LottieModifierHelpers.ScaleSubtract(inPts[startPtsIdx], TvgMath.PointSub(center, inPts[startPtsIdx]), a));
+                            path.pts.Push(LottieModifierHelpers.ScaleAdd(inPts[startPtsIdx], TvgMath.PointSub(center, inPts[startPtsIdx]), a));
                             path.cmds.Push(PathCommand.CubicTo);
                         }
+
                         path.cmds.Push(PathCommand.Close);
                         break;
                     }
@@ -744,28 +728,42 @@ namespace ThorVG
                 }
             }
 
-            if (next != null) next.Path(path, @out, transform);
+            if (next != null)
+                next.Path(path, @out, transform);
         }
 
         public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
         {
-            unsafe { Path(@in, @out, null); }
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
         }
 
         public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
         {
-            unsafe { Path(@in, @out, null); }
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
         }
 
         public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
         {
-            unsafe { Path(@in, @out, null); }
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
         }
     }
 
     public class LottieZigZagModifier : LottieModifier
     {
-        public enum PointType : byte { Corner = 1, Smooth = 2 }
+        public enum PointType : byte
+        {
+            Corner = 1,
+            Smooth = 2
+        }
 
         private struct Vertex
         {
@@ -777,7 +775,6 @@ namespace ThorVG
         public float amp;
         public int freq;
         public PointType point;
-
         public LottieZigZagModifier(float amp, int freq, PointType point) : base(ModifierType.ZigZag)
         {
             this.amp = amp;
@@ -788,13 +785,24 @@ namespace ThorVG
         private Vertex Ridge(Point at, Point dir, float sign, float inAmp, float outAmp)
         {
             var len = TvgMath.PointLength(dir);
-            if (len < 1.1920929e-7f) return new Vertex { v = at, @in = at, @out = at };
-            var pos = TvgMath.PointAdd(at, TvgMath.PointMul(TvgMath.Normal(default, dir), sign * amp));
+            if (len < 1.1920929e-7f)
+                return new Vertex
+                {
+                    v = at,
+                    @in = at,
+                    @out = at
+                };
+            var pos = LottieModifierHelpers.ScaleAdd(at, TvgMath.Normal(default, dir), sign * amp);
             var unit = TvgMath.PointDiv(dir, len);
-            return new Vertex { v = pos, @in = TvgMath.PointSub(pos, TvgMath.PointMul(unit, inAmp)), @out = TvgMath.PointAdd(pos, TvgMath.PointMul(unit, outAmp)) };
+            return new Vertex
+            {
+                v = pos,
+                @in = LottieModifierHelpers.ScaleSubtract(pos, unit, inAmp),
+                @out = LottieModifierHelpers.ScaleAdd(pos, unit, outAmp)
+            };
         }
 
-        private void Corner(uint cur, float sign, Array<Point> verts, Array<Vertex> ridges)
+        private void Corner(uint cur, float sign, Array<Point> verts, ref Array<Vertex> ridges)
         {
             var curIdx = cur % verts.count;
             var prevIdx = curIdx == 0 ? verts.count - 1 : curIdx - 1;
@@ -807,12 +815,14 @@ namespace ThorVG
                 outAmp = TvgMath.PointLength(TvgMath.PointSub(verts[nextIdx], verts[curIdx])) / ((freq + 1) * 2);
                 inAmp = TvgMath.PointLength(TvgMath.PointSub(verts[prevIdx], verts[curIdx])) / ((freq + 1) * 2);
             }
+
             ridges.Push(Ridge(verts[curIdx], dir, sign, inAmp, outAmp));
         }
 
-        private float Segment(uint idx, float sign, Array<Point> verts, Array<Point> ins, Array<Point> outs, Array<Vertex> ridges)
+        private float Segment(uint idx, float sign, Array<Point> verts, Array<Point> ins, Array<Point> outs, ref Array<Vertex> ridges)
         {
-            if (freq == 0) return sign;
+            if (freq == 0)
+                return sign;
             var i1 = (idx + 1) % verts.count;
             var p0 = verts[idx];
             var p1 = outs[idx];
@@ -823,18 +833,17 @@ namespace ThorVG
             for (var k = 0; k < freq; ++k)
             {
                 var t = (float)(k + 1) / (freq + 1);
-                var mt = 1.0f - t;
-                var tangent = TvgMath.PointAdd(TvgMath.PointMul(TvgMath.PointSub(p1, p0), 3.0f * mt * mt),
-                    TvgMath.PointAdd(TvgMath.PointMul(TvgMath.PointSub(p2, p1), 6.0f * mt * t), TvgMath.PointMul(TvgMath.PointSub(p3, p2), 3.0f * t * t)));
-                ridges.Push(Ridge(bz.At(t), tangent, sign, smoothAmp, smoothAmp));
+                ridges.Push(Ridge(bz.At(t), bz.Tangent(t), sign, smoothAmp, smoothAmp));
                 sign = -sign;
             }
+
             return sign;
         }
 
-        private void Flush(bool closed, Array<Point> verts, Array<Point> ins, Array<Point> outs, Array<Vertex> ridges, RenderPath dst)
+        private void Flush(bool closed, ref Array<Point> verts, ref Array<Point> ins, ref Array<Point> outs, ref Array<Vertex> ridges, RenderPath dst)
         {
-            if (verts.count == 0) return;
+            if (verts.count == 0)
+                return;
             if (closed && verts.count > 1 && TvgMath.Zero(TvgMath.PointSub(verts.Last(), verts[0])))
             {
                 ins[0] = ins.Last();
@@ -842,21 +851,27 @@ namespace ThorVG
                 ins.Pop();
                 outs.Pop();
             }
-            if (verts.count < 2) return;
+
+            if (verts.count < 2)
+                return;
             var segmentCount = closed ? verts.count : verts.count - 1;
             ridges.Clear();
             ridges.Reserve((segmentCount + 1) * (uint)(freq + 1));
             var sign = 1.0f;
-            Corner(0, sign, verts, ridges);
+            Corner(0, sign, verts, ref ridges);
             for (uint i = 0; i < segmentCount; ++i)
             {
-                sign = Segment(i, -sign, verts, ins, outs, ridges);
-                Corner(i + 1, sign, verts, ridges);
+                sign = Segment(i, -sign, verts, ins, outs, ref ridges);
+                Corner(i + 1, sign, verts, ref ridges);
             }
-            if (ridges.count == 0) return;
+
+            if (ridges.count == 0)
+                return;
             dst.MoveTo(ridges[0].v);
-            for (uint i = 1; i < ridges.count; ++i) dst.CubicTo(ridges[i - 1].@out, ridges[i].@in, ridges[i].v);
-            if (closed) dst.Close();
+            for (uint i = 1; i < ridges.count; ++i)
+                dst.CubicTo(ridges[i - 1].@out, ridges[i].@in, ridges[i].v);
+            if (closed)
+                dst.Close();
         }
 
         private unsafe RenderPath Modify(in RenderPath @in, RenderPath @out, Matrix* transform)
@@ -869,48 +884,89 @@ namespace ThorVG
             var ins = new Array<Point>();
             var outs = new Array<Point>();
             var ridges = new Array<Vertex>();
-            var closed = false;
-            for (uint iCmd = 0, iPt = 0; iCmd < @in.cmds.count; ++iCmd)
+            try
             {
-                switch (@in.cmds[iCmd])
+                var closed = false;
+                for (uint iCmd = 0, iPt = 0; iCmd < @in.cmds.count; ++iCmd)
                 {
-                    case PathCommand.MoveTo:
-                        Flush(closed, verts, ins, outs, ridges, path);
-                        verts.Clear(); ins.Clear(); outs.Clear(); closed = false;
-                        var first = @in.pts[iPt++];
-                        verts.Push(first); ins.Push(first); outs.Push(first);
-                        break;
-                    case PathCommand.CubicTo:
-                        outs.Last() = @in.pts[iPt];
-                        ins.Push(@in.pts[iPt + 1]);
-                        verts.Push(@in.pts[iPt + 2]);
-                        outs.Push(@in.pts[iPt + 2]);
-                        iPt += 3;
-                        break;
-                    case PathCommand.LineTo:
-                        outs.Last() = verts.Last();
-                        ins.Push(@in.pts[iPt]); verts.Push(@in.pts[iPt]); outs.Push(@in.pts[iPt]);
-                        ++iPt;
-                        break;
-                    case PathCommand.Close:
-                        closed = true;
-                        break;
+                    switch (@in.cmds[iCmd])
+                    {
+                        case PathCommand.MoveTo:
+                            Flush(closed, ref verts, ref ins, ref outs, ref ridges, path);
+                            verts.Clear();
+                            ins.Clear();
+                            outs.Clear();
+                            closed = false;
+                            var first = @in.pts[iPt++];
+                            verts.Push(first);
+                            ins.Push(first);
+                            outs.Push(first);
+                            break;
+                        case PathCommand.CubicTo:
+                            outs.Last() = @in.pts[iPt];
+                            ins.Push(@in.pts[iPt + 1]);
+                            verts.Push(@in.pts[iPt + 2]);
+                            outs.Push(@in.pts[iPt + 2]);
+                            iPt += 3;
+                            break;
+                        case PathCommand.LineTo:
+                            outs.Last() = verts.Last();
+                            ins.Push(@in.pts[iPt]);
+                            verts.Push(@in.pts[iPt]);
+                            outs.Push(@in.pts[iPt]);
+                            ++iPt;
+                            break;
+                        case PathCommand.Close:
+                            closed = true;
+                            break;
+                    }
                 }
+
+                Flush(closed, ref verts, ref ins, ref outs, ref ridges, path);
             }
-            Flush(closed, verts, ins, outs, ridges, path);
+            finally
+            {
+                verts.Dispose();
+                ins.Dispose();
+                outs.Dispose();
+                ridges.Dispose();
+            }
+
             if (transform != null)
-                for (var i = pivot; i < path.pts.count; ++i) TvgMath.TransformInPlace(ref path.pts[i], *transform);
+                for (var i = pivot; i < path.pts.count; ++i)
+                    TvgMath.TransformInPlace(ref path.pts[i], *transform);
             return path;
         }
 
         public override unsafe void Path(RenderPath @in, RenderPath @out, Matrix* transform)
         {
             var result = Modify(@in, @out, transform);
-            if (next != null) next.Path(result, @out, null);
+            if (next != null)
+                next.Path(result, @out, null);
         }
 
-        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness) { unsafe { Path(@in, @out, null); } }
-        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise) { unsafe { Path(@in, @out, null); } }
-        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise) { unsafe { Path(@in, @out, null); } }
+        public override void Polystar(in RenderPath @in, RenderPath @out, float outerRoundness, bool hasRoundness)
+        {
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
+        }
+
+        public override void Rect(in RenderPath @in, RenderPath @out, Point pos, Point size, float r, bool clockwise)
+        {
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
+        }
+
+        public override void Ellipse(in RenderPath @in, RenderPath @out, Point center, Point radius, bool clockwise)
+        {
+            unsafe
+            {
+                Path(@in, @out, null);
+            }
+        }
     }
 }

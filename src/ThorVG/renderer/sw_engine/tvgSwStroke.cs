@@ -16,7 +16,7 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static float SIDE_TO_ROTATE(int s)
         {
-            return MathConstants.MATH_PI2 - s * MathConstants.MATH_PI;
+            return TvgMath.MultiplyAdd(-s, MathConstants.MATH_PI, MathConstants.MATH_PI2);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -32,24 +32,18 @@ namespace ThorVG
             return MathF.Abs(p.x) < epsilon && MathF.Abs(p.y) < epsilon;
         }
 
-        private static float Diff(float angle1, float angle2)
-        {
-            var delta = (angle2 - angle1) % MathConstants.MATH_2PI;
-            if (delta < 0) delta += MathConstants.MATH_2PI;
-            if (delta > MathConstants.MATH_PI) delta -= MathConstants.MATH_2PI;
-            return delta;
-        }
+        private static float Diff(float from, float to) => MathF.IEEERemainder(to - from, MathConstants.MATH_2PI);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static float Mean(float angle1, float angle2) => angle1 + Diff(angle1, angle2) * 0.5f;
+        private static float Mean(float angle1, float angle2) => TvgMath.MultiplyAdd(Diff(angle1, angle2), 0.5f, angle1);
 
         private static void Rotate(ref Point p, float angle)
         {
             if (TvgMath.Zero(angle)) return;
             var cos = MathF.Cos(angle);
             var sin = MathF.Sin(angle);
-            var x = p.x * cos - p.y * sin;
-            p.y = p.x * sin + p.y * cos;
+            var x = TvgMath.MultiplyAdd(p.x, cos, -p.y * sin);
+            p.y = TvgMath.MultiplyAdd(p.x, sin, p.y * cos);
             p.x = x;
         }
 
@@ -128,7 +122,7 @@ namespace ThorVG
             var angle = angleStart;
             var rotate = angleDiff >= 0 ? MathConstants.MATH_PI2 : -MathConstants.MATH_PI2;
 
-            while (total != 0)
+            while (!TvgMath.Zero(total))
             {
                 var step = total;
                 if (step > MathConstants.MATH_PI2) step = MathConstants.MATH_PI2;
@@ -243,7 +237,7 @@ namespace ThorVG
                     delta = Add(delta, stroke.center);
                     _borderLineTo(border, delta, false);
 
-                    if (lineLength == 0)
+                    if (TvgMath.Zero(lineLength))
                     {
                         delta = new Point(stroke.width, 0);
                         Rotate(ref delta, stroke.angleOut + rotate);
@@ -532,7 +526,7 @@ namespace ThorVG
 
                 var delta2 = new Point(stroke.width, 0);
                 Rotate(ref delta2, angle + rotate);
-                delta = Add(Add(delta, stroke.center), delta2);
+                delta = Add(delta, Add(stroke.center, delta2));
                 _borderLineTo(border, delta, false);
 
                 delta = new Point(stroke.width, 0);
@@ -540,7 +534,7 @@ namespace ThorVG
 
                 delta2 = new Point(stroke.width, 0);
                 Rotate(ref delta2, angle - rotate);
-                delta = Add(Add(delta, delta2), stroke.center);
+                delta = Add(delta, Add(delta2, stroke.center));
                 _borderLineTo(border, delta, false);
             }
             else if (stroke.cap == StrokeCap.Round)
@@ -622,7 +616,9 @@ namespace ThorVG
 
         private static void _endSubPath(SwStroke stroke)
         {
-            if (stroke.closedSubPath)
+            var rightBorder = stroke.borders[0]; var leftBorder = stroke.borders[1];
+            bool zeroLength = rightBorder.pts.count == rightBorder.start + 1 && leftBorder.pts.count == leftBorder.start + 1;
+            if (stroke.closedSubPath && !zeroLength)
             {
                 if (TvgMath.PointNotEqual(stroke.center, stroke.subPathStart))
                     _lineTo(stroke, stroke.subPathStart);
@@ -630,7 +626,7 @@ namespace ThorVG
                 stroke.angleOut = stroke.subPathAngle;
                 var turn = Diff(stroke.angleIn, stroke.angleOut);
 
-                if (turn != 0)
+                if (!TvgMath.Zero(turn))
                 {
                     int inside = 0;
                     if (turn < 0) inside = 1;
@@ -655,22 +651,22 @@ namespace ThorVG
             }
         }
 
-        private static void _exportBorderOutline(SwStroke stroke, SwOutline* outline, uint side)
+        private static void _exportBorderOutline(SwStroke stroke, RenderPath path, uint side)
         {
-            var border = stroke.borders[side];
-            if (border.pts.Empty()) return;
-
-            var src = border.tags;
-            var idx = outline->input.count;
-
-            for (uint i = 0; i < border.pts.count; i++)
+            var border = stroke.borders[side]; Point start = default;
+            for (uint i = 0; i < border.pts.count; ++i)
             {
-                if ((src[i] & SW_STROKE_TAG_POINT) != 0) outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
-                else if ((src[i] & SW_STROKE_TAG_CUBIC) != 0) outline->types.Push(SwConstants.SW_CURVE_TYPE_CUBIC);
-                if ((src[i] & SW_STROKE_TAG_END) != 0) outline->cntrs.Push(idx);
-                ++idx;
+                byte tag = border.tags[i];
+                if ((tag & SW_STROKE_TAG_BEGIN) != 0) { start = border.pts[i]; path.MoveTo(start); }
+                else if ((tag & SW_STROKE_TAG_CUBIC) != 0)
+                {
+                    if ((border.tags[i + 1] & SW_STROKE_TAG_END) != 0)
+                    { path.CubicTo(border.pts[i], border.pts[i + 1], start); ++i; }
+                    else { path.CubicTo(border.pts[i], border.pts[i + 1], border.pts[i + 2]); i += 2; }
+                }
+                else path.LineTo(border.pts[i]);
+                if ((border.tags[i] & SW_STROKE_TAG_END) != 0) path.Close();
             }
-            outline->input.Push(border.pts);
         }
 
         // Public API
@@ -695,8 +691,35 @@ namespace ThorVG
             stroke.borders[1] = mpool.StrokeRBorder(tid);
         }
 
+        private static bool ParsePath(SwStroke stroke, in SwOutline outline)
+        {
+            uint command = 0; var points = outline.input.data; Point start = default;
+            while (command < outline.commands.count)
+            {
+                if (outline.commands[command] == PathCommand.Close) { ++command; continue; }
+                if (outline.commands[command] == PathCommand.MoveTo || points == outline.input.data)
+                {
+                    if (outline.commands[command] == PathCommand.CubicTo) return false;
+                    start = *points++; ++command;
+                }
+                uint end = command;
+                while (end < outline.commands.count && outline.commands[end] != PathCommand.MoveTo && outline.commands[end] != PathCommand.Close) ++end;
+                bool closed = end < outline.commands.count && outline.commands[end] == PathCommand.Close;
+                _beginSubPath(stroke, start, closed);
+                for (; command < end; ++command)
+                {
+                    if (outline.commands[command] == PathCommand.LineTo) _lineTo(stroke, *points++);
+                    else { _cubicTo(stroke, points[0], points[1], points[2]); points += 3; }
+                }
+                if (closed) _lineTo(stroke, start);
+                if (!stroke.firstPt) _endSubPath(stroke);
+            }
+            return true;
+        }
+
         public static bool strokeParseOutline(SwStroke stroke, in SwOutline outline, SwMpool mpool, uint tid)
         {
+            if (outline.pathBased) return ParsePath(stroke, outline);
             uint first = 0;
             uint i = 0;
 
@@ -748,12 +771,12 @@ namespace ThorVG
         {
             var reserve = stroke.borders[0].pts.count + stroke.borders[1].pts.count;
             var outline = mpool.Outline(tid);
-            outline->input.Reserve(reserve);
-            outline->types.Reserve(reserve);
+            var path = new RenderPath { pts = outline->input, cmds = outline->commands };
+            path.pts.Reserve(reserve); path.cmds.Reserve(reserve);
             outline->fillRule = FillRule.NonZero;
-
-            _exportBorderOutline(stroke, outline, 0);
-            _exportBorderOutline(stroke, outline, 1);
+            _exportBorderOutline(stroke, path, 0);
+            _exportBorderOutline(stroke, path, 1);
+            SwShapeOps.SetOutlinePath(outline, path, false);
 
             return outline;
         }

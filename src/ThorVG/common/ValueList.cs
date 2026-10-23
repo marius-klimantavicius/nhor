@@ -133,9 +133,10 @@ public struct ValueList<T>
             Array.Clear(_overflow, 0, _count);
             _overflow = null;
         }
-        else if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        // Spilling copies inline items; release those duplicates even after pop-to-zero.
+        if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
         {
-            GetInlineSpan()[.._count].Clear();
+            GetInlineSpan().Clear();
         }
         _count = 0;
     }
@@ -163,13 +164,17 @@ public struct ValueList<T>
         AsSpan().Sort(comparison);
     }
 
-    /// <summary>Clears and copies all items from <paramref name="source"/>.</summary>
+    /// <summary>Copies all items into independent storage, including when the
+    /// source is this list or a value copy sharing its overflow array.</summary>
     public void CopyFrom(ref ValueList<T> source)
     {
-        Clear();
+        // Do not clear the old destination: a prior value copy may alias source.
+        // Finish reading before replacing this, which also supports self-copy.
+        var copy = new ValueList<T>();
         var span = source.AsSpan();
         for (int i = 0; i < span.Length; i++)
-            Add(span[i]);
+            copy.Add(span[i]);
+        this = copy;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -1,0 +1,8 @@
+{
+  "kind": "authored regression",
+  "description": "Embedded glyphs avoid external fonts; ramp selector separately interpolates fill and stroke RGB channels with animated amount. Native clamps/truncates each channel.",
+  "basedOn": "lottie-glyph-utf8.lot",
+  "basedOnSha256": "7bae966f248535278f76c85e2c274c4ea413a47fc706f2e53ddda41a3413b149",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "af6f68fa73867e73ed71c756854af44fc76ca2ab20a30de66847c7fe258cece5"
+}

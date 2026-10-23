@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native360 complete ordinary loader/layout/metrics/transform/engine copy-release records captured before managed fixes. Existing PublicSans/DMSans, valid ASCII/Lithuanian/whitespace/multiline/empty strings, allfive wraps/three finite parameter configurations; managed convenience API compares the same full valid text as native byte-count entrypoint. No malformed/corrupt/fuzz/UTF8-byte fixture authored.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "sfnt-normal-layout-before.json",
+      "correctedEvidence": "sfnt-normal-layout-final-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee.json",
+        "sha256": "0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee",
+        "archive": "docs/thorvg-update/source-snapshots/0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee.tar.gz"
+      },
+      "bytes": 1097800,
+      "sha256": "ef198eba2729d996893254039a6df9b4b9e5fdc1efeb7ad7015941324c24a71c",
+      "records": 360
+    },
+    "arm64": {
+      "nativeOrigin": "arm-sfnt-normal-layout-before.json",
+      "correctedEvidence": "sfnt-normal-layout-final-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee.json",
+        "sha256": "0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee",
+        "archive": "docs/thorvg-update/source-snapshots/0368b9a2b5ca2408769928082da28d1fab9c920b385f5eacd9498f11d24855ee.tar.gz"
+      },
+      "bytes": 1097800,
+      "sha256": "b11ba32c7dc1857161db105f1adafded320f36bc92be0bc7c1bc3267cd283793",
+      "records": 360
+    }
+  },
+  "parentReview": "pending"
+}

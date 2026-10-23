@@ -1,0 +1,22 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "architectures": {
+    "x64": {
+      "originalBefore": "lottie-builder-normal-observer-x86.json",
+      "currentVerified": "lottie-builder-normal-owned-x86.json",
+      "sha256": "6beb5347c58baaeb4b524e8649b77e8b0edee0cadf6f7c8c413a071c48222d6c",
+      "records": 528,
+      "nativeOutputUnchangedByFixAndObservation": true
+    },
+    "arm64": {
+      "originalBefore": "lottie-builder-normal-observer-arm.json",
+      "currentVerified": "lottie-builder-normal-neon-codegen-arm.json",
+      "sha256": "6e67065904a76603762ed08774f02a1e20a23c61572a23d2e793886698e2135f",
+      "records": 528,
+      "nativeOutputUnchangedByFixAndObservation": true
+    }
+  },
+  "inputProvenance": "lottie-builder-normal-input-provenance.json",
+  "scope": "528actual original before-fix complete scene graph records:valid finite2D/defined3D/skew/polystar/polygon/repeater/mask/normal text and auto-orient inputs, fourframes. Native132documents*4=528records. ARMoriginal linked Builder vector FMLA grouping is intentionally distinct from scalar header-inline property conveniences. No tolerance/expected rewrite; original native hashes identical before/after and passive observation.",
+  "parentReview": "pending"
+}

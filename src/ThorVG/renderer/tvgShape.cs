@@ -12,6 +12,7 @@ namespace ThorVG
     public class Shape : Paint
     {
         internal RenderShape rs = new RenderShape();
+        private byte compositionOpacity;
 
         protected Shape() { }
 
@@ -19,6 +20,17 @@ namespace ThorVG
         public static Shape Gen() => new Shape();
 
         public override Type PaintType() => Type.Shape;
+
+        internal void CleanupShape()
+        {
+            // CPU tasks borrow this path until completion. Match native owner
+            // release while keeping a managed array's storage alive for work.
+            (pImpl.rd as SwTask)?.Done();
+            rs.path.cmds.Dispose();
+            rs.path.pts.Dispose();
+            rs.fill = null;
+            rs.stroke = null;
+        }
 
         // --- Path commands ---
 
@@ -114,6 +126,8 @@ namespace ThorVG
             return Result.Success;
         }
 
+        public Result GetFillColor(out byte r, out byte g, out byte b) => GetFillColor(out r, out g, out b, out _);
+
         public Result GetFillColor(out byte r, out byte g, out byte b, out byte a)
         {
             r = rs.color.r; g = rs.color.g; b = rs.color.b; a = rs.color.a;
@@ -160,6 +174,8 @@ namespace ThorVG
             return Result.Success;
         }
 
+        public Result GetStrokeFill(out byte r, out byte g, out byte b) => GetStrokeFill(out r, out g, out b, out _);
+
         public Result GetStrokeFill(out byte r, out byte g, out byte b, out byte a)
         {
             if (rs.stroke == null) { r = g = b = a = 0; return Result.InsufficientCondition; }
@@ -205,10 +221,12 @@ namespace ThorVG
         {
             if (pattern == null && cnt > 0) return Result.InvalidArguments;
             if (pattern != null && cnt == 0) return Result.InvalidArguments;
+            if (pattern != null && cnt > pattern.Length) return Result.InvalidArguments;
             rs.stroke ??= new RenderStroke();
             if (cnt > 0 && pattern != null)
             {
-                rs.stroke.dashPattern = new float[cnt];
+                if (rs.stroke.dashCount != cnt) rs.stroke.dashPattern = null;
+                rs.stroke.dashPattern ??= new float[cnt];
                 rs.stroke.dashLength = 0.0f;
                 for (uint i = 0; i < cnt; ++i)
                 {
@@ -250,7 +268,7 @@ namespace ThorVG
 
         public unsafe Result AppendPath(PathCommand[]? cmds, uint cmdsCnt, Point[]? pts, uint ptsCnt)
         {
-            if (cmds == null || pts == null || cmdsCnt == 0 || ptsCnt == 0) return Result.InvalidArguments;
+            if (cmds == null || pts == null || cmdsCnt == 0 || ptsCnt == 0 || cmdsCnt > cmds.Length || ptsCnt > pts.Length) return Result.InvalidArguments;
             rs.path.cmds.Grow(cmdsCnt);
             var dst = rs.path.cmds.End();
             for (uint i = 0; i < cmdsCnt; i++) dst[i] = cmds[i];
@@ -263,17 +281,11 @@ namespace ThorVG
             return Result.Success;
         }
 
+        public uint GetStrokeDash(out float[]? pattern) => GetStrokeDash(out pattern, out _);
+
         public uint GetStrokeDash(out float[]? pattern, out float offset)
         {
-            if (rs.stroke == null || rs.stroke.dashCount == 0)
-            {
-                pattern = null;
-                offset = 0.0f;
-                return 0;
-            }
-            pattern = rs.stroke.dashPattern;
-            offset = rs.stroke.dashOffset;
-            return rs.stroke.dashCount;
+            return rs.StrokeDash(out pattern, out offset);
         }
 
         public unsafe Result GetPath(out PathCommand* cmds, out uint cmdsCnt, out Point* pts, out uint ptsCnt)
@@ -296,7 +308,7 @@ namespace ThorVG
         {
             if (NeedComposition(opacity))
             {
-                pImpl.opacity = opacity;
+                compositionOpacity = opacity;
                 opacity = 255;
             }
             pImpl.rd = renderer.Prepare(rs, pImpl.rd, transform, ref clips, opacity, flag, clipper);
@@ -314,7 +326,7 @@ namespace ThorVG
             if (pImpl.cmpFlag != CompositionFlag.Invalid)
             {
                 cmp = renderer.Target(PaintBounds(), renderer.ColorSpaceValue(), pImpl.cmpFlag);
-                renderer.BeginComposite(cmp, MaskMethod.None, pImpl.opacity);
+                renderer.BeginComposite(cmp, MaskMethod.None, compositionOpacity);
             }
 
             var ret = renderer.RenderShape(pImpl.rd);
@@ -333,7 +345,15 @@ namespace ThorVG
         /// </summary>
         internal unsafe bool GeometricBounds(Span<Point> pt4, in Matrix m, bool obb)
         {
-            // Fallback: compute from path data directly
+            if (pImpl.renderer != null && rs.StrokeWidth() > 0.0f &&
+                pImpl.renderer.Bounds(pImpl.rd, pt4, obb ? TvgMath.Identity() : m))
+            {
+                if (obb)
+                    for (int i = 0; i < 4; ++i) pt4[i] = TvgMath.Transform(pt4[i], m);
+                return true;
+            }
+            // Native retains this geometric fallback for unprepared paints
+            // and backends without stroke-outline bounds.
             var box = new BBox();
             fixed (Matrix* mp = &m)
             {
@@ -342,9 +362,9 @@ namespace ThorVG
             if (rs.stroke != null)
             {
                 // Use geometric mean for feathering (matches C++)
-                var sx = (float)Math.Sqrt(m.e11 * m.e11 + m.e21 * m.e21);
-                var sy = (float)Math.Sqrt(m.e12 * m.e12 + m.e22 * m.e22);
-                var feather = rs.stroke.width * (float)Math.Sqrt(sx * sy);
+                var sx = MathF.Sqrt(TvgMath.MultiplyAdd(m.e11, m.e11, m.e21 * m.e21));
+                var sy = MathF.Sqrt(TvgMath.MultiplyAdd(m.e12, m.e12, m.e22 * m.e22));
+                var feather = rs.stroke.width * MathF.Sqrt(sx * sy);
                 box.min.x -= feather * 0.5f;
                 box.min.y -= feather * 0.5f;
                 box.max.x += feather * 0.5f;

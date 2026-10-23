@@ -25,8 +25,31 @@ namespace ThorVG
 
     public static class XmlParser
     {
-        private static readonly string[] XmlEntities = { "&#10;", "&quot;", "&nbsp;", "&apos;", "&amp;", "&lt;", "&gt;", "&#035;", "&#039;" };
-        private static readonly int[] XmlEntityLengths = { 5, 6, 6, 6, 5, 4, 4, 6, 6 };
+        private readonly struct XmlEntity
+        {
+            public readonly string name;
+            public readonly byte length;
+            public readonly char decoded;
+
+            public XmlEntity(string name, byte length, char decoded)
+            {
+                this.name = name;
+                this.length = length;
+                this.decoded = decoded;
+            }
+        }
+
+        private static readonly XmlEntity[] XmlEntities = {
+            new XmlEntity("&#10;", 5, '\n'),
+            new XmlEntity("&#035;", 6, '#'),
+            new XmlEntity("&#039;", 6, '\''),
+            new XmlEntity("&quot;", 6, '"'),
+            new XmlEntity("&nbsp;", 6, ' '),
+            new XmlEntity("&apos;", 6, '\''),
+            new XmlEntity("&amp;", 5, '&'),
+            new XmlEntity("&lt;", 4, '<'),
+            new XmlEntity("&gt;", 4, '>')
+        };
 
         public static string? NodeTypeToString(SvgNodeType type)
         {
@@ -71,83 +94,44 @@ namespace ThorVG
         {
             for (; itr < itrEnd; itr++)
             {
-                if (char.IsWhiteSpace(str[itr])) break;
+                if (SvgUtil.IsWhiteSpace(str[itr])) break;
             }
             return itr;
         }
 
-        private static int SkipXmlEntities(string str, int itr, int itrEnd)
+        private static int FindEntity(string str, int itr, int itrEnd)
         {
-            var p = itr;
-            while (itr < itrEnd && str[itr] == '&')
+            for (int i = 0; i < XmlEntities.Length; ++i)
             {
-                bool found = false;
-                for (int i = 0; i < XmlEntities.Length; i++)
+                var entity = XmlEntities[i];
+                if (itrEnd - itr >= entity.length &&
+                    str.AsSpan(itr, entity.length).SequenceEqual(entity.name.AsSpan()))
                 {
-                    if (itr + XmlEntityLengths[i] <= itrEnd &&
-                        str.AsSpan(itr, XmlEntityLengths[i]).SequenceEqual(XmlEntities[i].AsSpan()))
-                    {
-                        itr += XmlEntityLengths[i];
-                        found = true;
-                        break;
-                    }
+                    return i;
                 }
-                if (!found) break;
-                if (itr == p) break;
-                p = itr;
             }
-            return itr;
+            return -1;
         }
 
-        private static int UnskipXmlEntities(string str, int itr, int itrStart)
+        private static string DecodeEntities(string str, int itr, int itrEnd)
         {
-            var p = itr;
-            while (itr > itrStart && str[itr - 1] == ';')
+            var decoded = new char[itrEnd - itr];
+            int dst = 0;
+            while (itr < itrEnd)
             {
-                bool found = false;
-                for (int i = 0; i < XmlEntities.Length; i++)
+                int index = str[itr] == '&' ? FindEntity(str, itr, itrEnd) : -1;
+                if (index < 0)
                 {
-                    if (itr - XmlEntityLengths[i] > itrStart &&
-                        str.AsSpan(itr - XmlEntityLengths[i], XmlEntityLengths[i]).SequenceEqual(XmlEntities[i].AsSpan()))
-                    {
-                        itr -= XmlEntityLengths[i];
-                        found = true;
-                        break;
-                    }
+                    decoded[dst++] = str[itr++];
                 }
-                if (!found) break;
-                if (itr == p) break;
-                p = itr;
+                else
+                {
+                    var entity = XmlEntities[index];
+                    decoded[dst++] = entity.decoded;
+                    itr += entity.length;
+                }
             }
-            return itr;
-        }
-
-        private static int SkipWhiteSpacesAndXmlEntities(string str, int itr, int itrEnd)
-        {
-            itr = SvgUtil.SkipWhiteSpace(str, itr, itrEnd);
-            var p = itr;
-            while (true)
-            {
-                var n = SkipXmlEntities(str, itr, itrEnd);
-                if (n != p) { itr = n; p = itr; } else break;
-                n = SvgUtil.SkipWhiteSpace(str, itr, itrEnd);
-                if (n != p) { itr = n; p = itr; } else break;
-            }
-            return itr;
-        }
-
-        private static int UnskipWhiteSpacesAndXmlEntities(string str, int itr, int itrStart)
-        {
-            itr = SvgUtil.UnskipWhiteSpace(str, itr, itrStart);
-            var p = itr;
-            while (true)
-            {
-                var n = UnskipXmlEntities(str, itr, itrStart);
-                if (n != p) { itr = n; p = itr; } else break;
-                n = SvgUtil.UnskipWhiteSpace(str, itr, itrStart);
-                if (n != p) { itr = n; p = itr; } else break;
-            }
-            return itr;
+            return new string(decoded, 0, dst);
         }
 
         private static int FindStartTag(string str, int itr, int itrEnd)
@@ -218,7 +202,7 @@ namespace ThorVG
             else if (str[itr + 1] == '!')
             {
                 if (itr + 9 < itrEnd && str.AsSpan(itr + 2, 7).SequenceEqual("DOCTYPE".AsSpan()) &&
-                    (itr + 9 >= itrEnd || str[itr + 9] == '>' || char.IsWhiteSpace(str[itr + 9])))
+                    (itr + 9 >= itrEnd || str[itr + 9] == '>' || SvgUtil.IsWhiteSpace(str[itr + 9])))
                 {
                     toff = 8; // "!DOCTYPE".Length
                     return XMLType.Doctype;
@@ -245,19 +229,21 @@ namespace ThorVG
 
         public static bool ParseAttributes(string buf, int bufOffset, int bufLength, XmlAttributeCb func, SvgParserContext data)
         {
+            if (buf == null || func == null) return false;
+
             int itr = bufOffset;
             int itrEnd = bufOffset + bufLength;
 
             while (itr < itrEnd)
             {
-                int p = SkipWhiteSpacesAndXmlEntities(buf, itr, itrEnd);
+                int p = SvgUtil.SkipWhiteSpace(buf, itr, itrEnd);
                 if (p == itrEnd) return true;
 
                 int key = p;
                 int keyEnd = key;
                 for (; keyEnd < itrEnd; keyEnd++)
                 {
-                    if (buf[keyEnd] == '=' || char.IsWhiteSpace(buf[keyEnd])) break;
+                    if (buf[keyEnd] == '=' || SvgUtil.IsWhiteSpace(buf[keyEnd])) break;
                 }
                 if (keyEnd == itrEnd) return false;
                 if (keyEnd == key) { itr = keyEnd + 1; continue; }
@@ -270,9 +256,7 @@ namespace ThorVG
                     if (eqIdx < 0) return false;
                     valueStart = eqIdx + 1;
                 }
-                keyEnd = UnskipXmlEntities(buf, keyEnd, key);
-
-                valueStart = SkipWhiteSpacesAndXmlEntities(buf, valueStart, itrEnd);
+                valueStart = SvgUtil.SkipWhiteSpace(buf, valueStart, itrEnd);
                 if (valueStart == itrEnd) return false;
 
                 int valueEnd;
@@ -288,24 +272,13 @@ namespace ThorVG
                     valueEnd = FindWhiteSpace(buf, valueStart, itrEnd);
                 }
 
-                itr = valueEnd + 1;
+                itr = valueEnd < itrEnd ? valueEnd + 1 : valueEnd;
 
-                valueStart = SkipWhiteSpacesAndXmlEntities(buf, valueStart, itrEnd);
-                valueEnd = UnskipWhiteSpacesAndXmlEntities(buf, valueEnd, valueStart);
+                valueStart = SvgUtil.SkipWhiteSpace(buf, valueStart, valueEnd);
+                if (valueStart < valueEnd) valueEnd = SvgUtil.UnskipWhiteSpace(buf, valueEnd, valueStart);
 
                 var keyStr = buf.Substring(key, keyEnd - key);
-
-                // Build value, skipping XML entities
-                var valChars = new char[valueEnd - valueStart];
-                int vi = 0;
-                int vpos = valueStart;
-                while (vpos < valueEnd)
-                {
-                    vpos = SkipXmlEntities(buf, vpos, valueEnd);
-                    if (vpos < valueEnd)
-                        valChars[vi++] = buf[vpos++];
-                }
-                var valStr = new string(valChars, 0, vi);
+                var valStr = SvgUtil.Trim(DecodeEntities(buf, valueStart, valueEnd));
 
                 func(data, keyStr, valStr);
             }
@@ -357,8 +330,8 @@ namespace ThorVG
 
                         if (strip && type != XMLType.CData)
                         {
-                            start = SkipWhiteSpacesAndXmlEntities(buf, start, end);
-                            end = UnskipWhiteSpacesAndXmlEntities(buf, end, start);
+                            start = SvgUtil.SkipWhiteSpace(buf, start, end);
+                            end = SvgUtil.UnskipWhiteSpace(buf, end, start);
                         }
 
                         if (!func(data, type, buf, start, end - start)) return false;
@@ -377,7 +350,7 @@ namespace ThorVG
 
                     if (strip && data.openedTag != OpenedTagType.Text)
                     {
-                        p = SkipWhiteSpacesAndXmlEntities(buf, itr, itrEnd);
+                        p = SvgUtil.SkipWhiteSpace(buf, itr, itrEnd);
                         if (p > itr)
                         {
                             if (!func(data, XMLType.Ignored, buf, itr, p - itr)) return false;
@@ -390,9 +363,18 @@ namespace ThorVG
 
                     end = p;
                     if (strip && data.openedTag != OpenedTagType.Text)
-                        end = UnskipWhiteSpacesAndXmlEntities(buf, end, itr);
+                        end = SvgUtil.UnskipWhiteSpace(buf, end, itr);
 
-                    if (itr != end && !func(data, XMLType.Data, buf, itr, end - itr)) return false;
+                    if (itr != end)
+                    {
+                        int dataLength = end - itr;
+                        if (buf.IndexOf('&', itr, dataLength) >= 0)
+                        {
+                            var decoded = DecodeEntities(buf, itr, end);
+                            if (!func(data, XMLType.Data, decoded, 0, decoded.Length)) return false;
+                        }
+                        else if (!func(data, XMLType.Data, buf, itr, dataLength)) return false;
+                    }
 
                     if (strip && end < p && !func(data, XMLType.Ignored, buf, end, p - end)) return false;
 
@@ -418,9 +400,9 @@ namespace ThorVG
                 if (sep >= 0)
                 {
                     var srcIdx = buf.IndexOf("src", pos, sep - pos, StringComparison.Ordinal);
-                    if (srcIdx >= 0 && srcIdx < sep)
+                    if (srcIdx >= 0 && srcIdx < sep && next >= 0)
                     {
-                        if (next >= 0 && next + 1 < end)
+                        if (next + 1 < end)
                             next = buf.IndexOf(';', next + 1, end - next - 1);
                         else break;
                     }
@@ -449,8 +431,8 @@ namespace ThorVG
 
                 if (key.Length > 0)
                 {
-                    key = key.Trim();
-                    val = val.Trim();
+                    key = SvgUtil.Trim(key);
+                    val = SvgUtil.Trim(val);
                     func(data, key, val);
                 }
 
@@ -508,18 +490,16 @@ namespace ThorVG
 
             for (; itr < itrEnd; itr++)
             {
-                if (!char.IsWhiteSpace(buf[itr]))
+                if (!SvgUtil.IsWhiteSpace(buf[itr]))
                 {
                     if (buf[itr] == '=') return bufOffset;
                 }
                 else
                 {
-                    itr = UnskipXmlEntities(buf, itr, bufOffset);
-                    if (itr == itrEnd) return -1;
                     return itr;
                 }
             }
-            return -1;
+            return itrEnd;
         }
     }
 }

@@ -53,6 +53,15 @@ namespace ThorVG
         public unsafe fixed ushort m_next[256];
     }
 
+    internal unsafe struct GifBoxes
+    {
+        public fixed long sse[255];
+        public fixed int start[255];
+        public fixed int len[255];
+        public fixed byte axis[255];
+        public fixed byte avg[255 * 3];
+    }
+
     /************************************************************************/
     /* GIF Encoder                                                          */
     /************************************************************************/
@@ -61,6 +70,8 @@ namespace ThorVG
         private const int TRANSPARENT_IDX = 0;
         private const int TRANSPARENT_THRESHOLD = 127;
         private const int BIT_DEPTH = 8;
+        private const int LEAF_NODE = 0xff;
+        private const int MAX_PAL_COLORS = (1 << BIT_DEPTH) - 1;
 
         /************************************************************************/
         /* Internal Class Implementation                                        */
@@ -73,9 +84,9 @@ namespace ThorVG
         private static void _getClosestPaletteColor(GifPalette* pPal, int r, int g, int b, int* bestInd, int* bestDiff, int treeRoot)
         {
             // base case, reached the bottom of the tree
-            if (treeRoot > (1 << BIT_DEPTH) - 1)
+            if (treeRoot > (1 << BIT_DEPTH) - 1 || pPal->treeSplitElt[treeRoot] == LEAF_NODE)
             {
-                int ind = treeRoot - (1 << BIT_DEPTH);
+                int ind = treeRoot > (1 << BIT_DEPTH) - 1 ? treeRoot - (1 << BIT_DEPTH) : pPal->treeSplit[treeRoot];
                 if (ind == TRANSPARENT_IDX) return;
 
                 // check whether this color is better than the current winner
@@ -122,199 +133,170 @@ namespace ThorVG
             }
         }
 
-        private static void _swapPixels(byte* image, int pixA, int pixB)
+        private static void _swapPixels(byte* image, int pixA, int pixB, int stride)
         {
-            byte rA = image[pixA * 4];
-            byte gA = image[pixA * 4 + 1];
-            byte bA = image[pixA * 4 + 2];
-            byte aA = image[pixA * 4 + 3];
-
-            byte rB = image[pixB * 4];
-            byte gB = image[pixB * 4 + 1];
-            byte bB = image[pixB * 4 + 2];
-            byte aB = image[pixA * 4 + 3]; // Note: matches C++ bug - reads pixA not pixB
-
-            image[pixA * 4] = rB;
-            image[pixA * 4 + 1] = gB;
-            image[pixA * 4 + 2] = bB;
-            image[pixA * 4 + 3] = aB;
-
-            image[pixB * 4] = rA;
-            image[pixB * 4 + 1] = gA;
-            image[pixB * 4 + 2] = bA;
-            image[pixB * 4 + 3] = aA;
+            for (int cc = 0; cc < stride; ++cc)
+            {
+                byte temporary = image[pixA * stride + cc];
+                image[pixA * stride + cc] = image[pixB * stride + cc];
+                image[pixB * stride + cc] = temporary;
+            }
         }
 
-        // just the partition operation from quicksort
-        private static int _partition(byte* image, int left, int right, int elt, int pivotIndex)
+        private static int _partitionByValue(byte* image, int numPixels, int elt, int splitVal)
         {
-            int pivotValue = image[(pivotIndex) * 4 + elt];
-            _swapPixels(image, pivotIndex, right - 1);
-            int storeIndex = left;
-            bool split = false;
-
-            for (int ii = left; ii < right - 1; ++ii)
+            int storeIndex = 0;
+            for (int ii = 0; ii < numPixels; ++ii)
             {
-                int arrayVal = image[ii * 4 + elt];
-                if (arrayVal < pivotValue)
+                if (image[ii * 4 + elt] < splitVal)
                 {
-                    _swapPixels(image, ii, storeIndex);
+                    _swapPixels(image, ii, storeIndex, 4);
                     ++storeIndex;
                 }
-                else if (arrayVal == pivotValue)
-                {
-                    if (split)
-                    {
-                        _swapPixels(image, ii, storeIndex);
-                        ++storeIndex;
-                    }
-
-                    split = !split;
-                }
             }
-
-            _swapPixels(image, storeIndex, right - 1);
             return storeIndex;
         }
 
-        // Perform an incomplete sort, finding all elements above and below the desired median
-        private static void _partitionByMedian(byte* image, int left, int right, int com, int neededCenter)
+        private static int _findMedianValue(byte* data, int count, int axis, int stride, int* below)
         {
-            if (left < right - 1)
+            uint* hist = stackalloc uint[256];
+            new Span<uint>(hist, 256).Clear();
+            for (int ii = 0; ii < count; ++ii) ++hist[data[ii * stride + axis]];
+            int acc = 0;
+            for (int v = 0; v < 256; ++v)
             {
-                int pivotIndex = left + (right - left) / 2;
-                pivotIndex = _partition(image, left, right, com, pivotIndex);
-
-                // Only "sort" the section of the array that contains the median
-                if (pivotIndex > neededCenter) _partitionByMedian(image, left, pivotIndex, com, neededCenter);
-                if (pivotIndex < neededCenter) _partitionByMedian(image, pivotIndex + 1, right, com, neededCenter);
-            }
-        }
-
-        // Builds a palette by creating a balanced k-d tree of all pixels in the image
-        private static void _splitPalette(byte* image, int numPixels, int firstElt, int lastElt, int splitElt, int splitDist, int treeNode, GifPalette* pal)
-        {
-            if (lastElt <= firstElt || numPixels == 0) return;
-
-            // base case, bottom of the tree
-            if (lastElt == firstElt + 1)
-            {
-                // otherwise, take the average of all colors in this subcube
-                ulong r = 0, g = 0, b = 0;
-                for (int ii = 0; ii < numPixels; ++ii)
+                acc += (int)hist[v];
+                if (acc > count / 2)
                 {
-                    r += image[ii * 4 + 0];
-                    g += image[ii * 4 + 1];
-                    b += image[ii * 4 + 2];
+                    if (below != null) *below = acc - (int)hist[v];
+                    return v;
                 }
-
-                r += (ulong)numPixels / 2; // round to nearest
-                g += (ulong)numPixels / 2;
-                b += (ulong)numPixels / 2;
-
-                r /= (ulong)numPixels;
-                g /= (ulong)numPixels;
-                b /= (ulong)numPixels;
-
-                pal->r[firstElt] = (byte)r;
-                pal->g[firstElt] = (byte)g;
-                pal->b[firstElt] = (byte)b;
-                return;
             }
-
-            // Find the axis with the largest range
-            int minR = 255, maxR = 0;
-            int minG = 255, maxG = 0;
-            int minB = 255, maxB = 0;
-
-            for (int ii = 0; ii < numPixels; ++ii)
-            {
-                int rv = image[ii * 4 + 0];
-                int gv = image[ii * 4 + 1];
-                int bv = image[ii * 4 + 2];
-
-                if (rv > maxR) maxR = rv;
-                if (rv < minR) minR = rv;
-
-                if (gv > maxG) maxG = gv;
-                if (gv < minG) minG = gv;
-
-                if (bv > maxB) maxB = bv;
-                if (bv < minB) minB = bv;
-            }
-
-            int rRange = maxR - minR;
-            int gRange = maxG - minG;
-            int bRange = maxB - minB;
-
-            // and split along that axis
-            int splitCom = 1;
-            if (bRange > gRange) splitCom = 2;
-            if (rRange > bRange && rRange > gRange) splitCom = 0;
-
-            int subPixelsA = numPixels * (splitElt - firstElt) / (lastElt - firstElt);
-            int subPixelsB = numPixels - subPixelsA;
-
-            _partitionByMedian(image, 0, numPixels, splitCom, subPixelsA);
-
-            pal->treeSplitElt[treeNode] = (byte)splitCom;
-            pal->treeSplit[treeNode] = image[subPixelsA * 4 + splitCom];
-
-            _splitPalette(image, subPixelsA, firstElt, splitElt, splitElt - splitDist, splitDist / 2, treeNode * 2, pal);
-            _splitPalette(image + subPixelsA * 4, subPixelsB, splitElt, lastElt, splitElt + splitDist, splitDist / 2, treeNode * 2 + 1, pal);
+            return 0;
         }
 
-        // Finds all pixels that have changed from the previous image and
-        // moves them to the front of the buffer.
+        private static void _computeBoxStats(byte* image, GifBoxes* boxes, int idx)
+        {
+            var pixels = image + boxes->start[idx] * 4;
+            long* sum = stackalloc long[3];
+            long* sqsum = stackalloc long[3];
+            new Span<long>(sum, 3).Clear(); new Span<long>(sqsum, 3).Clear();
+            int len = boxes->len[idx];
+            for (int ii = 0; ii < len; ++ii)
+            {
+                for (int cc = 0; cc < 3; ++cc)
+                {
+                    long v = pixels[ii * 4 + cc];
+                    sum[cc] += v; sqsum[cc] += v * v;
+                }
+            }
+            long worst = -1;
+            boxes->sse[idx] = 0; boxes->axis[idx] = 0;
+            for (int cc = 0; cc < 3; ++cc)
+            {
+                long q = sum[cc] / len, r = sum[cc] % len;
+                long sqerr = sqsum[cc] - (q * q * len + 2 * q * r + r * r / len);
+                boxes->sse[idx] += sqerr;
+                if (sqerr > worst) { worst = sqerr; boxes->axis[idx] = (byte)cc; }
+                boxes->avg[idx * 3 + cc] = (byte)((sum[cc] + len / 2) / len);
+            }
+        }
+
+        private static void _splitBox(byte* image, GifBoxes* boxes, int idx, int rhsIdx)
+        {
+            var pixels = image + boxes->start[idx] * 4;
+            int below = -1;
+            int splitVal = _findMedianValue(pixels, boxes->len[idx], boxes->axis[idx], 4, &below);
+            if (below == 0) ++splitVal;
+            int left = _partitionByValue(pixels, boxes->len[idx], boxes->axis[idx], splitVal);
+            boxes->start[rhsIdx] = boxes->start[idx] + left;
+            boxes->len[rhsIdx] = boxes->len[idx] - left;
+            boxes->len[idx] = left;
+            _computeBoxStats(image, boxes, idx); _computeBoxStats(image, boxes, rhsIdx);
+        }
+
         private static int _pickChangedPixels(byte* lastFrame, byte* frame, int numPixels, bool transparent)
         {
             int numChanged = 0;
             byte* writeIter = frame;
-
             for (int ii = 0; ii < numPixels; ++ii)
             {
-                if (frame[3] >= TRANSPARENT_THRESHOLD)
+                if (frame[3] >= TRANSPARENT_THRESHOLD &&
+                    (lastFrame == null || transparent || lastFrame[0] != frame[0] || lastFrame[1] != frame[1] || lastFrame[2] != frame[2]))
                 {
-                    if (transparent || (lastFrame[0] != frame[0] || lastFrame[1] != frame[1] || lastFrame[2] != frame[2]))
-                    {
-                        writeIter[0] = frame[0];
-                        writeIter[1] = frame[1];
-                        writeIter[2] = frame[2];
-                        ++numChanged;
-                        writeIter += 4;
-                    }
+                    writeIter[0] = frame[0]; writeIter[1] = frame[1]; writeIter[2] = frame[2];
+                    ++numChanged; writeIter += 4;
                 }
-
-                lastFrame += 4;
+                if (lastFrame != null) lastFrame += 4;
                 frame += 4;
             }
-
             return numChanged;
         }
 
-        // Creates a palette by placing all the image pixels in a k-d tree and then averaging the blocks at the bottom.
-        // This is known as the "modified median split" technique
-        private static void _makePalette(GifWriter writer, byte* lastFrame, byte* nextFrame, uint width, uint height, int bitDepth, bool transparent)
+        private static void _buildSearchTree(GifPalette* pal, byte* colors, int count, int firstElt, int lastElt, int treeRoot)
+        {
+            if (count == 1)
+            {
+                pal->r[firstElt] = colors[0]; pal->g[firstElt] = colors[1]; pal->b[firstElt] = colors[2];
+                if (treeRoot <= (1 << BIT_DEPTH) - 1)
+                {
+                    pal->treeSplitElt[treeRoot] = LEAF_NODE;
+                    pal->treeSplit[treeRoot] = (byte)firstElt;
+                }
+                return;
+            }
+            byte* min = stackalloc byte[3] {255, 255, 255};
+            byte* max = stackalloc byte[3] {0, 0, 0};
+            for (int ii = 0; ii < count; ++ii)
+            {
+                for (int cc = 0; cc < 3; ++cc)
+                {
+                    if (colors[ii * 3 + cc] < min[cc]) min[cc] = colors[ii * 3 + cc];
+                    if (colors[ii * 3 + cc] > max[cc]) max[cc] = colors[ii * 3 + cc];
+                }
+            }
+            int axis = 0;
+            for (int cc = 1; cc < 3; ++cc) if (max[cc] - min[cc] > max[axis] - min[axis]) axis = cc;
+            int splitVal = _findMedianValue(colors, count, axis, 3, null);
+            int low = 0, mid = 0, high = count;
+            while (mid < high)
+            {
+                int v = colors[mid * 3 + axis];
+                if (v < splitVal) { _swapPixels(colors, mid, low, 3); ++low; ++mid; }
+                else if (v > splitVal) { --high; _swapPixels(colors, mid, high, 3); }
+                else ++mid;
+            }
+            int splitElt = (firstElt + lastElt) / 2;
+            pal->treeSplitElt[treeRoot] = (byte)axis; pal->treeSplit[treeRoot] = (byte)splitVal;
+            _buildSearchTree(pal, colors, count / 2, firstElt, splitElt, treeRoot * 2);
+            _buildSearchTree(pal, colors + count / 2 * 3, count - count / 2, splitElt, lastElt, treeRoot * 2 + 1);
+        }
+
+        private static void _makePalette(GifWriter writer, byte* lastFrame, byte* nextFrame, uint width, uint height, bool transparent)
         {
             fixed (GifPalette* pal = &writer.pal)
             fixed (byte* tmpImage = writer.tmpImage)
             {
-                nuint imageSize = (nuint)(width * height * 4);
+                nuint imageSize = (nuint)width * height * 4;
                 Buffer.MemoryCopy(nextFrame, tmpImage, imageSize, imageSize);
-
-                int numPixels = (int)(width * height);
-                if (lastFrame != null) numPixels = _pickChangedPixels(lastFrame, tmpImage, numPixels, transparent);
-
-                int lastElt = 1 << bitDepth;
-                int splitElt = lastElt / 2;
-                int splitDist = splitElt / 2;
-
-                _splitPalette(tmpImage, numPixels, 1, lastElt, splitElt, splitDist, 1, pal);
-
-                // add the bottom node for the transparency index
-                pal->treeSplit[1 << (bitDepth - 1)] = 0;
-                pal->treeSplitElt[1 << (bitDepth - 1)] = 0;
-                pal->r[0] = pal->g[0] = pal->b[0] = 0;
+                int numPixels = _pickChangedPixels(lastFrame, tmpImage, (int)(width * height), transparent);
+                if (numPixels == 0) return;
+                GifBoxes boxes = default;
+                boxes.start[0] = 0; boxes.len[0] = numPixels;
+                _computeBoxStats(tmpImage, &boxes, 0);
+                int numBoxes = 1;
+                while (numBoxes < MAX_PAL_COLORS)
+                {
+                    int target = -1; long worst = 0;
+                    for (int ii = 0; ii < numBoxes; ++ii)
+                    {
+                        if (boxes.sse[ii] > worst) { worst = boxes.sse[ii]; target = ii; }
+                    }
+                    if (target < 0) break;
+                    _splitBox(tmpImage, &boxes, target, numBoxes);
+                    ++numBoxes;
+                }
+                _buildSearchTree(pal, boxes.avg, numBoxes, 1, 1 << BIT_DEPTH, 1);
             }
         }
 
@@ -573,7 +555,7 @@ namespace ThorVG
         {
             try
             {
-                writer.f = new BufferedStream(new FileStream(filename, FileMode.Create, FileAccess.Write), 65536);
+                writer.f = new BufferedStream(TvgUtf8.Create(filename), 65536);
             }
             catch
             {
@@ -581,6 +563,7 @@ namespace ThorVG
             }
 
             writer.firstFrame = true;
+            writer.pal = default;
 
             // allocate
             writer.oldImage = new byte[width * height * 4];
@@ -632,31 +615,12 @@ namespace ThorVG
         {
             if (writer.f == null) return false;
 
-            byte* oldImage = writer.firstFrame ? null : null;
-            if (!writer.firstFrame)
+            fixed (byte* oldImage = writer.oldImage)
             {
-                fixed (byte* oldImgPtr = writer.oldImage)
-                {
-                    oldImage = oldImgPtr;
-                }
-            }
-
-            writer.firstFrame = false;
-
-            // We need to pin oldImage for the duration of palette/threshold/write
-            if (oldImage != null)
-            {
-                fixed (byte* oldImgPtr = writer.oldImage)
-                {
-                    _makePalette(writer, oldImgPtr, image, width, height, 8, transparent);
-                    _thresholdImage(writer, oldImgPtr, image, width, height, transparent);
-                    _writeLzwImage(writer, width, height, delay, transparent);
-                }
-            }
-            else
-            {
-                _makePalette(writer, null, image, width, height, 8, transparent);
-                _thresholdImage(writer, null, image, width, height, transparent);
+                var previous = writer.firstFrame ? null : oldImage;
+                writer.firstFrame = false;
+                _makePalette(writer, previous, image, width, height, transparent);
+                _thresholdImage(writer, previous, image, width, height, transparent);
                 _writeLzwImage(writer, width, height, delay, transparent);
             }
 

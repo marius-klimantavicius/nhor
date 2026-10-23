@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native126complete ordinary builder records captured before managed corrections. Only valid finite SVG geometry/features, normal XML, colors, transformations/units, gradient inheritance and supported features; no corruption/malformed/fuzz/UTF8 byte fixtures.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "svg-builder-normal-before.json",
+      "correctedEvidence": "svg-builder-normal-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04.json",
+        "sha256": "3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04",
+        "archive": "docs/thorvg-update/source-snapshots/3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04.tar.gz"
+      },
+      "bytes": 7708,
+      "sha256": "9139994667b9c498ffd98488602e0f9accfc42d60a809c9fa8fd037d2d8f00ee",
+      "records": 126
+    },
+    "arm64": {
+      "nativeOrigin": "arm-svg-builder-normal-before.json",
+      "correctedEvidence": "arm-svg-builder-normal-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04.json",
+        "sha256": "3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04",
+        "archive": "docs/thorvg-update/source-snapshots/3b5def6d90202f6f929a57f03f4893dc0ac20d3af4a45c8cfd14047008046d04.tar.gz"
+      },
+      "bytes": 7708,
+      "sha256": "f5bc08eddfdb2d11122530cb10f8047dff2d1151f2473300d193b529d305573f",
+      "records": 126
+    }
+  },
+  "parentReview": "pending"
+}

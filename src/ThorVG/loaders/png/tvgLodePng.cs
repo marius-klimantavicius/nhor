@@ -63,11 +63,17 @@ namespace ThorVG
         LCT_MAX_OCTET_VALUE = 255
     }
 
+    internal delegate uint LodePNGCustomDecompress(ref byte[]? output, ref int outputSize,
+        byte[] input, int inputOffset, int inputSize, LodePNGDecompressSettings settings);
+
     /// <summary>Settings for zlib decompression.</summary>
     internal class LodePNGDecompressSettings
     {
         public uint ignore_adler32;
         public uint ignore_nlen;
+        public LodePNGCustomDecompress? custom_zlib;
+        public LodePNGCustomDecompress? custom_inflate;
+        public object? custom_context;
     }
 
     /// <summary>Color mode of an image.</summary>
@@ -90,6 +96,10 @@ namespace ThorVG
         public uint filter_method;
         public uint interlace_method;
         public LodePNGColorMode color = new LodePNGColorMode();
+        public uint iccp_defined;
+        public byte[]? iccp_name;
+        public byte[]? iccp_profile;
+        public int iccp_profile_size;
     }
 
     /// <summary>Settings for the decoder.</summary>
@@ -114,7 +124,7 @@ namespace ThorVG
     /// <summary>
     /// LodePNG-compatible PNG decoder. Line-by-line port of the C++ LodePNG library.
     /// </summary>
-    public static class LodePng
+    public static partial class LodePng
     {
         /************************************************************************/
         /* Internal Class Implementation                                        */
@@ -206,6 +216,7 @@ namespace ThorVG
         private class LodePNGBitReader
         {
             public byte[] data = Array.Empty<byte>();
+            public int dataOffset;
             public int size;       /*size of data in bytes*/
             public long bitsize;   /*size of data in bits*/
             public long bp;
@@ -215,16 +226,9 @@ namespace ThorVG
         /* data size argument is in bytes. Returns error if size too large causing overflow */
         private static uint LodePNGBitReader_init(LodePNGBitReader reader, byte[] data, int dataOffset, int size)
         {
-            /* Store data from offset into the reader. We copy the relevant slice. */
-            if (dataOffset == 0)
-            {
-                reader.data = data;
-            }
-            else
-            {
-                reader.data = new byte[size];
-                Array.Copy(data, dataOffset, reader.data, 0, size);
-            }
+            // Retain the same source slice as the native pointer, without copying compressed input.
+            reader.data = data;
+            reader.dataOffset = dataOffset;
             reader.size = size;
             if (lodepng_mulofl(size, 8, out reader.bitsize)) return 105;
             if (lodepng_addofl(reader.bitsize, 64, out _)) return 105;
@@ -240,14 +244,14 @@ namespace ThorVG
             int size = reader.size;
             if (start + 1 < size)
             {
-                reader.buffer = (uint)reader.data[start] | ((uint)reader.data[start + 1] << 8);
+                reader.buffer = (uint)reader.data[reader.dataOffset + start] | ((uint)reader.data[reader.dataOffset + start + 1] << 8);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return true;
             }
             else
             {
                 reader.buffer = 0;
-                if (start + 0 < size) reader.buffer |= reader.data[start];
+                if (start + 0 < size) reader.buffer |= reader.data[reader.dataOffset + start];
                 reader.buffer >>= (int)(reader.bp & 7);
                 return reader.bp + nbits <= reader.bitsize;
             }
@@ -260,17 +264,17 @@ namespace ThorVG
             int size = reader.size;
             if (start + 2 < size)
             {
-                reader.buffer = (uint)reader.data[start] |
-                                ((uint)reader.data[start + 1] << 8) |
-                                ((uint)reader.data[start + 2] << 16);
+                reader.buffer = (uint)reader.data[reader.dataOffset + start] |
+                                ((uint)reader.data[reader.dataOffset + start + 1] << 8) |
+                                ((uint)reader.data[reader.dataOffset + start + 2] << 16);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return true;
             }
             else
             {
                 reader.buffer = 0;
-                if (start + 0 < size) reader.buffer |= reader.data[start];
-                if (start + 1 < size) reader.buffer |= ((uint)reader.data[start + 1] << 8);
+                if (start + 0 < size) reader.buffer |= reader.data[reader.dataOffset + start];
+                if (start + 1 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 1] << 8);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return reader.bp + nbits <= reader.bitsize;
             }
@@ -284,19 +288,19 @@ namespace ThorVG
             int size = reader.size;
             if (start + 3 < size)
             {
-                reader.buffer = (uint)reader.data[start] |
-                                ((uint)reader.data[start + 1] << 8) |
-                                ((uint)reader.data[start + 2] << 16) |
-                                ((uint)reader.data[start + 3] << 24);
+                reader.buffer = (uint)reader.data[reader.dataOffset + start] |
+                                ((uint)reader.data[reader.dataOffset + start + 1] << 8) |
+                                ((uint)reader.data[reader.dataOffset + start + 2] << 16) |
+                                ((uint)reader.data[reader.dataOffset + start + 3] << 24);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return true;
             }
             else
             {
                 reader.buffer = 0;
-                if (start + 0 < size) reader.buffer |= reader.data[start];
-                if (start + 1 < size) reader.buffer |= ((uint)reader.data[start + 1] << 8);
-                if (start + 2 < size) reader.buffer |= ((uint)reader.data[start + 2] << 16);
+                if (start + 0 < size) reader.buffer |= reader.data[reader.dataOffset + start];
+                if (start + 1 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 1] << 8);
+                if (start + 2 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 2] << 16);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return reader.bp + nbits <= reader.bitsize;
             }
@@ -310,21 +314,21 @@ namespace ThorVG
             int size = reader.size;
             if (start + 4 < size)
             {
-                reader.buffer = (uint)reader.data[start] |
-                                ((uint)reader.data[start + 1] << 8) |
-                                ((uint)reader.data[start + 2] << 16) |
-                                ((uint)reader.data[start + 3] << 24);
+                reader.buffer = (uint)reader.data[reader.dataOffset + start] |
+                                ((uint)reader.data[reader.dataOffset + start + 1] << 8) |
+                                ((uint)reader.data[reader.dataOffset + start + 2] << 16) |
+                                ((uint)reader.data[reader.dataOffset + start + 3] << 24);
                 reader.buffer >>= (int)(reader.bp & 7);
-                reader.buffer |= ((uint)reader.data[start + 4] << 24) << (int)(8 - (reader.bp & 7));
+                reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 4] << 24) << (int)(8 - (reader.bp & 7));
                 return true;
             }
             else
             {
                 reader.buffer = 0;
-                if (start + 0 < size) reader.buffer |= reader.data[start];
-                if (start + 1 < size) reader.buffer |= ((uint)reader.data[start + 1] << 8);
-                if (start + 2 < size) reader.buffer |= ((uint)reader.data[start + 2] << 16);
-                if (start + 3 < size) reader.buffer |= ((uint)reader.data[start + 3] << 24);
+                if (start + 0 < size) reader.buffer |= reader.data[reader.dataOffset + start];
+                if (start + 1 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 1] << 8);
+                if (start + 2 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 2] << 16);
+                if (start + 3 < size) reader.buffer |= ((uint)reader.data[reader.dataOffset + start + 3] << 24);
                 reader.buffer >>= (int)(reader.bp & 7);
                 return reader.bp + nbits <= reader.bitsize;
             }
@@ -352,6 +356,23 @@ namespace ThorVG
             uint result = peekBits(reader, nbits);
             advanceBits(reader, nbits);
             return result;
+        }
+
+        // Native helper is exported for testing only; preserve its ordinary bit-step behavior.
+        internal static bool TestBitReader(byte[] data, ReadOnlySpan<int> steps, Span<uint> result)
+        {
+            var reader = new LodePNGBitReader();
+            if (LodePNGBitReader_init(reader, data, 0, data.Length) != 0) return false;
+            for (int i = 0; i < steps.Length; ++i)
+            {
+                int step = steps[i];
+                bool ok = step > 25 ? ensureBits32(reader, step) :
+                    step > 17 ? ensureBits25(reader, step) :
+                    step > 9 ? ensureBits17(reader, step) : ensureBits9(reader, step);
+                if (!ok) return false;
+                result[i] = readBits(reader, step);
+            }
+            return true;
         }
 
         private static uint reverseBits(uint bits, uint num)
@@ -815,8 +836,8 @@ namespace ThorVG
             bytepos = (reader.bp + 7) >> 3;
 
             if (bytepos + 4 >= size) return 52;
-            uint LEN = (uint)reader.data[bytepos] + ((uint)reader.data[bytepos + 1] << 8); bytepos += 2;
-            uint NLEN = (uint)reader.data[bytepos] + ((uint)reader.data[bytepos + 1] << 8); bytepos += 2;
+            uint LEN = (uint)reader.data[reader.dataOffset + bytepos] + ((uint)reader.data[reader.dataOffset + bytepos + 1] << 8); bytepos += 2;
+            uint NLEN = (uint)reader.data[reader.dataOffset + bytepos] + ((uint)reader.data[reader.dataOffset + bytepos + 1] << 8); bytepos += 2;
 
             if (settings.ignore_nlen == 0 && LEN + NLEN != 65535) return 21;
 
@@ -824,7 +845,7 @@ namespace ThorVG
 
             if (bytepos + LEN > size) return 23;
 
-            Array.Copy(reader.data, (int)bytepos, outv.data, (int)(outv.size - LEN), (int)LEN);
+            Array.Copy(reader.data, reader.dataOffset + (int)bytepos, outv.data, (int)(outv.size - LEN), (int)LEN);
             bytepos += LEN;
 
             reader.bp = bytepos << 3;
@@ -854,6 +875,18 @@ namespace ThorVG
                 if (error != 0) return error;
             }
 
+            return error;
+        }
+
+        private static uint inflatev(UCVector output, byte[] data, int dataOffset, int size,
+            LodePNGDecompressSettings settings)
+        {
+            if (settings.custom_inflate == null) return lodepng_inflatev(output, data, dataOffset, size, settings);
+            byte[]? buffer = output.data;
+            int outputSize = output.size;
+            uint error = settings.custom_inflate(ref buffer, ref outputSize, data, dataOffset, size, settings);
+            output.data = buffer ?? Array.Empty<byte>();
+            output.allocsize = output.size = outputSize;
             return error;
         }
 
@@ -904,7 +937,7 @@ namespace ThorVG
             if (CM != 8 || CINFO > 7) return 25;
             if (FDICT != 0) return 26;
 
-            uint error = lodepng_inflatev(outv, data, dataOffset + 2, insize - 2, settings);
+            uint error = inflatev(outv, data, dataOffset + 2, insize - 2, settings);
             if (error != 0) return error;
 
             if (settings.ignore_adler32 == 0)
@@ -920,6 +953,8 @@ namespace ThorVG
         private static uint zlib_decompress(ref byte[]? outBuf, ref int outsize, int expected_size,
             byte[] data, int dataOffset, int insize, LodePNGDecompressSettings settings)
         {
+            if (settings.custom_zlib != null)
+                return settings.custom_zlib(ref outBuf, ref outsize, data, dataOffset, insize, settings);
             var v = new UCVector(outBuf, outsize);
             if (expected_size != 0)
             {
@@ -936,34 +971,37 @@ namespace ThorVG
         {
             settings.ignore_adler32 = 0;
             settings.ignore_nlen = 0;
+            settings.custom_zlib = null;
+            settings.custom_inflate = null;
+            settings.custom_context = null;
         }
 
         #endregion
 
         #region PNG Color Channel Bits
 
-        private static byte readBitFromReversedStream(ref long bitpointer, byte[] bitstream)
+        private static byte readBitFromReversedStream(ref long bitpointer, byte[] bitstream, int byteOffset = 0)
         {
-            byte result = (byte)((bitstream[bitpointer >> 3] >> (int)(7 - (bitpointer & 0x7))) & 1);
+            byte result = (byte)((bitstream[byteOffset + (bitpointer >> 3)] >> (int)(7 - (bitpointer & 0x7))) & 1);
             ++bitpointer;
             return result;
         }
 
-        private static uint readBitsFromReversedStream(ref long bitpointer, byte[] bitstream, uint nbits)
+        private static uint readBitsFromReversedStream(ref long bitpointer, byte[] bitstream, uint nbits, int byteOffset = 0)
         {
             uint result = 0;
             for (uint i = 0; i < nbits; ++i)
             {
                 result <<= 1;
-                result |= readBitFromReversedStream(ref bitpointer, bitstream);
+                result |= readBitFromReversedStream(ref bitpointer, bitstream, byteOffset);
             }
             return result;
         }
 
-        private static void setBitOfReversedStream(ref long bitpointer, byte[] bitstream, byte bit)
+        private static void setBitOfReversedStream(ref long bitpointer, byte[] bitstream, byte bit, int byteOffset = 0)
         {
-            if (bit == 0) bitstream[bitpointer >> 3] &= (byte)(~(1u << (int)(7 - (bitpointer & 7))));
-            else bitstream[bitpointer >> 3] |= (byte)(1u << (int)(7 - (bitpointer & 7)));
+            if (bit == 0) bitstream[byteOffset + (bitpointer >> 3)] &= (byte)(~(1u << (int)(7 - (bitpointer & 7))));
+            else bitstream[byteOffset + (bitpointer >> 3)] |= (byte)(1u << (int)(7 - (bitpointer & 7)));
             ++bitpointer;
         }
 
@@ -1152,17 +1190,29 @@ namespace ThorVG
             return false;
         }
 
+        private static void lodepng_clear_icc(LodePNGInfo info)
+        {
+            info.iccp_name = null;
+            info.iccp_profile = null;
+            info.iccp_profile_size = 0;
+            info.iccp_defined = 0;
+        }
+
         private static void lodepng_info_init(LodePNGInfo info)
         {
             lodepng_color_mode_init(info.color);
             info.interlace_method = 0;
             info.compression_method = 0;
             info.filter_method = 0;
+            info.iccp_defined = 0;
+            info.iccp_name = null;
+            info.iccp_profile = null;
         }
 
         private static void lodepng_info_cleanup(LodePNGInfo info)
         {
             lodepng_color_mode_cleanup(info.color);
+            lodepng_clear_icc(info);
         }
 
         #endregion
@@ -1347,7 +1397,7 @@ namespace ThorVG
                 {
                     uint highest = (1u << (int)mode.bitdepth) - 1u;
                     long j = i * mode.bitdepth;
-                    uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                    uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                     r = g = b = (byte)((value * 255) / highest);
                     if (mode.key_defined != 0 && value == mode.key_r) a = 0;
                     else a = 255;
@@ -1379,7 +1429,7 @@ namespace ThorVG
                 else
                 {
                     long j = i * mode.bitdepth;
-                    index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                    index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                 }
                 r = mode.palette![index * 4];
                 g = mode.palette[index * 4 + 1];
@@ -1456,7 +1506,7 @@ namespace ThorVG
                     long j = 0;
                     for (long i = 0; i < numpixels; ++i, bp += num_channels)
                     {
-                        uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                        uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                         buffer[bp] = buffer[bp + 1] = buffer[bp + 2] = (byte)((value * 255) / highest);
                         buffer[bp + 3] = (byte)(mode.key_defined != 0 && value == mode.key_r ? 0 : 255);
                     }
@@ -1509,7 +1559,7 @@ namespace ThorVG
                     long j = 0;
                     for (long i = 0; i < numpixels; ++i, bp += num_channels)
                     {
-                        uint index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                        uint index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                         Array.Copy(mode.palette!, (int)(index * 4), buffer, bp, 4);
                     }
                 }
@@ -1576,7 +1626,7 @@ namespace ThorVG
                     long j = 0;
                     for (long i = 0; i < numpixels; ++i, bp += num_channels)
                     {
-                        uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                        uint value = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                         buffer[bp] = buffer[bp + 1] = buffer[bp + 2] = (byte)((value * 255) / highest);
                     }
                 }
@@ -1610,7 +1660,7 @@ namespace ThorVG
                     long j = 0;
                     for (long i = 0; i < numpixels; ++i, bp += num_channels)
                     {
-                        uint index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth);
+                        uint index = readBitsFromReversedStream(ref j, inBuf, mode.bitdepth, inOffset);
                         Array.Copy(mode.palette!, (int)(index * 4), buffer, bp, 3);
                     }
                 }
@@ -1777,8 +1827,8 @@ namespace ThorVG
         private static readonly uint[] ADAM7_DX = { 8, 8, 4, 4, 2, 2, 1 };
         private static readonly uint[] ADAM7_DY = { 8, 8, 8, 4, 4, 2, 2 };
 
-        private static void Adam7_getpassvalues(uint[] passw, uint[] passh,
-            long[] filter_passstart, long[] padded_passstart, long[] passstart, uint w, uint h, uint bpp)
+        private static void Adam7_getpassvalues(Span<uint> passw, Span<uint> passh,
+            Span<long> filter_passstart, Span<long> padded_passstart, Span<long> passstart, uint w, uint h, uint bpp)
         {
             for (int i = 0; i != 7; ++i)
             {
@@ -1945,8 +1995,8 @@ namespace ThorVG
 
         private static void Adam7_deinterlace(byte[] outBuf, int outOffset, byte[] inBuf, int inOffset, uint w, uint h, uint bpp)
         {
-            uint[] passw = new uint[7], passh = new uint[7];
-            long[] filter_passstart = new long[8], padded_passstart = new long[8], passstart = new long[8];
+            Span<uint> passw = stackalloc uint[7], passh = stackalloc uint[7];
+            Span<long> filter_passstart = stackalloc long[8], padded_passstart = stackalloc long[8], passstart = stackalloc long[8];
 
             Adam7_getpassvalues(passw, passh, filter_passstart, padded_passstart, passstart, w, h, bpp);
 
@@ -1978,8 +2028,8 @@ namespace ThorVG
                         long obp = (ADAM7_IY[pi] + (long)y * ADAM7_DY[pi]) * olinebits + (ADAM7_IX[pi] + (long)x * ADAM7_DX[pi]) * bpp;
                         for (uint b2 = 0; b2 < bpp; ++b2)
                         {
-                            byte bit = readBitFromReversedStream(ref ibp, inBuf);
-                            setBitOfReversedStream(ref obp, outBuf, bit);
+                            byte bit = readBitFromReversedStream(ref ibp, inBuf, inOffset);
+                            setBitOfReversedStream(ref obp, outBuf, bit, outOffset);
                         }
                     }
                 }
@@ -1995,12 +2045,8 @@ namespace ThorVG
             {
                 for (long x = 0; x < olinebits; ++x)
                 {
-                    long ibpLocal = ibp;
-                    byte bit = readBitFromReversedStream(ref ibpLocal, inBuf);
-                    ibp = ibpLocal;
-                    long obpLocal = obp;
-                    setBitOfReversedStream(ref obpLocal, outBuf, bit);
-                    obp = obpLocal;
+                    byte bit = readBitFromReversedStream(ref ibp, inBuf, inOffset);
+                    setBitOfReversedStream(ref obp, outBuf, bit, outOffset);
                 }
                 ibp += diff;
             }
@@ -2027,8 +2073,8 @@ namespace ThorVG
             }
             else
             {
-                uint[] passw = new uint[7], passh = new uint[7];
-                long[] filter_passstart = new long[8], padded_passstart = new long[8], passstart = new long[8];
+                Span<uint> passw = stackalloc uint[7], passh = stackalloc uint[7];
+                Span<long> filter_passstart = stackalloc long[8], padded_passstart = stackalloc long[8], passstart = stackalloc long[8];
 
                 Adam7_getpassvalues(passw, passh, filter_passstart, padded_passstart, passstart, w, h, bpp);
 
@@ -2100,6 +2146,42 @@ namespace ThorVG
             return 0;
         }
 
+        private static uint readChunk_iCCP(LodePNGInfo info, LodePNGDecompressSettings zlibsettings,
+            byte[] data, int dataOffset, int chunkLength)
+        {
+            uint error = 0;
+            int size = 0;
+
+            int length;
+            int string2_begin;
+
+            if (info.iccp_name != null) lodepng_clear_icc(info);
+
+            for (length = 0; length < chunkLength && data[dataOffset + length] != 0; ++length) { }
+            if (length + 2 >= chunkLength) return 75;
+            if (length < 1 || length > 79) return 89;
+
+            info.iccp_name = new byte[length + 1];
+            info.iccp_name[length] = 0;
+            for (int i = 0; i != length; ++i)
+            {
+                info.iccp_name[i] = data[dataOffset + i];
+            }
+
+            if (data[dataOffset + length + 1] != 0) return 72;
+
+            string2_begin = length + 2;
+            if (string2_begin > chunkLength) return 75;
+
+            length = chunkLength - string2_begin;
+            error = zlib_decompress(ref info.iccp_profile, ref size, 0,
+                data, dataOffset + string2_begin, length, zlibsettings);
+            info.iccp_profile_size = size;
+            if (error == 0 && info.iccp_profile_size == 0) error = 100;
+            if (error == 0) info.iccp_defined = 1;
+            return error;
+        }
+
         #endregion
 
         #region Decode Generic
@@ -2132,7 +2214,7 @@ namespace ThorVG
 
             while (IEND == 0 && state.error == 0)
             {
-                if (chunk + 12 > insize || chunk < 0)
+                if ((long)chunk + 12 > insize || chunk < 0)
                 {
                     if (state.decoder.ignore_end != 0) break;
                     state.error = 30;
@@ -2147,7 +2229,7 @@ namespace ThorVG
                     break;
                 }
 
-                if (chunk + (int)chunkLength + 12 > insize)
+                if ((long)chunk + chunkLength + 12 > insize)
                 {
                     state.error = 64;
                     break;
@@ -2175,6 +2257,11 @@ namespace ThorVG
                 else if (lodepng_chunk_type_equals(inData, chunk, "tRNS"))
                 {
                     state.error = readChunk_tRNS(state.info_png.color, inData, dataOff, (int)chunkLength);
+                    if (state.error != 0) break;
+                }
+                else if (lodepng_chunk_type_equals(inData, chunk, "iCCP"))
+                {
+                    state.error = readChunk_iCCP(state.info_png, state.decoder.zlibsettings, inData, dataOff, (int)chunkLength);
                     if (state.error != 0) break;
                 }
                 else
@@ -2253,6 +2340,19 @@ namespace ThorVG
         #endregion
 
         #region External API (Inspect and Decode)
+
+        internal static LodePNGState StateInit()
+        {
+            var state = new LodePNGState();
+            lodepng_state_init(state);
+            return state;
+        }
+
+        internal static void StateCleanup(LodePNGState state)
+        {
+            lodepng_color_mode_cleanup(state.info_raw);
+            lodepng_info_cleanup(state.info_png);
+        }
 
         /* Read the information from the header and store it in the LodePNGInfo. return value is error */
         private static uint lodepng_inspect_internal(out uint w, out uint h, LodePNGState state, byte[] inData, int insize)
@@ -2367,13 +2467,41 @@ namespace ThorVG
             width = 0;
             height = 0;
 
-            if (data == null || dataSize < 24) return 1;
+            if (data == null || dataSize < 0 || dataSize > data.Length) return 1;
 
-            var state = new LodePNGState();
-            lodepng_state_init(state);
+            var state = StateInit();
 
             uint error = lodepng_inspect_internal(out width, out height, state, data, dataSize);
             return error;
+        }
+
+        internal static uint Inspect(byte[] data, int dataSize, LodePNGState state, out uint width, out uint height)
+        {
+            width = 0;
+            height = 0;
+
+            if (data == null || dataSize < 0 || dataSize > data.Length) return 1;
+            return lodepng_inspect_internal(out width, out height, state, data, dataSize);
+        }
+
+        internal static uint DecodeBytes(byte[] pngData, int dataSize, LodePNGState state,
+            out byte[]? pixels, out uint width, out uint height)
+        {
+            pixels = null;
+            width = 0;
+            height = 0;
+
+            if (pngData == null || dataSize < 0 || dataSize > pngData.Length) return 1;
+            try
+            {
+                return lodepng_decode_internal(out pixels, out width, out height, state, pngData, dataSize);
+            }
+            catch (OutOfMemoryException)
+            {
+                // Native decoder allocations report LodePNG error 83.
+                pixels = null;
+                return state.error = 83;
+            }
         }
 
         /// <summary>
@@ -2387,18 +2515,18 @@ namespace ThorVG
             width = 0;
             height = 0;
 
-            if (pngData == null || dataSize == 0) return 1;
+            if (pngData == null || dataSize < 0 || dataSize > pngData.Length) return 1;
 
-            var state = new LodePNGState();
-            lodepng_state_init(state);
+            var state = StateInit();
 
-            uint error = lodepng_decode_internal(out byte[]? rawBytes, out width, out height, state, pngData, dataSize);
+            uint error = DecodeBytes(pngData, dataSize, state, out byte[]? rawBytes, out width, out height);
             if (error != 0) return error;
             if (rawBytes == null) return 1;
 
             /* Convert RGBA byte array to uint[] packed as ABGR8888S (R in lowest byte) */
             long numPixels = (long)width * height;
-            pixels = new uint[numPixels];
+            try { pixels = new uint[numPixels]; }
+            catch (OutOfMemoryException) { return 83; }
             for (long i = 0; i < numPixels; i++)
             {
                 byte r = rawBytes[i * 4];

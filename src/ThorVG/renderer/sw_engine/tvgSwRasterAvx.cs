@@ -21,36 +21,12 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Vector128<int> ALPHA_BLEND_SSE(Vector128<int> c, Vector128<int> a)
         {
-            //1. set the masks for the A/G and R/B channels
-            var AG = Vector128.Create(unchecked((int)0xff00ff00));
-            var RB = Vector128.Create(0x00ff00ff);
-
-            //2. mask the alpha vector - originally quartet [a, a, a, a]
-            var aAG = Sse2.And(a, AG);
-            var aRB = Sse2.And(a, RB);
-
-            //3. calculate the alpha blending of the 2nd and 4th channel (R/B)
-            //- mask the color vector
-            //- multiply it by the masked alpha vector
-            //- add the correction to compensate bit shifting used instead of dividing by 255
-            //- shift bits - corresponding to division by 256
-            var even = Sse2.And(c, RB);
-            even = Sse2.MultiplyLow(even.AsInt16(), aRB.AsInt16()).AsInt32();
-            even = Sse2.Add(even.AsInt16(), RB.AsInt16()).AsInt32();
-            even = Sse2.ShiftRightLogical(even.AsUInt16(), 8).AsInt32();
-
-            //4. calculate the alpha blending of the 1st and 3rd channel (A/G):
-            //- mask the color vector
-            //- multiply it by the corresponding masked alpha vector and store the high bits of the result
-            //- add the correction to compensate division by 256 instead of by 255 (next step)
-            //- remove the low 8 bits to mimic the division by 256
-            var odd = Sse2.And(c, AG);
-            odd = Sse2.MultiplyHigh(odd.AsUInt16(), aAG.AsUInt16()).AsInt32();
-            odd = Sse2.Add(odd.AsInt16(), RB.AsInt16()).AsInt32();
-            odd = Sse2.And(odd, AG);
-
-            //5. the final result
-            return Sse2.Or(odd, even);
+            // Match packed 32-bit ALPHA_BLEND's (alpha + 1) / 256.
+            var mask = Vector128.Create(0x00ff00ff);
+            var factors = Sse2.Add(Sse2.And(a, mask).AsUInt16(), Vector128.Create((ushort)1));
+            var even = Sse2.MultiplyLow(Sse2.And(c, mask).AsUInt16(), factors);
+            var odd = Sse2.MultiplyLow(Sse2.ShiftRightLogical(c.AsUInt16(), 8), factors);
+            return Sse2.Or(Sse2.ShiftRightLogical(even, 8).AsInt32(), Sse2.AndNot(mask, odd.AsInt32()));
         }
 
         // =================================================================
@@ -112,6 +88,7 @@ namespace ThorVG
 
         internal static bool avxRasterTranslucentRect(SwSurface surface, in RenderRegion bbox, in RenderColor c)
         {
+            if (Avx2.IsSupported) return avx2RasterTranslucentRect(surface, bbox, c);
             var h = bbox.H();
             var w = bbox.W();
 
@@ -186,6 +163,7 @@ namespace ThorVG
 
         internal static bool avxRasterTranslucentRle(SwSurface surface, SwRle* rle, in RenderRegion bbox, in RenderColor c)
         {
+            if (Avx2.IsSupported) return avx2RasterTranslucentRle(surface, rle, bbox, c);
             SwSpan* end;
             int x, len;
 

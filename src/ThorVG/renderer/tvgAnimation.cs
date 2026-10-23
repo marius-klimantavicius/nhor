@@ -6,9 +6,10 @@ namespace ThorVG
     /// Controls animation playback for picture content.
     /// Mirrors C++ tvg::Animation.
     /// </summary>
-    public class Animation
+    public class Animation : System.IDisposable
     {
         private readonly Picture _picture;
+        private bool disposed;
 
         protected Animation()
         {
@@ -18,6 +19,19 @@ namespace ThorVG
 
         ~Animation()
         {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            System.GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposed) return;
+            disposed = true;
             _picture.Unref();
         }
 
@@ -34,7 +48,7 @@ namespace ThorVG
 
             if (((AnimLoader)loader).Frame(no))
             {
-                _picture.pImpl.Mark(RenderUpdateFlag.All);
+                _picture.pImpl.Mark(RenderUpdateFlag.Children);
                 return Result.Success;
             }
             return Result.InsufficientCondition;
@@ -78,6 +92,8 @@ namespace ThorVG
 
             return ((AnimLoader)loader).Segment(begin, end);
         }
+
+        public Result Segment(out float begin) => Segment(out begin, out _);
 
         public Result Segment(out float begin, out float end)
         {

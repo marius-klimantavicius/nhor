@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "Two animated rectangles have different easing tangents but keys sharing the first20 UTF8 bytes. Native strncmp cache deliberately reuses the first easing for both. Remaining UTF16 characters differ.",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "c359044b4e611eb75ca633a742e891889240214e71ea6f2aa6d535fb18a4c944"
+}

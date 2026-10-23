@@ -13,6 +13,7 @@ public class BlockMarginYCollapseThroughWithAbsoluteChild
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO, LengthPercentageAuto.Length(10f)),
@@ -23,17 +24,20 @@ public class BlockMarginYCollapseThroughWithAbsoluteChild
         }, TestNodeContext.AhemText("HH", WritingMode.Horizontal));
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO, LengthPercentageAuto.Length(10f), LengthPercentageAuto.Length(10f)),
         }, new NodeId[] { node10 });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO, LengthPercentageAuto.Length(10f), LengthPercentageAuto.ZERO),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.Auto()),
         }, new NodeId[] { node0, node1, node2 });
@@ -71,6 +75,7 @@ public class BlockMarginYCollapseThroughWithAbsoluteChild
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
@@ -83,12 +88,14 @@ public class BlockMarginYCollapseThroughWithAbsoluteChild
         }, TestNodeContext.AhemText("HH", WritingMode.Horizontal));
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO, LengthPercentageAuto.Length(10f), LengthPercentageAuto.Length(10f)),
         }, new NodeId[] { node10 });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
@@ -96,6 +103,7 @@ public class BlockMarginYCollapseThroughWithAbsoluteChild
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.Auto()),

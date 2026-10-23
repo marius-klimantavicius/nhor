@@ -1,0 +1,10 @@
+{
+  "kind": "authored minimal PNG fixture",
+  "description": "2x1 one-bit indexed PNG with two RGB entries and transparent/opaque tRNS entries. Verifies real decoded palette ownership and alpha.",
+  "sha256": "db67c48c6140d661263655dbb991453dca649366cb05f8a46207ffa580f35097",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "expectedStraightAbgrPixels": [
+    "001e140a",
+    "ff3c3228"
+  ]
+}

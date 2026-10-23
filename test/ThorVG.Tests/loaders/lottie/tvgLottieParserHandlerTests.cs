@@ -143,13 +143,17 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void GetBool_IntegerOne_ReturnsTrue()
+        public void GetBool_IntegerOne_RejectsNativeTypeAndAdvances()
         {
             var handler = new LookaheadParserHandler("{\"flag\": 1}");
             handler.ParseNext();
             handler.EnterObject();
             handler.NextObjectKey();
-            Assert.True(handler.GetBool());
+            Assert.False(handler.GetBool());
+            // Native Error() advances into EndObject, whose callback replaces
+            // the error state. This result is proven in the native profile oracle.
+            Assert.False(handler.Invalid());
+            Assert.Null(handler.NextObjectKey());
         }
 
         // ---- PeekType ----

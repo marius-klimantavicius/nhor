@@ -1,5 +1,5 @@
 //========================================================================
-// GLFW 3.5 Wayland - www.glfw.org
+// GLFW 3.6 Wayland - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2014 Jonas Ådahl <jadahl@gmail.com>
 //
@@ -798,6 +798,8 @@ int _glfwInitWayland(void)
             _glfwPlatformGetModuleSymbol(_glfw.wl.libdecor.handle, "libdecor_frame_unset_capabilities");
         _glfw.wl.libdecor.libdecor_frame_set_visibility_ = (PFN_libdecor_frame_set_visibility)
             _glfwPlatformGetModuleSymbol(_glfw.wl.libdecor.handle, "libdecor_frame_set_visibility");
+        _glfw.wl.libdecor.libdecor_frame_is_visible_ = (PFN_libdecor_frame_is_visible)
+            _glfwPlatformGetModuleSymbol(_glfw.wl.libdecor.handle, "libdecor_frame_is_visible");
         _glfw.wl.libdecor.libdecor_frame_get_xdg_toplevel_ = (PFN_libdecor_frame_get_xdg_toplevel)
             _glfwPlatformGetModuleSymbol(_glfw.wl.libdecor.handle, "libdecor_frame_get_xdg_toplevel");
         _glfw.wl.libdecor.libdecor_configuration_get_content_size_ = (PFN_libdecor_configuration_get_content_size)
@@ -829,6 +831,7 @@ int _glfwInitWayland(void)
             !_glfw.wl.libdecor.libdecor_frame_set_capabilities_ ||
             !_glfw.wl.libdecor.libdecor_frame_unset_capabilities_ ||
             !_glfw.wl.libdecor.libdecor_frame_set_visibility_ ||
+            !_glfw.wl.libdecor.libdecor_frame_is_visible_ ||
             !_glfw.wl.libdecor.libdecor_frame_get_xdg_toplevel_ ||
             !_glfw.wl.libdecor.libdecor_configuration_get_content_size_ ||
             !_glfw.wl.libdecor.libdecor_configuration_get_window_state_ ||

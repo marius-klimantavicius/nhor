@@ -44,6 +44,7 @@ public class GridAbsoluteResolvedInsets
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
             PaddingValue = new Rect<LengthPercentage>(LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f)),
@@ -82,6 +83,7 @@ public class GridAbsoluteResolvedInsets
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
             ScrollbarWidthValue = 15f,
@@ -89,7 +91,7 @@ public class GridAbsoluteResolvedInsets
             PaddingValue = new Rect<LengthPercentage>(LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f)),
             BorderValue = new Rect<LengthPercentage>(LengthPercentage.Length(20f), LengthPercentage.Length(20f), LengthPercentage.Length(20f), LengthPercentage.Length(20f)),
         }, new NodeId[] { node10, node11, node12, node13, node14, node15 });
-        var node = taffy.NewWithChildren(new Style(), new NodeId[] { node0, node1 });
+        var node = taffy.NewWithChildren(new Style { PositionValue = Position.Relative }, new NodeId[] { node0, node1 });
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
         var layout_node = taffy.GetLayout(node);
         Assert.Equal(400f, layout_node.Size.Width);
@@ -213,6 +215,7 @@ public class GridAbsoluteResolvedInsets
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
@@ -258,6 +261,7 @@ public class GridAbsoluteResolvedInsets
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
@@ -268,6 +272,7 @@ public class GridAbsoluteResolvedInsets
         }, new NodeId[] { node10, node11, node12, node13, node14, node15 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         }, new NodeId[] { node0, node1 });
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);

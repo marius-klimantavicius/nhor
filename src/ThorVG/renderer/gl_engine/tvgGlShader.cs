@@ -25,7 +25,11 @@ namespace ThorVG
              * [1] precision declaration
              * [2] shader source
              */
+#if THORVG_GL_TARGET_GLES
+            string shaderVersion = "#version 300 es\n";
+#else
             string shaderVersion = "#version 330 core\n";
+#endif
             string shaderPrecision = "precision highp float;\n precision highp int;\n";
 
             byte[] versionBytes = Encoding.UTF8.GetBytes(shaderVersion + '\0');

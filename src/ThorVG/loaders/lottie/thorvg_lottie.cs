@@ -23,10 +23,7 @@ namespace ThorVG
         /// </summary>
         public Result Segment(string? marker)
         {
-            var loader = GetPicture().loader;
-            if (loader == null) return Result.InsufficientCondition;
-
-            var lottieLoader = loader as LottieLoader;
+            var lottieLoader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (lottieLoader == null) return Result.InsufficientCondition;
 
             if (marker == null)
@@ -46,23 +43,20 @@ namespace ThorVG
         /// </summary>
         public Result Tween(float from, float to, float progress)
         {
-            var loader = GetPicture().loader;
-            if (loader == null) return Result.InsufficientCondition;
-
-            var lottieLoader = loader as LottieLoader;
+            var lottieLoader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (lottieLoader == null) return Result.InsufficientCondition;
 
             if (!lottieLoader.Tween(from, to, progress))
                 return Result.InsufficientCondition;
 
-            GetPicture().pImpl.Mark(RenderUpdateFlag.All);
+            GetPicture().pImpl.Mark(RenderUpdateFlag.Children);
             return Result.Success;
         }
 
         /// <summary>Sets the target frame for dynamic tweening.</summary>
         public Result TweenTo(float to)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null || !loader.TweenTo(to)) return Result.InsufficientCondition;
             return Result.Success;
         }
@@ -70,9 +64,9 @@ namespace ThorVG
         /// <summary>Updates the progress of a dynamic tween started by <see cref="TweenTo"/>.</summary>
         public Result Tween(float progress)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null || !loader.Tween(progress)) return Result.InsufficientCondition;
-            GetPicture().pImpl.Mark(RenderUpdateFlag.All);
+            GetPicture().pImpl.Mark(RenderUpdateFlag.Children);
             return Result.Success;
         }
 
@@ -81,10 +75,7 @@ namespace ThorVG
         /// </summary>
         public uint MarkersCnt()
         {
-            var loader = GetPicture().loader;
-            if (loader == null) return 0;
-
-            var lottieLoader = loader as LottieLoader;
+            var lottieLoader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (lottieLoader == null) return 0;
 
             return lottieLoader.MarkersCnt();
@@ -107,10 +98,7 @@ namespace ThorVG
             begin = 0;
             end = 0;
 
-            var loader = GetPicture().loader;
-            if (loader == null) return null;
-
-            var lottieLoader = loader as LottieLoader;
+            var lottieLoader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (lottieLoader == null) return null;
 
             return lottieLoader.GetMarker(idx, out begin, out end);
@@ -121,7 +109,7 @@ namespace ThorVG
         /// </summary>
         public uint Gen(string? slotJson)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null) return 0;
             return loader.GenSlot(slotJson);
         }
@@ -131,11 +119,11 @@ namespace ThorVG
         /// </summary>
         public Result Apply(uint id)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null) return Result.InsufficientCondition;
             var result = loader.ApplySlot(id);
             if (result == Result.Success)
-                GetPicture().pImpl.Mark(RenderUpdateFlag.All);
+                GetPicture().pImpl.Mark(RenderUpdateFlag.Children);
             return result;
         }
 
@@ -144,11 +132,11 @@ namespace ThorVG
         /// </summary>
         public Result Del(uint id)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null) return Result.InsufficientCondition;
             var result = loader.DelSlot(id);
             if (result == Result.Success)
-                GetPicture().pImpl.Mark(RenderUpdateFlag.All);
+                GetPicture().pImpl.Mark(RenderUpdateFlag.Children);
             return result;
         }
 
@@ -159,10 +147,7 @@ namespace ThorVG
         {
             if (value > 100) return Result.InvalidArguments;
 
-            var loader = GetPicture().loader;
-            if (loader == null) return Result.InsufficientCondition;
-
-            var lottieLoader = loader as LottieLoader;
+            var lottieLoader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (lottieLoader == null) return Result.InsufficientCondition;
 
             if (!lottieLoader.SetQuality(value)) return Result.InsufficientCondition;
@@ -172,11 +157,23 @@ namespace ThorVG
         /// <summary>Sets the callback used to synchronize Lottie audio layers.</summary>
         public Result Resolver(Action<LottieAudioResolver, object?>? func, object? data = null)
         {
-            var loader = GetPicture().loader as LottieLoader;
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
             if (loader == null) return Result.InsufficientCondition;
             loader.Resolver(func, data);
             return Result.Success;
         }
+
+        public Result Volume(float value)
+        {
+            var loader = GetPicture().Fetch<LottieLoader>(FileType.Lot);
+            if (loader == null) return Result.InsufficientCondition;
+            loader.Volume(value);
+            return Result.Success;
+        }
+
+        public float Volume() => GetPicture().Fetch<LottieLoader>(FileType.Lot)?.builder.volume ?? 0.0f;
+
+        public static bool Expressions() => true; // This build includes the Jint expression backend.
     }
 
     /// <summary>Describes the current playback state of a Lottie audio layer.</summary>

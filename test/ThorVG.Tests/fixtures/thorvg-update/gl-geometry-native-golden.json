@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native complete108 mesh/path/bounds/std140/mode/hit records per architecture. Expected bytes are copied from native outputs captured before the managed ARM arithmetic fix. Corrected runs prove every native row hash unchanged.96 reused normal public shape/cap/join/dash/trim configurations plus12 valid raw-image geometries; no malformed/corruption/nonfinite/fuzz/UTF8 fixtures.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "gl-geometry-normal-vtable-linked.json",
+      "correctedEvidence": "gl-geometry-native-grouping-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071.json",
+        "sha256": "fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071",
+        "archive": "docs/thorvg-update/source-snapshots/fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071.tar.gz"
+      },
+      "bytes": 510080,
+      "sha256": "07689dacd78895ccd612afd0f08349003e8666c35465c673b740227460bac5f9",
+      "cases": 108
+    },
+    "arm64": {
+      "nativeOrigin": "arm-gl-geometry-normal-initial.json",
+      "correctedEvidence": "arm-gl-geometry-native-grouping-access-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071.json",
+        "sha256": "fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071",
+        "archive": "docs/thorvg-update/source-snapshots/fd4558eb96126560eb23373975a5784b9d8d9560bb49a2843645f3fd9355c071.tar.gz"
+      },
+      "bytes": 510080,
+      "sha256": "57ca1e64810e7ae3f7df6dd9d60152b124e0ae5033bd049efb4315e9793d4c6b",
+      "cases": 108
+    }
+  },
+  "parentReview": "pending"
+}

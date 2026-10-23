@@ -2,7 +2,13 @@
 # Being listed as a code owner does not necessarily indicate copyright ownership of the code.
 
 * @hermet
+/src/renderer/cpu_engine @Nor-s
 /src/renderer/gpu_engine @wenjieshen
 /src/loaders/lottie @tinyjin @Nor-s
 /src/loaders/svg @JSUYA
+/src/loaders/png @Nor-s
+/src/loaders/webp @Nor-s
+/src/loaders/media/apple @Nor-s
+/src/loaders/media/web @tinyjin
+/src/savers/gif @Nor-s
 /.github/workflows @Nor-s

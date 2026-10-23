@@ -47,7 +47,6 @@ bool LottieLoader::prepare()
         ScopedLock lock(key);
         comp = parser.comp;
     }
-    if (!comp) return false;
     if (parser.slots) {
         auto slotcode = gen(parser.slots, true);
         apply(slotcode, true);
@@ -70,7 +69,7 @@ void LottieLoader::run(unsigned tid)
 
 void LottieLoader::release()
 {
-    if (copy) {
+    if (owner != Ownership::Borrow) {
         tvg::free((char*)content);
         content = nullptr;
     }
@@ -101,7 +100,7 @@ LottieLoader::~LottieLoader()
     tvg::free(dirName);
 }
 
-bool LottieLoader::header()
+Result LottieLoader::header()
 {
     //A single thread doesn't need to perform intensive tasks.
     if (TaskScheduler::threads() == 0) {
@@ -111,9 +110,9 @@ bool LottieLoader::header()
             h = static_cast<float>(comp->h);
             segmentEnd = frameCnt = comp->frameCnt();
             frameRate = comp->frameRate;
-            return true;
+            return Result::Success;
         }
-        return false;
+        return Result::InvalidArguments;
     }
 
     //Quickly validate the given Lottie file without parsing in order to get the animation info.
@@ -147,8 +146,9 @@ bool LottieLoader::header()
         //framerate
         if (!strncmp(p, "\"fr\":", 5)) {
             p += 5;
-            auto e = strstr(p, ",");
-            if (!e) e = strstr(p, "}");
+            auto e = strchr(p, ',');
+            if (!e) e = strchr(p, '}');
+            if (!e) return Result::InvalidArguments;
             frameRate = toFloat(p, nullptr);
             p = e;
             continue;
@@ -157,8 +157,9 @@ bool LottieLoader::header()
         //start frame
         if (!strncmp(p, "\"ip\":", 5)) {
             p += 5;
-            auto e = strstr(p, ",");
-            if (!e) e = strstr(p, "}");
+            auto e = strchr(p, ',');
+            if (!e) e = strchr(p, '}');
+            if (!e) return Result::InvalidArguments;
             startFrame = toFloat(p, nullptr);
             p = e;
             continue;
@@ -167,8 +168,9 @@ bool LottieLoader::header()
         //end frame
         if (!strncmp(p, "\"op\":", 5)) {
             p += 5;
-            auto e = strstr(p, ",");
-            if (!e) e = strstr(p, "}");
+            auto e = strchr(p, ',');
+            if (!e) e = strchr(p, '}');
+            if (!e) return Result::InvalidArguments;
             endFrame = toFloat(p, nullptr);
             p = e;
             continue;
@@ -177,8 +179,9 @@ bool LottieLoader::header()
         //width
         if (!strncmp(p, "\"w\":", 4)) {
             p += 4;
-            auto e = strstr(p, ",");
-            if (!e) e = strstr(p, "}");
+            auto e = strchr(p, ',');
+            if (!e) e = strchr(p, '}');
+            if (!e) return Result::InvalidArguments;
             w = toFloat(p, nullptr);
             p = e;
             continue;
@@ -186,8 +189,9 @@ bool LottieLoader::header()
         //height
         if (!strncmp(p, "\"h\":", 4)) {
             p += 4;
-            auto e = strstr(p, ",");
-            if (!e) e = strstr(p, "}");
+            auto e = strchr(p, ',');
+            if (!e) e = strchr(p, '}');
+            if (!e) return Result::InvalidArguments;
             h = toFloat(p, nullptr);
             p = e;
             continue;
@@ -197,48 +201,50 @@ bool LottieLoader::header()
 
     if (frameRate < FLOAT_EPSILON) {
         TVGLOG("LOTTIE", "Not a Lottie file? Frame rate is 0!");
-        return false;
+        return Result::InvalidArguments;
     }
 
     segmentEnd = frameCnt = (endFrame - startFrame);
 
     TVGLOG("LOTTIE", "info: frame rate = %f, duration = %f size = %f x %f", frameRate, frameCnt / frameRate, w, h);
 
-    return true;
+    return Result::Success;
 }
 
-bool LottieLoader::open(const char* data, uint32_t size, const LoaderOps* _ops, bool copy)
+Result LottieLoader::open(const char* data, uint32_t size, const LoaderOps& _ops)
 {
-    auto ops = static_cast<const PictureOps*>(_ops);
-    if (ops->caller != tvg::Type::Picture) return false;
+    auto ops = static_cast<const PictureOps*>(&_ops);
+    if (ops->caller != tvg::Type::Picture) return Result::InvalidArguments;
 
-    if (copy) {
+    if (ops->owner == Ownership::Copy) {
         content = tvg::malloc<char>(size + 1);
         memcpy((char*)content, data, size);
         const_cast<char*>(content)[size] = '\0';
     } else content = data;
 
     this->size = size;
-    this->copy = copy;
+    owner = ops->owner;
     dirName = ops->rpath ? duplicate(ops->rpath) : duplicate(".");
     builder->resolver = ops->resolver;
 
     return header();
 }
 
-bool LottieLoader::open(const char* path, const LoaderOps* ops)
+Result LottieLoader::open(const char* path, const LoaderOps& ops)
 {
 #ifdef THORVG_FILE_IO_SUPPORT
-    if (ops->caller != tvg::Type::Picture) return false;
+    if (ops.caller != tvg::Type::Picture) return Result::InvalidArguments;
 
     if ((content = Loader::open(path, size, true))) {
         dirName = tvg::dirname(path);
-        copy = true;
-        builder->resolver = static_cast<const PictureOps*>(ops)->resolver;
+        owner = Ownership::Transfer;
+        builder->resolver = static_cast<const PictureOps*>(&ops)->resolver;
         return header();
     }
+    return Result::InvalidArguments;
+#else
+    return Result::NonSupport;
 #endif
-    return false;
 }
 
 
@@ -425,8 +431,7 @@ float LottieLoader::duration()
     return (segmentEnd - segmentBegin) / frameRate;
 }
 
-
-void LottieLoader::sync()
+bool LottieLoader::sync()
 {
     done();
 
@@ -434,6 +439,7 @@ void LottieLoader::sync()
         if (comp) comp->clear();
         run(0);
     }
+    return true;
 }
 
 
@@ -552,4 +558,11 @@ bool LottieLoader::quality(uint8_t value)
 void LottieLoader::resolver(std::function<void(const tvg::LottieAudioResolver&, void*)> func, void* data)
 {
     builder->audioResolver = {std::move(func), data};
+}
+
+
+void LottieLoader::volume(float value)
+{
+    done();
+    builder->volume = value;
 }

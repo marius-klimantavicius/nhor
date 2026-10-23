@@ -325,14 +325,33 @@ namespace ThorVG.Tests
             geometry.fill.index.Push(0); geometry.fill.index.Push(1); geometry.fill.index.Push(2);
             geometry.fill.index.Push(0); geometry.fill.index.Push(2); geometry.fill.index.Push(3);
             geometry.fillWorld = true;
+            geometry.fillBounds = new RenderRegion(0, 0, 20, 20);
 
-            var shape = new GlShape { validFill = true, geometry = geometry };
+            var shape = new GlShape { validFill = true, geometry = geometry, rshape = new RenderShape { color = new RGBA(255, 255, 255, 255) } };
             var intersector = new GlIntersector();
             Assert.True(intersector.IntersectShape(new RenderRegion(10, 10, 11, 11), shape));
             Assert.False(intersector.IntersectShape(new RenderRegion(25, 25, 26, 26), shape));
         }
 
         // ---- GlShape ----------------------------------------------------
+
+        [Fact]
+        public unsafe void GlIntersector_UsesWindingAndSkipsUnpaintedFill()
+        {
+            var geometry = new GlGeometry { fillWorld = true, fillBounds = new RenderRegion(0, 0, 20, 20) };
+            foreach (float value in new float[] { 0, 0, 20, 0, 20, 20, 0, 20 }) geometry.fill.vertex.Push(value);
+            // Two identically oriented contours: nonzero winds twice, even-odd cancels.
+            foreach (uint index in new uint[] { 0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3 }) geometry.fill.index.Push(index);
+            var shape = new GlShape { validFill = true, geometry = geometry, rshape = new RenderShape { color = new RGBA(0, 0, 0, 255) } };
+            var intersector = new GlIntersector();
+            Assert.True(intersector.IntersectShape(new RenderRegion(5, 5, 6, 6), shape));
+            geometry.fillRule = FillRule.EvenOdd;
+            Assert.False(intersector.IntersectShape(new RenderRegion(5, 5, 6, 6), shape));
+            geometry.fillRule = FillRule.NonZero;
+            shape.rshape.color.a = 0;
+            Assert.False(intersector.IntersectShape(new RenderRegion(5, 5, 6, 6), shape));
+            geometry.fill.vertex.Dispose(); geometry.fill.index.Dispose();
+        }
 
         [Fact]
         public void GlShape_DefaultValues()

@@ -11,7 +11,7 @@ option('partial',
 
 option('loaders',
    type: 'array',
-   choices: ['', 'svg', 'png', 'jpg', 'lottie', 'ttf', 'otf', 'webp', 'all'],
+   choices: ['', 'svg', 'png', 'jpg', 'lottie', 'ttf', 'otf', 'webp', 'media', 'all'],
    value: ['svg', 'lottie', 'ttf'],
    description: 'Enable File Loaders in thorvg')
 
@@ -28,20 +28,14 @@ option('threads',
 
 option('simd',
    type: 'boolean',
-   value: false,
-   description: 'Enable CPU Vectorization(SIMD) in thorvg')
+   value: true,
+   description: 'Enable CPU vectorization (AVX2 on x86, NEON on ARM)')
 
 option('bindings',
    type: 'array',
    choices: ['', 'capi'],
    value: [''],
    description: 'Enable API bindings')
-
-option('tools',
-   type: 'array',
-   choices: ['', 'svg2png', 'lottie2gif', 'all'],
-   value: [''],
-   description: 'Enable building thorvg tools')
 
 option('tests',
    type: 'boolean',
@@ -66,5 +60,5 @@ option('file',
 option('extra',
    type: 'array',
    choices: ['', 'opengl_es', 'lottie_exp', 'openmp'],
-   value: ['lottie_exp', 'openmp'],
+   value: ['openmp'],
    description: 'Enable support for extra options')

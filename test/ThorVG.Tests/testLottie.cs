@@ -8,7 +8,7 @@ namespace ThorVG.Tests
 {
     public class testLottie
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void LottieCoverages()
@@ -30,7 +30,7 @@ namespace ThorVG.Tests
                     "test14.lot"
                 };
 
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -52,7 +52,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -147,7 +147,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -190,7 +190,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -225,7 +225,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -258,7 +258,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -302,7 +302,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = LottieAnimation.Gen();
+                using var animation = LottieAnimation.Gen();
                 var picture = animation.GetPicture();
                 var callCount = 0;
                 var received = default(LottieAudioResolver);

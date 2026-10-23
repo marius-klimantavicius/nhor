@@ -1,0 +1,3 @@
+float	first-property-time-write	13.5	time=7;$bm_rt=time;
+peer	same-frame-peer-time-read	13.5	$bm_rt=time;
+float	next-frame-time-refresh	24.75	$bm_rt=time;

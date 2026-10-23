@@ -1,0 +1,42 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "architectures": {
+    "x64": {
+      "evidence": "lottie-parser-normal-corrected-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b.json",
+        "sha256": "4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b",
+        "archive": "docs/thorvg-update/source-snapshots/4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b.tar.gz"
+      },
+      "sha256": "07ea2f8bfd44fb2285d460c8a8fbb52811bbf32bbffd847e16f6d2163b902f1b",
+      "bytes": 3480,
+      "records": 28,
+      "nativeCommand": [
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/native",
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/inputs.txt",
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/lottie-parser-normal-corrected-x86-native.bin"
+      ]
+    },
+    "arm64": {
+      "evidence": "lottie-parser-normal-corrected-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b.json",
+        "sha256": "4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b",
+        "archive": "docs/thorvg-update/source-snapshots/4c007bda46f3ac58d74f040602c7c8f4842ccbded971705b0bff15b8bf0dd97b.tar.gz"
+      },
+      "sha256": "07ea2f8bfd44fb2285d460c8a8fbb52811bbf32bbffd847e16f6d2163b902f1b",
+      "bytes": 3480,
+      "records": 28,
+      "nativeCommand": [
+        "/home/marius/p/nhor/tmp/thorvg-arm/root/usr/bin/qemu-aarch64-static",
+        "-L",
+        "/home/marius/p/nhor/tmp/thorvg-arm/root/usr/aarch64-linux-gnu",
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/native-arm",
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/inputs.txt",
+        "/home/marius/p/nhor/tmp/thorvg-lottie-parser-normal/lottie-parser-normal-corrected-arm-native.bin"
+      ]
+    }
+  },
+  "provenance": "Actual original pinned GNU/Linux x86 and actual GNU ARM64/QEMU records. Normal finite supported model/parser feature cases only; no malformed/corruption/fuzz/authoredUTF8 probes. Native ARM numeric contraction and literal coefficient folding retained. Seeded parser random vectors use the actual Linux C runtime; other platform CRT records unexecuted.",
+  "parentReview": "pending"
+}

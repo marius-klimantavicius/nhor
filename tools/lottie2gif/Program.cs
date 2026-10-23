@@ -12,16 +12,18 @@ namespace ThorVG.Tools
         private uint height = 600;
         private byte r, g, b;
         private bool background = false;
+        private uint? randomSeed;
 
         private static void HelpMsg()
         {
             Console.WriteLine(
                 "Usage: \n" +
-                "   lottie2gif [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color]\n\n" +
+                "   lottie2gif [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color] [-s random seed]\n\n" +
                 "Examples: \n" +
                 "    $ lottie2gif input.json\n" +
                 "    $ lottie2gif input.json -r 600x600\n" +
                 "    $ lottie2gif input.json -f 30\n" +
+                "    $ lottie2gif input.json -s 1\n" +
                 "    $ lottie2gif input.json -r 600x600 -f 30\n" +
                 "    $ lottie2gif input.lot\n" +
                 "    $ lottie2gif lottiefolder\n" +
@@ -42,62 +44,55 @@ namespace ThorVG.Tools
         private bool Convert(string input, string output)
         {
             if (Initializer.Init() != Result.Success) return false;
-
-            var animation = Animation.Gen();
-            var picture = animation.GetPicture();
-            if (picture.Load(input) != Result.Success)
+            bool converted;
+            Result terminated;
+            try
             {
-                Initializer.Term();
-                return false;
+                if (randomSeed.HasValue) LottieExpressions.SeedRandom(randomSeed.Value);
+                using var animation = Animation.Gen();
+                var picture = animation.GetPicture();
+                if (picture.Load(input) != Result.Success) return false;
+
+                picture.GetSize(out float w, out float h);
+                var scale = (float)width / w;
+                if (picture.SetSize(w * scale, h * scale) != Result.Success) return false;
+
+                using var saver = Saver.Gen();
+                if (background)
+                {
+                    var bg = Shape.Gen();
+                    bg.SetFill(r, g, b);
+                    bg.AppendRect(0, 0, w * scale, h * scale);
+                    saver.Background(bg);
+                }
+                converted = saver.Save(animation, output, 100, fps) == Result.Success &&
+                    saver.Sync() == Result.Success;
             }
-
-            picture.GetSize(out float w, out float h);
-            var scale = (float)width / w;
-            picture.SetSize(w * scale, h * scale);
-
-            var saver = Saver.Gen();
-
-            if (background)
-            {
-                var bg = Shape.Gen();
-                bg.SetFill(r, g, b);
-                bg.AppendRect(0, 0, w * scale, h * scale);
-                saver.Background(bg);
-            }
-
-            if (saver.Save(animation, output, 100, fps) != Result.Success)
-            {
-                Initializer.Term();
-                return false;
-            }
-
-            if (saver.Sync() != Result.Success)
-            {
-                Initializer.Term();
-                return false;
-            }
-
-            return Initializer.Term() == Result.Success;
+            finally { terminated = Initializer.Term(); }
+            return converted && terminated == Result.Success;
         }
 
-        private void ConvertFile(string lottieName)
+        private bool ConvertFile(string lottieName)
         {
             var gifName = Path.ChangeExtension(lottieName, ".gif");
 
-            if (Convert(lottieName, gifName))
+            var converted = Convert(lottieName, gifName);
+            if (converted)
                 Console.WriteLine($"Generated Gif file : {gifName}");
             else
                 Console.WriteLine($"Failed Converting Gif file : {lottieName}");
+            return converted;
         }
 
-        private void HandleDirectory(string path)
+        private bool HandleDirectory(string path)
         {
             if (!Directory.Exists(path))
             {
                 Console.WriteLine($"Couldn't open directory \"{path}\".");
-                return;
+                return false;
             }
 
+            var converted = true;
             foreach (var entry in Directory.EnumerateFileSystemEntries(path))
             {
                 var name = Path.GetFileName(entry);
@@ -105,14 +100,15 @@ namespace ThorVG.Tools
 
                 if (Directory.Exists(entry))
                 {
-                    HandleDirectory(entry);
+                    converted &= HandleDirectory(entry);
                 }
                 else
                 {
                     if (!Validate(entry)) continue;
-                    ConvertFile(entry);
+                    converted &= ConvertFile(entry);
                 }
             }
+            return converted;
         }
 
         public int Setup(string[] args)
@@ -161,6 +157,15 @@ namespace ThorVG.Tools
                             return 1;
                         }
                     }
+                    else if (p == "-s")
+                    {
+                        if (!uint.TryParse(pArg, out var seed))
+                        {
+                            Console.WriteLine($"Error: Invalid random seed ({pArg}). Expected a nonnegative integer.");
+                            return 1;
+                        }
+                        randomSeed = seed;
+                    }
                     else if (p == "-b")
                     {
                         if (pArg == null)
@@ -191,28 +196,30 @@ namespace ThorVG.Tools
                 return 0;
             }
 
+            int result = 0;
             foreach (var input in inputs)
             {
                 var path = Path.GetFullPath(input);
                 if (!File.Exists(path) && !Directory.Exists(path))
                 {
                     Console.WriteLine($"Invalid file or path name: \"{input}\"");
+                    result = 1;
                     continue;
                 }
 
                 if (Directory.Exists(path))
                 {
                     Console.WriteLine($"Directory: \"{path}\"");
-                    HandleDirectory(path);
+                    if (!HandleDirectory(path)) result = 1;
                 }
                 else
                 {
-                    if (!Validate(path)) continue;
-                    ConvertFile(path);
+                    if (!Validate(path)) { result = 1; continue; }
+                    if (!ConvertFile(path)) result = 1;
                 }
             }
 
-            return 0;
+            return result;
         }
     }
 

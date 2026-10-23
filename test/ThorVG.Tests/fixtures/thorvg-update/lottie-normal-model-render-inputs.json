@@ -1,0 +1,14 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "fixtures": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-normal-auto-orient-radial.lot",
+      "sha256": "aa2d2681db66d647bc7fc3f32ffaa465708dfdc01bcba64fcedc7be151dccda0"
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-normal-random-selector.lot",
+      "sha256": "49a6811cb42c36dec5d435c6b3ff5a9db962f1a9a5356026ac1bc76c7a98ebcf"
+    }
+  ],
+  "qualification": "Ordinary valid animated vector auto-orient, radial gradient/color-alpha stops and seeded text range selector using the unchanged supported fixture text model. No malformed/corruption/fuzz/UTF8 probes. Native exact normal frame/timeline comparisons remain required; no historical before-render comparison claimed."
+}

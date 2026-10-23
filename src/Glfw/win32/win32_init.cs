@@ -1,4 +1,4 @@
-// Ported from glfw/src/win32_init.c (GLFW 3.5)
+// Ported from glfw/src/win32_init.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -164,6 +164,9 @@ public partial class Win32Platform : IGlfwPlatform
         => Glfw._glfwInitJoysticksWin32();
     public void TerminateJoysticks()
         => Glfw._glfwTerminateJoysticksWin32();
+    public bool PollJoystick(GlfwJoystick joystick, int mode) => Glfw._glfwPollJoystickWin32(joystick, mode);
+    public string GetMappingName() => "Windows";
+    public string UpdateGamepadGUID(string guid) => Glfw._glfwUpdateGamepadGUIDWin32(guid);
 
     // Monitor -- delegated to real implementations in win32_monitor.cs
     public void FreeMonitor(GlfwMonitor monitor)
@@ -288,8 +291,10 @@ public static unsafe partial class Glfw
         // Load core DLLs (user32, kernel32, gdi32, shell32) into Win32Native statics
         if (!Win32Native.LoadCoreLibraries())
         {
-            _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
-                "Win32: Failed to load core libraries");
+            // The loader has already unwound core DLLs, so error formatting
+            // must not call through a released kernel32 function table.
+            _glfwInputError(GLFW_PLATFORM_ERROR,
+                "Win32: Failed to load core libraries or required entry points");
             return false;
         }
 
@@ -911,38 +916,16 @@ public static unsafe partial class Glfw
         _glfwTerminateEGL();
         _glfwTerminateOSMesa();
 
-        _glfwPlatformFreeModule(win32.xinput.instance);
-        _glfwPlatformFreeModule(win32.dinput8.instance);
-        _glfwPlatformFreeModule(win32.user32.instance);
-        _glfwPlatformFreeModule(win32.dwmapi.instance);
-        _glfwPlatformFreeModule(win32.shcore.instance);
-        _glfwPlatformFreeModule(win32.ntdll.instance);
-
-        // Free core libraries (user32, kernel32, gdi32, shell32)
+        // One owner per acquired module reference, including partial init.
+        // win32.user32.instance is a borrowed alias of the core user32 load.
+        // win32.instance (GetModuleHandleW) is borrowed from the process.
+        // FreeLibraries owns both core loads and independently loaded optional DLLs.
         Win32Native.FreeLibraries(win32);
 
         _glfw.Win32 = null;
     }
 
-    // -----------------------------------------------------------------
-    //  Stubs for functions defined in other Win32 files that are not yet
-    //  ported.
-    //
-    //  NOTE: Window/input functions are in win32_window.cs.
-    //  NOTE: Monitor functions are in win32_monitor.cs.
-    //  NOTE: _glfwTerminateWGL is in wgl/wgl_context.cs.
-    // -----------------------------------------------------------------
 
-    // Joystick stubs
-    internal static bool _glfwInitJoysticksWin32() { return true; /* STUB */ }
-    internal static void _glfwTerminateJoysticksWin32() { /* STUB */ }
-    internal static void _glfwDetectJoystickConnectionWin32() { /* STUB */ }
-    internal static void _glfwDetectJoystickDisconnectionWin32() { /* STUB */ }
-
-    // Context stubs (EGL, OSMesa)
-    // NOTE: _glfwTerminateWGL is defined in wgl/wgl_context.cs (already ported)
-    internal static void _glfwTerminateEGL() { /* STUB -- remove when egl_context.cs is ported */ }
-    internal static void _glfwTerminateOSMesa() { /* STUB -- remove when osmesa_context.cs is ported */ }
 }
 
 // =====================================================================

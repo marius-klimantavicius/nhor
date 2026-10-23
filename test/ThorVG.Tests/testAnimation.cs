@@ -8,12 +8,12 @@ namespace ThorVG.Tests
 {
     public class testAnimation
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void AnimationBasic()
         {
-            var animation = Animation.Gen();
+            using var animation = Animation.Gen();
             Assert.NotNull(animation);
 
             var picture = animation.GetPicture();
@@ -31,7 +31,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -48,7 +48,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init(1));
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -94,7 +94,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -119,7 +119,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 Assert.NotNull(animation);
 
                 var picture = animation.GetPicture();
@@ -166,7 +166,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 var picture = animation.GetPicture();
 
                 Assert.Equal(Result.Success, picture.Load(Path.Combine(TEST_DIR, "test.lot")));
@@ -176,7 +176,7 @@ namespace ThorVG.Tests
                 uint w = 200, h = (uint)(ph * 200f / pw);
                 picture.SetSize(w, h);
 
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[w * h];
                 Assert.Equal(Result.Success, canvas.Target(buffer, w, w, h, ColorSpace.ABGR8888S));
                 Assert.Equal(Result.Success, canvas.Add(picture));
@@ -202,7 +202,7 @@ namespace ThorVG.Tests
             // Mimics the exact GifSaver flow to find what breaks rendering
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 var picture = animation.GetPicture();
 
                 Assert.Equal(Result.Success, picture.Load(Path.Combine(TEST_DIR, "test.lot")));
@@ -219,7 +219,7 @@ namespace ThorVG.Tests
                 Assert.True(w > 0 && h > 0, $"Bounds returned zero size: {bw}x{bh}");
 
                 // This is what GifSaver.Run does:
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 var buffer = new uint[w * h];
                 Assert.Equal(Result.Success, canvas.Target(buffer, w, w, h, ColorSpace.ABGR8888S));
                 Assert.Equal(Result.Success, canvas.Add(picture));
@@ -257,10 +257,10 @@ namespace ThorVG.Tests
                 // Render frame 1 then frame 30 on the same canvas (the bug scenario)
                 int nzFrame1, nzFrame30;
                 {
-                    var a = Animation.Gen(); var p = a.GetPicture();
+                    using var a = Animation.Gen(); var p = a.GetPicture();
                     Assert.Equal(Result.Success, p.Load(Path.Combine(TEST_DIR, "test.lot")));
                     p.SetSize(w, h);
-                    var c = SwCanvas.Gen(); var buf = new uint[w * h];
+                    using var c = SwCanvas.Gen(); var buf = new uint[w * h];
                     c.Target(buf, w, w, h, ColorSpace.ABGR8888S); c.Add(p);
 
                     a.Frame(1);
@@ -275,10 +275,10 @@ namespace ThorVG.Tests
                 // Render frame 30 on a fresh canvas (baseline)
                 int nzBaseline;
                 {
-                    var a = Animation.Gen(); var p = a.GetPicture();
+                    using var a = Animation.Gen(); var p = a.GetPicture();
                     Assert.Equal(Result.Success, p.Load(Path.Combine(TEST_DIR, "test.lot")));
                     p.SetSize(w, h);
-                    var c = SwCanvas.Gen(); var buf = new uint[w * h];
+                    using var c = SwCanvas.Gen(); var buf = new uint[w * h];
                     c.Target(buf, w, w, h, ColorSpace.ABGR8888S); c.Add(p);
 
                     a.Frame(30);
@@ -303,7 +303,7 @@ namespace ThorVG.Tests
             // Uses the actual Saver → GifSaver pipeline, then validates output
             Assert.Equal(Result.Success, Initializer.Init());
             {
-                var animation = Animation.Gen();
+                using var animation = Animation.Gen();
                 var picture = animation.GetPicture();
 
                 Assert.Equal(Result.Success, picture.Load(Path.Combine(TEST_DIR, "test.lot")));
@@ -315,7 +315,7 @@ namespace ThorVG.Tests
                 var gifPath = Path.Combine(Path.GetTempPath(), "thorvg_test_" + Guid.NewGuid().ToString("N") + ".gif");
                 try
                 {
-                    var saver = Saver.Gen();
+                    using var saver = Saver.Gen();
                     Assert.Equal(Result.Success, saver.Save(animation, gifPath, 100, 30));
                     Assert.Equal(Result.Success, saver.Sync());
 

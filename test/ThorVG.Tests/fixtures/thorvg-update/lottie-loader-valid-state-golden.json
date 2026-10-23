@@ -1,0 +1,59 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "cases": [
+    {
+      "index": 0,
+      "name": "segment",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,segment=0,41200000,42480000"
+    },
+    {
+      "index": 1,
+      "name": "segment-clamp",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,segment=0,00000000,42480000"
+    },
+    {
+      "index": 2,
+      "name": "segment-reversed",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,segment=1,00000000,42b40000"
+    },
+    {
+      "index": 3,
+      "name": "duration-fast-rate",
+      "input": "{\"v\":\"5.7.4\",\"fr\":120,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,duration=3f400000"
+    },
+    {
+      "index": 4,
+      "name": "duration-slow-rate",
+      "input": "{\"v\":\"5.7.4\",\"fr\":0.25,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,duration=43b40000"
+    },
+    {
+      "index": 5,
+      "name": "resize-zero-width",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":0,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,resize=1,7f800000,00000000,00000000,00000000,3f800000,00000000,00000000,00000000,3f800000"
+    },
+    {
+      "index": 6,
+      "name": "resize-zero-height",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":96,\"h\":0,\"layers\":[]}",
+      "native": "0,comp=0,resize=1,3f800000,00000000,00000000,00000000,7f800000,00000000,00000000,00000000,3f800000"
+    },
+    {
+      "index": 7,
+      "name": "resize-negative-width",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":-96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,resize=1,bf800000,00000000,00000000,00000000,3f800000,00000000,00000000,00000000,3f800000"
+    },
+    {
+      "index": 8,
+      "name": "tween-before-parse",
+      "input": "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":90,\"w\":96,\"h\":72,\"layers\":[]}",
+      "native": "0,comp=0,to=1,progress=1,active=1,value=3f000000"
+    }
+  ]
+}

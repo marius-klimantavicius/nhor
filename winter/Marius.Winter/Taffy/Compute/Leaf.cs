@@ -32,7 +32,6 @@ namespace Marius.Winter.Taffy
 
             // Note: both horizontal and vertical percentage padding/borders are resolved against the container's inline size (i.e. width).
             // This is not a bug, but is how CSS is specified (see: https://developer.mozilla.org/en-US/docs/Web/CSS/padding#values)
-            var margin = style.Margin().ResolveOrZero(parentSize.Width, resolveCalcValue);
             var padding = style.Padding().ResolveOrZero(parentSize.Width, resolveCalcValue);
             var border = style.Border().ResolveOrZero(parentSize.Width, resolveCalcValue);
             var paddingBorder = padding.Add(border);
@@ -95,7 +94,8 @@ namespace Marius.Winter.Taffy
                 !style.IsBlock()
                 || style.Overflow().X.IsScrollContainer()
                 || style.Overflow().Y.IsScrollContainer()
-                || style.Position() == Position.Absolute
+                || style.Position().IsOutOfFlow()
+                || style.Contain().EstablishesIndependentFormattingContext()
                 || padding.Top > 0f
                 || padding.Bottom > 0f
                 || border.Top > 0f
@@ -125,18 +125,16 @@ namespace Marius.Winter.Taffy
 
             // Compute available space
             var computedAvailableSpace = new Size<AvailableSpace>(
-                width: knownDimensions.Width.HasValue
+                width: (knownDimensions.Width.HasValue
                     ? ((AvailableSpace)knownDimensions.Width.Value)
-                    : availableSpace.Width
-                    .MaybeSub(margin.HorizontalAxisSum())
+                    : availableSpace.Width)
                     .MaybeSet(knownDimensions.Width)
                     .MaybeSet(nodeSize.Width)
                     .MapDefiniteValue(size =>
                         size.MaybeClamp(nodeMinSize.Width, nodeMaxSize.Width) - contentBoxInset.HorizontalAxisSum()),
-                height: knownDimensions.Height.HasValue
+                height: (knownDimensions.Height.HasValue
                     ? ((AvailableSpace)knownDimensions.Height.Value)
-                    : availableSpace.Height
-                    .MaybeSub(margin.VerticalAxisSum())
+                    : availableSpace.Height)
                     .MaybeSet(knownDimensions.Height)
                     .MaybeSet(nodeSize.Height)
                     .MapDefiniteValue(size =>
@@ -166,14 +164,18 @@ namespace Marius.Winter.Taffy
 
             var finalSize = new Size<float>(
                 clampedSize.Width,
-                MathF.Max(clampedSize.Height, aspectRatio.HasValue ? clampedSize.Width / aspectRatio.Value : 0f)
+                TaffySys.F32Max(clampedSize.Height, aspectRatio.HasValue ? clampedSize.Width / aspectRatio.Value : 0f)
             );
             finalSize = finalSize.MaybeMax(paddingBorder.SumAxes().Map<float?>(v => v));
 
+            bool scroll = style.Overflow().X.IsScrollContainer() || style.Overflow().Y.IsScrollContainer();
+            bool rtl = style.Direction().IsRtl();
+            var rect = new Rect<float>(0, (rtl ? padding.Right : padding.Left) + measuredSize.Width + (scroll ? (rtl ? padding.Left : padding.Right) : 0),
+                0, padding.Top + measuredSize.Height + (scroll ? padding.Bottom : 0));
             return new LayoutOutput
             {
                 Size = finalSize,
-                ContentSize = measuredSize.Add(padding.SumAxes()),
+                ScrollableOverflowRect = rect,
                 FirstBaselines = PointExtensions.NoneF32,
                 TopMargin = CollapsibleMarginSet.ZERO,
                 BottomMargin = CollapsibleMarginSet.ZERO,

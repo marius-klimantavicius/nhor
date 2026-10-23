@@ -1,4 +1,4 @@
-// Ported from glfw/src/null_monitor.c (GLFW 3.5)
+// Ported from glfw/src/null_monitor.c (GLFW 3.6)
 //
 // Copyright (c) 2016 Google Inc.
 // Copyright (c) 2016-2019 Camilla Loewy <elmindreda@glfw.org>

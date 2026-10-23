@@ -23,19 +23,19 @@ namespace Marius.Winter.Taffy
         {
             var sizeContentSizeContribution = new Size<float>(
                 width: overflow.X == Overflow.Visible
-                    ? MathF.Max(size.Width, contentSize.Width)
+                    ? TaffySys.F32Max(size.Width, contentSize.Width)
                     : size.Width,
                 height: overflow.Y == Overflow.Visible
-                    ? MathF.Max(size.Height, contentSize.Height)
+                    ? TaffySys.F32Max(size.Height, contentSize.Height)
                     : size.Height
             );
 
             if (sizeContentSizeContribution.Width > 0f && sizeContentSizeContribution.Height > 0f)
             {
-                var maxX = MathF.Max(location.X + sizeContentSizeContribution.Width, 0f);
-                var minX = MathF.Min(location.X, 0f);
-                var maxY = MathF.Max(location.Y + sizeContentSizeContribution.Height, 0f);
-                var minY = MathF.Min(location.Y, 0f);
+                var maxX = TaffySys.F32Max(location.X + sizeContentSizeContribution.Width, 0f);
+                var minX = TaffySys.F32Min(location.X, 0f);
+                var maxY = TaffySys.F32Max(location.Y + sizeContentSizeContribution.Height, 0f);
+                var minY = TaffySys.F32Min(location.Y, 0f);
                 return new Size<float>(maxX - minX, maxY - minY);
             }
 

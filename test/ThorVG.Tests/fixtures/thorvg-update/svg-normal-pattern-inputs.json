@@ -1,0 +1,17 @@
+{
+  "inputs": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-pattern-units.svg",
+      "sha256": "1128ad3669885b648b82e06c8026deff54f044705e223d5aaf9b1513dab7e708",
+      "provenance": "Authored valid ordinary finite SVG pattern units/transform/viewBox/group/use/image/text/nesting scenario; existing pinned PNG bytes embedded unchanged. No malformed/corrupt/fuzz/UTF8 probes."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-pattern-children.svg",
+      "sha256": "a45802b917ddb0705cdd205a467618e0aba91f9ef506889fb977676185225f4c",
+      "provenance": "Authored valid ordinary finite SVG pattern units/transform/viewBox/group/use/image/text/nesting scenario; existing pinned PNG bytes embedded unchanged. No malformed/corrupt/fuzz/UTF8 probes."
+    }
+  ],
+  "pngSource": "ref/ThorVG/test/res/test.png",
+  "pngSha256": "d77bf068d8ed662c6a4683a78e40f169223b4cfbd059a720ff2736113109fd2f",
+  "parentReview": "pending"
+}

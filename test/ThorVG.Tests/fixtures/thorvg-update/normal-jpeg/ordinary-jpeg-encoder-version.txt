@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/usr/bin/cjpeg",
+    "-verbose",
+    "-outfile",
+    "/home/marius/p/nhor/tmp/thorvg-jpeg-normal/encoder-version.jpg",
+    "/home/marius/p/nhor/tmp/thorvg-jpeg-normal/inputs/8x8.ppm"
+  ],
+  "versionAndParameters": "Independent JPEG Group's CJPEG, version 9e  16-Jan-2022\nCopyright (C) 2022, Thomas G. Lane, Guido Vollbeding\n8x8 PPM image\n",
+  "encoderSha256": "5b46ddb4ac63868fdd1c33a2783f233c420b86dfb14e30dae63a3081d41ba36d"
+}

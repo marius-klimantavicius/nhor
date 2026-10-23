@@ -1,0 +1,12 @@
+{
+  "kind": "authored raw byte regression derived from recorded fixture",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-glyph-utf8.lot",
+  "basedOnSha256": "7bae966f248535278f76c85e2c274c4ea413a47fc706f2e53ddda41a3413b149",
+  "sha256": "2d494fd4c65ea5dbfdcd95dd496912eef15ad64b17f9b898f44fffba4df42d51",
+  "description": "Different invalid UTF8 glyph bytes must remain distinct through native byte lookup, length, text selectors and font-family matching.",
+  "replacements": {
+    "RAW80": "80",
+    "RAWFF": "ff"
+  }
+}

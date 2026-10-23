@@ -123,6 +123,8 @@ namespace Marius.Winter.Taffy
 
         /// <summary>The cached results of the layout computation</summary>
         public Cache Cache;
+        public List<NodeId>? HoistedChildren;
+        public DetailedGridInfo? DetailedGridInfo;
 
         /// <summary>Create the data for a new node</summary>
         public NodeData(Style style)
@@ -154,7 +156,7 @@ namespace Marius.Winter.Taffy
     public partial class TaffyTree<NodeContext>
     {
         // --- SlotMap-like storage using List + free list ---
-        // Each node is stored in a list at an index. The NodeId wraps that index.
+        // NodeId stores the slot index plus its generation, matching native SlotMap keys.
         // Removed nodes have their slot added to a free list for reuse.
 
         /// <summary>Shared empty list for leaf nodes to avoid per-leaf allocation</summary>
@@ -174,6 +176,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Free list of slot indices that have been removed</summary>
         private readonly List<int> _freeList;
+        private readonly List<uint> _generations = new();
 
         /// <summary>Layout mode configuration</summary>
         private TaffyConfig _config;
@@ -223,6 +226,7 @@ namespace Marius.Winter.Taffy
             {
                 index = _freeList[_freeList.Count - 1];
                 _freeList.RemoveAt(_freeList.Count - 1);
+                _generations[index] = unchecked(_generations[index] + 1);
                 _nodes[index] = data;
                 _children[index] = childList;
                 _parents[index] = null;
@@ -231,6 +235,7 @@ namespace Marius.Winter.Taffy
             {
                 index = _nodes.Count;
                 _nodes.Add(data);
+                _generations.Add(1);
                 _children.Add(childList);
                 _parents.Add(null);
             }
@@ -239,7 +244,14 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Get the internal index for a NodeId</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int Key(NodeId nodeId) => (int)nodeId.Value;
+        private int Key(NodeId nodeId)
+        {
+            int index = unchecked((int)(uint)nodeId.Value) - 1;
+            if ((uint)index >= (uint)_nodes.Count || _nodes[index] == null || _generations[index] != (uint)(nodeId.Value >> 32))
+                throw new TaffyInvalidInputNodeError(nodeId);
+            return index;
+        }
+        private NodeId IdForSlot(int index) => new(((ulong)_generations[index] << 32) | (uint)(index + 1));
 
         /// <summary>Ensure the children list for a node is mutable (not the shared empty list)</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -258,8 +270,8 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool IsValidNode(NodeId nodeId)
         {
-            var key = Key(nodeId);
-            return key >= 0 && key < _nodes.Count && _nodes[key] != null;
+            int key = unchecked((int)(uint)nodeId.Value) - 1;
+            return (uint)key < (uint)_nodes.Count && _nodes[key] != null && _generations[key] == (uint)(nodeId.Value >> 32);
         }
 
         // --- Public API ---
@@ -270,7 +282,7 @@ namespace Marius.Winter.Taffy
         public NodeId NewLeaf(Style layout)
         {
             int index = AllocateSlot(new NodeData(layout));
-            return new NodeId((ulong)index);
+            return IdForSlot(index);
         }
 
         /// <summary>
@@ -284,7 +296,7 @@ namespace Marius.Winter.Taffy
             int index = AllocateSlot(data);
             _nodeContextData[index] = context;
 
-            return new NodeId((ulong)index);
+            return IdForSlot(index);
         }
 
         /// <summary>
@@ -294,7 +306,7 @@ namespace Marius.Winter.Taffy
         {
             var data = new NodeData(layout);
             int index = AllocateSlot(data, isLeaf: false);
-            var id = new NodeId((ulong)index);
+            var id = IdForSlot(index);
 
             for (int i = 0; i < children.Length; i++)
             {
@@ -315,11 +327,18 @@ namespace Marius.Winter.Taffy
         /// </summary>
         public void Clear()
         {
-            _nodes.Clear();
-            _children.Clear();
-            _parents.Clear();
             _nodeContextData.Clear();
-            _freeList.Clear();
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                // SlotMap clears by removing occupied slots in index order. Existing free
+                // slots keep their free-list positions and versions.
+                if (_nodes[i] == null) continue;
+                _generations[i] = unchecked(_generations[i] + 1);
+                _nodes[i] = null;
+                _children[i] = null;
+                _parents[i] = null;
+                _freeList.Add(i);
+            }
         }
 
         /// <summary>
@@ -335,6 +354,7 @@ namespace Marius.Winter.Taffy
             {
                 var parentKey = Key(_parents[key]!.Value);
                 _children[parentKey]?.RemoveAll(id => id == node);
+                MarkDirty(_parents[key]!.Value);
             }
 
             // Remove "parent" references when removing a node
@@ -349,6 +369,7 @@ namespace Marius.Winter.Taffy
             _children[key] = null;
             _parents[key] = null;
             _nodes[key] = null;
+            _generations[key] = unchecked(_generations[key] + 1);
             _nodeContextData.Remove(key);
             _freeList.Add(key);
 
@@ -382,8 +403,35 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public NodeContext? GetNodeContext(NodeId node)
         {
-            _nodeContextData.TryGetValue(Key(node), out var context);
+            TryGetNodeContext(node, out var context);
             return context;
+        }
+
+        public bool TryGetNodeContext(NodeId node, out NodeContext context)
+        {
+            if (IsValidNode(node)) return _nodeContextData.TryGetValue(Key(node), out context!);
+            context = default!; return false;
+        }
+        public NodeContextReference<NodeContext> GetNodeContextReference(NodeId node) => new(this, node);
+        public NodeContextReference<NodeContext> GetNodeContextMut(NodeId node) => new(this, node);
+        public NodeContextReference<NodeContext>[]? GetDisjointNodeContextMut(ReadOnlySpan<NodeId> nodes)
+        {
+            var seen = new HashSet<NodeId>();
+            foreach (var node in nodes) if (!seen.Add(node) || !TryGetNodeContext(node, out _)) return null;
+            var references = new NodeContextReference<NodeContext>[nodes.Length];
+            for (int i = 0; i < references.Length; i++) references[i] = new(this, nodes[i]);
+            return references;
+        }
+        internal ref NodeContext ContextReference(NodeId node)
+        {
+            if (!IsValidNode(node)) throw new InvalidOperationException("The node has no context");
+            ref var value = ref System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrNullRef(_nodeContextData, Key(node));
+            if (Unsafe.IsNullRef(ref value)) throw new InvalidOperationException("The node has no context");
+            return ref value!;
+        }
+        public void ClearNodeContext(NodeId node)
+        {
+            int key = Key(node); _nodeContextData.Remove(key); _nodes[key]!.HasContext = false; MarkDirty(node);
         }
 
         /// <summary>
@@ -406,7 +454,7 @@ namespace Marius.Winter.Taffy
         {
             var parentKey = Key(parent);
             var childCount = _children[parentKey]!.Count;
-            if (childIndex > childCount)
+            if ((uint)childIndex > (uint)childCount)
             {
                 throw new TaffyChildIndexOutOfBoundsError(parent, childIndex, childCount);
             }
@@ -475,7 +523,7 @@ namespace Marius.Winter.Taffy
         {
             var parentKey = Key(parent);
             var childCount = _children[parentKey]!.Count;
-            if (childIndex >= childCount)
+            if ((uint)childIndex >= (uint)childCount)
             {
                 throw new TaffyChildIndexOutOfBoundsError(parent, childIndex, childCount);
             }
@@ -489,6 +537,17 @@ namespace Marius.Winter.Taffy
             return child;
         }
 
+        /// <summary>Detach a range of children without deleting their nodes or contexts.</summary>
+        public void RemoveChildrenRange(NodeId parent, Range range)
+        {
+            int key = Key(parent);
+            var (start, count) = range.GetOffsetAndLength(_children[key]!.Count);
+            var children = EnsureMutableChildren(key);
+            for (int i = start; i < start + count; i++) _parents[Key(children[i])] = null;
+            children.RemoveRange(start, count);
+            MarkDirty(parent);
+        }
+
         /// <summary>
         /// Replaces the child at the given child_index from the parent node with the new child node.
         /// The old child is not removed from the tree entirely, it is simply no longer attached to its previous parent.
@@ -497,7 +556,7 @@ namespace Marius.Winter.Taffy
         {
             var parentKey = Key(parent);
             var childCount = _children[parentKey]!.Count;
-            if (childIndex >= childCount)
+            if ((uint)childIndex >= (uint)childCount)
             {
                 throw new TaffyChildIndexOutOfBoundsError(parent, childIndex, childCount);
             }
@@ -520,7 +579,7 @@ namespace Marius.Winter.Taffy
         {
             var parentKey = Key(parent);
             var childCount = _children[parentKey]!.Count;
-            if (childIndex >= childCount)
+            if ((uint)childIndex >= (uint)childCount)
             {
                 throw new TaffyChildIndexOutOfBoundsError(parent, childIndex, childCount);
             }
@@ -652,6 +711,21 @@ namespace Marius.Winter.Taffy
             Size<AvailableSpace> availableSpace,
             Func<Size<float?>, Size<AvailableSpace>, NodeId, NodeContext?, Style, Size<float>> measureFunction)
         {
+            // Preserve Winter's size-only callback API by adapting it at the leaf boundary.
+            ComputeLayoutWithMeasure(nodeId, availableSpace, (inputs, id, context, style) =>
+                LeafCompute.ComputeLeafLayout(inputs, style, (_, _) => 0f,
+                    (known, available) => measureFunction(known, available, id, context, style)));
+        }
+
+        /// <summary>
+        /// Compute layout with a callback that owns leaf layout and can return baselines and
+        /// margin-collapse metadata as well as size. Matches the upstream LayoutOutput callback.
+        /// </summary>
+        public void ComputeLayoutWithMeasure(
+            NodeId nodeId,
+            Size<AvailableSpace> availableSpace,
+            Func<LayoutInput, NodeId, NodeContext?, Style, LayoutOutput> measureFunction)
+        {
             var useRounding = _config.UseRounding;
             var taffyView = new TaffyView<NodeContext>(this, measureFunction);
             Marius.Winter.Taffy.ComputeLayout.ComputeRootLayout(taffyView, nodeId, availableSpace);
@@ -660,13 +734,18 @@ namespace Marius.Winter.Taffy
                 Marius.Winter.Taffy.ComputeLayout.RoundLayout(taffyView, nodeId);
             }
         }
+        /// <summary>Native full-output measurement with an optional mutable context, including value-type contexts.</summary>
+        public void ComputeLayoutWithContextMeasure(NodeId nodeId, Size<AvailableSpace> availableSpace,
+            Func<LayoutInput, NodeId, NodeContextReference<NodeContext>, Style, LayoutOutput> measureFunction) =>
+            ComputeLayoutWithMeasure(nodeId, availableSpace, (input, id, _, style) => measureFunction(input, id, new(this, id), style));
 
         /// <summary>
         /// Updates the stored layout of the provided node and its children
         /// </summary>
         public void ComputeLayout(NodeId node, Size<AvailableSpace> availableSpace)
         {
-            ComputeLayoutWithMeasure(node, availableSpace, (_, _, _, _, _) => SizeExtensions.ZeroF32);
+            ComputeLayoutWithMeasure(node, availableSpace, (inputs, _, _, style) =>
+                LeafCompute.ComputeLeafLayout(inputs, style, (_, _) => 0f, (_, _) => SizeExtensions.ZeroF32));
         }
 
         /// <summary>
@@ -674,7 +753,8 @@ namespace Marius.Winter.Taffy
         /// </summary>
         internal TaffyView<NodeContext> AsLayoutTree()
         {
-            return new TaffyView<NodeContext>(this, (_, _, _, _, _) => SizeExtensions.ZeroF32);
+            return new TaffyView<NodeContext>(this, (inputs, _, _, style) =>
+                LeafCompute.ComputeLeafLayout(inputs, style, (_, _) => 0f, (_, _) => SizeExtensions.ZeroF32));
         }
     }
 
@@ -686,6 +766,7 @@ namespace Marius.Winter.Taffy
     internal class TaffyView<NodeContext> :
         ITraversePartialTree, ITraverseTree,
         ILayoutPartialTree,
+        ILayoutContainingBlock,
         ICacheTree,
         IRoundTree,
         IPrintTree,
@@ -697,7 +778,7 @@ namespace Marius.Winter.Taffy
         private readonly TaffyTree<NodeContext> _taffy;
 
         /// <summary>The measure function for leaf nodes</summary>
-        private readonly Func<Size<float?>, Size<AvailableSpace>, NodeId, NodeContext?, Style, Size<float>> _measureFunction;
+        private readonly Func<LayoutInput, NodeId, NodeContext?, Style, LayoutOutput> _measureFunction;
 
         /// <summary>
         /// Temporary storage for the block context being passed through ComputeBlockChildLayout.
@@ -707,7 +788,7 @@ namespace Marius.Winter.Taffy
 
         public TaffyView(
             TaffyTree<NodeContext> taffy,
-            Func<Size<float?>, Size<AvailableSpace>, NodeId, NodeContext?, Style, Size<float>> measureFunction)
+            Func<LayoutInput, NodeId, NodeContext?, Style, LayoutOutput> measureFunction)
         {
             _taffy = taffy;
             _measureFunction = measureFunction;
@@ -715,9 +796,6 @@ namespace Marius.Winter.Taffy
 
         // --- Internal helpers to access TaffyTree internals ---
         // We use a naming convention to access private members via internal access
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int Key(NodeId nodeId) => (int)nodeId.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private NodeData GetNode(NodeId nodeId) => _taffy.GetNodeData(nodeId);
@@ -801,15 +879,18 @@ namespace Marius.Winter.Taffy
                 var hasChildren = tree.ChildCount(nid) > 0;
 
                 // Dispatch to a layout algorithm based on the node's display style and whether the node has children or not.
-                return (displayMode, hasChildren) switch
+                var output = (displayMode, hasChildren) switch
                 {
                     (Display.None, _) => Marius.Winter.Taffy.ComputeLayout.ComputeHiddenLayout(tree, tree, nid),
                     (Display.Block, true) => BlockAlgorithm.ComputeBlockLayout(tree, nid, inp, tree._pendingBlockCtx),
+                    (Display.FlowRoot, true) => BlockAlgorithm.ComputeBlockLayout(tree, nid, inp, null),
                     (Display.Flex, true) => FlexboxAlgorithm.ComputeFlexboxLayout(tree, nid, inp),
                     (Display.Grid, true) => GridAlgorithm.ComputeGridLayout(tree, nid, inp),
                     (_, false) => ComputeLeafNode(tree, nid, inp),
                     _ => ComputeLeafNode(tree, nid, inp),
                 };
+                if (inp.RunMode == RunMode.PerformLayout) OutOfFlow.ComputeOofLayout(tree, nid, ref output);
+                return output;
             });
 
             _pendingBlockCtx = savedBlockCtx;
@@ -825,11 +906,7 @@ namespace Marius.Winter.Taffy
             var style = node.Style;
             var hasContext = node.HasContext;
             var nodeContext = hasContext ? tree._taffy.GetNodeContext(nodeId) : default;
-            Size<float> MeasureFunc(Size<float?> knownDimensions, Size<AvailableSpace> availableSpace)
-            {
-                return tree._measureFunction(knownDimensions, availableSpace, nodeId, nodeContext, style);
-            }
-            return LeafCompute.ComputeLeafLayout(inputs, style, (_, _) => 0.0f, MeasureFunc);
+            return tree._measureFunction(inputs, nodeId, nodeContext, style);
         }
 
         // --- ICacheTree ---
@@ -851,6 +928,24 @@ namespace Marius.Winter.Taffy
         {
             GetNode(nodeId).Cache.Clear();
         }
+
+        public IOofItemStyle GetOofItemStyle(NodeId nodeId) => GetNode(nodeId).Style;
+        public DetailedGridInfo? GetDetailedGridInfo(NodeId nodeId) => GetNode(nodeId).DetailedGridInfo;
+        public void SetDetailedGridInfo(NodeId nodeId, DetailedGridInfo info) => GetNode(nodeId).DetailedGridInfo = info;
+        public void ClearHoistedChildren(NodeId nodeId) => GetNode(nodeId).HoistedChildren?.Clear();
+        public void AddHoistedChildren(NodeId nodeId, ReadOnlySpan<NodeId> children)
+        {
+            if (children.IsEmpty) return;
+            var list = GetNode(nodeId).HoistedChildren ??= new();
+            foreach (var child in children) list.Add(child);
+        }
+        public bool IsOutOfFlow(NodeId nodeId)
+        {
+            var style = GetNode(nodeId).Style;
+            return style.PositionValue.IsOutOfFlow() && style.Display != Display.None;
+        }
+        public int HoistedChildCount(NodeId nodeId) => GetNode(nodeId).HoistedChildren?.Count ?? 0;
+        public NodeId GetHoistedChildId(NodeId nodeId, int index) => GetNode(nodeId).HoistedChildren![index];
 
         // --- IRoundTree ---
 
@@ -879,6 +974,7 @@ namespace Marius.Winter.Taffy
                 (_, Display.None) => "NONE",
                 (0, _) => "LEAF",
                 (_, Display.Block) => "BLOCK",
+                (_, Display.FlowRoot) => "FLOW-ROOT",
                 (_, Display.Flex) => node.Style.FlexDirectionValue switch
                 {
                     FlexDirection.Row or FlexDirection.RowReverse => "FLEX ROW",
@@ -950,18 +1046,28 @@ namespace Marius.Winter.Taffy
     // without making them part of the public API
     public partial class TaffyTree<NodeContext>
     {
+        /// <summary>Out-of-flow nodes positioned relative to this containing block by the last layout.</summary>
+        public ReadOnlySpan<NodeId> HoistedChildren(NodeId node)
+        {
+            var list = GetNodeData(node).HoistedChildren;
+            return list == null ? ReadOnlySpan<NodeId>.Empty : System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list);
+        }
+
+        public DetailedGridInfo? GetDetailedGridInfo(NodeId nodeId) => GetNodeData(nodeId).DetailedGridInfo;
+        public void PrintTree(NodeId root) => TreeDebug.PrintTree(AsLayoutTree(), root);
+        public void WriteTree(System.IO.TextWriter writer, NodeId root) => TreeDebug.WriteTree(writer, AsLayoutTree(), root);
         /// <summary>Get node data - internal access for TaffyView</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal NodeData GetNodeData(NodeId nodeId)
         {
-            return _nodes[(int)nodeId.Value]!;
+            return _nodes[Key(nodeId)]!;
         }
 
         /// <summary>Get children list - internal access for TaffyView</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal List<NodeId> ChildrenList(NodeId parentNodeId)
         {
-            return _children[(int)parentNodeId.Value]!;
+            return _children[Key(parentNodeId)]!;
         }
 
         /// <summary>Whether rounding is enabled - internal access for TaffyView</summary>

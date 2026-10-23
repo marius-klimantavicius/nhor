@@ -12,14 +12,17 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Equal(string? a, string? b)
         {
-            return string.Equals(a, b, StringComparison.Ordinal);
+            if (a == null || b == null) return a == b;
+            if (TvgUtf8.HasRaw(a) || TvgUtf8.HasRaw(b))
+                return CStringBytes(TvgUtf8.Encode(a)).SequenceEqual(CStringBytes(TvgUtf8.Encode(b)));
+            return CString(a).SequenceEqual(CString(b));
         }
 
         // ---- Concat -----------------------------------------------------
 
         public static string Concat(string a, string b)
         {
-            return string.Concat(a, b);
+            return TvgUtf8.Concat(Duplicate(a)!, Duplicate(b)!);
         }
 
         // ---- Duplicate --------------------------------------------------
@@ -27,18 +30,35 @@ namespace ThorVG
         public static string? Duplicate(string? str, int n = int.MaxValue)
         {
             if (str == null) return null;
-            var len = str.Length;
+            var len = CString(str).Length;
             if (len < n) n = len;
-            return str.Substring(0, n);
+            return TvgUtf8.Slice(str, 0, n);
         }
 
         public static string? Duplicate(string? str, int n, out uint size)
         {
             if (str == null) { size = 0; return null; }
-            var len = str.Length;
+            var len = CString(str).Length;
             if (len < n) n = len;
             size = (uint)n;
-            return str.Substring(0, n);
+            return TvgUtf8.Slice(str, 0, n);
+        }
+
+        /// <summary>
+        /// Native byte-limit duplication, including the terminating NUL. Raw
+        /// byte limits can split UTF-8; string overloads retain their existing
+        /// UTF-16 character limits for managed callers.
+        /// </summary>
+        public static byte[]? DuplicateUtf8(byte[]? str, nuint max, out uint size)
+        {
+            size = 0;
+            if (str == null) return null;
+            int length = CStringBytes(str).Length;
+            int count = max < (nuint)length ? (int)max : length;
+            var result = new byte[checked(count + 1)];
+            str.AsSpan(0, count).CopyTo(result);
+            size = (uint)count;
+            return result;
         }
 
         // ---- Append -----------------------------------------------------
@@ -47,53 +67,53 @@ namespace ThorVG
         {
             if (rhs == null) return lhs;
             if (lhs == null) return Duplicate(rhs, n);
-            var part = rhs.Length > n ? rhs.Substring(0, n) : rhs;
-            return string.Concat(lhs, part);
+            var part = CString(rhs);
+            if (part.Length > n) part = part.Slice(0, n);
+            return TvgUtf8.Concat(Duplicate(lhs)!, TvgUtf8.Slice(rhs, 0, part.Length));
+        }
+
+        /// <summary>Append native CString bytes with a byte limit and trailing NUL.</summary>
+        public static byte[]? AppendUtf8(byte[]? lhs, byte[]? rhs, nuint max)
+        {
+            if (rhs == null) return lhs;
+            if (lhs == null) return DuplicateUtf8(rhs, max, out _);
+            var left = CStringBytes(lhs);
+            var right = CStringBytes(rhs);
+            int count = max < (nuint)right.Length ? (int)max : right.Length;
+            var result = new byte[checked(left.Length + count + 1)];
+            left.CopyTo(result);
+            right.Slice(0, count).CopyTo(result.AsSpan(left.Length));
+            return result;
         }
 
         // ---- Dirname ----------------------------------------------------
 
         public static string Dirname(string path)
         {
-            var idx = path.LastIndexOf('/');
-            var idx2 = path.LastIndexOf('\\');
-            if (idx2 > idx) idx = idx2;
-            if (idx >= 0) return path.Substring(0, idx + 1);
-            return path;
+            var text = CString(path);
+            var idx = Separator(text);
+            return TvgUtf8.Slice(path, 0, idx >= 0 ? idx + 1 : text.Length);
         }
 
         // ---- Filename (without extension) ------------------------------
 
         public static string Filename(string path)
         {
-            var sep = path.LastIndexOf('/');
-            var sep2 = path.LastIndexOf('\\');
-            if (sep2 > sep) sep = sep2;
+            var text = CString(path);
+            var sep = Separator(text);
             var start = (sep >= 0) ? sep + 1 : 0;
-            var name = path.Substring(start);
-            var ext = Fileext(name);
-            if (ext.Length > 0 && ext.Length < name.Length)
-            {
-                // ext includes everything after the last dot
-                return name.Substring(0, name.Length - ext.Length - 1);
-            }
-            return name;
+            var name = text.Slice(start);
+            var dot = name.LastIndexOf('.');
+            return TvgUtf8.Slice(path, start, dot >= 0 ? dot : name.Length);
         }
 
         // ---- File extension (after last '.') ---------------------------
 
         public static string Fileext(string path)
         {
-            var result = path;
-            while (true)
-            {
-                var dot = result.IndexOf('.');
-                if (dot < 0) break;
-                result = result.Substring(dot + 1);
-            }
-            // If result == path and there was no dot, return empty
-            if (ReferenceEquals(result, path) || result == path) return string.Empty;
-            return result;
+            var text = CString(path);
+            var dot = text.LastIndexOf('.');
+            return dot >= 0 ? TvgUtf8.Slice(path, dot + 1, text.Length - dot - 1) : TvgUtf8.Slice(path, 0, text.Length);
         }
 
         // ---- ToFloat (custom parser, from tvgStr.cpp) ------------------
@@ -116,7 +136,7 @@ namespace ThorVG
             int a = iter; // tracks the "successful parse" position
 
             // skip leading whitespace
-            while (iter < len && char.IsWhiteSpace(str[iter])) iter++;
+            while (iter < len && IsSpace(str[iter])) iter++;
 
             // sign
             if (iter < len && str[iter] == '-') { minus = -1; iter++; }
@@ -159,7 +179,7 @@ namespace ThorVG
                 {
                     iter += 3;
                     index = iter;
-                    return (minus == -1) ? -float.NaN : float.NaN;
+                    return BitConverter.UInt32BitsToSingle(minus == -1 ? 0xffc00000U : 0x7fc00000U);
                 }
                 index = startIndex;
                 return 0.0f;
@@ -179,10 +199,10 @@ namespace ThorVG
             {
                 // success with 0
                 index = a;
-                return 0.0f;
+                return minus * 0.0f;
             }
 
-            val = (float)integerPart;
+            val = UnsignedFloat(integerPart);
 
             // Optional decimal part after dot
             if (iter < len && str[iter] == '.')
@@ -205,13 +225,13 @@ namespace ThorVG
                         decCount++;
                     }
                 }
-                else if (iter < len && char.IsWhiteSpace(str[iter]))
+                else if (iter < len && IsSpace(str[iter]))
                 {
                     a = iter;
                     goto success;
                 }
 
-                val += (float)decimalPart / (float)pow10;
+                val += UnsignedFloat(decimalPart) / UnsignedFloat(pow10);
                 a = iter;
             }
 
@@ -277,6 +297,36 @@ namespace ThorVG
         }
 
         // ---- Private helpers -------------------------------------------
+
+        // Preserve native UInt64-to-float nearest-even rounding when the
+        // runtime's scalar unsigned conversion would round twice. Above the
+        // signed range, retain the discarded low bit before scaling back.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float UnsignedFloat(ulong value) =>
+            value <= long.MaxValue ? (float)(long)value : (float)(long)((value >> 1) | (value & 1)) * 2.0f;
+
+        private static ReadOnlySpan<char> CString(string value)
+        {
+            var text = value.AsSpan();
+            var end = text.IndexOf('\0');
+            return end < 0 ? text : text.Slice(0, end);
+        }
+
+        private static ReadOnlySpan<byte> CStringBytes(byte[] value)
+        {
+            var bytes = value.AsSpan();
+            int end = bytes.IndexOf((byte)0);
+            return end < 0 ? bytes : bytes.Slice(0, end);
+        }
+
+        private static int Separator(ReadOnlySpan<char> path)
+        {
+            int sep = path.LastIndexOf('/');
+            if (OperatingSystem.IsWindows()) sep = Math.Max(sep, path.LastIndexOf('\\'));
+            return sep;
+        }
+
+        private static bool IsSpace(char ch) => ch is ' ' or '\t' or '\n' or '\r' or '\f' or '\v';
 
         private static unsafe bool FloatExact(float a, float b)
         {

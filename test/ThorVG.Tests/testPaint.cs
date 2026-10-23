@@ -9,7 +9,7 @@ namespace ThorVG.Tests
 {
     public class testPaint
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         private const float MARGIN = 0.000001f;
 
@@ -142,7 +142,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.Success, Initializer.Init());
             {
                 var buffer = new uint[500 * 500];
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 canvas.Target(buffer, 500, 500, 500, ColorSpace.ARGB8888);
 
                 var shape = Shape.Gen();
@@ -361,7 +361,7 @@ namespace ThorVG.Tests
 
             Initializer.Init();
             {
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
 
                 shape = Shape.Gen();
                 Assert.Equal((ushort)1, shape.Ref());

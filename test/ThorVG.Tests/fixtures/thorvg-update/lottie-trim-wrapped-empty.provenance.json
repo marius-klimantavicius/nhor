@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "lottie-expression-language.lot",
+  "description": "A closed rounded rectangle with75..100 percent simultaneous trim and90-degree offset gives raw begin1/end1.25. The first wrapped half is empty; the second requires an opening MoveTo. No random calls, external resources or timing dependence.",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "sha256": "41d8432f9366dccb38b6352755d86236a11ee4b2c4027df9f9ad01ab0b8491fa"
+}

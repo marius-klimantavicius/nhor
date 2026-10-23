@@ -77,14 +77,16 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void Open_SetsContentAndSize()
+        public void Open_PreparesCompositionAndReleasesOwnedContent()
         {
             var path = CreateTempLottieFile(MinimalLottieJson);
             try
             {
                 var loader = new LottieLoader();
                 loader.Open(path);
-                Assert.NotNull(loader.content);
+                Assert.NotNull(loader.comp);
+                Assert.Null(loader.content);
+                Assert.Equal(Ownership.Transfer, loader.owner);
                 Assert.True(loader.size > 0);
             }
             finally
@@ -173,13 +175,13 @@ namespace ThorVG.Tests
             const string json = "{\"fill-color\":{\"p\":{\"a\":0,\"k\":[1,0,0]}}}";
             var fill = new LottieSolidFill();
             fill.color.value = new RGB32(0, 0, 255);
-            fill.color.sid = TvgCompressor.Djb2Encode(sid);
+            fill.color.sid = TvgCompressor.Djb2EncodeNative(sid);
 
             var loader = new LottieLoader { comp = new LottieComposition() };
             loader.comp.slots.Add(new LottieSlot(null, null, fill.color.sid, fill, LottieProperty.PropertyType.Color));
 
             var code = loader.GenSlot(json);
-            Assert.Equal((uint)TvgCompressor.Djb2Encode(json), code);
+            Assert.Equal((uint)TvgCompressor.Djb2EncodeNative(json), code);
             Assert.NotEqual(0u, code);
             Assert.Equal(0, fill.color.value.r);
             Assert.Equal(Result.Success, loader.ApplySlot(code));
@@ -203,7 +205,7 @@ namespace ThorVG.Tests
         {
             var loader = new LottieLoader { comp = new LottieComposition() };
             var fill = new LottieSolidFill();
-            loader.comp.slots.Add(new LottieSlot(null, null, TvgCompressor.Djb2Encode("known"), fill, LottieProperty.PropertyType.Color));
+            loader.comp.slots.Add(new LottieSlot(null, null, TvgCompressor.Djb2EncodeNative("known"), fill, LottieProperty.PropertyType.Color));
 
             Assert.Equal(0u, loader.GenSlot("{\"unknown\":{\"p\":{\"a\":0,\"k\":[1,0,0]}}}"));
             Assert.Equal(0u, loader.GenSlot("not json"));

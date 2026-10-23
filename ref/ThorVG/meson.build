@@ -1,7 +1,7 @@
 project('thorvg',
         'cpp',
         default_options : ['buildtype=debugoptimized', 'b_sanitize=none', 'werror=false', 'optimization=3', 'cpp_std=c++14'],
-        version : '1.0.0',
+        version : '1.2.0',
         license : 'MIT')
 
 v_array = meson.project_version().split('.')
@@ -46,29 +46,27 @@ if get_option('partial')
   config_h.set10('THORVG_PARTIAL_RENDER_SUPPORT', true)
 endif
 
-# Tools
-all_tools = get_option('tools').contains('all')
-lottie2gif = all_tools or get_option('tools').contains('lottie2gif')
-svg2png = all_tools or get_option('tools').contains('svg2png')
-
 # Loaders
 all_loaders = get_option('loaders').contains('all')
-svg_loader = all_loaders or get_option('loaders').contains('svg') or svg2png
+svg_loader = all_loaders or get_option('loaders').contains('svg')
 png_loader = all_loaders or get_option('loaders').contains('png')
 jpg_loader = all_loaders or get_option('loaders').contains('jpg')
-lottie_loader = all_loaders or get_option('loaders').contains('lottie') or lottie2gif
+lottie_loader = all_loaders or get_option('loaders').contains('lottie')
 ttf_loader = all_loaders or get_option('loaders').contains('ttf')
 otf_loader = all_loaders or get_option('loaders').contains('otf')
 webp_loader = all_loaders or get_option('loaders').contains('webp')
 
+# experimental in the development
+media_loader = get_option('loaders').contains('media')
+
 # Savers
 all_savers = get_option('savers').contains('all')
-gif_saver = all_savers or get_option('savers').contains('gif') or lottie2gif
+gif_saver = all_savers or get_option('savers').contains('gif')
 
 # Logging
 logging = get_option('log')
 
-# Loaders/savers/tools config
+# Loaders/savers config
 if svg_loader
     config_h.set10('THORVG_SVG_LOADER_SUPPORT', true)
 endif
@@ -99,25 +97,16 @@ if webp_loader
     config_h.set10('THORVG_WEBP_LOADER_SUPPORT', true)
 endif
 
+if media_loader
+    config_h.set10('THORVG_MEDIA_LOADER_SUPPORT', true)
+endif
+
 if gif_saver
     config_h.set10('THORVG_GIF_SAVER_SUPPORT', true)
 endif
 
 # Vectorization
 simd_type = 'none'
-
-if get_option('simd')
-  if host_machine.cpu_family().startswith('x86')
-    config_h.set10('THORVG_AVX_VECTOR_SUPPORT', true)
-    simd_type = 'avx'
-  elif host_machine.cpu_family().startswith('arm')
-    config_h.set10('THORVG_NEON_VECTOR_SUPPORT', true)
-    simd_type = 'neon-arm'
-  elif host_machine.cpu().startswith('aarch')
-    config_h.set10('THORVG_NEON_VECTOR_SUPPORT', true)
-    simd_type = 'neon-aarch'
-  endif
-endif
 
 # Bindings
 if get_option('bindings').contains('capi')
@@ -163,19 +152,27 @@ endif
 # Miscellaneous
 config_h.set10('WIN32_LEAN_AND_MEAN', true)
 
+headers = [include_directories('inc'), include_directories('.')]
+
+subdir('inc')
+subdir('src')
+
 configure_file(
     output: 'config.h',
     configuration: config_h
 )
 
-headers = [include_directories('inc'), include_directories('.')]
-
-subdir('inc')
-subdir('src')
-subdir('tools')
-
 if get_option('tests')
-   subdir('test')
+   fs = import('fs')
+   git = find_program('git', required: false)
+   if not fs.exists('test/meson.build') and fs.exists('.git') and git.found()
+      run_command(git, '-C', meson.current_source_dir(), 'submodule', 'update', '--init', '--', 'test', check: false)
+   endif
+   if fs.exists('test/meson.build')
+      subdir('test')
+   else
+      warning('Unit tests are unavailable in this source archive; skipping.')
+   endif
 endif
 
 summary(
@@ -185,7 +182,7 @@ summary(
     'File I/O': get_option('file'),
     'Multi-Tasking': get_option('threads'),
     'Partial Rendering': get_option('partial'),
-    'SIMD Instruction': simd_type,
+    'SIMD': simd_type,
     'Log Message': get_option('log'),
     'Tests': get_option('tests')
   },
@@ -211,6 +208,7 @@ summary(
     'PNG': png_loader,
     'JPG': jpg_loader,
     'WEBP': webp_loader,
+    'MEDIA': media_loader,
   },
   section: 'Loader',
   bool_yn: true,
@@ -229,15 +227,6 @@ summary(
     'CAPI': get_option('bindings').contains('capi'),
   },
   section: 'Binding',
-  bool_yn: true,
-)
-
-summary(
-  {
-    'Svg2Png': svg2png,
-    'Lottie2Gif': lottie2gif,
-  },
-  section: 'Tool',
   bool_yn: true,
 )
 

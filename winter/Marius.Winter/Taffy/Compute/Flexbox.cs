@@ -15,6 +15,8 @@ namespace Marius.Winter.Taffy
     {
         /// The identifier for the associated node
         public NodeId Node;
+        public OofCandidates OofCandidates;
+        public Contain Contain;
 
         /// The order of the node relative to its siblings
         public uint Order;
@@ -54,6 +56,9 @@ namespace Marius.Winter.Taffy
 
         /// The default size of this item
         public float FlexBasis;
+        public bool FlexBasisIsDefinite;
+        public float? AspectRatio;
+        public Size<Dimension> SizeStyle;
         /// The default size of this item, minus padding and border
         public float InnerFlexBasis;
         /// The amount by which this item has deviated from its target size
@@ -95,6 +100,14 @@ namespace Marius.Winter.Taffy
         {
             return OverflowStyle.X.IsScrollContainer() | OverflowStyle.Y.IsScrollContainer();
         }
+
+        public readonly bool IsStretched(FlexDirection dir) => !(dir.IsRow() ? MarginIsAuto.Top || MarginIsAuto.Bottom : MarginIsAuto.Left || MarginIsAuto.Right)
+            && (SizeStyle.Cross(dir).IsStretch() || (AlignSelf == AlignItems.Stretch && SizeStyle.Cross(dir).IsAuto()));
+
+        public readonly bool ParticipatesInBaselineAlignment(FlexDirection direction) =>
+            AlignSelf == AlignItems.Baseline && (direction.IsRow()
+                ? !MarginIsAuto.Top && !MarginIsAuto.Bottom
+                : !MarginIsAuto.Left && !MarginIsAuto.Right);
     }
 
     /// <summary>
@@ -146,6 +159,9 @@ namespace Marius.Winter.Taffy
         public bool IsWrap;
         /// Is the wrap direction inverted
         public bool IsWrapReverse;
+        public bool IsBalance, KnownMainSizeIsDefinite, HasDefiniteMainSize, HasDefiniteCrossSize, CrossAvailableSpaceIsDefinite;
+        public ushort LineCount;
+        public readonly float DividedCrossSpace(float space) => IsWrap && LineCount > 1 ? (space - (LineCount - 1) * Gap.Cross(Dir)) / LineCount : space;
 
         /// The item's min_size style
         public Size<float?> MinSize;
@@ -160,6 +176,7 @@ namespace Marius.Winter.Taffy
         public Rect<float> ContentBoxInset;
         /// The size reserved for scrollbar gutters in each axis
         public Point<float> ScrollbarGutter;
+        public bool IsScrollContainer;
         /// The gap of this section
         public Size<float> Gap;
         /// The align_items property of this node
@@ -184,7 +201,7 @@ namespace Marius.Winter.Taffy
     /// Implements the flexbox layout algorithm.
     /// Port of taffy/src/compute/flexbox.rs
     /// </summary>
-    public static class FlexboxAlgorithm
+    public static partial class FlexboxAlgorithm
     {
         /// <summary>
         /// Computes the layout of a box according to the flexbox algorithm
@@ -255,21 +272,11 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            // Short-circuit layout if the container's size is fully determined by the container's size and the run mode
-            // is ComputeSize (and thus the container's size is all that we're interested in)
-            if (runMode == RunMode.ComputeSize)
-            {
-                if (styledBasedKnownDimensions.Width.HasValue && styledBasedKnownDimensions.Height.HasValue)
-                {
-                    return LayoutOutput.FromOuterSize(new Size<float>(
-                        styledBasedKnownDimensions.Width.Value,
-                        styledBasedKnownDimensions.Height.Value));
-                }
-            }
-
-            return ComputePreliminary(tree, node, new LayoutInput
+            var output = ComputePreliminary(tree, node, new LayoutInput
             {
                 KnownDimensions = styledBasedKnownDimensions,
+                KnownDimensionsAreDefinite = new(inputs.KnownDimensionsAreDefinite.Width || !knownDimensions.Width.HasValue,
+                    inputs.KnownDimensionsAreDefinite.Height || !knownDimensions.Height.HasValue),
                 ParentSize = inputs.ParentSize,
                 AvailableSpace = inputs.AvailableSpace,
                 RunMode = inputs.RunMode,
@@ -277,6 +284,8 @@ namespace Marius.Winter.Taffy
                 Axis = inputs.Axis,
                 VerticalMarginsAreCollapsible = inputs.VerticalMarginsAreCollapsible,
             });
+            if (style.Contain().SuppressesBaseline()) output.Baselines = Baselines.None;
+            return output;
         }
 
         /// <summary>
@@ -293,7 +302,8 @@ namespace Marius.Winter.Taffy
             var runMode = inputs.RunMode;
 
             // Define some general constants we will need for the remainder of the algorithm.
-            var constants = ComputeConstants(tree, tree.GetFlexboxContainerStyle(node), knownDimensions, parentSize);
+            var constants = ComputeConstants(tree, tree.GetFlexboxContainerStyle(node), knownDimensions, parentSize, inputs.KnownDimensionsAreDefinite, inputs.AvailableSpace);
+            if (tree.ChildCount(node) == 0) return ComputeEmptyContainerLayout(tree, inputs, ref constants);
 
             // 9. Flex Layout Algorithm
 
@@ -344,6 +354,12 @@ namespace Marius.Winter.Taffy
                     .MaybeResolve(innerContainerSize, tree.Calc)
                     ?? 0f;
                 constants.Gap.SetMain(constants.Dir, newGap);
+            }
+
+            if (runMode == RunMode.ComputeSize && inputs.Axis == constants.Dir.MainAxis().ToRequestedAxis())
+            {
+                var measured = SizeExtensions.ZeroF32; measured.SetMain(constants.Dir, constants.ContainerSize.Main(constants.Dir));
+                return LayoutOutput.FromOuterSize(measured);
             }
 
             // 6. Resolve the flexible lengths of all the flex items to find their used main size.
@@ -403,7 +419,7 @@ namespace Marius.Winter.Taffy
             var inflowContentSize = FinalLayoutPass(tree, ref flexLines, ref constants);
 
             // Before returning we perform absolute layout on all absolutely positioned children
-            var absoluteContentSize = PerformAbsoluteLayoutOnAbsoluteChildren(tree, node, ref constants);
+            var candidates = CollectOofCandidates(tree, node, ref constants, ref flexLines);
 
             // Hidden layout
             var len = tree.ChildCount(node);
@@ -432,16 +448,22 @@ namespace Marius.Winter.Taffy
             }
             else
             {
-                var firstLineItems = flexLines[0].Items;
+                var firstLineItems = flexLines[constants.IsWrapReverse ? flexLines.Count - 1 : 0].Items;
                 FlexItem? baselineChild = null;
 
-                // Find the first item with baseline alignment (for rows) or the first item
-                foreach (var item in firstLineItems)
+                if (constants.IsColumn && firstLineItems.Length > 0)
                 {
-                    if (constants.IsColumn || item.AlignSelf == AlignItems.Baseline)
+                    baselineChild = firstLineItems[constants.Dir.IsReverse() ? firstLineItems.Length - 1 : 0];
+                }
+                else
+                {
+                    foreach (var item in firstLineItems)
                     {
-                        baselineChild = item;
-                        break;
+                        if (item.ParticipatesInBaselineAlignment(constants.Dir))
+                        {
+                            baselineChild = item;
+                            break;
+                        }
                     }
                 }
                 if (!baselineChild.HasValue && firstLineItems.Length > 0)
@@ -452,8 +474,7 @@ namespace Marius.Winter.Taffy
                 if (baselineChild.HasValue)
                 {
                     var child = baselineChild.Value;
-                    var offsetVertical = constants.IsRow ? child.OffsetCross : child.OffsetMain;
-                    firstVerticalBaseline = offsetVertical + child.Baseline;
+                    firstVerticalBaseline = child.Baseline;
                 }
                 else
                 {
@@ -461,10 +482,12 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            return LayoutOutput.FromSizesAndBaselines(
-                constants.ContainerSize,
-                inflowContentSize.F32Max(absoluteContentSize),
-                new Point<float?>(null, firstVerticalBaseline));
+            var output = LayoutOutput.FromSizesAndBaselines(constants.ContainerSize, inflowContentSize, Baselines.FromFirst(firstVerticalBaseline));
+            output.OofCandidates = candidates;
+            var absoluteInset = constants.Border.Add(new Rect<float>(constants.LayoutDirection.IsRtl() ? constants.ScrollbarGutter.X : 0,
+                constants.LayoutDirection.IsRtl() ? 0 : constants.ScrollbarGutter.X, 0, constants.ScrollbarGutter.Y));
+            output.OofPositioningArea = new(constants.ContainerSize.Sub(absoluteInset.SumAxes()), new(absoluteInset.Left, absoluteInset.Top));
+            return output;
         }
 
         /// <summary>
@@ -475,13 +498,13 @@ namespace Marius.Winter.Taffy
             ILayoutFlexboxContainer tree,
             IFlexboxContainerStyle style,
             Size<float?> knownDimensions,
-            Size<float?> parentSize)
+            Size<float?> parentSize, DefiniteDimensions definite, Size<AvailableSpace> availableSpace)
         {
             var dir = style.FlexDirection();
             var isRow = dir.IsRow();
             var isColumn = dir.IsColumn();
-            var isWrap = style.FlexWrap() == FlexWrap.Wrap || style.FlexWrap() == FlexWrap.WrapReverse;
-            var isWrapReverse = style.FlexWrap() == FlexWrap.WrapReverse;
+            var isWrap = style.FlexWrap().IsMultiLine();
+            var isWrapReverse = style.FlexWrap().IsReverse();
 
             var aspectRatio = style.AspectRatio();
             var margin = style.Margin().ResolveOrZero(parentSize.Width, tree.Calc);
@@ -491,9 +514,11 @@ namespace Marius.Winter.Taffy
             var boxSizingAdjustment =
                 style.BoxSizing() == BoxSizing.ContentBox ? paddingBorderSum : SizeExtensions.ZeroF32;
 
-            var alignItems = style.AlignItems() ?? AlignItems.Stretch;
-            var alignContent = style.AlignContent() ?? AlignContent.Stretch;
-            var justifyContent = style.JustifyContent();
+            var alignItems = ResolveNormal(style.AlignItems() ?? AlignItems.Normal);
+            var alignContent = style.AlignContent() ?? AlignContent.Normal;
+            if (alignContent.Keyword == AlignContentKeyword.Normal) alignContent = AlignContent.Stretch;
+            var justifyContent = style.JustifyContent() ?? AlignContent.Normal;
+            if (justifyContent.Keyword == AlignContentKeyword.Normal) justifyContent = AlignContent.FlexStart;
             var layoutDirection = style.Direction();
 
             // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
@@ -531,6 +556,11 @@ namespace Marius.Winter.Taffy
                 IsColumn = isColumn,
                 IsWrap = isWrap,
                 IsWrapReverse = isWrapReverse,
+                IsBalance = style.FlexWrap().IsBalance(), LineCount = System.Math.Max(style.FlexLineCount(), (ushort)1),
+                KnownMainSizeIsDefinite = ((Size<bool>)definite).Main(dir),
+                HasDefiniteMainSize = ((Size<bool>)definite).Main(dir) && knownDimensions.Main(dir).HasValue,
+                HasDefiniteCrossSize = ((Size<bool>)definite).Cross(dir) && knownDimensions.Cross(dir).HasValue,
+                CrossAvailableSpaceIsDefinite = (((Size<bool>)definite).Cross(dir) && knownDimensions.Cross(dir).HasValue) || availableSpace.Cross(dir).IsDefinite(),
                 MinSize = style
                     .MinSize()
                     .MaybeResolve(parentSize, tree.Calc)
@@ -546,6 +576,7 @@ namespace Marius.Winter.Taffy
                 Gap = gap,
                 ContentBoxInset = contentBoxInset,
                 ScrollbarGutter = scrollbarGutter,
+                IsScrollContainer = style.Overflow().X.IsScrollContainer() || style.Overflow().Y.IsScrollContainer(),
                 AlignItemsStyle = alignItems,
                 AlignContentStyle = alignContent,
                 JustifyContentStyle = justifyContent,
@@ -569,12 +600,13 @@ namespace Marius.Winter.Taffy
             NodeId node,
             ref AlgoConstants constants)
         {
-            var items = new List<FlexItem>();
+            var items = new List<FlexItem>(tree.ChildCount(node));
+            var percentSize = constants.KnownMainSizeIsDefinite ? constants.NodeInnerSize : constants.NodeInnerSize.WithMain(constants.Dir, null);
             int index = 0;
             foreach (var child in tree.ChildIds(node))
             {
                 var childStyle = tree.GetFlexboxChildStyle(child);
-                if (childStyle.Position() == Position.Absolute ||
+                if (childStyle.Position().IsOutOfFlow() ||
                     childStyle.BoxGenerationMode() == BoxGenerationMode.None)
                 {
                     index++;
@@ -595,30 +627,25 @@ namespace Marius.Winter.Taffy
                     Order = (uint)index,
                     Size = childStyle
                         .Size()
-                        .MaybeResolve(constants.NodeInnerSize, tree.Calc)
+                        .MaybeResolve(percentSize, tree.Calc)
                         .MaybeApplyAspectRatio(aspectRatio)
                         .MaybeAdd(childBoxSizingAdjOpt),
-                    MinSize = childStyle
-                        .MinSize()
-                        .MaybeResolve(constants.NodeInnerSize, tree.Calc)
-                        .MaybeApplyAspectRatio(aspectRatio)
+                    MinSize = childStyle.MinSize().MaybeResolve(percentSize, tree.Calc)
                         .MaybeAdd(childBoxSizingAdjOpt),
-                    MaxSize = childStyle
-                        .MaxSize()
-                        .MaybeResolve(constants.NodeInnerSize, tree.Calc)
-                        .MaybeApplyAspectRatio(aspectRatio)
+                    MaxSize = childStyle.MaxSize().MaybeResolve(percentSize, tree.Calc)
                         .MaybeAdd(childBoxSizingAdjOpt),
-                    Inset = childStyle
-                        .Inset()
-                        .ZipSize(constants.NodeInnerSize, (p, s) => p.MaybeResolve(s, tree.Calc)),
+                    Inset = childStyle.Position() == Position.Relative ? childStyle.Inset()
+                        .ZipSize(constants.NodeInnerSize, (p, s) => p.MaybeResolve(s, tree.Calc)) : new(null, null, null, null),
                     Margin = childStyle
                         .Margin()
                         .ResolveOrZero(constants.NodeInnerSize.Width, tree.Calc),
                     MarginIsAuto = childStyle.Margin().Map(m => m.IsAuto()),
                     Padding = childPadding,
                     Border = childBorder,
-                    AlignSelf = childStyle.AlignSelf() ?? constants.AlignItemsStyle,
+                    AlignSelf = ResolveNormal(childStyle.AlignSelf() ?? constants.AlignItemsStyle).ResolveSelfRelative(childStyle.Direction(), constants.LayoutDirection, constants.IsColumn),
+                    AspectRatio = aspectRatio, SizeStyle = childStyle.Size(),
                     OverflowStyle = childStyle.Overflow(),
+                    Contain = childStyle.Contain(),
                     ScrollbarWidth = childStyle.ScrollbarWidth(),
                     FlexGrow = childStyle.FlexGrow(),
                     FlexShrink = childStyle.FlexShrink(),
@@ -656,13 +683,11 @@ namespace Marius.Winter.Taffy
             var width = knownDimensions.Width.HasValue
                 ? AvailableSpace.Definite(knownDimensions.Width.Value - constants.ContentBoxInset.HorizontalAxisSum())
                 : outerAvailableSpace.Width
-                    .MaybeSub(constants.Margin.HorizontalAxisSum())
                     .MaybeSub(constants.ContentBoxInset.HorizontalAxisSum());
 
             var height = knownDimensions.Height.HasValue
                 ? AvailableSpace.Definite(knownDimensions.Height.Value - constants.ContentBoxInset.VerticalAxisSum())
                 : outerAvailableSpace.Height
-                    .MaybeSub(constants.Margin.VerticalAxisSum())
                     .MaybeSub(constants.ContentBoxInset.VerticalAxisSum());
 
             return new Size<AvailableSpace>(width, height);
@@ -674,177 +699,69 @@ namespace Marius.Winter.Taffy
         /// # [9.2. Line Length Determination](https://www.w3.org/TR/css-flexbox-1/#line-sizing)
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void DetermineFlexBaseSize(
-            ILayoutFlexboxContainer tree,
-            ref AlgoConstants constants,
-            Size<AvailableSpace> availableSpace,
-            FlexItem[] flexItems)
+        private static void DetermineFlexBaseSize(ILayoutFlexboxContainer tree, ref AlgoConstants constants,
+            Size<AvailableSpace> availableSpace, FlexItem[] items)
         {
             var dir = constants.Dir;
-
-            for (int ci = 0; ci < flexItems.Length; ci++)
+            for (int i = 0; i < items.Length; i++)
             {
-                var child = flexItems[ci];
-                var childStyle = tree.GetFlexboxChildStyle(child.Node);
-
-                // Parent size for child sizing
-                var crossAxisParentSize = constants.NodeInnerSize.Cross(dir);
-                var childParentSize = SizeExtensions.FromCross(dir, crossAxisParentSize);
-
-                // Available space for child sizing
-                var crossAxisMarginSum = constants.Margin.CrossAxisSum(dir);
-                var childMinCross = child.MinSize.Cross(dir).MaybeAdd(crossAxisMarginSum);
-                var childMaxCross = child.MaxSize.Cross(dir).MaybeAdd(crossAxisMarginSum);
-
-                // Clamp available space by min- and max- size
-                AvailableSpace crossAxisAvailableSpace;
-                var crossAvail = availableSpace.Cross(dir);
-                if (crossAvail == AvailableSpace.Definite(crossAvail.UnwrapOr(0f)) && crossAvail.IsDefinite())
+                ref var child = ref items[i];
+                var style = tree.GetFlexboxChildStyle(child.Node);
+                var crossParent = constants.NodeInnerSize.Cross(dir);
+                var parent = SizeExtensions.FromCross(dir, crossParent);
+                var transferredMin = child.MinSize.MaybeApplyAspectRatio(child.AspectRatio);
+                var transferredMax = child.MaxSize.MaybeApplyAspectRatio(child.AspectRatio);
+                var crossSpace = availableSpace.Cross(dir);
+                if (crossSpace.IsDefinite()) crossSpace = AvailableSpace.Definite(TaffySys.F32Max(constants.DividedCrossSpace(crossParent ?? crossSpace.Unwrap())
+                    - child.Margin.CrossAxisSum(dir), 0).MaybeClamp(transferredMin.Cross(dir), transferredMax.Cross(dir)));
+                else if (crossSpace == AvailableSpace.MinContent && transferredMin.Cross(dir) is { } min) crossSpace = AvailableSpace.Definite(min);
+                else if (crossSpace == AvailableSpace.MaxContent && transferredMax.Cross(dir) is { } max) crossSpace = AvailableSpace.Definite(max);
+                bool crossDefinite = child.Size.Cross(dir).HasValue;
+                var known = child.Size.WithMain(dir, null);
+                known.SetCross(dir, known.Cross(dir).MaybeClamp(transferredMin.Cross(dir), transferredMax.Cross(dir)));
+                if (child.AlignSelf == AlignItems.Stretch && !RectBoolCrossStart(child.MarginIsAuto, dir)
+                    && !RectBoolCrossEnd(child.MarginIsAuto, dir) && !known.Cross(dir).HasValue)
                 {
-                    crossAxisAvailableSpace = AvailableSpace.Definite(
-                        (crossAxisParentSize ?? crossAvail.UnwrapOr(0f)).MaybeClamp(childMinCross, childMaxCross));
+                    known.SetCross(dir, crossSpace.IntoOption());
+                    crossDefinite = !constants.IsWrap && constants.HasDefiniteCrossSize && crossParent.HasValue;
                 }
-                else if (crossAvail == AvailableSpace.MinContent)
-                {
-                    crossAxisAvailableSpace = childMinCross.HasValue
-                        ? AvailableSpace.Definite(childMinCross.Value)
-                        : AvailableSpace.MinContent;
-                }
-                else // MaxContent
-                {
-                    crossAxisAvailableSpace = childMaxCross.HasValue
-                        ? AvailableSpace.Definite(childMaxCross.Value)
-                        : AvailableSpace.MaxContent;
-                }
-
-                // Known dimensions for child sizing
-                var childKnownDimensions = child.Size.WithMain(dir, null);
-                if (child.AlignSelf == AlignItems.Stretch
-                    && !RectBoolCrossStart(child.MarginIsAuto, constants.Dir)
-                    && !RectBoolCrossEnd(child.MarginIsAuto, constants.Dir)
-                    && !childKnownDimensions.Cross(dir).HasValue)
-                {
-                    childKnownDimensions.SetCross(
-                        dir,
-                        crossAxisAvailableSpace.IntoOption().MaybeSub(child.Margin.CrossAxisSum(dir)));
-                }
-
-                var containerWidth = constants.NodeInnerSize.Main(dir);
-                float boxSizingAdj;
-                if (childStyle.BoxSizing() == BoxSizing.ContentBox)
-                {
-                    var csPadding = childStyle.Padding().ResolveOrZero(containerWidth, tree.Calc);
-                    var csBorder = childStyle.Border().ResolveOrZero(containerWidth, tree.Calc);
-                    boxSizingAdj = csPadding.SumAxes().Add(csBorder.SumAxes()).Main(dir);
-                }
+                float? basisParent = constants.KnownMainSizeIsDefinite ? constants.NodeInnerSize.Main(dir) : null;
+                var basisStyle = style.FlexBasis();
+                float adjustment = style.BoxSizing() == BoxSizing.ContentBox ? child.Padding.Add(child.Border).SumAxes().Main(dir) : 0;
+                float? basis = basisStyle.MaybeResolve(basisParent, tree.Calc).MaybeAdd(adjustment);
+                float? stretch = basisParent.MaybeSub(child.Margin.MainAxisSum(dir)).MaybeMax(0);
+                SizingKeywordResolution? keyword = null;
+                if (basisStyle.IsContent()) basis = null;
+                else if (basisStyle.IsSizingKeyword()) { basis = null; keyword = SizingKeywordUtils.ResolveSizingKeyword(basisStyle, stretch, basisParent, tree.Calc); }
                 else
                 {
-                    boxSizingAdj = 0f;
+                    if (basisStyle.IsAuto()) basis ??= child.Size.Main(dir);
+                    if (!basis.HasValue && basisStyle.IsAuto()) keyword = SizingKeywordUtils.ResolveSizingKeyword(child.SizeStyle.Main(dir), stretch, basisParent, tree.Calc);
                 }
-
-                var flexBasisRaw = childStyle
-                    .FlexBasis()
-                    .MaybeResolve(containerWidth, tree.Calc)
-                    .MaybeAdd(boxSizingAdj);
-
-                // A. If the item has a definite used flex basis, that's the flex base size.
-                // B. If the flex item has an intrinsic aspect ratio,
-                //    a used flex basis of content, and a definite cross size,
-                //    then the flex base size is calculated from its inner cross size and the flex item's intrinsic aspect ratio.
-                // Note: `child.size` has already been resolved against aspect_ratio in generate_anonymous_flex_items
-                var mainSizeOpt = child.Size.Main(dir);
-                var resolvedFlexBasis = flexBasisRaw ?? mainSizeOpt;
-
-                float flexBasis;
-                if (resolvedFlexBasis.HasValue)
+                if (keyword is { IsExact: true } exact) basis = exact.Size;
+                child.FlexBasisIsDefinite = basis.HasValue;
+                if (!basis.HasValue && crossDefinite && child.AspectRatio is { } ratio && known.Cross(dir) is { } cross)
                 {
-                    flexBasis = resolvedFlexBasis.Value;
+                    basis = dir.IsRow() ? cross * ratio : cross / ratio;
+                    child.FlexBasisIsDefinite = true;
                 }
-                else
-                {
-                    // C. If the used flex basis is content or depends on its available space,
-                    //    and the flex container is being sized under a min-content or max-content
-                    //    constraint, size the item under that constraint.
-                    // E. Otherwise, size the item into the available space using its used flex basis
-                    //    in place of its main size, treating a value of content as max-content.
-                    var childAvailableSpace = new Size<AvailableSpace>(AvailableSpace.MAX_CONTENT, AvailableSpace.MAX_CONTENT)
-                        .WithMain(
-                            dir,
-                            availableSpace.Main(dir) == AvailableSpace.MinContent
-                                ? AvailableSpace.MinContent
-                                : AvailableSpace.MaxContent)
-                        .WithCross(dir, crossAxisAvailableSpace);
-
-                    flexBasis = tree.MeasureChildSize(
-                        child.Node,
-                        childKnownDimensions,
-                        childParentSize,
-                        childAvailableSpace,
-                        SizingMode.ContentSize,
-                        dir.MainAxis(),
-                        LineExtensions.FalseLine);
-                }
-
-                // Floor flex-basis by the padding_border_sum (floors inner_flex_basis at zero)
-                var paddingBorderSumMain = child.Padding.MainAxisSum(constants.Dir) + child.Border.MainAxisSum(constants.Dir);
-                flexBasis = MathF.Max(flexBasis, paddingBorderSumMain);
-
-                // The hypothetical main size is the item's flex base size clamped according to its
-                // used min and max main sizes (and flooring the content box size at zero).
-                child.FlexBasis = flexBasis;
-                child.InnerFlexBasis =
-                    flexBasis - child.Padding.MainAxisSum(constants.Dir) - child.Border.MainAxisSum(constants.Dir);
-
-                var paddingBorderAxesSums = child.Padding.Add(child.Border).SumAxes().Map(v => (float?)v);
-
-                // Note that it is important that the `parent_size` parameter in the main axis is not set for this
-                // function call as it is used for resolving percentages, and percentage size in an axis should not contribute
-                // to a min-content contribution in that same axis.
-                // See https://drafts.csswg.org/css-sizing-3/#min-percentage-contribution
-                var overflowMin = new Size<float?>(
-                    child.OverflowStyle.X.MaybeIntoAutomaticMinSize(),
-                    child.OverflowStyle.Y.MaybeIntoAutomaticMinSize());
-                var styleMinMainSize = child.MinSize.Or(overflowMin).Main(dir);
-
-                if (styleMinMainSize.HasValue)
-                {
-                    child.ResolvedMinimumMainSize = styleMinMainSize.Value;
-                }
-                else
-                {
-                    // Compute min-content main size
-                    var childAvailSpace = new Size<AvailableSpace>(AvailableSpace.MIN_CONTENT, AvailableSpace.MIN_CONTENT)
-                        .WithCross(dir, crossAxisAvailableSpace);
-
-                    var minContentMainSize = tree.MeasureChildSize(
-                        child.Node,
-                        childKnownDimensions,
-                        childParentSize,
-                        childAvailSpace,
-                        SizingMode.ContentSize,
-                        dir.MainAxis(),
-                        LineExtensions.FalseLine);
-
-                    // 4.5. Automatic Minimum Size of Flex Items
-                    // https://www.w3.org/TR/css-flexbox-1/#min-size-auto
-                    var clampedMinContentSize = ((float?)minContentMainSize)
-                        .MaybeMin(child.Size.Main(dir))
-                        .MaybeMin(child.MaxSize.Main(dir));
-                    child.ResolvedMinimumMainSize = clampedMinContentSize
-                        .MaybeMax(paddingBorderAxesSums.Main(dir))
-                        ?? 0f;
-                }
-
-                var hypotheticalInnerMinMain =
-                    ((float?)child.ResolvedMinimumMainSize).MaybeMax(paddingBorderAxesSums.Main(constants.Dir)) ?? child.ResolvedMinimumMainSize;
-                var hypotheticalInnerSize =
-                    child.FlexBasis.MaybeClamp((float?)hypotheticalInnerMinMain, child.MaxSize.Main(constants.Dir));
-                var hypotheticalOuterSize = hypotheticalInnerSize + child.Margin.MainAxisSum(constants.Dir);
-
-                child.HypotheticalInnerSize.SetMain(constants.Dir, hypotheticalInnerSize);
-                child.HypotheticalOuterSize.SetMain(constants.Dir, hypotheticalOuterSize);
-
-                flexItems[ci] = child;
+                var mainSpace = keyword is { IsExact: false } measure ? measure.AvailableSpace
+                    : availableSpace.Main(dir) == AvailableSpace.MinContent ? AvailableSpace.MinContent : AvailableSpace.MaxContent;
+                child.FlexBasis = basis ?? tree.MeasureChildSize(child.Node, known, parent,
+                    new Size<AvailableSpace>(AvailableSpace.MaxContent, AvailableSpace.MaxContent).WithMain(dir, mainSpace).WithCross(dir, crossSpace),
+                    SizingMode.ContentSize, dir.MainAxis(), LineExtensions.FalseLine);
+                float pbMain = child.Padding.MainAxisSum(dir) + child.Border.MainAxisSum(dir);
+                child.FlexBasis = TaffySys.F32Max(child.FlexBasis, pbMain);
+                child.InnerFlexBasis = child.FlexBasis - pbMain;
+                var pb = child.Padding.Add(child.Border).SumAxes().Map<float?>(v => v);
+                float? minMain = child.MinSize.Or(new(child.OverflowStyle.X.MaybeIntoAutomaticMinSize(), child.OverflowStyle.Y.MaybeIntoAutomaticMinSize())).Main(dir);
+                child.ResolvedMinimumMainSize = minMain ?? tree.MeasureChildSize(child.Node, known, parent,
+                    new Size<AvailableSpace>(AvailableSpace.MinContent, AvailableSpace.MinContent).WithCross(dir, crossSpace),
+                    SizingMode.ContentSize, dir.MainAxis(), LineExtensions.FalseLine).MaybeMin(child.Size.Main(dir)).MaybeMin(transferredMax.Main(dir)).MaybeMax(pb.Main(dir));
+                float hypotheticalMin = child.ResolvedMinimumMainSize.MaybeMax(transferredMin.Main(dir)).MaybeMax(pb.Main(dir));
+                float hypothetical = child.FlexBasis.MaybeClamp(hypotheticalMin, transferredMax.Main(dir));
+                child.HypotheticalInnerSize.SetMain(dir, hypothetical);
+                child.HypotheticalOuterSize.SetMain(dir, hypothetical + child.Margin.MainAxisSum(dir));
             }
         }
 
@@ -861,18 +778,34 @@ namespace Marius.Winter.Taffy
         {
             var memory = flexItems.AsMemory();
 
-            if (!constants.IsWrap)
+            if (!constants.IsBalance && (!constants.IsWrap || !constants.KnownMainSizeIsDefinite))
             {
                 var lines = new ValueList<FlexLine>();
                 lines.Add(new FlexLine(memory, 0, 0f, 0f));
                 return lines;
             }
 
-            var mainAxisAvailableSpace = constants.MaxSize.Main(constants.Dir).HasValue
-                ? AvailableSpace.Definite(
-                    (availableSpace.Main(constants.Dir).IntoOption() ?? constants.MaxSize.Main(constants.Dir)!.Value)
-                        .MaybeMax(constants.MinSize.Main(constants.Dir)))
-                : availableSpace.Main(constants.Dir);
+            var mainAxisAvailableSpace = availableSpace.Main(constants.Dir);
+            if (constants.MaxSize.Main(constants.Dir) is { } maxMain)
+            {
+                float limit = mainAxisAvailableSpace.IntoOption() ?? maxMain;
+                if (!constants.HasDefiniteMainSize) limit = TaffySys.F32Min(limit, maxMain);
+                mainAxisAvailableSpace = AvailableSpace.Definite(limit.MaybeMax(constants.MinSize.Main(constants.Dir)));
+            }
+            else if (constants.IsColumn && !constants.HasDefiniteMainSize && mainAxisAvailableSpace.IsDefinite()) mainAxisAvailableSpace = AvailableSpace.MaxContent;
+
+            if (constants.IsBalance && mainAxisAvailableSpace != AvailableSpace.MinContent)
+            {
+                if (flexItems.Length == 0) return new();
+                if (!constants.KnownMainSizeIsDefinite) mainAxisAvailableSpace = AvailableSpace.MaxContent;
+                var sizes = new float[flexItems.Length];
+                for (int i = 0; i < sizes.Length; i++) sizes[i] = flexItems[i].HypotheticalOuterSize.Main(constants.Dir);
+                var counts = FlexBalance.BalancedLineItemCounts(sizes, mainAxisAvailableSpace.IntoOption() ?? float.PositiveInfinity,
+                    constants.Gap.Main(constants.Dir), constants.LineCount);
+                var result = new ValueList<FlexLine>(); int start = 0;
+                foreach (int count in counts) { result.Add(new(memory.Slice(start, count), start, 0, 0)); start += count; }
+                return result;
+            }
 
             if (mainAxisAvailableSpace == AvailableSpace.MaxContent)
             {
@@ -929,236 +862,6 @@ namespace Marius.Winter.Taffy
         /// <summary>
         /// Determine the container's main size (if not already known)
         /// </summary>
-        private static void DetermineContainerMainSize(
-            ILayoutFlexboxContainer tree,
-            Size<AvailableSpace> availableSpace,
-            ref ValueList<FlexLine> lines,
-            ref AlgoConstants constants)
-        {
-            var dir = constants.Dir;
-            var mainContentBoxInset = constants.ContentBoxInset.MainAxisSum(constants.Dir);
-
-            float outerMainSize;
-            var nodeOuterMain = constants.NodeOuterSize.Main(constants.Dir);
-            if (nodeOuterMain.HasValue)
-            {
-                outerMainSize = nodeOuterMain.Value;
-            }
-            else
-            {
-                var mainAvail = availableSpace.Main(dir);
-                if (mainAvail.IsDefinite())
-                {
-                    var mainAxisAvailableSpace = mainAvail.UnwrapOr(0f);
-                    float longestLineLength = 0f;
-                    foreach (var line in lines)
-                    {
-                        var lineMainAxisGap = SumAxisGaps(constants.Gap.Main(constants.Dir), line.Items.Length);
-                        float totalTargetSize = 0f;
-                        foreach (var child in line.Items)
-                        {
-                            var pbSum = child.Padding.Add(child.Border).MainAxisSum(constants.Dir);
-                            totalTargetSize += MathF.Max(
-                                child.FlexBasis.MaybeMax(child.MinSize.Main(constants.Dir))
-                                    + child.Margin.MainAxisSum(constants.Dir),
-                                pbSum);
-                        }
-                        longestLineLength = MathF.Max(longestLineLength, totalTargetSize + lineMainAxisGap);
-                    }
-                    var size = longestLineLength + mainContentBoxInset;
-                    outerMainSize = lines.Count > 1
-                        ? MathF.Max(size, mainAxisAvailableSpace)
-                        : size;
-                }
-                else if (mainAvail == AvailableSpace.MinContent && constants.IsWrap)
-                {
-                    float longestLineLength = 0f;
-                    foreach (var line in lines)
-                    {
-                        var lineMainAxisGap = SumAxisGaps(constants.Gap.Main(constants.Dir), line.Items.Length);
-                        float totalTargetSize = 0f;
-                        foreach (var child in line.Items)
-                        {
-                            var pbSum = child.Padding.Add(child.Border).MainAxisSum(constants.Dir);
-                            totalTargetSize += MathF.Max(
-                                child.FlexBasis.MaybeMax(child.MinSize.Main(constants.Dir))
-                                    + child.Margin.MainAxisSum(constants.Dir),
-                                pbSum);
-                        }
-                        longestLineLength = MathF.Max(longestLineLength, totalTargetSize + lineMainAxisGap);
-                    }
-                    outerMainSize = longestLineLength + mainContentBoxInset;
-                }
-                else
-                {
-                    // MinContent (non-wrap) or MaxContent
-                    float mainSize = 0f;
-
-                    for (int li = 0; li < lines.Count; li++)
-                    {
-                        var line = lines[li];
-                        for (int ii = 0; ii < line.Items.Length; ii++)
-                        {
-                            var item = line.Items[ii];
-                            var styleMin = item.MinSize.Main(constants.Dir);
-                            var stylePreferred = item.Size.Main(constants.Dir);
-                            var styleMax = item.MaxSize.Main(constants.Dir);
-
-                            var clampingBasis = ((float?)item.FlexBasis).MaybeMax(stylePreferred);
-                            var flexBasisMin = (item.FlexShrink == 0f) ? clampingBasis : null;
-                            var flexBasisMax = (item.FlexGrow == 0f) ? clampingBasis : null;
-
-                            var minMainSize = styleMin
-                                .MaybeMax(flexBasisMin)
-                                .OrElse(() => flexBasisMin)
-                                ?? item.ResolvedMinimumMainSize;
-                            minMainSize = MathF.Max(minMainSize, item.ResolvedMinimumMainSize);
-
-                            var maxMainSize = styleMax
-                                .MaybeMin(flexBasisMax)
-                                .OrElse(() => flexBasisMax)
-                                ?? float.PositiveInfinity;
-
-                            float contentContribution;
-                            if (maxMainSize <= minMainSize)
-                            {
-                                if (stylePreferred.HasValue)
-                                {
-                                    contentContribution = MathF.Max(MathF.Min(stylePreferred.Value, maxMainSize), minMainSize)
-                                        + item.Margin.MainAxisSum(constants.Dir);
-                                }
-                                else
-                                {
-                                    contentContribution = minMainSize + item.Margin.MainAxisSum(constants.Dir);
-                                }
-                            }
-                            else if (stylePreferred.HasValue && (maxMainSize <= minMainSize || maxMainSize <= stylePreferred.Value))
-                            {
-                                contentContribution = MathF.Max(MathF.Min(stylePreferred.Value, maxMainSize), minMainSize)
-                                    + item.Margin.MainAxisSum(constants.Dir);
-                            }
-                            else if (item.IsScrollContainer())
-                            {
-                                contentContribution = item.FlexBasis + item.Margin.MainAxisSum(constants.Dir);
-                            }
-                            else
-                            {
-                                // Parent size for child sizing
-                                var crossAxisParentSize = constants.NodeInnerSize.Cross(dir);
-
-                                // Available space for child sizing
-                                var crossAxisMarginSum = constants.Margin.CrossAxisSum(dir);
-                                var childMinCross = item.MinSize.Cross(dir).MaybeAdd(crossAxisMarginSum);
-                                var childMaxCross = item.MaxSize.Cross(dir).MaybeAdd(crossAxisMarginSum);
-                                var crossAvailBase = availableSpace.Cross(dir);
-                                var crossAxisAvailableSpace2 = crossAvailBase
-                                    .MapDefiniteValue(val => crossAxisParentSize ?? val)
-                                    .MaybeClamp(childMinCross, childMaxCross);
-
-                                var childAvailableSpace2 = availableSpace.WithCross(dir, crossAxisAvailableSpace2);
-
-                                // Known dimensions for child sizing
-                                var childKnownDimensions2 = item.Size.WithMain(dir, null);
-                                if (item.AlignSelf == AlignItems.Stretch && !childKnownDimensions2.Cross(dir).HasValue)
-                                {
-                                    childKnownDimensions2.SetCross(
-                                        dir,
-                                        crossAxisAvailableSpace2.IntoOption().MaybeSub(item.Margin.CrossAxisSum(dir)));
-                                }
-
-                                var contentMainSize = tree.MeasureChildSize(
-                                    item.Node,
-                                    childKnownDimensions2,
-                                    constants.NodeInnerSize,
-                                    childAvailableSpace2,
-                                    SizingMode.InherentSize,
-                                    dir.MainAxis(),
-                                    LineExtensions.FalseLine)
-                                    + item.Margin.MainAxisSum(constants.Dir);
-
-                                if (constants.IsRow)
-                                {
-                                    contentContribution = contentMainSize
-                                        .MaybeClamp(styleMin, styleMax);
-                                    contentContribution = MathF.Max(contentContribution, mainContentBoxInset);
-                                }
-                                else
-                                {
-                                    contentContribution = MathF.Max(contentMainSize, item.FlexBasis)
-                                        .MaybeClamp(styleMin, styleMax);
-                                    contentContribution = MathF.Max(contentContribution, mainContentBoxInset);
-                                }
-                            }
-
-                            item.ContentFlexFraction = ComputeContentFlexFraction(
-                                contentContribution, item.FlexBasis, item.FlexGrow, item.FlexShrink, item.InnerFlexBasis);
-                            line.Items[ii] = item;
-                        }
-
-                        // Add each item's flex base size to the product of its flex factor and the chosen flex fraction
-                        float itemMainSizeSum = 0f;
-                        for (int ii = 0; ii < line.Items.Length; ii++)
-                        {
-                            var item = line.Items[ii];
-                            var flexFraction = item.ContentFlexFraction;
-
-                            float flexContribution;
-                            if (item.ContentFlexFraction > 0f)
-                            {
-                                flexContribution = MathF.Max(1f, item.FlexGrow) * flexFraction;
-                            }
-                            else if (item.ContentFlexFraction < 0f)
-                            {
-                                var scaledShrinkFactor = MathF.Max(1f, item.FlexShrink) * item.InnerFlexBasis;
-                                flexContribution = scaledShrinkFactor * flexFraction;
-                            }
-                            else
-                            {
-                                flexContribution = 0f;
-                            }
-                            var sz = item.FlexBasis + flexContribution;
-                            item.OuterTargetSize.SetMain(constants.Dir, sz);
-                            item.TargetSize.SetMain(constants.Dir, sz);
-                            line.Items[ii] = item;
-                            itemMainSizeSum += sz;
-                        }
-
-                        var gapSum = SumAxisGaps(constants.Gap.Main(constants.Dir), line.Items.Length);
-                        mainSize = MathF.Max(mainSize, itemMainSizeSum + gapSum);
-                    }
-
-                    outerMainSize = mainSize + mainContentBoxInset;
-                }
-            }
-
-            outerMainSize = outerMainSize
-                .MaybeClamp(constants.MinSize.Main(constants.Dir), constants.MaxSize.Main(constants.Dir));
-            outerMainSize = MathF.Max(outerMainSize,
-                mainContentBoxInset - constants.ScrollbarGutter.Main(constants.Dir));
-
-            var innerMainSize = MathF.Max(outerMainSize - mainContentBoxInset, 0f);
-            constants.ContainerSize.SetMain(constants.Dir, outerMainSize);
-            constants.InnerContainerSize.SetMain(constants.Dir, innerMainSize);
-            constants.NodeInnerSize.SetMain(constants.Dir, innerMainSize);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static float ComputeContentFlexFraction(
-            float contentContribution, float flexBasis, float flexGrow, float flexShrink, float innerFlexBasis)
-        {
-            var diff = contentContribution - flexBasis;
-            if (diff > 0f)
-            {
-                return diff / MathF.Max(1f, flexGrow);
-            }
-            else if (diff < 0f)
-            {
-                var scaledShrinkFactor = MathF.Max(1f, flexShrink * innerFlexBasis);
-                return diff / scaledShrinkFactor;
-            }
-            return 0f;
-        }
-
         /// <summary>
         /// Resolve the flexible lengths of the items within a flex line.
         /// Sets the main component of each item's target_size and outer_target_size.
@@ -1201,51 +904,44 @@ namespace Marius.Winter.Taffy
                 return;
 
             // 3. Calculate initial free space.
-            float usedSpace = totalMainAxisGap;
+            float initialItemsSpace = 0f;
             for (int i = 0; i < line.Items.Length; i++)
             {
                 var child = line.Items[i];
-                usedSpace += child.Frozen
+                initialItemsSpace += child.Frozen
                     ? child.OuterTargetSize.Main(constants.Dir)
                     : child.FlexBasis + child.Margin.MainAxisSum(constants.Dir);
             }
+            float usedSpace = totalMainAxisGap + initialItemsSpace;
             var initialFreeSpace = (constants.NodeInnerSize.Main(constants.Dir).MaybeSub(usedSpace)) ?? 0f;
 
             // 4. Loop
             while (true)
             {
-                // a. Check for flexible items. If all the flex items on the line are frozen, exit this loop.
+                // a. Check frozen state, used item space and unfrozen flex factors in one pass.
                 bool allFrozen = true;
+                float itemsSpace = 0f;
+                float sumFlexGrow = 0f;
+                float sumFlexShrink = 0f;
                 for (int i = 0; i < line.Items.Length; i++)
                 {
-                    if (!line.Items[i].Frozen)
+                    ref var child = ref line.Items[i];
+                    if (child.Frozen)
+                    {
+                        itemsSpace += child.OuterTargetSize.Main(constants.Dir);
+                    }
+                    else
                     {
                         allFrozen = false;
-                        break;
+                        itemsSpace += child.FlexBasis + child.Margin.MainAxisSum(constants.Dir);
+                        sumFlexGrow += child.FlexGrow;
+                        sumFlexShrink += child.FlexShrink;
                     }
                 }
                 if (allFrozen) break;
 
                 // b. Calculate the remaining free space.
-                float usedSpace2 = totalMainAxisGap;
-                for (int i = 0; i < line.Items.Length; i++)
-                {
-                    var child = line.Items[i];
-                    usedSpace2 += child.Frozen
-                        ? child.OuterTargetSize.Main(constants.Dir)
-                        : child.FlexBasis + child.Margin.MainAxisSum(constants.Dir);
-                }
-
-                float sumFlexGrow = 0f;
-                float sumFlexShrink = 0f;
-                for (int i = 0; i < line.Items.Length; i++)
-                {
-                    if (!line.Items[i].Frozen)
-                    {
-                        sumFlexGrow += line.Items[i].FlexGrow;
-                        sumFlexShrink += line.Items[i].FlexShrink;
-                    }
-                }
+                float usedSpace2 = totalMainAxisGap + itemsSpace;
 
                 float freeSpace;
                 if (growing && sumFlexGrow < 1f)
@@ -1310,7 +1006,7 @@ namespace Marius.Winter.Taffy
                     {
                         float? resolvedMinMain = line.Items[i].ResolvedMinimumMainSize;
                         var maxMain = line.Items[i].MaxSize.Main(constants.Dir);
-                        var clamped = MathF.Max(
+                        var clamped = TaffySys.F32Max(
                             line.Items[i].TargetSize.Main(constants.Dir).MaybeClamp(resolvedMinMain, maxMain),
                             0f);
                         line.Items[i].Violation = clamped - line.Items[i].TargetSize.Main(constants.Dir);
@@ -1345,58 +1041,39 @@ namespace Marius.Winter.Taffy
         /// # [9.4. Cross Size Determination](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void DetermineHypotheticalCrossSize(
-            ILayoutFlexboxContainer tree,
-            FlexLine line,
-            ref AlgoConstants constants,
-            Size<AvailableSpace> availableSpace)
+        private static void DetermineHypotheticalCrossSize(ILayoutFlexboxContainer tree, FlexLine line,
+            ref AlgoConstants constants, Size<AvailableSpace> availableSpace)
         {
-            for (int i = 0; i < line.Items.Length; i++)
+            var dir = constants.Dir;
+            bool lineKnown = !constants.IsWrap && constants.NodeOuterSize.Cross(dir).HasValue;
+            foreach (ref var child in line.Items)
             {
-                ref var child = ref line.Items[i];
-                var paddingBorderSum = child.Padding.Add(child.Border).CrossAxisSum(constants.Dir);
-
-                var childKnownMain = (float?)constants.ContainerSize.Main(constants.Dir);
-
-                var childCross = child
-                    .Size
-                    .Cross(constants.Dir)
-                    .MaybeClamp(child.MinSize.Cross(constants.Dir), child.MaxSize.Cross(constants.Dir))
-                    .MaybeMax(paddingBorderSum);
-
-                var childAvailableCross = availableSpace
-                    .Cross(constants.Dir)
-                    .MaybeClamp(child.MinSize.Cross(constants.Dir), child.MaxSize.Cross(constants.Dir))
-                    .MaybeMax(paddingBorderSum);
-
-                float childInnerCross;
-                if (childCross.HasValue)
-                {
-                    childInnerCross = childCross.Value;
-                }
+                if (lineKnown && child.IsStretched(dir) && !child.ParticipatesInBaselineAlignment(dir)) continue;
+                float pb = child.Padding.Add(child.Border).CrossAxisSum(dir);
+                float? min = child.MinSize.MaybeApplyAspectRatio(child.AspectRatio).Cross(dir), max = child.MaxSize.MaybeApplyAspectRatio(child.AspectRatio).Cross(dir);
+                var cross = child.Size.Cross(dir).MaybeClamp(min, max).MaybeMax(pb);
+                var crossSpace = availableSpace.Cross(dir);
+                if (crossSpace.IsDefinite()) crossSpace = AvailableSpace.Definite(TaffySys.F32Max(constants.DividedCrossSpace(crossSpace.Unwrap()) - child.Margin.CrossAxisSum(dir), 0));
+                crossSpace = crossSpace.MaybeClamp(min, max).MaybeMax(pb);
+                float? stretch = constants.NodeInnerSize.Cross(dir);
+                if (stretch.HasValue) stretch = TaffySys.F32Max(constants.DividedCrossSpace(stretch.Value) - child.Margin.CrossAxisSum(dir), 0);
+                var keyword = SizingKeywordUtils.ResolveSizingKeyword(child.SizeStyle.Cross(dir), stretch, constants.NodeInnerSize.Cross(dir), tree.Calc);
+                if (keyword is { IsExact: false } measured) crossSpace = measured.AvailableSpace;
+                float inner;
+                if (cross.HasValue) inner = cross.Value;
                 else
                 {
-                    childInnerCross = tree.MeasureChildSize(
-                        child.Node,
-                        new Size<float?>(
-                            constants.IsRow ? (float?)child.TargetSize.Width : childCross,
-                            constants.IsRow ? childCross : (float?)child.TargetSize.Height),
-                        constants.NodeInnerSize,
-                        new Size<AvailableSpace>(
-                            constants.IsRow ? (AvailableSpace)childKnownMain : childAvailableCross,
-                            constants.IsRow ? childAvailableCross : (AvailableSpace)childKnownMain),
-                        SizingMode.ContentSize,
-                        constants.Dir.CrossAxis(),
-                        LineExtensions.FalseLine);
-                    childInnerCross = childInnerCross
-                        .MaybeClamp(child.MinSize.Cross(constants.Dir), child.MaxSize.Cross(constants.Dir));
-                    childInnerCross = MathF.Max(childInnerCross, paddingBorderSum);
+                    var definite = new Size<bool>(true, true).WithMain(dir, constants.HasDefiniteMainSize || child.FlexBasisIsDefinite)
+                        .WithCross(dir, child.IsStretched(dir) || child.Size.Cross(dir).HasValue || (constants.IsColumn && constants.CrossAvailableSpaceIsDefinite));
+                    var mainSpace = AvailableSpace.Definite(TaffySys.F32Max(constants.ContainerSize.Main(dir) - child.Margin.MainAxisSum(dir), 0));
+                    inner = tree.ComputeChildLayout(child.Node, new LayoutInput { RunMode = RunMode.ComputeSize, SizingMode = SizingMode.ContentSize,
+                        Axis = dir.CrossAxis().ToRequestedAxis(), KnownDimensions = constants.IsRow ? new(child.TargetSize.Width, cross) : new(cross, child.TargetSize.Height),
+                        KnownDimensionsAreDefinite = definite, ParentSize = constants.NodeInnerSize,
+                        AvailableSpace = constants.IsRow ? new(mainSpace, crossSpace) : new(crossSpace, mainSpace), VerticalMarginsAreCollapsible = LineExtensions.FalseLine })
+                        .Size.GetAbs(dir.CrossAxis()).MaybeClamp(min, max);
+                    inner = TaffySys.F32Max(inner, pb);
                 }
-
-                var childOuterCross = childInnerCross + child.Margin.CrossAxisSum(constants.Dir);
-
-                child.HypotheticalInnerSize.SetCross(constants.Dir, childInnerCross);
-                child.HypotheticalOuterSize.SetCross(constants.Dir, childOuterCross);
+                child.HypotheticalInnerSize.SetCross(dir, inner); child.HypotheticalOuterSize.SetCross(dir, inner + child.Margin.CrossAxisSum(dir));
             }
         }
 
@@ -1421,7 +1098,7 @@ namespace Marius.Winter.Taffy
                 int lineBaselineChildCount = 0;
                 foreach (var child in line.Items)
                 {
-                    if (child.AlignSelf == AlignItems.Baseline)
+                    if (child.ParticipatesInBaselineAlignment(constants.Dir))
                         lineBaselineChildCount++;
                 }
                 if (lineBaselineChildCount <= 1)
@@ -1431,27 +1108,26 @@ namespace Marius.Winter.Taffy
                 {
                     ref var child = ref line.Items[i];
                     // Only calculate baselines for children participating in baseline alignment
-                    if (child.AlignSelf != AlignItems.Baseline)
+                    if (!child.ParticipatesInBaselineAlignment(constants.Dir))
                         continue;
 
-                    var measuredSizeAndBaselines = tree.PerformChildLayout(
-                        child.Node,
-                        new Size<float?>(
-                            constants.IsRow ? (float?)child.TargetSize.Width : (float?)child.HypotheticalInnerSize.Width,
-                            constants.IsRow ? (float?)child.HypotheticalInnerSize.Height : (float?)child.TargetSize.Height),
-                        constants.NodeInnerSize,
-                        new Size<AvailableSpace>(
-                            constants.IsRow
-                                ? (AvailableSpace)constants.ContainerSize.Width
-                                : availableSpace.Width.MaybeSet(nodeSize.Width),
-                            constants.IsRow
-                                ? availableSpace.Height.MaybeSet(nodeSize.Height)
-                                : (AvailableSpace)constants.ContainerSize.Height),
-                        SizingMode.ContentSize,
-                        LineExtensions.FalseLine);
+                    var measuredSizeAndBaselines = tree.ComputeChildLayout(child.Node, new LayoutInput
+                    {
+                        RunMode = RunMode.PerformLayout, SizingMode = SizingMode.ContentSize, Axis = RequestedAxis.Both,
+                        KnownDimensions = constants.IsRow ? new(child.TargetSize.Width, child.HypotheticalInnerSize.Height)
+                            : new(child.HypotheticalInnerSize.Width, child.TargetSize.Height),
+                        KnownDimensionsAreDefinite = new Size<bool>(true, true)
+                            .WithMain(constants.Dir, constants.HasDefiniteMainSize || child.FlexBasisIsDefinite)
+                            .WithCross(constants.Dir, child.IsStretched(constants.Dir) || child.Size.Cross(constants.Dir).HasValue || (constants.IsColumn && constants.CrossAvailableSpaceIsDefinite)),
+                        ParentSize = constants.NodeInnerSize,
+                        AvailableSpace = new Size<AvailableSpace>(constants.IsRow ? AvailableSpace.Definite(constants.ContainerSize.Width) : availableSpace.Width.MaybeSet(nodeSize.Width),
+                            constants.IsRow ? availableSpace.Height.MaybeSet(nodeSize.Height) : AvailableSpace.Definite(constants.ContainerSize.Height))
+                            .MaybeSub(child.Margin.SumAxes()).MaybeMax(SizeExtensions.ZeroF32),
+                        VerticalMarginsAreCollapsible = LineExtensions.FalseLine,
+                    });
 
-                    var baseline = measuredSizeAndBaselines.FirstBaselines.Y;
                     var height = measuredSizeAndBaselines.Size.Height;
+                    var baseline = AlignmentUtils.ChildFirstBaseline(measuredSizeAndBaselines.FirstBaselines.Y, height, child.OverflowStyle.Y);
 
                     child.Baseline = (baseline ?? height) + child.Margin.Top;
                 }
@@ -1490,15 +1166,13 @@ namespace Marius.Winter.Taffy
                     var line = flexLines[li];
                     float maxBaseline = 0f;
                     foreach (var child in line.Items)
-                        maxBaseline = MathF.Max(maxBaseline, child.Baseline);
+                        maxBaseline = TaffySys.F32Max(maxBaseline, child.Baseline);
 
                     float maxCross = 0f;
                     foreach (var child in line.Items)
                     {
                         float val;
-                        if (child.AlignSelf == AlignItems.Baseline
-                            && !RectBoolCrossStart(child.MarginIsAuto, constants.Dir)
-                            && !RectBoolCrossEnd(child.MarginIsAuto, constants.Dir))
+                        if (child.ParticipatesInBaselineAlignment(constants.Dir))
                         {
                             val = maxBaseline - child.Baseline + child.HypotheticalOuterSize.Cross(constants.Dir);
                         }
@@ -1506,7 +1180,7 @@ namespace Marius.Winter.Taffy
                         {
                             val = child.HypotheticalOuterSize.Cross(constants.Dir);
                         }
-                        maxCross = MathF.Max(maxCross, val);
+                        maxCross = TaffySys.F32Max(maxCross, val);
                     }
                     line.CrossSize = maxCross;
                 }
@@ -1549,9 +1223,10 @@ namespace Marius.Winter.Taffy
                     ?? 0f;
 
                 var totalCrossAxisGap = SumAxisGaps(constants.Gap.Cross(constants.Dir), flexLines.Count);
-                float linesTotalCross = totalCrossAxisGap;
+                float linesTotalCross = 0f;
                 foreach (var line in flexLines)
                     linesTotalCross += line.CrossSize;
+                linesTotalCross += totalCrossAxisGap;
 
                 if (linesTotalCross < containerMinInnerCross)
                 {
@@ -1584,15 +1259,12 @@ namespace Marius.Winter.Taffy
                     var childStyle = tree.GetFlexboxChildStyle(child.Node);
 
                     float crossSize;
-                    if (child.AlignSelf == AlignItems.Stretch
-                        && !RectBoolCrossStart(child.MarginIsAuto, constants.Dir)
-                        && !RectBoolCrossEnd(child.MarginIsAuto, constants.Dir)
-                        && childStyle.Size().Cross(constants.Dir).IsAuto())
+                    if (child.IsStretched(constants.Dir))
                     {
                         // For some reason this particular usage of max_width is an exception to the rule that max_width's transfer
                         // using the aspect_ratio (if set).
-                        var cPadding = childStyle.Padding().ResolveOrZero(constants.NodeInnerSize, tree.Calc);
-                        var cBorder = childStyle.Border().ResolveOrZero(constants.NodeInnerSize, tree.Calc);
+                        var cPadding = childStyle.Padding().ResolveOrZero(constants.NodeInnerSize.Width, tree.Calc);
+                        var cBorder = childStyle.Border().ResolveOrZero(constants.NodeInnerSize.Width, tree.Calc);
                         var cPbSum = cPadding.SumAxes().Add(cBorder.SumAxes());
                         var cBoxSizingAdj = childStyle.BoxSizing() == BoxSizing.ContentBox
                             ? cPbSum : SizeExtensions.ZeroF32;
@@ -1602,7 +1274,7 @@ namespace Marius.Winter.Taffy
                             .MaybeResolve(constants.NodeInnerSize, tree.Calc)
                             .MaybeAdd(cBoxSizingAdj.Map(v => (float?)v));
 
-                        crossSize = (lineCrossSize - child.Margin.CrossAxisSum(constants.Dir)).MaybeClamp(
+                        crossSize = TaffySys.F32Max(lineCrossSize - child.Margin.CrossAxisSum(constants.Dir), 0).MaybeClamp(
                             child.MinSize.Cross(constants.Dir),
                             maxSizeIgnoringAspectRatio.Cross(constants.Dir));
                     }
@@ -1632,9 +1304,10 @@ namespace Marius.Winter.Taffy
             foreach (var line in flexLines)
             {
                 var totalMainAxisGap = SumAxisGaps(constants.Gap.Main(constants.Dir), line.Items.Length);
-                float usedSpace = totalMainAxisGap;
+                float itemsSpace = 0f;
                 for (int i = 0; i < line.Items.Length; i++)
-                    usedSpace += line.Items[i].OuterTargetSize.Main(constants.Dir);
+                    itemsSpace += line.Items[i].OuterTargetSize.Main(constants.Dir);
+                float usedSpace = totalMainAxisGap + itemsSpace;
                 var freeSpace = constants.InnerContainerSize.Main(constants.Dir) - usedSpace;
                 int numAutoMargins = 0;
 
@@ -1669,6 +1342,7 @@ namespace Marius.Winter.Taffy
                     }
                 }
 
+                if (freeSpace > 0 && numAutoMargins > 0) freeSpace = 0;
                 var numItems = line.Items.Length;
                 var layoutReverse = constants.Dir.IsReverse();
                 var gap = constants.Gap.Main(constants.Dir);
@@ -1711,8 +1385,14 @@ namespace Marius.Winter.Taffy
             {
                 var lineCrossSize = line.CrossSize;
                 float maxBaseline = 0f;
+                float maxBaselineToBottomDistance = 0f;
                 for (int i = 0; i < line.Items.Length; i++)
-                    maxBaseline = MathF.Max(maxBaseline, line.Items[i].Baseline);
+                {
+                    maxBaseline = TaffySys.F32Max(maxBaseline, line.Items[i].Baseline);
+                    if (line.Items[i].ParticipatesInBaselineAlignment(constants.Dir))
+                        maxBaselineToBottomDistance = TaffySys.F32Max(maxBaselineToBottomDistance,
+                            line.Items[i].OuterTargetSize.Cross(constants.Dir) - line.Items[i].Baseline);
+                }
 
                 for (int i = 0; i < line.Items.Length; i++)
                 {
@@ -1745,7 +1425,7 @@ namespace Marius.Winter.Taffy
                     else
                     {
                         // 14. Align all flex items along the cross-axis.
-                        child.OffsetCross = AlignFlexItemsAlongCrossAxis(ref child, freeSpace, maxBaseline, ref constants);
+                        child.OffsetCross = AlignFlexItemsAlongCrossAxis(ref child, freeSpace, maxBaseline, maxBaselineToBottomDistance, ref constants);
                     }
                 }
             }
@@ -1761,6 +1441,7 @@ namespace Marius.Winter.Taffy
             ref FlexItem child,
             float freeSpace,
             float maxBaseline,
+            float maxBaselineToBottomDistance,
             ref AlgoConstants constants)
         {
             var crossAxisShouldReverse = constants.IsColumn && constants.LayoutDirection.IsRtl();
@@ -1783,6 +1464,11 @@ namespace Marius.Winter.Taffy
                 case AlignItemsKeyword.Baseline:
                     if (constants.IsRow)
                     {
+                        if (constants.IsWrapReverse)
+                        {
+                            float lineCrossSize = freeSpace + child.OuterTargetSize.Cross(constants.Dir);
+                            return lineCrossSize - maxBaselineToBottomDistance - child.Baseline;
+                        }
                         return maxBaseline - child.Baseline;
                     }
                     else
@@ -1823,8 +1509,8 @@ namespace Marius.Winter.Taffy
                 .Cross(constants.Dir)
                 ?? (totalLineCrossSize + totalCrossAxisGap + paddingBorderSum))
                 .MaybeClamp(minCrossSize, maxCrossSize);
-            outerContainerSize = MathF.Max(outerContainerSize, paddingBorderSum - crossScrollbarGutter);
-            var innerContainerSize = MathF.Max(outerContainerSize - paddingBorderSum, 0f);
+            outerContainerSize = TaffySys.F32Max(outerContainerSize, paddingBorderSum - crossScrollbarGutter);
+            var innerContainerSize = TaffySys.F32Max(outerContainerSize - paddingBorderSum, 0f);
 
             constants.ContainerSize.SetCross(constants.Dir, outerContainerSize);
             constants.InnerContainerSize.SetCross(constants.Dir, innerContainerSize);
@@ -1879,19 +1565,24 @@ namespace Marius.Winter.Taffy
             ref float totalOffsetMain,
             float totalOffsetCross,
             float lineOffsetCross,
-            ref Size<float> totalContentSize,
+            ref Rect<float> totalContentSize,
+            Rect<float> containerBorder,
+            bool parentIsScrollContainer,
+            bool hasDefiniteMainSize, bool crossAvailableDefinite,
             Size<float> containerSize,
             Size<float?> nodeInnerSize,
             FlexDirection direction,
             Direction layoutDirection)
         {
-            var layoutOutput = tree.PerformChildLayout(
-                item.Node,
-                item.TargetSize.Map(s => (float?)s),
-                nodeInnerSize,
-                containerSize.Map(s => (AvailableSpace)s),
-                SizingMode.ContentSize,
-                LineExtensions.FalseLine);
+            bool crossStretched = !RectBoolCrossStart(item.MarginIsAuto, direction) && !RectBoolCrossEnd(item.MarginIsAuto, direction)
+                && (item.SizeStyle.Cross(direction).IsStretch() || (item.AlignSelf == AlignItems.Stretch && item.SizeStyle.Cross(direction).IsAuto()));
+            var definite = new Size<bool>(true, true).WithMain(direction, hasDefiniteMainSize || item.FlexBasisIsDefinite)
+                .WithCross(direction, crossStretched || item.Size.Cross(direction).HasValue || (direction.IsColumn() && crossAvailableDefinite));
+            var layoutOutput = tree.ComputeChildLayout(item.Node, new LayoutInput { RunMode = RunMode.PerformLayout,
+                SizingMode = SizingMode.ContentSize, Axis = RequestedAxis.Both, KnownDimensions = item.TargetSize.Map<float?>(v => v),
+                KnownDimensionsAreDefinite = definite, ParentSize = nodeInnerSize,
+                AvailableSpace = containerSize.Sub(item.Margin.SumAxes()).Map(v => AvailableSpace.Definite(TaffySys.F32Max(v, 0))),
+                VerticalMarginsAreCollapsible = LineExtensions.FalseLine });
 
             var size = layoutOutput.Size;
             var contentSize = layoutOutput.ContentSize;
@@ -1947,19 +1638,22 @@ namespace Marius.Winter.Taffy
             if (direction.IsRow())
             {
                 var baselineOffsetCross = totalOffsetCross + item.OffsetCross + effectiveLineOffsetCross + item.Margin.CrossStart(direction);
-                var innerBaseline = layoutOutput.FirstBaselines.Y ?? size.Height;
+                var innerBaseline = AlignmentUtils.ChildFirstBaseline(layoutOutput.FirstBaselines.Y, size.Height, item.OverflowStyle.Y) ?? size.Height;
                 item.Baseline = baselineOffsetCross + innerBaseline;
             }
             else
             {
                 var baselineOffsetMain = totalOffsetMain + item.OffsetMain + item.Margin.MainStart(direction);
-                var innerBaseline = layoutOutput.FirstBaselines.Y ?? size.Height;
+                var innerBaseline = AlignmentUtils.ChildFirstBaseline(layoutOutput.FirstBaselines.Y, size.Height, item.OverflowStyle.Y) ?? size.Height;
                 item.Baseline = baselineOffsetMain + innerBaseline;
             }
 
             var location = direction.IsRow()
                 ? new Point<float>(offsetMain, offsetCross)
                 : new Point<float>(offsetCross, offsetMain);
+
+            item.OofCandidates = layoutOutput.OofCandidates.Take();
+            item.OofCandidates.Translate(location);
 
             var scrollbarSize = new Size<float>(
                 item.OverflowStyle.Y == Overflow.Scroll ? item.ScrollbarWidth : 0f,
@@ -1971,7 +1665,7 @@ namespace Marius.Winter.Taffy
                 {
                     Order = item.Order,
                     Size = size,
-                    ContentSize = contentSize,
+                    ScrollableOverflowRect = layoutOutput.ScrollableOverflowRect,
                     ScrollbarSize = scrollbarSize,
                     Location = location,
                     Padding = item.Padding,
@@ -1988,11 +1682,12 @@ namespace Marius.Winter.Taffy
                 totalOffsetMain += item.OffsetMain + item.Margin.MainAxisSum(direction) + size.Main(direction);
             }
 
-            var contributionLocation = layoutDirection.IsRtl()
-                ? new Point<float>(containerSize.Width - (location.X + size.Width), location.Y)
-                : location;
-            totalContentSize = totalContentSize.F32Max(
-                ContentSizeUtils.ComputeContentSizeContribution(contributionLocation, size, contentSize, item.OverflowStyle));
+            var contributionLocation = new Point<float>(layoutDirection.IsRtl()
+                ? containerSize.Width - (location.X + size.Width) - containerBorder.Right : location.X - containerBorder.Left,
+                location.Y - containerBorder.Top);
+            totalContentSize = totalContentSize.Union(ScrollableOverflow.ComputeContribution(contributionLocation,
+                size, layoutOutput.ScrollableOverflowRect, item.OverflowStyle, item.Contain, parentIsScrollContainer));
+
         }
 
         /// <summary>
@@ -2002,7 +1697,10 @@ namespace Marius.Winter.Taffy
             ILayoutFlexboxContainer tree,
             FlexLine line,
             ref float totalOffsetCross,
-            ref Size<float> contentSize,
+            ref Rect<float> contentSize,
+            Rect<float> containerBorder,
+            bool parentIsScrollContainer,
+            bool hasDefiniteMainSize, bool crossAvailableDefinite,
             Size<float> containerSize,
             Size<float?> nodeInnerSize,
             Rect<float> paddingBorder,
@@ -2031,6 +1729,7 @@ namespace Marius.Winter.Taffy
                         totalOffsetCross,
                         lineOffsetCross,
                         ref contentSize,
+                        containerBorder, parentIsScrollContainer, hasDefiniteMainSize, crossAvailableDefinite,
                         containerSize,
                         nodeInnerSize,
                         direction,
@@ -2048,6 +1747,7 @@ namespace Marius.Winter.Taffy
                         totalOffsetCross,
                         lineOffsetCross,
                         ref contentSize,
+                        containerBorder, parentIsScrollContainer, hasDefiniteMainSize, crossAvailableDefinite,
                         containerSize,
                         nodeInnerSize,
                         direction,
@@ -2065,7 +1765,7 @@ namespace Marius.Winter.Taffy
         /// Do a final layout pass and collect the resulting layouts.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Size<float> FinalLayoutPass(
+        private static Rect<float> FinalLayoutPass(
             ILayoutFlexboxContainer tree,
             ref ValueList<FlexLine> flexLines,
             ref AlgoConstants constants)
@@ -2073,7 +1773,7 @@ namespace Marius.Winter.Taffy
             float totalOffsetCross = (constants.IsColumn && constants.LayoutDirection.IsRtl())
                 ? constants.ContainerSize.Width - constants.ContentBoxInset.CrossEnd(constants.Dir)
                 : constants.ContentBoxInset.CrossStart(constants.Dir);
-            var contentSize = SizeExtensions.ZeroF32;
+            Rect<float> contentSize = default;
 
             if (constants.IsWrapReverse)
             {
@@ -2084,6 +1784,7 @@ namespace Marius.Winter.Taffy
                         flexLines[i],
                         ref totalOffsetCross,
                         ref contentSize,
+                        constants.Border, constants.IsScrollContainer, constants.HasDefiniteMainSize, constants.CrossAvailableSpaceIsDefinite,
                         constants.ContainerSize,
                         constants.NodeInnerSize,
                         constants.ContentBoxInset,
@@ -2100,6 +1801,7 @@ namespace Marius.Winter.Taffy
                         flexLines[i],
                         ref totalOffsetCross,
                         ref contentSize,
+                        constants.Border, constants.IsScrollContainer, constants.HasDefiniteMainSize, constants.CrossAvailableSpaceIsDefinite,
                         constants.ContainerSize,
                         constants.NodeInnerSize,
                         constants.ContentBoxInset,
@@ -2108,330 +1810,12 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            contentSize.Width += constants.LayoutDirection.IsRtl()
-                ? constants.ContentBoxInset.Left - constants.Border.Left - constants.ScrollbarGutter.X
-                : constants.ContentBoxInset.Right - constants.Border.Right - constants.ScrollbarGutter.X;
-            contentSize.Height += constants.ContentBoxInset.Bottom - constants.Border.Bottom - constants.ScrollbarGutter.Y;
-
-            return contentSize;
-        }
-
-        /// <summary>
-        /// Perform absolute layout on all absolutely positioned children.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Size<float> PerformAbsoluteLayoutOnAbsoluteChildren(
-            ILayoutFlexboxContainer tree,
-            NodeId node,
-            ref AlgoConstants constants)
-        {
-            var containerWidth = constants.ContainerSize.Width;
-            var containerHeight = constants.ContainerSize.Height;
-            var insetRelativeSize = constants.ContainerSize
-                .Sub(constants.Border.SumAxes())
-                .Sub(new Size<float>(constants.ScrollbarGutter.X, constants.ScrollbarGutter.Y));
-
-            var contentSize = SizeExtensions.ZeroF32;
-
-            for (int order = 0; order < tree.ChildCount(node); order++)
+            if (constants.IsScrollContainer)
             {
-                var child = tree.GetChildId(node, order);
-                var childStyle = tree.GetFlexboxChildStyle(child);
-
-                // Skip items that are display:none or are not position:absolute
-                if (childStyle.BoxGenerationMode() == BoxGenerationMode.None || childStyle.Position() != Position.Absolute)
-                    continue;
-
-                var overflow = childStyle.Overflow();
-                var scrollbarWidth = childStyle.ScrollbarWidth();
-                var aspectRatio = childStyle.AspectRatio();
-                var alignSelf = childStyle.AlignSelf() ?? constants.AlignItemsStyle;
-                var margin = childStyle
-                    .Margin()
-                    .Map(m => m.ResolveToOption(insetRelativeSize.Width, tree.Calc));
-                var padding = childStyle.Padding().ResolveOrZero((float?)insetRelativeSize.Width, tree.Calc);
-                var border = childStyle.Border().ResolveOrZero((float?)insetRelativeSize.Width, tree.Calc);
-                var paddingBorderSum = padding.SumAxes().Add(border.SumAxes());
-                var boxSizingAdj = childStyle.BoxSizing() == BoxSizing.ContentBox
-                    ? paddingBorderSum
-                    : SizeExtensions.ZeroF32;
-
-                // Resolve inset
-                var left = childStyle.Inset().Left.MaybeResolve(insetRelativeSize.Width, tree.Calc);
-                var right = childStyle.Inset().Right.MaybeResolve(insetRelativeSize.Width, tree.Calc);
-                var top = childStyle.Inset().Top.MaybeResolve(insetRelativeSize.Height, tree.Calc);
-                var bottom = childStyle.Inset().Bottom.MaybeResolve(insetRelativeSize.Height, tree.Calc);
-
-                // Compute known dimensions from min/max/inherent size styles
-                var insetRelativeSizeOpt = new Size<float?>((float?)insetRelativeSize.Width, (float?)insetRelativeSize.Height);
-                var styleSize = childStyle
-                    .Size()
-                    .MaybeResolve(insetRelativeSizeOpt, tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdj.Map(v => (float?)v));
-                var minSizeAbs = childStyle
-                    .MinSize()
-                    .MaybeResolve(insetRelativeSizeOpt, tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdj.Map(v => (float?)v))
-                    .Or(paddingBorderSum.Map(v => (float?)v))
-                    .MaybeMax(paddingBorderSum.Map(v => (float?)v));
-                var maxSizeAbs = childStyle
-                    .MaxSize()
-                    .MaybeResolve(insetRelativeSizeOpt, tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdj.Map(v => (float?)v));
-                var knownDimensions = styleSize.MaybeClamp(minSizeAbs, maxSizeAbs);
-
-                // Fill in width from left/right and reapply aspect ratio
-                if (!knownDimensions.Width.HasValue && left.HasValue && right.HasValue)
-                {
-                    var newWidthRaw = insetRelativeSize.Width.MaybeSub(margin.Left).MaybeSub(margin.Right) - left.Value - right.Value;
-                    knownDimensions.Width = MathF.Max(newWidthRaw, 0f);
-                    knownDimensions = knownDimensions.MaybeApplyAspectRatio(aspectRatio).MaybeClamp(minSizeAbs, maxSizeAbs);
-                }
-
-                // Fill in height from top/bottom and reapply aspect ratio
-                if (!knownDimensions.Height.HasValue && top.HasValue && bottom.HasValue)
-                {
-                    var newHeightRaw = insetRelativeSize.Height.MaybeSub(margin.Top).MaybeSub(margin.Bottom) - top.Value - bottom.Value;
-                    knownDimensions.Height = MathF.Max(newHeightRaw, 0f);
-                    knownDimensions = knownDimensions.MaybeApplyAspectRatio(aspectRatio).MaybeClamp(minSizeAbs, maxSizeAbs);
-                }
-
-                var measuredSize = tree.MeasureChildSizeBoth(
-                    child,
-                    knownDimensions,
-                    constants.NodeInnerSize,
-                    new Size<AvailableSpace>(
-                        AvailableSpace.Definite(containerWidth.MaybeClamp(minSizeAbs.Width, maxSizeAbs.Width)),
-                        AvailableSpace.Definite(containerHeight.MaybeClamp(minSizeAbs.Height, maxSizeAbs.Height))),
-                    SizingMode.InherentSize,
-                    LineExtensions.FalseLine);
-
-                var finalSize = knownDimensions.UnwrapOr(measuredSize).MaybeClamp(minSizeAbs, maxSizeAbs);
-
-                var layoutOutput = tree.PerformChildLayout(
-                    child,
-                    finalSize.Map(v => (float?)v),
-                    constants.NodeInnerSize,
-                    new Size<AvailableSpace>(
-                        AvailableSpace.Definite(containerWidth.MaybeClamp(minSizeAbs.Width, maxSizeAbs.Width)),
-                        AvailableSpace.Definite(containerHeight.MaybeClamp(minSizeAbs.Height, maxSizeAbs.Height))),
-                    SizingMode.InherentSize,
-                    LineExtensions.FalseLine);
-
-                var nonAutoMargin = margin.Map(m => m ?? 0f);
-
-                var absFreeSpace = new Size<float>(
-                    MathF.Max(constants.ContainerSize.Width - finalSize.Width - nonAutoMargin.HorizontalAxisSum(), 0f),
-                    MathF.Max(constants.ContainerSize.Height - finalSize.Height - nonAutoMargin.VerticalAxisSum(), 0f));
-
-                // Expand auto margins to fill available space
-                float autoMarginSizeWidth;
-                {
-                    int autoMarginCount = (margin.Left.HasValue ? 0 : 1) + (margin.Right.HasValue ? 0 : 1);
-                    autoMarginSizeWidth = autoMarginCount > 0 ? absFreeSpace.Width / autoMarginCount : 0f;
-                }
-                float autoMarginSizeHeight;
-                {
-                    int autoMarginCount = (margin.Top.HasValue ? 0 : 1) + (margin.Bottom.HasValue ? 0 : 1);
-                    autoMarginSizeHeight = autoMarginCount > 0 ? absFreeSpace.Height / autoMarginCount : 0f;
-                }
-
-                var resolvedMargin = new Rect<float>(
-                    margin.Left ?? autoMarginSizeWidth,
-                    margin.Right ?? autoMarginSizeWidth,
-                    margin.Top ?? autoMarginSizeHeight,
-                    margin.Bottom ?? autoMarginSizeHeight);
-
-                // Determine flex-relative insets
-                var (startMain, endMain) = constants.IsRow ? (left, right) : (top, bottom);
-                var (startCross, endCross) = constants.IsRow ? (top, bottom) : (left, right);
-                var mainAxisIsHorizontal = constants.IsRow;
-                var crossAxisIsHorizontal = !constants.IsRow;
-                var mainIsRtl = mainAxisIsHorizontal && constants.LayoutDirection.IsRtl();
-                var crossIsRtl = crossAxisIsHorizontal && constants.LayoutDirection.IsRtl();
-                var mainAxisFlexStartReversed = constants.Dir.IsReverse() ^ mainIsRtl;
-                var crossAxisFlexStartReversed = constants.IsWrapReverse ^ crossIsRtl;
-                var mainStartScrollbarOffset = mainIsRtl ? constants.ScrollbarGutter.Main(constants.Dir) : 0f;
-                var crossStartScrollbarOffset = crossIsRtl ? constants.ScrollbarGutter.Cross(constants.Dir) : 0f;
-                var mainEndScrollbarOffset = mainIsRtl ? 0f : constants.ScrollbarGutter.Main(constants.Dir);
-                var crossEndScrollbarOffset = crossIsRtl ? 0f : constants.ScrollbarGutter.Cross(constants.Dir);
-
-                // Apply main-axis alignment
-                float offsetMain;
-                if (startMain.HasValue || endMain.HasValue)
-                {
-                    if (mainIsRtl && endMain.HasValue)
-                    {
-                        offsetMain = constants.ContainerSize.Main(constants.Dir)
-                            - constants.Border.MainEnd(constants.Dir)
-                            - mainEndScrollbarOffset
-                            - finalSize.Main(constants.Dir)
-                            - endMain.GetValueOrDefault()
-                            - resolvedMargin.MainEnd(constants.Dir);
-                    }
-                    else if (startMain.HasValue)
-                    {
-                        offsetMain = startMain.Value
-                            + constants.Border.MainStart(constants.Dir)
-                            + mainStartScrollbarOffset
-                            + resolvedMargin.MainStart(constants.Dir);
-                    }
-                    else
-                    {
-                        offsetMain = constants.ContainerSize.Main(constants.Dir)
-                            - constants.Border.MainEnd(constants.Dir)
-                            - mainEndScrollbarOffset
-                            - finalSize.Main(constants.Dir)
-                            - endMain.GetValueOrDefault()
-                            - resolvedMargin.MainEnd(constants.Dir);
-                    }
-                }
-                else
-                {
-                    // Safe fallback is intentionally not applied to justify-content for abspos children,
-                    // matching Chromium's behavior. Alignment still uses the underlying keyword.
-                    var justifyKeyword = (constants.JustifyContentStyle ?? AlignContent.Start).Keyword;
-                    offsetMain = (justifyKeyword, mainAxisFlexStartReversed) switch
-                    {
-                        (AlignContentKeyword.SpaceBetween, _) or
-                        (AlignContentKeyword.Stretch, false) or
-                        (AlignContentKeyword.FlexStart, false) or
-                        (AlignContentKeyword.FlexEnd, true) or
-                        (AlignContentKeyword.Start, false) =>
-                            constants.ContentBoxInset.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir),
-
-                        (AlignContentKeyword.Start, true) or
-                        (AlignContentKeyword.End, false) or
-                        (AlignContentKeyword.FlexEnd, false) or
-                        (AlignContentKeyword.FlexStart, true) or
-                        (AlignContentKeyword.Stretch, true) =>
-                            constants.ContainerSize.Main(constants.Dir)
-                            - constants.ContentBoxInset.MainEnd(constants.Dir)
-                            - finalSize.Main(constants.Dir)
-                            - resolvedMargin.MainEnd(constants.Dir),
-
-                        (AlignContentKeyword.End, true) =>
-                            constants.ContentBoxInset.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir),
-
-                        (AlignContentKeyword.SpaceEvenly, _) or
-                        (AlignContentKeyword.SpaceAround, _) or
-                        (AlignContentKeyword.Center, _) =>
-                            (constants.ContainerSize.Main(constants.Dir)
-                             + constants.ContentBoxInset.MainStart(constants.Dir)
-                             - constants.ContentBoxInset.MainEnd(constants.Dir)
-                             - finalSize.Main(constants.Dir)
-                             + resolvedMargin.MainStart(constants.Dir)
-                             - resolvedMargin.MainEnd(constants.Dir))
-                            / 2f,
-
-                        _ => constants.ContentBoxInset.MainStart(constants.Dir) + resolvedMargin.MainStart(constants.Dir),
-                    };
-                }
-
-                // Apply cross-axis alignment
-                float offsetCrossAbs;
-                if (startCross.HasValue || endCross.HasValue)
-                {
-                    if (crossIsRtl && endCross.HasValue)
-                    {
-                        offsetCrossAbs = constants.ContainerSize.Cross(constants.Dir)
-                            - constants.Border.CrossEnd(constants.Dir)
-                            - crossEndScrollbarOffset
-                            - finalSize.Cross(constants.Dir)
-                            - endCross.GetValueOrDefault()
-                            - resolvedMargin.CrossEnd(constants.Dir);
-                    }
-                    else if (startCross.HasValue)
-                    {
-                        offsetCrossAbs = startCross.Value
-                            + constants.Border.CrossStart(constants.Dir)
-                            + crossStartScrollbarOffset
-                            + resolvedMargin.CrossStart(constants.Dir);
-                    }
-                    else
-                    {
-                        offsetCrossAbs = constants.ContainerSize.Cross(constants.Dir)
-                            - constants.Border.CrossEnd(constants.Dir)
-                            - crossEndScrollbarOffset
-                            - finalSize.Cross(constants.Dir)
-                            - endCross.GetValueOrDefault()
-                            - resolvedMargin.CrossEnd(constants.Dir);
-                    }
-                }
-                else
-                {
-                    var crossOverflows = finalSize.Cross(constants.Dir) + resolvedMargin.CrossAxisSum(constants.Dir)
-                        > constants.ContainerSize.Cross(constants.Dir) - constants.ContentBoxInset.CrossAxisSum(constants.Dir);
-                    var crossKeyword = AlignmentUtils.ResolveSelfAlignmentSafety(alignSelf, crossOverflows);
-                    offsetCrossAbs = (crossKeyword, crossAxisFlexStartReversed) switch
-                    {
-                        // Stretch alignment does not apply to absolutely positioned items
-                        (AlignItemsKeyword.Start, false) or
-                        (AlignItemsKeyword.Baseline or AlignItemsKeyword.Stretch or AlignItemsKeyword.FlexStart, false) or
-                        (AlignItemsKeyword.FlexEnd, true) =>
-                            constants.ContentBoxInset.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir),
-
-                        (AlignItemsKeyword.Start, true) or
-                        (AlignItemsKeyword.End, false) or
-                        (AlignItemsKeyword.Baseline or AlignItemsKeyword.Stretch or AlignItemsKeyword.FlexStart, true) or
-                        (AlignItemsKeyword.FlexEnd, false) =>
-                            constants.ContainerSize.Cross(constants.Dir)
-                            - constants.ContentBoxInset.CrossEnd(constants.Dir)
-                            - finalSize.Cross(constants.Dir)
-                            - resolvedMargin.CrossEnd(constants.Dir),
-
-                        (AlignItemsKeyword.End, true) =>
-                            constants.ContentBoxInset.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir),
-
-                        (AlignItemsKeyword.Center, _) =>
-                            (constants.ContainerSize.Cross(constants.Dir)
-                             + constants.ContentBoxInset.CrossStart(constants.Dir)
-                             - constants.ContentBoxInset.CrossEnd(constants.Dir)
-                             - finalSize.Cross(constants.Dir)
-                             + resolvedMargin.CrossStart(constants.Dir)
-                             - resolvedMargin.CrossEnd(constants.Dir))
-                            / 2f,
-
-                        _ => constants.ContentBoxInset.CrossStart(constants.Dir) + resolvedMargin.CrossStart(constants.Dir),
-                    };
-                }
-
-                var location = constants.IsRow
-                    ? new Point<float>(offsetMain, offsetCrossAbs)
-                    : new Point<float>(offsetCrossAbs, offsetMain);
-
-                var scrollbarSize = new Size<float>(
-                    overflow.Y == Overflow.Scroll ? scrollbarWidth : 0f,
-                    overflow.X == Overflow.Scroll ? scrollbarWidth : 0f);
-
-                tree.SetUnroundedLayout(
-                    child,
-                    new Layout
-                    {
-                        Order = (uint)order,
-                        Size = finalSize,
-                        ContentSize = layoutOutput.ContentSize,
-                        ScrollbarSize = scrollbarSize,
-                        Location = location,
-                        Padding = padding,
-                        Border = border,
-                        Margin = resolvedMargin,
-                    });
-
-                var sizeContentSizeContribution = new Size<float>(
-                    overflow.X == Overflow.Visible ? MathF.Max(finalSize.Width, layoutOutput.ContentSize.Width) : finalSize.Width,
-                    overflow.Y == Overflow.Visible ? MathF.Max(finalSize.Height, layoutOutput.ContentSize.Height) : finalSize.Height);
-
-                if (sizeContentSizeContribution.HasNonZeroArea())
-                {
-                    var contentSizeContribution = new Size<float>(
-                        location.X + sizeContentSizeContribution.Width,
-                        location.Y + sizeContentSizeContribution.Height);
-                    contentSize = contentSize.F32Max(contentSizeContribution);
-                }
+                contentSize.Right += constants.LayoutDirection.IsRtl()
+                    ? constants.ContentBoxInset.Left - constants.Border.Left - constants.ScrollbarGutter.X
+                    : constants.ContentBoxInset.Right - constants.Border.Right - constants.ScrollbarGutter.X;
+                contentSize.Bottom += constants.ContentBoxInset.Bottom - constants.Border.Bottom - constants.ScrollbarGutter.Y;
             }
 
             return contentSize;
@@ -2482,13 +1866,13 @@ namespace Marius.Winter.Taffy
         }
 
         /// <summary>
-        /// Returns true if the float is normal (not zero, not infinity, not NaN)
+        /// Returns true if the float is normal (excludes zero, subnormals, infinity and NaN).
         /// Equivalent to Rust's f32::is_normal()
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static bool IsNormal(float value)
         {
-            return !float.IsNaN(value) && !float.IsInfinity(value) && value != 0f && MathF.Abs(value) >= float.MinValue;
+            return float.IsNormal(value);
         }
     }
 

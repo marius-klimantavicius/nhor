@@ -1,6 +1,7 @@
 // Ported from ThorVG/src/renderer/sw_engine/tvgSwRasterC.h
 
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using static ThorVG.SwHelper;
 
 namespace ThorVG
@@ -40,10 +41,7 @@ namespace ThorVG
         {
             if (opacity == 255)
             {
-                for (uint x = 0; x < len; ++x, ++dst, ++src)
-                {
-                    *dst = *src;
-                }
+                NativeMemory.Copy(src, dst, (nuint)len * sizeof(uint));
             }
             else
             {
@@ -211,18 +209,41 @@ namespace ThorVG
 
         internal static bool cRasterABGRtoARGB(RenderSurface surface)
         {
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(0, (int)surface.h, SwPostEffect.ParallelOptions(), y =>
+            {
+                var row = surface.buf32 + (uint)y * surface.stride;
+                if (surface.w % 2 == 0)
+                {
+                    var dst = (ulong*)row;
+                    for (uint x = 0; x < surface.w / 2; ++x, ++dst)
+                    {
+                        var cv = Unsafe.ReadUnaligned<ulong>(dst);
+                        Unsafe.WriteUnaligned(dst, (cv & 0xff000000ff000000UL) + ((cv & 0x00ff000000ff0000UL) >> 16) + (cv & 0x0000ff000000ff00UL) + ((cv & 0x000000ff000000ffUL) << 16));
+                    }
+                }
+                else
+                {
+                    for (uint x = 0; x < surface.w; ++x)
+                    {
+                        var cv = row[x];
+                        row[x] = (cv & 0xff000000u) + ((cv & 0x00ff0000u) >> 16) + (cv & 0x0000ff00u) + ((cv & 0x000000ffu) << 16);
+                    }
+                }
+            });
+#else
             // 64-bit faster converting
             if (surface.w % 2 == 0)
             {
-                var buffer = (ulong*)surface.buf32;
-                for (uint y = 0; y < surface.h; ++y, buffer += surface.stride / 2)
+                for (uint y = 0; y < surface.h; ++y)
                 {
-                    var dst = buffer;
+                    // Stride counts pixels, including an odd number of padding pixels.
+                    var dst = (ulong*)(surface.buf32 + y * surface.stride);
                     for (uint x = 0; x < surface.w / 2; ++x, ++dst)
                     {
-                        var cv = *dst;
+                        var cv = Unsafe.ReadUnaligned<ulong>(dst);
                         // flip Blue, Red channels
-                        *dst = (cv & 0xff000000ff000000UL) + ((cv & 0x00ff000000ff0000UL) >> 16) + (cv & 0x0000ff000000ff00UL) + ((cv & 0x000000ff000000ffUL) << 16);
+                        Unsafe.WriteUnaligned(dst, (cv & 0xff000000ff000000UL) + ((cv & 0x00ff000000ff0000UL) >> 16) + (cv & 0x0000ff000000ff00UL) + ((cv & 0x000000ff000000ffUL) << 16));
                     }
                 }
             }
@@ -241,6 +262,7 @@ namespace ThorVG
                     }
                 }
             }
+#endif
             return true;
         }
 

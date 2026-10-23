@@ -1,148 +1,165 @@
-// Instance wrapper for the static SvgLoader, enabling SVG loading through LoaderMgr.
-// Mirrors C++ tvg::SvgLoader (which is an instance class inheriting ImageLoader).
-
+// Instance adapter for native SvgLoader and its header/worker/cache lifetime.
 using System;
-using System.IO;
 using System.Text;
 
 namespace ThorVG
 {
-    /// <summary>
-    /// SVG image loader instance. Wraps the static SvgLoader to provide an
-    /// ImageLoader-compatible interface for the LoaderMgr system.
-    /// </summary>
     public class SvgLoaderInstance : ImageLoader
     {
+        private byte[]? source;
+        private uint size;
         private string? content;
-        private string? svgPath;
-        private SvgNode? doc;
-        private SvgParserContext? loaderData;
-        private Scene? builtScene;
+        private string svgPath = "";
+        private SvgParserContext context = new();
+        private Scene? root;
+        private Box vbox;
+        private SvgViewFlag viewFlag;
+        private AspectRatioAlign align;
+        private AspectRatioMeetOrSlice meetOrSlice;
+        private readonly LoaderTask task;
 
-        public SvgLoaderInstance() : base(FileType.Svg) { }
+        public SvgLoaderInstance() : base(FileType.Svg) { task = new LoaderTask(Run); }
+
+        public override Result OpenResult(string path, LoaderOps? ops = null)
+            => Open(path, ops) ? Result.Success : Result.InvalidArguments;
+
+        public override Result OpenResult(byte[] data, uint size, LoaderOps? ops)
+            => Open(data, size, ops, ops?.owner == Ownership.Copy) ? Result.Success : Result.InvalidArguments;
 
         public override bool Open(string path, LoaderOps? ops = null)
         {
-            try
-            {
-                if (!File.Exists(path)) return false;
-
-                var text = File.ReadAllText(path);
-                if (string.IsNullOrEmpty(text)) return false;
-
-                var parsedDoc = SvgLoader.Parse(text, out var ld);
-                if (parsedDoc == null) return false;
-
-                content = text;
-                svgPath = path;
-                doc = parsedDoc;
-                loaderData = ld;
-                loaderData.accessible = (ops as PictureOps)?.accessible ?? false;
-
-                // Extract dimensions from the parsed SVG
-                var (vbox, vw, vh, viewFlag) = SvgLoader.GetViewInfo(doc);
-                w = vw;
-                h = vh;
-
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
+            if (ops != null && ops.caller != Type.Picture) return false;
+            var bytes = ReadFile(path);
+            if (bytes == null || bytes.Length == 0) return false;
+            Clear();
+            source = bytes;
+            size = (uint)bytes.Length;
+            owner = Ownership.Transfer;
+            svgPath = path;
+            context.accessible = (ops as PictureOps)?.accessible ?? false;
+            return Header();
         }
 
         public override bool Open(byte[] data, uint size, LoaderOps? ops, bool copy)
         {
-            if (data == null || size == 0) return false;
+            if (ops != null && ops.caller != Type.Picture) return false;
+            if (data == null || size == 0 || size > data.Length) return false;
+            Clear();
+            source = copy ? data.AsSpan(0, (int)size).ToArray() : data;
+            this.size = size;
+            owner = copy ? Ownership.Copy : ops?.owner ?? Ownership.Borrow;
+            svgPath = (ops as PictureOps)?.rpath ?? "";
+            context.accessible = (ops as PictureOps)?.accessible ?? false;
+            return Header();
+        }
 
-            try
+        private bool Header()
+        {
+            content = Encoding.UTF8.GetString(source!, 0, (int)size);
+            if (!SvgLoader.Header(content, context)) return false;
+            (vbox, w, h, viewFlag) = SvgLoader.GetViewInfo(context.doc!);
+            align = context.doc!.doc.align;
+            meetOrSlice = context.doc.doc.meetOrSlice;
+            if ((viewFlag & SvgViewFlag.Viewbox) == 0) Run(0);
+            return true;
+        }
+
+        private void Run(uint tid)
+        {
+            if (context.svgParse == null) return;
+            if ((viewFlag & SvgViewFlag.Viewbox) != 0 &&
+                (MathF.Abs(vbox.w) <= MathConstants.FLOAT_EPSILON || MathF.Abs(vbox.h) <= MathConstants.FLOAT_EPSILON))
+                root = Scene.Gen();
+            else
             {
-                var text = Encoding.UTF8.GetString(data, 0, (int)Math.Min(size, (uint)data.Length));
-                if (string.IsNullOrEmpty(text)) return false;
-
-                var parsedDoc = SvgLoader.Parse(text, out var ld);
-                if (parsedDoc == null) return false;
-
-                content = text;
-                svgPath = (ops as PictureOps)?.rpath ?? "";
-                doc = parsedDoc;
-                loaderData = ld;
-                loaderData.accessible = (ops as PictureOps)?.accessible ?? false;
-
-                // Extract dimensions from the parsed SVG
-                var (vbox, vw, vh, viewFlag) = SvgLoader.GetViewInfo(doc);
-                w = vw;
-                h = vh;
-
-                return true;
+                content = Encoding.UTF8.GetString(source!, 0, (int)size);
+                if (SvgLoader.ParseDocument(content, context, reuseHeader: true) != null)
+                {
+                    root = SvgBuilder.SvgSceneBuild(context, vbox, w, h, align, meetOrSlice, svgPath, viewFlag);
+                    if ((viewFlag & SvgViewFlag.Viewbox) == 0)
+                    {
+                        vbox = context.doc!.doc.vbox;
+                        w = context.doc.doc.w;
+                        h = context.doc.doc.h;
+                    }
+                }
             }
-            catch
-            {
-                return false;
-            }
+            root?.Ref();
+            ClearContext(false);
         }
 
         public override bool Read()
         {
-            if (doc == null) return false;
-            if (!base.Read()) return true; // already read
+            if (content == null || size == 0) return false;
+            if (!base.Read() || root != null) return true;
+            if (TaskScheduler.Threads() == 0) Run(0);
+            else TaskScheduler.Request(task);
             return true;
         }
 
+        public override bool Sync() { task.Done(); return true; }
+
         public override Paint? GetPaint()
         {
-            if (doc == null || loaderData == null) return null;
+            task.Done();
+            return root == null ? null : root.RefCnt() == 1 ? root : root.Duplicate();
+        }
 
-            if (builtScene == null)
-            {
-                var (vbox, vw, vh, viewFlag) = SvgLoader.GetViewInfo(doc);
-                var align = doc.doc.align;
-                var meetOrSlice = doc.doc.meetOrSlice;
-
-                builtScene = SvgBuilder.SvgSceneBuild(
-                    loaderData, vbox, vw, vh, align, meetOrSlice, svgPath ?? "", viewFlag);
-            }
-
-            return builtScene;
+        public override bool Close()
+        {
+            if (!base.Close()) return false;
+            task.Done();
+            return true;
         }
 
         public override AccessorEntity? Access(uint id)
         {
-            GetPaint();
-            if (loaderData == null) return null;
-            foreach (var entity in loaderData.access)
-            {
-                if (entity.id == id) return entity;
-            }
+            task.Done();
+            foreach (var entity in context.access) if (entity.id == id) return entity;
             return null;
         }
 
         public override void Access(Func<Paint, object?, bool> callback, object? data)
         {
-            GetPaint();
-            if (loaderData == null) return;
-            foreach (var entity in loaderData.access)
-            {
-                if (!callback(entity.paint, data)) return;
-            }
+            task.Done();
+            foreach (var entity in context.access) if (!callback(entity.paint, data)) return;
         }
 
         public override bool Resize(Paint paint, float w, float h)
         {
             if (paint == null) return false;
-            if (this.w <= 0 || this.h <= 0) return false;
-
-            var sx = w / this.w;
-            var sy = h / this.h;
-            var m = new Matrix { e11 = sx, e12 = 0, e13 = 0, e21 = 0, e22 = sy, e23 = 0, e31 = 0, e32 = 0, e33 = 1 };
-            paint.Transform(m);
-
-            // Apply the scale to the base clipper
-            var clipper = paint.GetClipper();
-            if (clipper != null) clipper.Transform(m);
-
+            paint.Transform(new Matrix { e11 = w / this.w, e22 = h / this.h, e33 = 1 });
             return true;
+        }
+
+        private void ClearContext(bool all)
+        {
+            context.svgParse = null;
+            foreach (var gradient in context.gradients) gradient.Clear();
+            context.gradients.Clear(); context.gradientStack.Clear();
+            context.doc = context.def = context.cssStyle = context.currentGraphicsNode = null;
+            context.stack.Clear(); context.nodesToStyle.Clear();
+            context.cloneNodes.Free();
+            if (!all) return;
+            foreach (var font in context.fonts) Text.UnloadFont(font.name);
+            context.fonts.Clear(); context.images.Clear(); context.access.Clear();
+        }
+
+        private void Clear()
+        {
+            task.Done();
+            ClearContext(true);
+            root?.Unref(); root = null;
+            source = null; content = null; size = 0;
+            owner = Ownership.Borrow;
+            readied = false;
+            context = new SvgParserContext();
+        }
+
+        internal override void ReleaseResources()
+        {
+            Clear();
+            base.ReleaseResources();
         }
     }
 }

@@ -50,7 +50,7 @@ namespace ThorVG
             if (end == pos) return;
 
             int sz = end - pos;
-            while (sz > 0 && char.IsWhiteSpace(content[pos + sz - 1])) sz--;
+            while (sz > 0 && SvgUtil.IsWhiteSpace(content[pos + sz - 1])) sz--;
             if (sz <= 0) return;
             var tagName = content.Substring(pos, sz);
 
@@ -98,23 +98,13 @@ namespace ThorVG
         {
             // Find the attributes portion
             int attrPos = XmlParser.FindAttributesTag(content, offset, length);
-            int attrsOffset;
-            int attrsLength;
-
-            if (attrPos < 0)
-            {
-                attrPos = offset;
-                while (attrPos < offset + length && content[attrPos] != '>') attrPos++;
-                if (empty && attrPos > offset) attrPos--;
-            }
-
             int sz = attrPos - offset;
-            while (sz > 0 && char.IsWhiteSpace(content[offset + sz - 1])) sz--;
+            while (sz > 0 && SvgUtil.IsWhiteSpace(content[offset + sz - 1])) sz--;
             if (sz <= 0 || sz > 19) return;
 
             var tagName = content.Substring(offset, sz);
-            attrsOffset = offset + sz;
-            attrsLength = length - sz;
+            int attrsOffset = offset + sz;
+            int attrsLength = length - sz;
 
             // If we're inside a gradient with a null top (nested non-gradient/non-stop tag), just push null
             if (ctx.gradientStack.Count > 0 && ctx.gradientStack[ctx.gradientStack.Count - 1] == null)
@@ -162,7 +152,7 @@ namespace ThorVG
                 }
                 else
                 {
-                    if (SvgHelper.StrAs(tagName, "svg")) return;
+                    if (SvgHelper.StrAs(tagName, "svg")) method = CreateGNode;
                     parent = ctx.stack.Count > 0 ? ctx.stack[ctx.stack.Count - 1] : ctx.doc;
                     if (SvgHelper.StrAs(tagName, "style"))
                     {
@@ -171,8 +161,9 @@ namespace ThorVG
                             node = method(ctx, null, content, attrsOffset, attrsLength, XmlParser.ParseAttributes);
                             ctx.cssStyle = node;
                             ctx.doc.doc.style = node;
-                            ctx.openedTag = OpenedTagType.Style;
                         }
+                        else node = ctx.cssStyle;
+                        ctx.openedTag = OpenedTagType.Style;
                     }
                     else
                     {
@@ -221,6 +212,8 @@ namespace ThorVG
         private static void SvgLoaderParserText(SvgParserContext ctx, string content, int offset, int length)
         {
             var node = ctx.svgParse!.node!;
+            if (node.type != SvgNodeType.Text && node.type != SvgNodeType.Tspan) return;
+
             if (HasTspanChild(node))
             {
                 var run = CreateNode(node, SvgNodeType.Tspan);
@@ -246,15 +239,21 @@ namespace ThorVG
                 FactoryMethod? method;
                 SvgNode? node;
 
-                if (tag != null && (method = FindGroupFactory(tag)) != null)
+                if (tag != null && tag != "defs" && (method = FindTypedFactory(tag, out var type)) != null)
                 {
-                    node = method(ctx, ctx.cssStyle, content, attrsOffset, attrsLength, XmlParser.ParseW3CAttribute);
-                    if (node != null) node.id = CopyId(name);
-                }
-                else if (tag != null && (method = FindGraphicsFactory(tag)) != null)
-                {
-                    node = method(ctx, ctx.cssStyle, content, attrsOffset, attrsLength, XmlParser.ParseW3CAttribute);
-                    if (node != null) node.id = CopyId(name);
+                    node = SvgCssStyle.FindStyleNode(ctx.cssStyle, name, type);
+                    if (node == null)
+                    {
+                        var global = ctx.svgParse!.global;
+                        node = method(ctx, ctx.cssStyle, "", 0, 0, XmlParser.ParseW3CAttribute);
+                        ctx.svgParse.global = global;
+                        if (node != null) node.id = CopyId(name);
+                    }
+                    if (node != null)
+                    {
+                        ctx.svgParse!.node = node;
+                        XmlParser.ParseW3CAttribute(content, attrsOffset, attrsLength, AttrParseCssStyleNode, ctx);
+                    }
                 }
                 else if (tag != null && SvgHelper.StrAs(tag, "all"))
                 {
@@ -263,7 +262,7 @@ namespace ThorVG
                         var ids = name.Split(',');
                         foreach (var rawId in ids)
                         {
-                            var id = rawId.Trim();
+                            var id = SvgUtil.Trim(rawId);
                             if (id.StartsWith(".")) id = id.Substring(1);
                             if (string.IsNullOrEmpty(id)) continue;
 
@@ -322,6 +321,8 @@ namespace ThorVG
         {
             if (node == null) return;
             StyleInherit(node.style, parentStyle);
+            if (node.style!.letterSpacingRelative) { node.style.letterSpacing *= FindEmBaseFontSize(node); node.style.letterSpacingRelative = false; }
+            if (node.style.wordSpacingRelative) { node.style.wordSpacing *= FindEmBaseFontSize(node); node.style.wordSpacingRelative = false; }
             foreach (var child in node.child)
             {
                 UpdateStyle(child, node.style);
@@ -524,22 +525,13 @@ namespace ThorVG
         private static bool SvgLoaderParserForValidCheckXmlOpen(SvgParserContext ctx, string content, int offset, int length)
         {
             int attrPos = XmlParser.FindAttributesTag(content, offset, length);
-            int attrsOffset;
-            int attrsLength;
-
-            if (attrPos < 0)
-            {
-                attrPos = offset;
-                while (attrPos < offset + length && content[attrPos] != '>') attrPos++;
-            }
-
             int sz = attrPos - offset;
-            while (sz > 0 && char.IsWhiteSpace(content[offset + sz - 1])) sz--;
+            while (sz > 0 && SvgUtil.IsWhiteSpace(content[offset + sz - 1])) sz--;
             if (sz <= 0 || sz > 19) return false;
 
             var tagName = content.Substring(offset, sz);
-            attrsOffset = offset + sz;
-            attrsLength = length - sz;
+            int attrsOffset = offset + sz;
+            int attrsLength = length - sz;
 
             var method = FindGroupFactory(tagName);
             if (method != null)
@@ -572,7 +564,7 @@ namespace ThorVG
 
         /// <summary>
         /// Parse SVG data from a string. Returns the root scene if successful.
-        /// This is a simplified synchronous entry point that combines open/header/run.
+        /// This synchronous convenience entry point combines the same header and document parser used by the task loader.
         /// </summary>
         public static SvgNode? Parse(string svgContent)
         {
@@ -585,32 +577,35 @@ namespace ThorVG
         /// </summary>
         public static SvgNode? Parse(string svgContent, out SvgParserContext ctxOut)
         {
-            var ctx = new SvgParserContext();
-            ctx.svgParse = new SvgParser();
-            ctx.svgParse.flags = SvgStopStyleFlags.StopDefault;
+            ctxOut = new SvgParserContext();
+            return Header(svgContent, ctxOut) ? ParseDocument(svgContent, ctxOut) : null;
+        }
 
-            // Header pass: find <svg> tag
+        internal static bool Header(string svgContent, SvgParserContext ctx)
+        {
+            ctx.svgParse = new SvgParser { flags = SvgStopStyleFlags.StopDefault };
             XmlParser.Parse(svgContent, svgContent.Length, true, SvgLoaderParserForValidCheck, ctx);
+            return ctx.doc?.type == SvgNodeType.Doc;
+        }
 
-            if (ctx.doc == null || ctx.doc.type != SvgNodeType.Doc)
+        internal static SvgNode? ParseDocument(string svgContent, SvgParserContext ctx, bool reuseHeader = false)
+        {
+            // The native task continues the header's document and stack. Its
+            // root open tag follows the same group fallback as a nested SVG.
+            // Keep the existing flat DOM convenience entry point separately.
+            if (!reuseHeader)
             {
-                ctxOut = ctx;
-                return null;
+                ctx.svgParse = new SvgParser { flags = SvgStopStyleFlags.StopDefault };
+                ctx.doc = null;
+                ctx.stack.Clear();
+                ctx.gradients.Clear();
+                ctx.gradientStack.Clear();
             }
 
-            // Full parse
-            ctx.svgParse = new SvgParser();
-            ctx.svgParse.flags = SvgStopStyleFlags.StopDefault;
-            ctx.doc = null;
-            ctx.stack.Clear();
-            ctx.gradients.Clear();
-            ctx.gradientStack.Clear();
-
-            XmlParser.Parse(svgContent, svgContent.Length, true, SvgLoaderParser, ctx);
+            if (!XmlParser.Parse(svgContent, svgContent.Length, true, SvgLoaderParser, ctx)) return null;
 
             if (ctx.doc == null)
             {
-                ctxOut = ctx;
                 return null;
             }
 
@@ -650,7 +645,6 @@ namespace ThorVG
             UpdatePattern(ctx.doc, ctx.doc, defs);
             if (defs != null) UpdatePattern(defs, ctx.doc, defs);
 
-            ctxOut = ctx;
             return ctx.doc;
         }
 

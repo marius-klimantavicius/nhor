@@ -1,4 +1,4 @@
-// GLFW 3.5 WGL - www.glfw.org
+// GLFW 3.6 WGL - www.glfw.org
 // Ported from glfw/src/wgl_context.c
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
@@ -617,6 +617,7 @@ public static unsafe partial class Glfw
             _glfwPlatformFreeModule(_glfw.wgl.instance);
             _glfw.wgl.instance = 0;
         }
+        _glfw.wgl = null;
     }
 
     internal static bool _glfwCreateContextWGL(GlfwWindow window,

@@ -45,10 +45,12 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void Picture_LoadData_ReturnsNonSupport()
+        public void Picture_LoadData_MalformedUnknownMime_ReturnsInvalidArguments()
         {
             var pic = Picture.Gen();
-            Assert.Equal(Result.NonSupport, pic.Load(new byte[] { 0 }, 1, "image/png"));
+            // Pinned upstream returns InvalidArguments after content detection fails.
+            // See docs/thorvg-update/loader-api-parity.json for the native comparison.
+            Assert.Equal(Result.InvalidArguments, pic.Load(new byte[] { 0 }, 1, "image/png"));
         }
 
         [Fact]
@@ -81,6 +83,23 @@ namespace ThorVG.Tests
             Assert.NotNull(it);
             Assert.Equal(0u, it!.Count());
             Assert.Null(it.Next());
+        }
+
+        [Fact]
+        public void PictureIterator_RemainsExhaustedUntilExplicitManagedRestart()
+        {
+            var child = Shape.Gen();
+            var it = new PictureIterator(child);
+            Assert.Equal(1u, it.Count());
+            Assert.Same(child, it.Next());
+            Assert.Null(it.Next());
+            Assert.Null(it.Next());
+            Assert.Null(it.Next());
+            it.Begin();
+            Assert.Same(child, it.Next());
+            Assert.Null(it.Next());
+            Assert.Null(it.Next());
+            Paint.Rel(child);
         }
 
         [Fact]

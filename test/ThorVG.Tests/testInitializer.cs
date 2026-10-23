@@ -8,7 +8,7 @@ namespace ThorVG.Tests
 {
     public class testInitializer
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void BasicInitialization()
@@ -42,10 +42,16 @@ namespace ThorVG.Tests
             Assert.Equal(Initializer.VersionString, curVersion);
         }
 
-        [Fact(Skip = "Cannot reliably test in parallel xUnit runner — shared static Init/Term state")]
+        [Fact]
         public void NegativeTermination()
         {
-            Assert.Equal(Result.InsufficientCondition, Initializer.Term());
+            // xunit.runner.json serializes collections. Restore the surrounding
+            // reference state after testing the uninitialized public contract.
+            int previous = TvgCommon.engineInit;
+            uint threads = TaskScheduler.Threads();
+            for (int i = 0; i < previous; ++i) Assert.Equal(Result.Success, Initializer.Term());
+            try { Assert.Equal(Result.InsufficientCondition, Initializer.Term()); }
+            finally { for (int i = 0; i < previous; ++i) Initializer.Init(threads); }
         }
     }
 }

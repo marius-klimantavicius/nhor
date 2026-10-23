@@ -1,0 +1,43 @@
+{
+  "generator": "tmp/thorvg_update_fixtures.py",
+  "png": {
+    "dimensions": [
+      32,
+      4
+    ],
+    "rgbaSha256": "2cbf40f1d4f0b09eff2ee3b00a9fc25b11f04ff18229e4cc165e0888e524a22a",
+    "icc": "Synthetic RGB matrix profiles, linear / gamma-2 / five-entry LUT curves; invalid profile tests preserve original pixels, matching upstream."
+  },
+  "jpeg": {
+    "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+    "resource": "test/res/test.jpg",
+    "sha256": "30068ed408eecb21f29c57b8b76954d0a3dc8b0703cfb7be8bca8214692be3f5",
+    "mutation": "Second first-SOS component id replaced with first component id."
+  },
+  "files": [
+    {
+      "path": "duplicate-sos-component.jpg",
+      "sha256": "b3ea8e2350ee23faf8c11d449885dae70bd431e45d54fc99ccbb99920bd4be2e"
+    },
+    {
+      "path": "icc-gamma.png",
+      "sha256": "04cbee969c89a3bea4e293ab7c29f3eba3360bf4a3842f0b288b9ae1aa032801"
+    },
+    {
+      "path": "icc-invalid.png",
+      "sha256": "2ef052dfd5418a23e0390d16fea24b7d98620c7941d72c437a3f04d28502d17c"
+    },
+    {
+      "path": "icc-linear.png",
+      "sha256": "316ba8ac6da48fe38510b27f76d6c2a00e8050480c9ac7a9a9e10ef5a69f4993"
+    },
+    {
+      "path": "icc-lut.png",
+      "sha256": "e5e59a06503a426b4e7e6b0fe6ebd2394f6c9903ac0c1a4bdcbb3b3d5bc0c36e"
+    },
+    {
+      "path": "icc-none.png",
+      "sha256": "b7744e45168024849b1786b163c7aed9a5fdc084fc0e2eb8ad0463f2f40f129d"
+    }
+  ]
+}

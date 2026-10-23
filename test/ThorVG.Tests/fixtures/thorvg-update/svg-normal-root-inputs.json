@@ -1,0 +1,15 @@
+{
+  "inputs": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-root-opacity.svg",
+      "sha256": "f941c85d8784aca9186d1e6479e5feae57921d244cc14e3e9764b9191de1d6bb",
+      "provenance": "Authored valid ordinary root SVG opacity/transform. Actual native header then task parse control flow; no malformed/corruption/fuzz/UTF8 probes."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-root-transform.svg",
+      "sha256": "8d5866d3e07b60c73f642781c0ed507c5a663c41c7cbf0035374e8c1abd0407a",
+      "provenance": "Authored valid ordinary root SVG opacity/transform. Actual native header then task parse control flow; no malformed/corruption/fuzz/UTF8 probes."
+    }
+  ],
+  "parentReview": "pending"
+}

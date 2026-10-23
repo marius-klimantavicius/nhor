@@ -181,7 +181,8 @@ namespace ThorVG
 
         /// <summary>
         /// Thread-local flag set by <see cref="Text.PaintUpdate"/> to signal that the
-        /// current shape being processed is a text glyph eligible for LCD rendering.
+        /// current shape being prepared is a text glyph eligible for LCD rendering.
+        /// SwRenderer captures this value in the task before worker dispatch.
         /// </summary>
         [ThreadStatic]
         internal static bool _textContext;
@@ -190,7 +191,7 @@ namespace ThorVG
         [ThreadStatic]
         private static byte[]? _grayBuf;
 
-        /// <summary>Whether LCD rendering is active for the current shape being processed.</summary>
+        /// <summary>Whether LCD rendering is active for the current shape being prepared.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool IsActive() => _textContext;
 

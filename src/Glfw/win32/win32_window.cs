@@ -1,4 +1,4 @@
-// Ported from glfw/src/win32_window.c (GLFW 3.5)
+// Ported from glfw/src/win32_window.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -31,6 +31,8 @@ namespace Glfw;
 
 public static unsafe partial class Glfw
 {
+    // Scancode recovery must retain KF_EXTENDED when Windows omits its low byte.
+    internal static int MergeWin32Scancode(int scancode, uint mapped) => scancode | (int)mapped;
     // =======================================================================
     //  Win32 functions accessed via Win32Native function pointers
     //  (see win32_native.cs for loading code)
@@ -1062,9 +1064,11 @@ public static unsafe partial class Glfw
                 int mods = getKeyMods();
 
                 scancode = (int)(HIWORD_LP(lParam) & (KF_EXTENDED | 0xff));
-                if (scancode == 0)
+                if ((scancode & 0xff) == 0)
                 {
-                    scancode = (int)Win32Native.user32!.MapVirtualKeyW((uint)wParam, MAPVK_VK_TO_VSC);
+                    // Media keys and Clipboard History may omit the low byte.
+                    // Preserve KF_EXTENDED while recovering the scan code.
+                    scancode = MergeWin32Scancode(scancode, Win32Native.user32!.MapVirtualKeyW((uint)wParam, MAPVK_VK_TO_VSC));
                 }
 
                 // HACK: Alt+PrtSc has a different scancode than just PrtSc
@@ -1829,15 +1833,11 @@ public static unsafe partial class Glfw
             }
             else if (ctxconfig.Source == GLFW_EGL_CONTEXT_API)
             {
-                // EGL not yet ported
-                _glfwInputError(GLFW_API_UNAVAILABLE, "Win32: EGL not supported in managed port");
-                return false;
+                if (!_glfwInitEGL() || !_glfwCreateContextEGL(window, ctxconfig, fbconfig)) return false;
             }
             else if (ctxconfig.Source == GLFW_OSMESA_CONTEXT_API)
             {
-                // OSMesa not yet ported
-                _glfwInputError(GLFW_API_UNAVAILABLE, "Win32: OSMesa not supported in managed port");
-                return false;
+                if (!_glfwInitOSMesa() || !_glfwCreateContextOSMesa(window, ctxconfig, fbconfig)) return false;
             }
 
             if (!_glfwRefreshContextAttribs(window, ctxconfig))
@@ -1920,8 +1920,8 @@ public static unsafe partial class Glfw
         }
         else
         {
-            bigIcon = Win32Native.user32!.GetClassLongPtrW(window.Win32!.handle, GCLP_HICON);
-            smallIcon = Win32Native.user32!.GetClassLongPtrW(window.Win32.handle, GCLP_HICONSM);
+            bigIcon = (nint)Win32Native.user32!.GetClassLongPtrW(window.Win32!.handle, GCLP_HICON);
+            smallIcon = (nint)Win32Native.user32!.GetClassLongPtrW(window.Win32.handle, GCLP_HICONSM);
         }
 
         Win32Native.user32!.SendMessageW(window.Win32!.handle, WM_SETICON, ICON_BIG, bigIcon);

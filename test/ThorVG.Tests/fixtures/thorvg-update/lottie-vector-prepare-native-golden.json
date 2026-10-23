@@ -1,0 +1,19 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "profiles": {
+    "x64": {
+      "evidence": "lottie-vector-preparation-corrected-x86.json",
+      "sha256": "3bf2b223f30f6e7cb4b9701383af4856312020203738e7f981f1da10178b5e8c",
+      "bytes": 32,
+      "records": 4
+    },
+    "arm64": {
+      "evidence": "lottie-vector-preparation-corrected-arm.json",
+      "sha256": "3bf2b223f30f6e7cb4b9701383af4856312020203738e7f981f1da10178b5e8c",
+      "bytes": 32,
+      "records": 4
+    }
+  },
+  "provenance": "Actual original pinned native default x86 and GNU ARM64/QEMU preparation of normal finite vector keyframes, including inactive tangent flags. All lengths prepared before managed source correction. No malformed/corruption/fuzz/UTF8 probes.",
+  "parentReview": "pending"
+}

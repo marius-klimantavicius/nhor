@@ -1,0 +1,27 @@
+{
+  "origin": "Authored target regression fixtures, 2026-10-22",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "fixtures": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-model/invalid-text.lot",
+      "sha256": "57c2ba912874490066a0986dd201699168ed5cc210b28a69f7a17124e785784f",
+      "behavior": "Target clears a text layer whose first child is not a text object; no invalid managed cast."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-model/invalid-precomp.lot",
+      "sha256": "7974fdcc9f619c3eff02d2add5ae72e7d01b842e76535195edf8db4b2c6db952",
+      "behavior": "Target refuses a non-composition asset as a precomp reference."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-model/fractional-clamp.lot",
+      "sha256": "ab8e087c723a90d9c498ad12c79380a2c0276b19b8d7290536cb1f894be7412a",
+      "behavior": "Relative frames in (89,90) clamp to 89 before keyframe evaluation."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-expression-utf8.lot",
+      "sha256": "ef82436029acbe7ef2613f7dd6ce52c023f797c830735fb03ef5aac95f53d7f4",
+      "behavior": "Native UTF16-sized UTF8 capacity retains initialized Hi suffix: expression a\u017d renders ai."
+    }
+  ],
+  "font": "Identical pinned DMSans.otf fixture-font, unhinted."
+}

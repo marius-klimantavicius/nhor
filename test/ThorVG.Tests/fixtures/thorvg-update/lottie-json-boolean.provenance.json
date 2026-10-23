@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "sha256": "6f86b09fbc657bf5db3cb21b223f7eb41ae6e29e07646340bdbea893979eb043",
+  "description": "Integer1 is rejected by native getBool and its EndObject recovery leaves the shape visible."
+}

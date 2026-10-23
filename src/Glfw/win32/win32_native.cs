@@ -1,4 +1,4 @@
-// Ported from glfw/src/win32_platform.h -- GLFW 3.5 Win32 native library loading
+// Ported from glfw/src/win32_platform.h -- GLFW 3.6 Win32 native library loading
 //
 // Loads user32.dll, kernel32.dll, gdi32.dll at startup, and optionally
 // dwmapi.dll, shcore.dll, ntdll.dll for DPI and compositor support.
@@ -55,7 +55,7 @@ namespace Glfw
             public delegate* unmanaged[Stdcall]<MSG*, nint> DispatchMessageW;
             public delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, int> PostMessageW;
             public delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint> SendMessageW;
-            public delegate* unmanaged[Stdcall]<nint, nuint, uint, nuint> SetTimer;
+            public delegate* unmanaged[Stdcall]<nint, nuint, uint, nint, nuint> SetTimer;
             public delegate* unmanaged[Stdcall]<nint, nuint, int> KillTimer;
 
             // Focus / foreground
@@ -68,7 +68,7 @@ namespace Glfw
             // Window long
             public delegate* unmanaged[Stdcall]<nint, int, nint, nint> SetWindowLongPtrW;
             public delegate* unmanaged[Stdcall]<nint, int, nint> GetWindowLongPtrW;
-            public delegate* unmanaged[Stdcall]<nint, int, nint> GetClassLongPtrW;
+            public delegate* unmanaged[Stdcall]<nint, int, nuint> GetClassLongPtrW;
 
             // Layered window
             public delegate* unmanaged[Stdcall]<nint, uint, byte, uint, int> SetLayeredWindowAttributes;
@@ -313,437 +313,464 @@ namespace Glfw
         // ===============================================================
 
         public static bool LoadCoreLibraries()
+            => LoadCoreLibraries(Glfw._glfwPlatformLoadModule, Glfw._glfwPlatformGetModuleSymbol);
+
+        // The same loader can be exercised with owned native modules on hosts
+        // without Windows. Each nonzero load transfers one reference here.
+        internal static bool LoadCoreLibraries(Func<string, nint> loadModule, Func<nint, string, nint> getSymbol)
         {
-            // --- user32.dll ---
-            if (!NativeLibrary.TryLoad("user32.dll", out var hUser32))
-                return false;
-
-            var u32 = new User32Core { handle = hUser32 };
-            nint p;
-
-            p = TryLoad(hUser32, "CreateWindowExW");
-            u32.CreateWindowExW = (delegate* unmanaged[Stdcall]<uint, char*, char*, uint, int, int, int, int, nint, nint, nint, nint, nint>)p;
-
-            p = TryLoad(hUser32, "DestroyWindow");
-            u32.DestroyWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "ShowWindow");
-            u32.ShowWindow = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
-
-            p = TryLoad(hUser32, "SetWindowPos");
-            u32.SetWindowPos = (delegate* unmanaged[Stdcall]<nint, nint, int, int, int, int, uint, int>)p;
-
-            p = TryLoad(hUser32, "GetWindowRect");
-            u32.GetWindowRect = (delegate* unmanaged[Stdcall]<nint, RECT*, int>)p;
-
-            p = TryLoad(hUser32, "GetClientRect");
-            u32.GetClientRect = (delegate* unmanaged[Stdcall]<nint, RECT*, int>)p;
-
-            p = TryLoad(hUser32, "MoveWindow");
-            u32.MoveWindow = (delegate* unmanaged[Stdcall]<nint, int, int, int, int, int, int>)p;
-
-            p = TryLoad(hUser32, "SetWindowTextW");
-            u32.SetWindowTextW = (delegate* unmanaged[Stdcall]<nint, char*, int>)p;
-
-            p = TryLoad(hUser32, "RegisterClassExW");
-            u32.RegisterClassExW = (delegate* unmanaged[Stdcall]<WNDCLASSEXW*, ushort>)p;
-
-            p = TryLoad(hUser32, "UnregisterClassW");
-            u32.UnregisterClassW = (delegate* unmanaged[Stdcall]<char*, nint, int>)p;
-
-            p = TryLoad(hUser32, "DefWindowProcW");
-            u32.DefWindowProcW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)p;
-
-            p = TryLoad(hUser32, "GetMessageW");
-            u32.GetMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint, uint, uint, int>)p;
-
-            p = TryLoad(hUser32, "PeekMessageW");
-            u32.PeekMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint, uint, uint, uint, int>)p;
-
-            p = TryLoad(hUser32, "TranslateMessage");
-            u32.TranslateMessage = (delegate* unmanaged[Stdcall]<MSG*, int>)p;
-
-            p = TryLoad(hUser32, "DispatchMessageW");
-            u32.DispatchMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint>)p;
-
-            p = TryLoad(hUser32, "PostMessageW");
-            u32.PostMessageW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, int>)p;
-
-            p = TryLoad(hUser32, "SendMessageW");
-            u32.SendMessageW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)p;
-
-            p = TryLoad(hUser32, "SetTimer");
-            u32.SetTimer = (delegate* unmanaged[Stdcall]<nint, nuint, uint, nuint>)p;
-
-            p = TryLoad(hUser32, "KillTimer");
-            u32.KillTimer = (delegate* unmanaged[Stdcall]<nint, nuint, int>)p;
-
-            p = TryLoad(hUser32, "GetFocus");
-            u32.GetFocus = (delegate* unmanaged[Stdcall]<nint>)p;
-
-            p = TryLoad(hUser32, "SetFocus");
-            u32.SetFocus = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hUser32, "SetForegroundWindow");
-            u32.SetForegroundWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "GetForegroundWindow");
-            u32.GetForegroundWindow = (delegate* unmanaged[Stdcall]<nint>)p;
-
-            p = TryLoad(hUser32, "GetActiveWindow");
-            u32.GetActiveWindow = (delegate* unmanaged[Stdcall]<nint>)p;
-
-            p = TryLoad(hUser32, "SetWindowLongPtrW");
-            u32.SetWindowLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nint, nint>)p;
-
-            p = TryLoad(hUser32, "GetWindowLongPtrW");
-            u32.GetWindowLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nint>)p;
-
-            p = TryLoad(hUser32, "GetClassLongPtrW");
-            u32.GetClassLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nint>)p;
-
-            p = TryLoad(hUser32, "SetLayeredWindowAttributes");
-            u32.SetLayeredWindowAttributes = (delegate* unmanaged[Stdcall]<nint, uint, byte, uint, int>)p;
-
-            p = TryLoad(hUser32, "SetWindowPlacement");
-            u32.SetWindowPlacement = (delegate* unmanaged[Stdcall]<nint, WINDOWPLACEMENT*, int>)p;
-
-            p = TryLoad(hUser32, "GetWindowPlacement");
-            u32.GetWindowPlacement = (delegate* unmanaged[Stdcall]<nint, WINDOWPLACEMENT*, int>)p;
-
-            p = TryLoad(hUser32, "MonitorFromWindow");
-            u32.MonitorFromWindow = (delegate* unmanaged[Stdcall]<nint, uint, nint>)p;
-
-            p = TryLoad(hUser32, "MonitorFromPoint");
-            u32.MonitorFromPoint = (delegate* unmanaged[Stdcall]<POINT, uint, nint>)p;
-
-            p = TryLoad(hUser32, "GetMonitorInfoW");
-            u32.GetMonitorInfoW = (delegate* unmanaged[Stdcall]<nint, MONITORINFOEXW*, int>)p;
-
-            p = TryLoad(hUser32, "EnumDisplayMonitors");
-            u32.EnumDisplayMonitors = (delegate* unmanaged[Stdcall]<nint, RECT*, nint, nint, int>)p;
-
-            p = TryLoad(hUser32, "EnumDisplaySettingsW");
-            u32.EnumDisplaySettingsW = (delegate* unmanaged[Stdcall]<char*, uint, DEVMODEW*, int>)p;
-
-            p = TryLoad(hUser32, "EnumDisplaySettingsExW");
-            u32.EnumDisplaySettingsExW = (delegate* unmanaged[Stdcall]<char*, uint, DEVMODEW*, uint, int>)p;
-
-            p = TryLoad(hUser32, "EnumDisplayDevicesW");
-            u32.EnumDisplayDevicesW = (delegate* unmanaged[Stdcall]<char*, uint, DISPLAY_DEVICEW*, uint, int>)p;
-
-            p = TryLoad(hUser32, "ChangeDisplaySettingsExW");
-            u32.ChangeDisplaySettingsExW = (delegate* unmanaged[Stdcall]<char*, DEVMODEW*, nint, uint, nint, int>)p;
-
-            p = TryLoad(hUser32, "MapVirtualKeyW");
-            u32.MapVirtualKeyW = (delegate* unmanaged[Stdcall]<uint, uint, uint>)p;
-
-            p = TryLoad(hUser32, "GetKeyState");
-            u32.GetKeyState = (delegate* unmanaged[Stdcall]<int, short>)p;
-
-            p = TryLoad(hUser32, "GetAsyncKeyState");
-            u32.GetAsyncKeyState = (delegate* unmanaged[Stdcall]<int, short>)p;
-
-            p = TryLoad(hUser32, "GetKeyNameTextW");
-            u32.GetKeyNameTextW = (delegate* unmanaged[Stdcall]<int, char*, int, int>)p;
-
-            p = TryLoad(hUser32, "SystemParametersInfoW");
-            u32.SystemParametersInfoW = (delegate* unmanaged[Stdcall]<uint, uint, nint, uint, int>)p;
-
-            p = TryLoad(hUser32, "LoadCursorW");
-            u32.LoadCursorW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
-
-            p = TryLoad(hUser32, "LoadIconW");
-            u32.LoadIconW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
-
-            p = TryLoad(hUser32, "SetCursor");
-            u32.SetCursor = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hUser32, "ShowCursor");
-            u32.ShowCursor = (delegate* unmanaged[Stdcall]<int, int>)p;
-
-            p = TryLoad(hUser32, "GetCursorPos");
-            u32.GetCursorPos = (delegate* unmanaged[Stdcall]<POINT*, int>)p;
-
-            p = TryLoad(hUser32, "SetCursorPos");
-            u32.SetCursorPos = (delegate* unmanaged[Stdcall]<int, int, int>)p;
-
-            p = TryLoad(hUser32, "ClientToScreen");
-            u32.ClientToScreen = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
-
-            p = TryLoad(hUser32, "ScreenToClient");
-            u32.ScreenToClient = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
-
-            p = TryLoad(hUser32, "ClipCursor");
-            u32.ClipCursor = (delegate* unmanaged[Stdcall]<RECT*, int>)p;
-
-            p = TryLoad(hUser32, "TrackMouseEvent");
-            u32.TrackMouseEvent = (delegate* unmanaged[Stdcall]<TRACKMOUSEEVENT*, int>)p;
-
-            p = TryLoad(hUser32, "SetCapture");
-            u32.SetCapture = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hUser32, "ReleaseCapture");
-            u32.ReleaseCapture = (delegate* unmanaged[Stdcall]<int>)p;
-
-            p = TryLoad(hUser32, "OpenClipboard");
-            u32.OpenClipboard = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "CloseClipboard");
-            u32.CloseClipboard = (delegate* unmanaged[Stdcall]<int>)p;
-
-            p = TryLoad(hUser32, "EmptyClipboard");
-            u32.EmptyClipboard = (delegate* unmanaged[Stdcall]<int>)p;
-
-            p = TryLoad(hUser32, "GetClipboardData");
-            u32.GetClipboardData = (delegate* unmanaged[Stdcall]<uint, nint>)p;
-
-            p = TryLoad(hUser32, "SetClipboardData");
-            u32.SetClipboardData = (delegate* unmanaged[Stdcall]<uint, nint, nint>)p;
-
-            p = TryLoad(hUser32, "IsWindowVisible");
-            u32.IsWindowVisible = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "IsIconic");
-            u32.IsIconic = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "IsZoomed");
-            u32.IsZoomed = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "IsWindow");
-            u32.IsWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            // DragAcceptFiles is loaded from shell32 below (not user32)
-
-            p = TryLoad(hUser32, "RegisterRawInputDevices");
-            u32.RegisterRawInputDevices = (delegate* unmanaged[Stdcall]<RAWINPUTDEVICE*, uint, uint, int>)p;
-
-            p = TryLoad(hUser32, "GetRawInputData");
-            u32.GetRawInputData = (delegate* unmanaged[Stdcall]<nint, uint, byte*, uint*, uint, uint>)p;
-
-            p = TryLoad(hUser32, "PostQuitMessage");
-            u32.PostQuitMessage = (delegate* unmanaged[Stdcall]<int, void>)p;
-
-            p = TryLoad(hUser32, "GetSystemMetrics");
-            u32.GetSystemMetrics = (delegate* unmanaged[Stdcall]<int, int>)p;
-
-            p = TryLoad(hUser32, "AdjustWindowRectEx");
-            u32.AdjustWindowRectEx = (delegate* unmanaged[Stdcall]<RECT*, uint, int, uint, int>)p;
-
-            p = TryLoad(hUser32, "GetAncestor");
-            u32.GetAncestor = (delegate* unmanaged[Stdcall]<nint, uint, nint>)p;
-
-            p = TryLoad(hUser32, "CreateIconIndirect");
-            u32.CreateIconIndirect = (delegate* unmanaged[Stdcall]<ICONINFO*, nint>)p;
-
-            p = TryLoad(hUser32, "DestroyIcon");
-            u32.DestroyIcon = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "ChangeWindowMessageFilterEx");
-            u32.ChangeWindowMessageFilterEx = (delegate* unmanaged[Stdcall]<nint, uint, uint, CHANGEFILTERSTRUCT*, int>)p;
-
-            p = TryLoad(hUser32, "FlashWindow");
-            u32.FlashWindow = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
-
-            p = TryLoad(hUser32, "SetProcessDPIAware");
-            u32.SetProcessDPIAware = (delegate* unmanaged[Stdcall]<int>)p;
-
-            p = TryLoad(hUser32, "SetPropW");
-            u32.SetPropW = (delegate* unmanaged[Stdcall]<nint, char*, nint, int>)p;
-
-            p = TryLoad(hUser32, "GetPropW");
-            u32.GetPropW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
-
-            p = TryLoad(hUser32, "RemovePropW");
-            u32.RemovePropW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
-
-            p = TryLoad(hUser32, "LoadImageW");
-            u32.LoadImageW = (delegate* unmanaged[Stdcall]<nint, char*, uint, int, int, uint, nint>)p;
-
-            p = TryLoad(hUser32, "WindowFromPoint");
-            u32.WindowFromPoint = (delegate* unmanaged[Stdcall]<POINT, nint>)p;
-
-            p = TryLoad(hUser32, "PtInRect");
-            u32.PtInRect = (delegate* unmanaged[Stdcall]<RECT*, POINT, int>)p;
-
-            p = TryLoad(hUser32, "SetRect");
-            u32.SetRect = (delegate* unmanaged[Stdcall]<RECT*, int, int, int, int, int>)p;
-
-            p = TryLoad(hUser32, "OffsetRect");
-            u32.OffsetRect = (delegate* unmanaged[Stdcall]<RECT*, int, int, int>)p;
-
-            p = TryLoad(hUser32, "GetMessageTime");
-            u32.GetMessageTime = (delegate* unmanaged[Stdcall]<uint>)p;
-
-            p = TryLoad(hUser32, "WaitMessage");
-            u32.WaitMessage = (delegate* unmanaged[Stdcall]<int>)p;
-
-            p = TryLoad(hUser32, "MsgWaitForMultipleObjects");
-            u32.MsgWaitForMultipleObjects = (delegate* unmanaged[Stdcall]<uint, nint*, int, uint, uint, uint>)p;
-
-            p = TryLoad(hUser32, "GetLayeredWindowAttributes");
-            u32.GetLayeredWindowAttributes = (delegate* unmanaged[Stdcall]<nint, uint*, byte*, uint*, int>)p;
-
-            p = TryLoad(hUser32, "BringWindowToTop");
-            u32.BringWindowToTop = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hUser32, "GetWindowLongW");
-            u32.GetWindowLongW = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
-
-            p = TryLoad(hUser32, "SetWindowLongW");
-            u32.SetWindowLongW = (delegate* unmanaged[Stdcall]<nint, int, int, int>)p;
-
-            p = TryLoad(hUser32, "ToUnicode");
-            u32.ToUnicode = (delegate* unmanaged[Stdcall]<uint, uint, byte*, char*, int, uint, int>)p;
-
-            p = TryLoad(hUser32, "RegisterDeviceNotificationW");
-            u32.RegisterDeviceNotificationW = (delegate* unmanaged[Stdcall]<nint, void*, uint, nint>)p;
-
-            p = TryLoad(hUser32, "UnregisterDeviceNotification");
-            u32.UnregisterDeviceNotification = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            user32 = u32;
-
-            // --- kernel32.dll ---
-            if (!NativeLibrary.TryLoad("kernel32.dll", out var hKernel32))
-                return false;
-
-            var k32 = new Kernel32Core { handle = hKernel32 };
-
-            p = TryLoad(hKernel32, "GetModuleHandleW");
-            k32.GetModuleHandleW = (delegate* unmanaged[Stdcall]<char*, nint>)p;
-
-            p = TryLoad(hKernel32, "LoadLibraryW");
-            k32.LoadLibraryW = (delegate* unmanaged[Stdcall]<char*, nint>)p;
-
-            p = TryLoad(hKernel32, "FreeLibrary");
-            k32.FreeLibrary = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hKernel32, "GetProcAddress");
-            k32.GetProcAddress = (delegate* unmanaged[Stdcall]<nint, byte*, nint>)p;
-
-            p = TryLoad(hKernel32, "GlobalAlloc");
-            k32.GlobalAlloc = (delegate* unmanaged[Stdcall]<uint, nuint, nint>)p;
-
-            p = TryLoad(hKernel32, "GlobalLock");
-            k32.GlobalLock = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hKernel32, "GlobalUnlock");
-            k32.GlobalUnlock = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hKernel32, "GlobalFree");
-            k32.GlobalFree = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hKernel32, "MultiByteToWideChar");
-            k32.MultiByteToWideChar = (delegate* unmanaged[Stdcall]<uint, uint, byte*, int, char*, int, int>)p;
-
-            p = TryLoad(hKernel32, "WideCharToMultiByte");
-            k32.WideCharToMultiByte = (delegate* unmanaged[Stdcall]<uint, uint, char*, int, byte*, int, byte*, int*, int>)p;
-
-            p = TryLoad(hKernel32, "GetLastError");
-            k32.GetLastError = (delegate* unmanaged[Stdcall]<uint>)p;
-
-            p = TryLoad(hKernel32, "GetModuleFileNameW");
-            k32.GetModuleFileNameW = (delegate* unmanaged[Stdcall]<nint, char*, uint, uint>)p;
-
-            p = TryLoad(hKernel32, "Sleep");
-            k32.Sleep = (delegate* unmanaged[Stdcall]<uint, void>)p;
-
-            p = TryLoad(hKernel32, "SetThreadExecutionState");
-            k32.SetThreadExecutionState = (delegate* unmanaged[Stdcall]<uint, uint>)p;
-
-            p = TryLoad(hKernel32, "GetModuleHandleExW");
-            k32.GetModuleHandleExW = (delegate* unmanaged[Stdcall]<uint, char*, nint*, int>)p;
-
-            p = TryLoad(hKernel32, "FormatMessageW");
-            k32.FormatMessageW = (delegate* unmanaged[Stdcall]<uint, nint, uint, uint, char*, uint, nint, uint>)p;
-
-            p = TryLoad(hKernel32, "VerSetConditionMask");
-            k32.VerSetConditionMask = (delegate* unmanaged[Stdcall]<ulong, uint, byte, ulong>)p;
-
-            p = TryLoad(hKernel32, "GetStartupInfoW");
-            k32.GetStartupInfoW = (delegate* unmanaged[Stdcall]<void*, void>)p;
-
-            kernel32 = k32;
-
-            // --- gdi32.dll ---
-            if (!NativeLibrary.TryLoad("gdi32.dll", out var hGdi32))
-                return false;
-
-            var g32 = new Gdi32Core { handle = hGdi32 };
-
-            p = TryLoad(hGdi32, "GetDC");
-            // GetDC is in user32, not gdi32
-            // Actually GetDC is in user32 -- we'll load it from there
-            // But let's use user32 handle for GetDC/ReleaseDC
-            g32.GetDC = (delegate* unmanaged[Stdcall]<nint, nint>)TryLoad(hUser32, "GetDC");
-            g32.ReleaseDC = (delegate* unmanaged[Stdcall]<nint, nint, int>)TryLoad(hUser32, "ReleaseDC");
-
-            p = TryLoad(hGdi32, "SetPixelFormat");
-            g32.SetPixelFormat = (delegate* unmanaged[Stdcall]<nint, int, PIXELFORMATDESCRIPTOR*, int>)p;
-
-            p = TryLoad(hGdi32, "ChoosePixelFormat");
-            g32.ChoosePixelFormat = (delegate* unmanaged[Stdcall]<nint, PIXELFORMATDESCRIPTOR*, int>)p;
-
-            p = TryLoad(hGdi32, "DescribePixelFormat");
-            g32.DescribePixelFormat = (delegate* unmanaged[Stdcall]<nint, int, uint, PIXELFORMATDESCRIPTOR*, int>)p;
-
-            p = TryLoad(hGdi32, "SwapBuffers");
-            g32.SwapBuffers = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hGdi32, "CreateDIBSection");
-            g32.CreateDIBSection = (delegate* unmanaged[Stdcall]<nint, nint, uint, void**, nint, uint, nint>)p;
-
-            p = TryLoad(hGdi32, "DeleteObject");
-            g32.DeleteObject = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hGdi32, "CreateCompatibleDC");
-            g32.CreateCompatibleDC = (delegate* unmanaged[Stdcall]<nint, nint>)p;
-
-            p = TryLoad(hGdi32, "DeleteDC");
-            g32.DeleteDC = (delegate* unmanaged[Stdcall]<nint, int>)p;
-
-            p = TryLoad(hGdi32, "CreateBitmap");
-            g32.CreateBitmap = (delegate* unmanaged[Stdcall]<int, int, uint, uint, nint, nint>)p;
-
-            p = TryLoad(hGdi32, "GetDeviceCaps");
-            g32.GetDeviceCaps = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
-
-            p = TryLoad(hGdi32, "GetDeviceGammaRamp");
-            g32.GetDeviceGammaRamp = (delegate* unmanaged[Stdcall]<nint, void*, int>)p;
-
-            p = TryLoad(hGdi32, "SetDeviceGammaRamp");
-            g32.SetDeviceGammaRamp = (delegate* unmanaged[Stdcall]<nint, void*, int>)p;
-
-            p = TryLoad(hGdi32, "CreateRectRgn");
-            g32.CreateRectRgn = (delegate* unmanaged[Stdcall]<int, int, int, int, nint>)p;
-
-            p = TryLoad(hGdi32, "CreateDCW");
-            g32.CreateDCW = (delegate* unmanaged[Stdcall]<char*, char*, nint, nint, nint>)p;
-
-            gdi32 = g32;
-
-            // --- shell32.dll ---
-            if (NativeLibrary.TryLoad("shell32.dll", out var hShell32))
+            bool success = false;
+            nint Required(nint module, string name)
             {
-                var s32 = new Shell32Core { handle = hShell32 };
-
-                p = TryLoad(hShell32, "DragAcceptFiles");
-                s32.DragAcceptFiles = (delegate* unmanaged[Stdcall]<nint, int, void>)p;
-
-                p = TryLoad(hShell32, "DragQueryFileW");
-                s32.DragQueryFileW = (delegate* unmanaged[Stdcall]<nint, uint, char*, uint, uint>)p;
-
-                p = TryLoad(hShell32, "DragFinish");
-                s32.DragFinish = (delegate* unmanaged[Stdcall]<nint, void>)p;
-
-                p = TryLoad(hShell32, "DragQueryPoint");
-                s32.DragQueryPoint = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
-
-                shell32 = s32;
+                nint address = getSymbol(module, name);
+                if (address == 0) throw new EntryPointNotFoundException(name);
+                return address;
+            }
+            try
+            {
+                success = Load();
+                return success;
+            }
+            catch (EntryPointNotFoundException) { return false; }
+            finally
+            {
+                if (!success) FreeLibraries(null);
             }
 
-            return true;
+            bool Load()
+            {
+                // --- user32.dll ---
+                nint hUser32 = loadModule("user32.dll");
+                if (hUser32 == 0)
+                    return false;
+
+                var u32 = new User32Core { handle = hUser32 };
+                user32 = u32;
+                nint p;
+
+                p = Required(hUser32, "CreateWindowExW");
+                u32.CreateWindowExW = (delegate* unmanaged[Stdcall]<uint, char*, char*, uint, int, int, int, int, nint, nint, nint, nint, nint>)p;
+
+                p = Required(hUser32, "DestroyWindow");
+                u32.DestroyWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "ShowWindow");
+                u32.ShowWindow = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
+
+                p = Required(hUser32, "SetWindowPos");
+                u32.SetWindowPos = (delegate* unmanaged[Stdcall]<nint, nint, int, int, int, int, uint, int>)p;
+
+                p = Required(hUser32, "GetWindowRect");
+                u32.GetWindowRect = (delegate* unmanaged[Stdcall]<nint, RECT*, int>)p;
+
+                p = Required(hUser32, "GetClientRect");
+                u32.GetClientRect = (delegate* unmanaged[Stdcall]<nint, RECT*, int>)p;
+
+                p = Required(hUser32, "MoveWindow");
+                u32.MoveWindow = (delegate* unmanaged[Stdcall]<nint, int, int, int, int, int, int>)p;
+
+                p = Required(hUser32, "SetWindowTextW");
+                u32.SetWindowTextW = (delegate* unmanaged[Stdcall]<nint, char*, int>)p;
+
+                p = Required(hUser32, "RegisterClassExW");
+                u32.RegisterClassExW = (delegate* unmanaged[Stdcall]<WNDCLASSEXW*, ushort>)p;
+
+                p = Required(hUser32, "UnregisterClassW");
+                u32.UnregisterClassW = (delegate* unmanaged[Stdcall]<char*, nint, int>)p;
+
+                p = Required(hUser32, "DefWindowProcW");
+                u32.DefWindowProcW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)p;
+
+                p = Required(hUser32, "GetMessageW");
+                u32.GetMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint, uint, uint, int>)p;
+
+                p = Required(hUser32, "PeekMessageW");
+                u32.PeekMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint, uint, uint, uint, int>)p;
+
+                p = Required(hUser32, "TranslateMessage");
+                u32.TranslateMessage = (delegate* unmanaged[Stdcall]<MSG*, int>)p;
+
+                p = Required(hUser32, "DispatchMessageW");
+                u32.DispatchMessageW = (delegate* unmanaged[Stdcall]<MSG*, nint>)p;
+
+                p = Required(hUser32, "PostMessageW");
+                u32.PostMessageW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, int>)p;
+
+                p = Required(hUser32, "SendMessageW");
+                u32.SendMessageW = (delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)p;
+
+                p = Required(hUser32, "SetTimer");
+                u32.SetTimer = (delegate* unmanaged[Stdcall]<nint, nuint, uint, nint, nuint>)p;
+
+                p = Required(hUser32, "KillTimer");
+                u32.KillTimer = (delegate* unmanaged[Stdcall]<nint, nuint, int>)p;
+
+                p = Required(hUser32, "GetFocus");
+                u32.GetFocus = (delegate* unmanaged[Stdcall]<nint>)p;
+
+                p = Required(hUser32, "SetFocus");
+                u32.SetFocus = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hUser32, "SetForegroundWindow");
+                u32.SetForegroundWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "GetForegroundWindow");
+                u32.GetForegroundWindow = (delegate* unmanaged[Stdcall]<nint>)p;
+
+                p = Required(hUser32, "GetActiveWindow");
+                u32.GetActiveWindow = (delegate* unmanaged[Stdcall]<nint>)p;
+
+                p = Required(hUser32, IntPtr.Size == 8 ? "SetWindowLongPtrW" : "SetWindowLongW");
+                u32.SetWindowLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nint, nint>)p;
+
+                p = Required(hUser32, IntPtr.Size == 8 ? "GetWindowLongPtrW" : "GetWindowLongW");
+                u32.GetWindowLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nint>)p;
+
+                p = Required(hUser32, IntPtr.Size == 8 ? "GetClassLongPtrW" : "GetClassLongW");
+                u32.GetClassLongPtrW = (delegate* unmanaged[Stdcall]<nint, int, nuint>)p;
+
+                p = Required(hUser32, "SetLayeredWindowAttributes");
+                u32.SetLayeredWindowAttributes = (delegate* unmanaged[Stdcall]<nint, uint, byte, uint, int>)p;
+
+                p = Required(hUser32, "SetWindowPlacement");
+                u32.SetWindowPlacement = (delegate* unmanaged[Stdcall]<nint, WINDOWPLACEMENT*, int>)p;
+
+                p = Required(hUser32, "GetWindowPlacement");
+                u32.GetWindowPlacement = (delegate* unmanaged[Stdcall]<nint, WINDOWPLACEMENT*, int>)p;
+
+                p = Required(hUser32, "MonitorFromWindow");
+                u32.MonitorFromWindow = (delegate* unmanaged[Stdcall]<nint, uint, nint>)p;
+
+                p = Required(hUser32, "MonitorFromPoint");
+                u32.MonitorFromPoint = (delegate* unmanaged[Stdcall]<POINT, uint, nint>)p;
+
+                p = Required(hUser32, "GetMonitorInfoW");
+                u32.GetMonitorInfoW = (delegate* unmanaged[Stdcall]<nint, MONITORINFOEXW*, int>)p;
+
+                p = Required(hUser32, "EnumDisplayMonitors");
+                u32.EnumDisplayMonitors = (delegate* unmanaged[Stdcall]<nint, RECT*, nint, nint, int>)p;
+
+                p = Required(hUser32, "EnumDisplaySettingsW");
+                u32.EnumDisplaySettingsW = (delegate* unmanaged[Stdcall]<char*, uint, DEVMODEW*, int>)p;
+
+                p = Required(hUser32, "EnumDisplaySettingsExW");
+                u32.EnumDisplaySettingsExW = (delegate* unmanaged[Stdcall]<char*, uint, DEVMODEW*, uint, int>)p;
+
+                p = Required(hUser32, "EnumDisplayDevicesW");
+                u32.EnumDisplayDevicesW = (delegate* unmanaged[Stdcall]<char*, uint, DISPLAY_DEVICEW*, uint, int>)p;
+
+                p = Required(hUser32, "ChangeDisplaySettingsExW");
+                u32.ChangeDisplaySettingsExW = (delegate* unmanaged[Stdcall]<char*, DEVMODEW*, nint, uint, nint, int>)p;
+
+                p = Required(hUser32, "MapVirtualKeyW");
+                u32.MapVirtualKeyW = (delegate* unmanaged[Stdcall]<uint, uint, uint>)p;
+
+                p = Required(hUser32, "GetKeyState");
+                u32.GetKeyState = (delegate* unmanaged[Stdcall]<int, short>)p;
+
+                p = Required(hUser32, "GetAsyncKeyState");
+                u32.GetAsyncKeyState = (delegate* unmanaged[Stdcall]<int, short>)p;
+
+                p = Required(hUser32, "GetKeyNameTextW");
+                u32.GetKeyNameTextW = (delegate* unmanaged[Stdcall]<int, char*, int, int>)p;
+
+                p = Required(hUser32, "SystemParametersInfoW");
+                u32.SystemParametersInfoW = (delegate* unmanaged[Stdcall]<uint, uint, nint, uint, int>)p;
+
+                p = Required(hUser32, "LoadCursorW");
+                u32.LoadCursorW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
+
+                p = Required(hUser32, "LoadIconW");
+                u32.LoadIconW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
+
+                p = Required(hUser32, "SetCursor");
+                u32.SetCursor = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hUser32, "ShowCursor");
+                u32.ShowCursor = (delegate* unmanaged[Stdcall]<int, int>)p;
+
+                p = Required(hUser32, "GetCursorPos");
+                u32.GetCursorPos = (delegate* unmanaged[Stdcall]<POINT*, int>)p;
+
+                p = Required(hUser32, "SetCursorPos");
+                u32.SetCursorPos = (delegate* unmanaged[Stdcall]<int, int, int>)p;
+
+                p = Required(hUser32, "ClientToScreen");
+                u32.ClientToScreen = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
+
+                p = Required(hUser32, "ScreenToClient");
+                u32.ScreenToClient = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
+
+                p = Required(hUser32, "ClipCursor");
+                u32.ClipCursor = (delegate* unmanaged[Stdcall]<RECT*, int>)p;
+
+                p = Required(hUser32, "TrackMouseEvent");
+                u32.TrackMouseEvent = (delegate* unmanaged[Stdcall]<TRACKMOUSEEVENT*, int>)p;
+
+                p = Required(hUser32, "SetCapture");
+                u32.SetCapture = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hUser32, "ReleaseCapture");
+                u32.ReleaseCapture = (delegate* unmanaged[Stdcall]<int>)p;
+
+                p = Required(hUser32, "OpenClipboard");
+                u32.OpenClipboard = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "CloseClipboard");
+                u32.CloseClipboard = (delegate* unmanaged[Stdcall]<int>)p;
+
+                p = Required(hUser32, "EmptyClipboard");
+                u32.EmptyClipboard = (delegate* unmanaged[Stdcall]<int>)p;
+
+                p = Required(hUser32, "GetClipboardData");
+                u32.GetClipboardData = (delegate* unmanaged[Stdcall]<uint, nint>)p;
+
+                p = Required(hUser32, "SetClipboardData");
+                u32.SetClipboardData = (delegate* unmanaged[Stdcall]<uint, nint, nint>)p;
+
+                p = Required(hUser32, "IsWindowVisible");
+                u32.IsWindowVisible = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "IsIconic");
+                u32.IsIconic = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "IsZoomed");
+                u32.IsZoomed = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "IsWindow");
+                u32.IsWindow = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                // DragAcceptFiles is loaded from shell32 below (not user32)
+
+                p = Required(hUser32, "RegisterRawInputDevices");
+                u32.RegisterRawInputDevices = (delegate* unmanaged[Stdcall]<RAWINPUTDEVICE*, uint, uint, int>)p;
+
+                p = Required(hUser32, "GetRawInputData");
+                u32.GetRawInputData = (delegate* unmanaged[Stdcall]<nint, uint, byte*, uint*, uint, uint>)p;
+
+                p = Required(hUser32, "PostQuitMessage");
+                u32.PostQuitMessage = (delegate* unmanaged[Stdcall]<int, void>)p;
+
+                p = Required(hUser32, "GetSystemMetrics");
+                u32.GetSystemMetrics = (delegate* unmanaged[Stdcall]<int, int>)p;
+
+                p = Required(hUser32, "AdjustWindowRectEx");
+                u32.AdjustWindowRectEx = (delegate* unmanaged[Stdcall]<RECT*, uint, int, uint, int>)p;
+
+                p = Required(hUser32, "GetAncestor");
+                u32.GetAncestor = (delegate* unmanaged[Stdcall]<nint, uint, nint>)p;
+
+                p = Required(hUser32, "CreateIconIndirect");
+                u32.CreateIconIndirect = (delegate* unmanaged[Stdcall]<ICONINFO*, nint>)p;
+
+                p = Required(hUser32, "DestroyIcon");
+                u32.DestroyIcon = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "ChangeWindowMessageFilterEx");
+                u32.ChangeWindowMessageFilterEx = (delegate* unmanaged[Stdcall]<nint, uint, uint, CHANGEFILTERSTRUCT*, int>)p;
+
+                p = Required(hUser32, "FlashWindow");
+                u32.FlashWindow = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
+
+                p = Required(hUser32, "SetProcessDPIAware");
+                u32.SetProcessDPIAware = (delegate* unmanaged[Stdcall]<int>)p;
+
+                p = Required(hUser32, "SetPropW");
+                u32.SetPropW = (delegate* unmanaged[Stdcall]<nint, char*, nint, int>)p;
+
+                p = Required(hUser32, "GetPropW");
+                u32.GetPropW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
+
+                p = Required(hUser32, "RemovePropW");
+                u32.RemovePropW = (delegate* unmanaged[Stdcall]<nint, char*, nint>)p;
+
+                p = Required(hUser32, "LoadImageW");
+                u32.LoadImageW = (delegate* unmanaged[Stdcall]<nint, char*, uint, int, int, uint, nint>)p;
+
+                p = Required(hUser32, "WindowFromPoint");
+                u32.WindowFromPoint = (delegate* unmanaged[Stdcall]<POINT, nint>)p;
+
+                p = Required(hUser32, "PtInRect");
+                u32.PtInRect = (delegate* unmanaged[Stdcall]<RECT*, POINT, int>)p;
+
+                p = Required(hUser32, "SetRect");
+                u32.SetRect = (delegate* unmanaged[Stdcall]<RECT*, int, int, int, int, int>)p;
+
+                p = Required(hUser32, "OffsetRect");
+                u32.OffsetRect = (delegate* unmanaged[Stdcall]<RECT*, int, int, int>)p;
+
+                p = Required(hUser32, "GetMessageTime");
+                u32.GetMessageTime = (delegate* unmanaged[Stdcall]<uint>)p;
+
+                p = Required(hUser32, "WaitMessage");
+                u32.WaitMessage = (delegate* unmanaged[Stdcall]<int>)p;
+
+                p = Required(hUser32, "MsgWaitForMultipleObjects");
+                u32.MsgWaitForMultipleObjects = (delegate* unmanaged[Stdcall]<uint, nint*, int, uint, uint, uint>)p;
+
+                p = Required(hUser32, "GetLayeredWindowAttributes");
+                u32.GetLayeredWindowAttributes = (delegate* unmanaged[Stdcall]<nint, uint*, byte*, uint*, int>)p;
+
+                p = Required(hUser32, "BringWindowToTop");
+                u32.BringWindowToTop = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hUser32, "GetWindowLongW");
+                u32.GetWindowLongW = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
+
+                p = Required(hUser32, "SetWindowLongW");
+                u32.SetWindowLongW = (delegate* unmanaged[Stdcall]<nint, int, int, int>)p;
+
+                p = Required(hUser32, "ToUnicode");
+                u32.ToUnicode = (delegate* unmanaged[Stdcall]<uint, uint, byte*, char*, int, uint, int>)p;
+
+                p = Required(hUser32, "RegisterDeviceNotificationW");
+                u32.RegisterDeviceNotificationW = (delegate* unmanaged[Stdcall]<nint, void*, uint, nint>)p;
+
+                p = Required(hUser32, "UnregisterDeviceNotification");
+                u32.UnregisterDeviceNotification = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+
+                // --- kernel32.dll ---
+                nint hKernel32 = loadModule("kernel32.dll");
+                if (hKernel32 == 0)
+                    return false;
+
+                var k32 = new Kernel32Core { handle = hKernel32 };
+                kernel32 = k32;
+
+                p = Required(hKernel32, "GetModuleHandleW");
+                k32.GetModuleHandleW = (delegate* unmanaged[Stdcall]<char*, nint>)p;
+
+                p = Required(hKernel32, "LoadLibraryW");
+                k32.LoadLibraryW = (delegate* unmanaged[Stdcall]<char*, nint>)p;
+
+                p = Required(hKernel32, "FreeLibrary");
+                k32.FreeLibrary = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hKernel32, "GetProcAddress");
+                k32.GetProcAddress = (delegate* unmanaged[Stdcall]<nint, byte*, nint>)p;
+
+                p = Required(hKernel32, "GlobalAlloc");
+                k32.GlobalAlloc = (delegate* unmanaged[Stdcall]<uint, nuint, nint>)p;
+
+                p = Required(hKernel32, "GlobalLock");
+                k32.GlobalLock = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hKernel32, "GlobalUnlock");
+                k32.GlobalUnlock = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hKernel32, "GlobalFree");
+                k32.GlobalFree = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hKernel32, "MultiByteToWideChar");
+                k32.MultiByteToWideChar = (delegate* unmanaged[Stdcall]<uint, uint, byte*, int, char*, int, int>)p;
+
+                p = Required(hKernel32, "WideCharToMultiByte");
+                k32.WideCharToMultiByte = (delegate* unmanaged[Stdcall]<uint, uint, char*, int, byte*, int, byte*, int*, int>)p;
+
+                p = Required(hKernel32, "GetLastError");
+                k32.GetLastError = (delegate* unmanaged[Stdcall]<uint>)p;
+
+                p = Required(hKernel32, "GetModuleFileNameW");
+                k32.GetModuleFileNameW = (delegate* unmanaged[Stdcall]<nint, char*, uint, uint>)p;
+
+                p = Required(hKernel32, "Sleep");
+                k32.Sleep = (delegate* unmanaged[Stdcall]<uint, void>)p;
+
+                p = Required(hKernel32, "SetThreadExecutionState");
+                k32.SetThreadExecutionState = (delegate* unmanaged[Stdcall]<uint, uint>)p;
+
+                p = Required(hKernel32, "GetModuleHandleExW");
+                k32.GetModuleHandleExW = (delegate* unmanaged[Stdcall]<uint, char*, nint*, int>)p;
+
+                p = Required(hKernel32, "FormatMessageW");
+                k32.FormatMessageW = (delegate* unmanaged[Stdcall]<uint, nint, uint, uint, char*, uint, nint, uint>)p;
+
+                p = Required(hKernel32, "VerSetConditionMask");
+                k32.VerSetConditionMask = (delegate* unmanaged[Stdcall]<ulong, uint, byte, ulong>)p;
+
+                p = Required(hKernel32, "GetStartupInfoW");
+                k32.GetStartupInfoW = (delegate* unmanaged[Stdcall]<void*, void>)p;
+
+
+                // --- gdi32.dll ---
+                nint hGdi32 = loadModule("gdi32.dll");
+                if (hGdi32 == 0)
+                    return false;
+
+                var g32 = new Gdi32Core { handle = hGdi32 };
+                gdi32 = g32;
+
+                // GetDC and ReleaseDC are exported by user32.
+                g32.GetDC = (delegate* unmanaged[Stdcall]<nint, nint>)Required(hUser32, "GetDC");
+                g32.ReleaseDC = (delegate* unmanaged[Stdcall]<nint, nint, int>)Required(hUser32, "ReleaseDC");
+
+                p = Required(hGdi32, "SetPixelFormat");
+                g32.SetPixelFormat = (delegate* unmanaged[Stdcall]<nint, int, PIXELFORMATDESCRIPTOR*, int>)p;
+
+                p = Required(hGdi32, "ChoosePixelFormat");
+                g32.ChoosePixelFormat = (delegate* unmanaged[Stdcall]<nint, PIXELFORMATDESCRIPTOR*, int>)p;
+
+                p = Required(hGdi32, "DescribePixelFormat");
+                g32.DescribePixelFormat = (delegate* unmanaged[Stdcall]<nint, int, uint, PIXELFORMATDESCRIPTOR*, int>)p;
+
+                p = Required(hGdi32, "SwapBuffers");
+                g32.SwapBuffers = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hGdi32, "CreateDIBSection");
+                g32.CreateDIBSection = (delegate* unmanaged[Stdcall]<nint, nint, uint, void**, nint, uint, nint>)p;
+
+                p = Required(hGdi32, "DeleteObject");
+                g32.DeleteObject = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hGdi32, "CreateCompatibleDC");
+                g32.CreateCompatibleDC = (delegate* unmanaged[Stdcall]<nint, nint>)p;
+
+                p = Required(hGdi32, "DeleteDC");
+                g32.DeleteDC = (delegate* unmanaged[Stdcall]<nint, int>)p;
+
+                p = Required(hGdi32, "CreateBitmap");
+                g32.CreateBitmap = (delegate* unmanaged[Stdcall]<int, int, uint, uint, nint, nint>)p;
+
+                p = Required(hGdi32, "GetDeviceCaps");
+                g32.GetDeviceCaps = (delegate* unmanaged[Stdcall]<nint, int, int>)p;
+
+                p = Required(hGdi32, "GetDeviceGammaRamp");
+                g32.GetDeviceGammaRamp = (delegate* unmanaged[Stdcall]<nint, void*, int>)p;
+
+                p = Required(hGdi32, "SetDeviceGammaRamp");
+                g32.SetDeviceGammaRamp = (delegate* unmanaged[Stdcall]<nint, void*, int>)p;
+
+                p = Required(hGdi32, "CreateRectRgn");
+                g32.CreateRectRgn = (delegate* unmanaged[Stdcall]<int, int, int, int, nint>)p;
+
+                p = Required(hGdi32, "CreateDCW");
+                g32.CreateDCW = (delegate* unmanaged[Stdcall]<char*, char*, nint, nint, nint>)p;
+
+
+                // --- shell32.dll ---
+                nint hShell32 = loadModule("shell32.dll");
+                if (hShell32 == 0) return false;
+                {
+                    var s32 = new Shell32Core { handle = hShell32 };
+                    shell32 = s32;
+
+                    p = Required(hShell32, "DragAcceptFiles");
+                    s32.DragAcceptFiles = (delegate* unmanaged[Stdcall]<nint, int, void>)p;
+
+                    p = Required(hShell32, "DragQueryFileW");
+                    s32.DragQueryFileW = (delegate* unmanaged[Stdcall]<nint, uint, char*, uint, uint>)p;
+
+                    p = Required(hShell32, "DragFinish");
+                    s32.DragFinish = (delegate* unmanaged[Stdcall]<nint, void>)p;
+
+                    p = Required(hShell32, "DragQueryPoint");
+                    s32.DragQueryPoint = (delegate* unmanaged[Stdcall]<nint, POINT*, int>)p;
+
+                }
+
+                return true;
+            }
         }
 
         // ===============================================================
@@ -853,14 +880,15 @@ namespace Glfw
         private static void TryFreeLibrary(nint handle)
         {
             if (handle == nint.Zero) return;
-            try { NativeLibrary.Free(handle); }
-            catch (InvalidOperationException) { /* Wine/.NET may reject freeing system DLLs */ }
+            NativeLibrary.Free(handle);
         }
 
         public static void FreeLibraries(GlfwLibraryWin32? win32)
         {
             if (win32 != null)
             {
+                // Borrowed from user32.handle; no extra load/reference.
+                win32.user32.instance = nint.Zero;
                 TryFreeLibrary(win32.dwmapi.instance);
                 win32.dwmapi.instance = nint.Zero;
 

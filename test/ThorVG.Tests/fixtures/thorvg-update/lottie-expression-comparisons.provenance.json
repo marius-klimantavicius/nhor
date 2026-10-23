@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "Float32 abstract equality/relational string coercion plus overflow/underflow and global isFinite/isNaN directly select animated geometry. No random APIs or external resources.",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "9bf054e77e76ab01ce7d91d92fcb17392622329db4266e4aba2a9bced60d13f3"
+}

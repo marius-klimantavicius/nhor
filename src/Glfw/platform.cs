@@ -45,7 +45,7 @@ public static class GlfwPlatformSelector
     /// <see cref="RuntimeInformation.IsOSPlatform"/>.
     /// The Null platform is handled separately and is always available.
     /// </summary>
-    private static PlatformEntry[] BuildSupportedPlatforms()
+    internal static PlatformEntry[] BuildSupportedPlatforms()
     {
         var list = new System.Collections.Generic.List<PlatformEntry>();
 
@@ -117,7 +117,7 @@ public static class GlfwPlatformSelector
             desiredId != GlfwPlatformId.X11 &&
             desiredId != GlfwPlatformId.Null)
         {
-            // Invalid platform ID
+            Glfw._glfwInputError(GLFW.GLFW_INVALID_ENUM, "Invalid platform ID 0x{0:X8}", desiredId);
             return null;
         }
 
@@ -129,7 +129,7 @@ public static class GlfwPlatformSelector
 
         if (supported.Length == 0)
         {
-            // No compiled-in platform; only the Null platform is available
+            Glfw._glfwInputError(GLFW.GLFW_PLATFORM_UNAVAILABLE, "This binary only supports the Null platform");
             return null;
         }
 
@@ -140,7 +140,7 @@ public static class GlfwPlatformSelector
             string? session = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
             if (session != null)
             {
-                if (session == "wayland" &&
+                if (Array.Exists(supported, p => p.Id == GlfwPlatformId.Wayland) && session == "wayland" &&
                     Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") != null)
                 {
                     desiredId = GlfwPlatformId.Wayland;
@@ -167,7 +167,7 @@ public static class GlfwPlatformSelector
                     return platform;
             }
 
-            // Failed to detect any supported platform
+            Glfw._glfwInputError(GLFW.GLFW_PLATFORM_UNAVAILABLE, "Failed to detect any supported platform");
             return null;
         }
         else
@@ -179,8 +179,43 @@ public static class GlfwPlatformSelector
                     return entry.Connect(desiredId);
             }
 
-            // The requested platform is not supported
+            Glfw._glfwInputError(GLFW.GLFW_PLATFORM_UNAVAILABLE, "The requested platform is not supported");
             return null;
         }
+    }
+}
+
+public static partial class Glfw
+{
+    public static int glfwGetPlatform()
+    {
+        if (!_glfw.initialized)
+        {
+            _glfwInputError(GLFW.GLFW_NOT_INITIALIZED, null);
+            return 0;
+        }
+        return _glfw.platform!.PlatformID;
+    }
+
+    public static bool glfwPlatformSupported(int platformID)
+    {
+        if (platformID == GLFW.GLFW_PLATFORM_NULL)
+            return true;
+        if (platformID != GLFW.GLFW_PLATFORM_WIN32 && platformID != GLFW.GLFW_PLATFORM_COCOA &&
+            platformID != GLFW.GLFW_PLATFORM_WAYLAND && platformID != GLFW.GLFW_PLATFORM_X11)
+        {
+            _glfwInputError(GLFW.GLFW_INVALID_ENUM, "Invalid platform ID 0x{0:X8}", platformID);
+            return false;
+        }
+        foreach (var entry in GlfwPlatformSelector.BuildSupportedPlatforms())
+            if (entry.Id == platformID) return true;
+        return false;
+    }
+
+    public static string glfwGetVersionString()
+    {
+        string platforms = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? " Win32 WGL" :
+            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? " X11 GLX" : "";
+        return "3.6.0" + platforms + " Null EGL OSMesa .NET";
     }
 }

@@ -15,7 +15,7 @@ namespace ThorVG
 
         public static SwMpool mpoolReq()
         {
-            if (_pool == null)
+            if (_pool == null || _pool.Disposed || _pool.outlines.Length < _threads + 1)
             {
                 _pool = new SwMpool(_threads);
                 lock (_lock)
@@ -37,7 +37,7 @@ namespace ThorVG
             {
                 foreach (var p in _pools)
                 {
-                    // Allow GC to collect
+                    p.Dispose();
                 }
                 _pool = null;
                 _pools.Clear();

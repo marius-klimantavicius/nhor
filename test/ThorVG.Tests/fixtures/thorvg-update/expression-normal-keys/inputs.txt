@@ -1,0 +1,5 @@
+text	lazy-index-keys	13.5	var f=comp.layer(7);f[7]=7;f[0]=0;$bm_rt=Object.getOwnPropertyNames(f).slice(0,3).join(",");
+text	lazy-named-keys	13.5	var f=comp.layer(7);f.extra=3;$bm_rt=Object.getOwnPropertyNames(f).join(",");
+text	materialized-index-keys	13.5	var f=comp.layer(7),p=f.prototype;f[7]=7;f[0]=0;$bm_rt=Object.getOwnPropertyNames(f).slice(0,3).join(",");
+text	composition-key-order	13.5	$bm_rt=Object.getOwnPropertyNames(thisComp).join(",");
+text	layer-key-order	13.5	$bm_rt=Object.getOwnPropertyNames(thisLayer).join(",");

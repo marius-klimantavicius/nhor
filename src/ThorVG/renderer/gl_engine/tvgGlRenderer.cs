@@ -17,6 +17,7 @@ namespace ThorVG
             RT_Color = 0,
             RT_LinGradient,
             RT_RadGradient,
+            RT_ConGradient,
             RT_Image,
             RT_MaskAlpha,
             RT_MaskAlphaInv,
@@ -120,6 +121,24 @@ namespace ThorVG
             RT_ShapeBlend_Radial_Color,
             RT_ShapeBlend_Radial_Luminosity,
             RT_ShapeBlend_Radial_Add,
+            // shape blends (conic gradient)
+            RT_ShapeBlend_Conic_Normal,
+            RT_ShapeBlend_Conic_Multiply,
+            RT_ShapeBlend_Conic_Screen,
+            RT_ShapeBlend_Conic_Overlay,
+            RT_ShapeBlend_Conic_Darken,
+            RT_ShapeBlend_Conic_Lighten,
+            RT_ShapeBlend_Conic_ColorDodge,
+            RT_ShapeBlend_Conic_ColorBurn,
+            RT_ShapeBlend_Conic_HardLight,
+            RT_ShapeBlend_Conic_SoftLight,
+            RT_ShapeBlend_Conic_Difference,
+            RT_ShapeBlend_Conic_Exclusion,
+            RT_ShapeBlend_Conic_Hue,
+            RT_ShapeBlend_Conic_Saturation,
+            RT_ShapeBlend_Conic_Color,
+            RT_ShapeBlend_Conic_Luminosity,
+            RT_ShapeBlend_Conic_Add,
             RT_None
         }
 
@@ -127,7 +146,9 @@ namespace ThorVG
         /* Private types                                                        */
         /************************************************************************/
 
-        private enum BlendSource { Image, Scene, Solid, LinearGradient, RadialGradient }
+        private enum BlendSource { Image, Scene, Solid, LinearGradient, RadialGradient, ConicGradient }
+
+        private readonly GlStateCache mStateCache = new GlStateCache();
 
         private const float NOISE_LEVEL = 0.5f;
 
@@ -169,6 +190,7 @@ namespace ThorVG
         private bool mClearBuffer;
         private bool mDisposed;
         private bool mCountReleased;
+        private int mOwnerThread = Environment.CurrentManagedThreadId;
 
         /************************************************************************/
         /* Constructor / Destructor                                             */
@@ -198,7 +220,10 @@ namespace ThorVG
         public void Dispose()
         {
             if (mDisposed) return;
-            if (mContext == 0 || !CurrentContext()) return;
+            if (mContext == 0) { Abandon(); GC.SuppressFinalize(this); return; }
+            if (Environment.CurrentManagedThreadId != mOwnerThread)
+                throw new InvalidOperationException("GL resources must be disposed on their context-owning thread.");
+            if (!CurrentContext()) return;
 
             Flush();
             mTextures.Clear();
@@ -209,6 +234,18 @@ namespace ThorVG
             mDisposed = true;
             ReleaseRendererCount();
             GC.SuppressFinalize(this);
+        }
+
+        internal bool CanCleanup() => mDisposed || mContext == 0 ||
+            (Environment.CurrentManagedThreadId == mOwnerThread && CurrentContext());
+
+        protected override void ReleaseResources()
+        {
+            // Releasing the last managed paint can occur in a finalizer. GL
+            // calls stay on the context owner; context teardown owns abandoned
+            // driver objects when deterministic disposal was not performed.
+            if (Environment.CurrentManagedThreadId == mOwnerThread) Dispose();
+            else Abandon();
         }
 
         internal void Abandon()
@@ -240,6 +277,7 @@ namespace ThorVG
                 mDisposedTextures.Clear();
             }
 
+            foreach (var pass in mRenderPassStack) pass.Dispose();
             mRenderPassStack.Clear();
             mSolidBatch.Clear();
             mStencilCoverBatch.Clear();
@@ -281,9 +319,17 @@ namespace ThorVG
                 GlShaderSrc.STR_RADIAL_GRADIENT_FUNCTIONS,
                 GlShaderSrc.STR_RADIAL_GRADIENT_MAIN);
 
+            var conicGradientFragShader = string.Concat(
+                GlShaderSrc.STR_GRADIENT_FRAG_COMMON_VARIABLES,
+                GlShaderSrc.STR_CONIC_GRADIENT_VARIABLES,
+                GlShaderSrc.STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
+                GlShaderSrc.STR_CONIC_GRADIENT_FUNCTIONS,
+                GlShaderSrc.STR_CONIC_GRADIENT_MAIN);
+
             mPrograms.Add(new GlProgram(GlShaderSrc.COLOR_VERT_SHADER, GlShaderSrc.COLOR_FRAG_SHADER));
             mPrograms.Add(new GlProgram(GlShaderSrc.GRADIENT_VERT_SHADER, linearGradientFragShader));
             mPrograms.Add(new GlProgram(GlShaderSrc.GRADIENT_VERT_SHADER, radialGradientFragShader));
+            mPrograms.Add(new GlProgram(GlShaderSrc.GRADIENT_VERT_SHADER, conicGradientFragShader));
             mPrograms.Add(new GlProgram(GlShaderSrc.IMAGE_VERT_SHADER, GlShaderSrc.IMAGE_FRAG_SHADER));
 
             // compose Renderer
@@ -304,8 +350,8 @@ namespace ThorVG
             // blit Renderer
             mPrograms.Add(new GlProgram(GlShaderSrc.BLIT_VERT_SHADER, GlShaderSrc.BLIT_FRAG_SHADER));
 
-            // blend programs: image (17) + scene (17) + shape solid (17) + shape linear (17) + shape radial (17) = 85
-            for (int i = 0; i < 85; ++i)
+            // Reserve every lazily compiled blend family, including conic fills.
+            while (mPrograms.Count < count)
             {
                 mPrograms.Add(null);
             }
@@ -328,9 +374,12 @@ namespace ThorVG
 
             if (mBlendMethod == BlendMethod.Normal) return new GlRenderTask(mPrograms[(int)type]);
 
-            if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-            // Desktop GL path
+            if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
+#if THORVG_GL_TARGET_GLES
+            dstCopyFbo = mBlendPool[0].GetRenderTarget(CurrentPass()!.GetViewport());
+#else
             dstCopyFbo = mBlendPool[0].GetRenderTarget(viewRegion);
+#endif
             var program = GetBlendProgram(mBlendMethod, source);
             return new GlDirectBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, viewRegion);
         }
@@ -380,20 +429,23 @@ namespace ThorVG
         {
             if (dstCopyFbo == null) return;
 
-            // Desktop GL path
             var region = stackalloc float[4];
+#if THORVG_GL_TARGET_GLES
+            region[0] = region[1] = 0.0f;
+#else
             region[0] = viewRegion.Sx();
             region[1] = viewRegion.Sy();
+#endif
             region[2] = dstCopyFbo.width;
             region[3] = dstCopyFbo.height;
 
             task.AddBindResource(new GlBindingResource(
                 binding,
-                task.GetProgram()!.GetUniformBlockIndex("BlendRegion\0"u8),
+                task.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.BlendRegion),
                 mGpuBuffer.GetBufferId(),
                 mGpuBuffer.Push(region, 4 * sizeof(float), true),
                 4 * sizeof(float)));
-            task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
+            task.AddBindResource(new GlBindingResource(0, dstCopyFbo.colorTex, task.GetProgram()!.GetUniformLocation(GlShaderUniform.DestinationTexture)));
         }
 
         private void DrawPrimitive(GlShape sdata, in RGBA c, RenderUpdateFlag flag, int depth)
@@ -412,7 +464,7 @@ namespace ThorVG
             var viewRegion = ViewportRegion(vp, bbox);
             var stencilMode = sdata.geometry.GetStencilMode(flag);
 
-            if (!blendShape && stencilMode == GlStencilMode.None && sdata.clips.Count == 0)
+            if (!stroke && !blendShape && stencilMode == GlStencilMode.None && sdata.clips.Count == 0)
             {
                 mSolidBatch.Draw(this, sdata, c, depth, viewRegion, ViewportRegion(vp, viewBounds));
                 return;
@@ -438,6 +490,7 @@ namespace ThorVG
                 }
             }
             var color = new RGBA(c.r, c.g, c.b, a);
+            if (stroke && (blendShape || a == 255)) stencilMode = GlStencilMode.None;
             task.SetViewport(viewRegion);
 
             var clipped = sdata.clips.Count > 0;
@@ -449,6 +502,22 @@ namespace ThorVG
 
             if (stencilTask != null) mStencilCoverBatch.Draw(CurrentPass()!, stencilTask, task, merge, stencilMode, clipped, stencilBounds, viewBounds, stencilBuffer!, stencilIndices);
             else CurrentPass()!.AddRenderTask(task);
+        }
+
+        private static bool PackGradientBlock(float* info, float* points, float* colors, Fill.ColorStop[] stops, uint count, FillSpread spread, float alpha)
+        {
+            info[1] = NOISE_LEVEL; info[2] = (int)spread;
+            bool opaque = alpha == 1; uint output = 0;
+            for (uint i = 0; i < count; ++i)
+            {
+                if (output > 0 && points[output - 1] > stops[i].offset) { opaque = false; continue; }
+                uint index = output++;
+                points[index] = stops[i].offset;
+                colors[index * 4] = stops[i].r / 255f; colors[index * 4 + 1] = stops[i].g / 255f;
+                colors[index * 4 + 2] = stops[i].b / 255f; colors[index * 4 + 3] = stops[i].a / 255f * alpha;
+                opaque &= stops[i].a == 255;
+            }
+            info[0] = output; return opaque;
         }
 
         private void DrawPrimitive(GlShape sdata, Fill fill, RenderUpdateFlag flag, int depth)
@@ -470,11 +539,12 @@ namespace ThorVG
 
             GlRenderTarget? dstCopyFbo;
             var radial = fill.GetFillType() == Type.RadialGradient;
+            var conic = fill.GetFillType() == Type.ConicGradient;
             var viewRegion = ViewportRegion(vp, bbox);
 
             RenderTypes taskType = RenderTypes.RT_None;
             var blendSource = BlendSource.LinearGradient;
-            float cx = 0, cy = 0, r = 0, fx = 0, fy = 0, fr = 0;
+            float cx = 0, cy = 0, r = 0, fx = 0, fy = 0, fr = 0, angle = 0;
 
             if (fill.GetFillType() == Type.LinearGradient)
             {
@@ -494,6 +564,12 @@ namespace ThorVG
                 taskType = RenderTypes.RT_RadGradient;
                 blendSource = BlendSource.RadialGradient;
             }
+            else if (conic)
+            {
+                ((ConicGradient)fill).Conic(out cx, out cy, out angle);
+                taskType = RenderTypes.RT_ConGradient;
+                blendSource = BlendSource.ConicGradient;
+            }
             else return;
 
             var task = CreatePrimitiveTask(taskType, blendSource, viewRegion, out dstCopyFbo);
@@ -504,11 +580,6 @@ namespace ThorVG
 
             task.SetViewport(viewRegion);
 
-            var stencilMode = sdata.geometry.GetStencilMode(flag);
-            var clipped = sdata.clips.Count > 0;
-            var stencilTask = DrawPrimitiveGeometry(task, sdata, flag, stencilMode, clipped, depth, viewMatrix, vp,
-                null, viewBounds, out var stencilBounds, out var stencilBuffer, out var stencilIndices, out var merge);
-
             // transform buffer (inverse fill-space transform)
             var invMat3 = stackalloc float[(int)GlConstants.GL_MAT3_STD140_SIZE];
             TvgMath.Inverse(fill.GetTransform(), out var inv);
@@ -517,13 +588,14 @@ namespace ThorVG
                 TvgMath.Inverse(sdata.geometry.matrix, out var invShape);
                 inv = TvgMath.Multiply(inv, invShape);
             }
+            if (conic) inv = TvgMath.Multiply(GpuCommon.GpuConicTransform(new Point(cx, cy), angle), inv);
             GlMatrixHelper.GetMatrix3Std140(inv, new Span<float>(invMat3, (int)GlConstants.GL_MAT3_STD140_SIZE));
 
             var transformOffset = mGpuBuffer.Push(invMat3, GlConstants.GL_MAT3_STD140_BYTES, true);
 
             task.AddBindResource(new GlBindingResource(
                 0,
-                task.GetProgram()!.GetUniformBlockIndex("TransformInfo\0"u8),
+                task.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.TransformInfo),
                 mGpuBuffer.GetBufferId(),
                 transformOffset,
                 GlConstants.GL_MAT3_STD140_BYTES));
@@ -539,9 +611,10 @@ namespace ThorVG
                 }
             }
 
+            bool opaque;
             // gradient block
             GlBindingResource gradientBinding = default;
-            var loc = task.GetProgram()!.GetUniformBlockIndex("GradientInfo\0"u8);
+            var loc = task.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.GradientInfo);
 
             if (fill.GetFillType() == Type.LinearGradient)
             {
@@ -549,21 +622,7 @@ namespace ThorVG
 
                 GlLinearGradientBlock gradientBlock = default;
 
-                gradientBlock.nStops[1] = NOISE_LEVEL;
-                gradientBlock.nStops[2] = (int)fill.GetSpread() * 1.0f;
-                uint nStops = 0;
-                for (uint i = 0; i < stopCnt; ++i)
-                {
-                    if (i > 0 && gradientBlock.stopPoints[nStops - 1] > stops![i].offset) continue;
-
-                    gradientBlock.stopPoints[i] = stops![i].offset;
-                    gradientBlock.stopColors[i * 4 + 0] = stops[i].r / 255f;
-                    gradientBlock.stopColors[i * 4 + 1] = stops[i].g / 255f;
-                    gradientBlock.stopColors[i * 4 + 2] = stops[i].b / 255f;
-                    gradientBlock.stopColors[i * 4 + 3] = stops[i].a / 255f * alpha;
-                    nStops++;
-                }
-                gradientBlock.nStops[0] = nStops * 1.0f;
+                opaque = PackGradientBlock(gradientBlock.nStops, gradientBlock.stopPoints, gradientBlock.stopColors, stops!, stopCnt, fill.GetSpread(), alpha);
 
                 linearFill.Linear(out var x1, out var y1, out var x2, out var y2);
 
@@ -583,28 +642,11 @@ namespace ThorVG
                     gradOffset,
                     (uint)(GlLinearGradientBlock.PackedSize * sizeof(float)));
             }
-            else
+            else if (radial)
             {
-                var radialFill = (RadialGradient)fill;
-
                 GlRadialGradientBlock gradientBlock = default;
 
-                gradientBlock.nStops[1] = NOISE_LEVEL;
-                gradientBlock.nStops[2] = (int)fill.GetSpread() * 1.0f;
-
-                uint nStops = 0;
-                for (uint i = 0; i < stopCnt; ++i)
-                {
-                    if (i > 0 && gradientBlock.stopPoints[nStops - 1] > stops![i].offset) continue;
-
-                    gradientBlock.stopPoints[i] = stops![i].offset;
-                    gradientBlock.stopColors[i * 4 + 0] = stops[i].r / 255f;
-                    gradientBlock.stopColors[i * 4 + 1] = stops[i].g / 255f;
-                    gradientBlock.stopColors[i * 4 + 2] = stops[i].b / 255f;
-                    gradientBlock.stopColors[i * 4 + 3] = stops[i].a / 255f * alpha;
-                    nStops++;
-                }
-                gradientBlock.nStops[0] = nStops * 1.0f;
+                opaque = PackGradientBlock(gradientBlock.nStops, gradientBlock.stopPoints, gradientBlock.stopColors, stops!, stopCnt, fill.GetSpread(), alpha);
 
                 gradientBlock.centerPos[0] = fx;
                 gradientBlock.centerPos[1] = fy;
@@ -625,7 +667,25 @@ namespace ThorVG
                     (uint)(GlRadialGradientBlock.PackedSize * sizeof(float)));
             }
 
+            else
+            {
+                GlConicGradientBlock block = default;
+                opaque = PackGradientBlock(block.nStops, block.stopPoints, block.stopColors, stops!, stopCnt, FillSpread.Pad, alpha);
+                var data = stackalloc float[GlConicGradientBlock.PackedSize];
+                block.PackInto(data);
+                var offset = mGpuBuffer.Push(data, (uint)(GlConicGradientBlock.PackedSize * sizeof(float)), true);
+                gradientBinding = new GlBindingResource(2, loc, mGpuBuffer.GetBufferId(), offset,
+                    (uint)(GlConicGradientBlock.PackedSize * sizeof(float)));
+            }
+
             task.AddBindResource(gradientBinding);
+
+            var stencilMode = sdata.geometry.GetStencilMode(flag);
+            if (stroke && (mBlendMethod != BlendMethod.Normal || opaque)) stencilMode = GlStencilMode.None;
+            var clipped = sdata.clips.Count > 0;
+            var stencilTask = DrawPrimitiveGeometry(task, sdata, flag, stencilMode, clipped, depth, viewMatrix, vp,
+                null, viewBounds, out var stencilBounds, out var stencilBuffer, out var stencilIndices, out var merge);
+
 
             // TransformInfo uses slot 0 and GradientInfo uses slot 2, so BlendRegion moves to 3.
             BindBlendTarget(task, dstCopyFbo, viewRegion, 3);
@@ -680,7 +740,7 @@ namespace ThorVG
                 var maskTask = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Stencil]);
 
                 maskTask.SetDrawDepth(clipDepths[i]);
-                maskTask.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = identityVertexOffset });
+                maskTask.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = identityVertexOffset, arrayBufferId = mGpuBuffer.GetBufferId() });
                 maskTask.SetDrawRange(identityIndexOffset, 6);
                 maskTask.SetViewport(viewRegion);
 
@@ -703,7 +763,7 @@ namespace ThorVG
 
             if (mBlendMethod == BlendMethod.Normal) return false;
 
-            if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
+            if (mBlendPool.Count == 0) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
 
             var blendFbo = mBlendPool[0].GetRenderTarget(bounds);
 
@@ -712,9 +772,19 @@ namespace ThorVG
             return true;
         }
 
+#if THORVG_GL_TARGET_GLES
+        private void BindResolvedBlendRegion(GlRenderTask task, GlRenderTarget target, uint binding)
+        {
+            float* region = stackalloc float[4] { 0.0f, 0.0f, target.width, target.height };
+            task.AddBindResource(new GlBindingResource(binding,
+                task.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.BlendRegion),
+                mGpuBuffer.GetBufferId(), mGpuBuffer.Push(region, 4 * sizeof(float), true), 4 * sizeof(float)));
+        }
+#endif
+
         private void EndBlendingCompose(GlRenderTask stencilTask)
         {
-            var blendPass = mRenderPassStack[mRenderPassStack.Count - 1];
+            using var blendPass = mRenderPassStack[mRenderPassStack.Count - 1];
             mRenderPassStack.RemoveAt(mRenderPassStack.Count - 1);
 
             blendPass.SetDrawDepth(CurrentPass()!.NextDrawDepth());
@@ -722,9 +792,12 @@ namespace ThorVG
             var composeTask = blendPass.EndRenderPass<GlComposeTask>(null, CurrentPass()!.GetFboId());
 
             var blendVp = blendPass.GetViewport();
-            if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-            // Desktop GL path
+            if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
+#if THORVG_GL_TARGET_GLES
+            var dstCopyFbo = mBlendPool[1].GetRenderTarget(CurrentPass()!.GetViewport());
+#else
             var dstCopyFbo = mBlendPool[1].GetRenderTarget(blendVp);
+#endif
 
             var vpX = blendVp.Sx();
             var vpY = CurrentPass()!.GetViewport().Sh() - blendVp.Sy() - blendVp.Sh();
@@ -737,10 +810,13 @@ namespace ThorVG
             var blendTask = new GlComplexBlendTask(program, CurrentPass()!.GetFbo(), dstCopyFbo, stencilTask, composeTask);
             PrepareCmpTask(blendTask, blendVp, blendPass.GetFboWidth(), blendPass.GetFboHeight());
             blendTask.SetDrawDepth(CurrentPass()!.NextDrawDepth());
+#if THORVG_GL_TARGET_GLES
+            BindResolvedBlendRegion(blendTask, dstCopyFbo, 0);
+#endif
 
             // src and dst texture
-            blendTask.AddBindResource(new GlBindingResource(1, blendPass.GetFbo()!.colorTex, blendTask.GetProgram()!.GetUniformLocation("uSrcTexture\0"u8)));
-            blendTask.AddBindResource(new GlBindingResource(2, dstCopyFbo.colorTex, blendTask.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
+            blendTask.AddBindResource(new GlBindingResource(1, blendPass.GetFbo()!.colorTex, blendTask.GetProgram()!.GetUniformLocation(GlShaderUniform.SourceTexture)));
+            blendTask.AddBindResource(new GlBindingResource(2, dstCopyFbo.colorTex, blendTask.GetProgram()!.GetUniformLocation(GlShaderUniform.DestinationTexture)));
 
             CurrentPass()!.AddRenderTask(blendTask);
         }
@@ -780,6 +856,7 @@ namespace ThorVG
                 case BlendSource.Solid: shaderInd += (int)RenderTypes.RT_ShapeBlend_Solid_Normal; break;
                 case BlendSource.LinearGradient: shaderInd += (int)RenderTypes.RT_ShapeBlend_Linear_Normal; break;
                 case BlendSource.RadialGradient: shaderInd += (int)RenderTypes.RT_ShapeBlend_Radial_Normal; break;
+                case BlendSource.ConicGradient: shaderInd += (int)RenderTypes.RT_ShapeBlend_Conic_Normal; break;
             }
 
             if (mPrograms[shaderInd] != null) return mPrograms[shaderInd];
@@ -842,6 +919,17 @@ namespace ThorVG
                         satHelper,
                         shaderFunc[methodInd]);
                     break;
+                case BlendSource.ConicGradient:
+                    fragShader = string.Concat(
+                        GlShaderSrc.STR_GRADIENT_FRAG_COMMON_VARIABLES,
+                        GlShaderSrc.STR_CONIC_GRADIENT_VARIABLES,
+                        GlShaderSrc.STR_GRADIENT_FRAG_COMMON_FUNCTIONS,
+                        GlShaderSrc.STR_CONIC_GRADIENT_FUNCTIONS,
+                        GlShaderSrc.BLEND_SHAPE_CONIC_FRAG_HEADER,
+                        lumHelper,
+                        satHelper,
+                        shaderFunc[methodInd]);
+                    break;
                 default:
                     TvgCommon.TVGERR("RENDERER", "Unsupported blend source!");
                     return null;
@@ -854,7 +942,7 @@ namespace ThorVG
         private void PrepareBlitTask(GlBlitTask task)
         {
             PrepareCmpTask(task, new RenderRegion(0, 0, (int)surface.w, (int)surface.h), surface.w, surface.h);
-            task.AddBindResource(new GlBindingResource(0, task.GetColorTexture(), task.GetProgram()!.GetUniformLocation("uSrcTexture\0"u8)));
+            task.AddBindResource(new GlBindingResource(0, task.GetColorTexture(), task.GetProgram()!.GetUniformLocation(GlShaderUniform.SourceTexture)));
         }
 
         private void PrepareCmpTask(GlRenderTask task, in RenderRegion vp, uint cmpWidth, uint cmpHeight)
@@ -895,8 +983,8 @@ namespace ThorVG
             var vertexOffset = mGpuBuffer.Push(vertices, (uint)(16 * sizeof(float)));
             var indexOffset = mGpuBuffer.PushIndex(indices, (uint)(6 * sizeof(uint)));
 
-            task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 4 * sizeof(float), offset = vertexOffset });
-            task.AddVertexLayout(new GlVertexLayout { index = 1, size = 2, stride = 4 * sizeof(float), offset = vertexOffset + 2 * sizeof(float) });
+            task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 4 * sizeof(float), offset = vertexOffset, arrayBufferId = mGpuBuffer.GetBufferId() });
+            task.AddVertexLayout(new GlVertexLayout { index = 1, size = 2, stride = 4 * sizeof(float), offset = vertexOffset + 2 * sizeof(float), arrayBufferId = mGpuBuffer.GetBufferId() });
             task.SetDrawRange(indexOffset, 6);
             y = passVp.Sh() - y - h;
             task.SetViewport(new RenderRegion(x, y, x + w, y + h));
@@ -935,11 +1023,11 @@ namespace ThorVG
 
             if (cmp.method != MaskMethod.None)
             {
-                var selfPass = mRenderPassStack[mRenderPassStack.Count - 1];
+                using var selfPass = mRenderPassStack[mRenderPassStack.Count - 1];
                 mRenderPassStack.RemoveAt(mRenderPassStack.Count - 1);
 
                 // mask is pushed first
-                var maskPass = mRenderPassStack[mRenderPassStack.Count - 1];
+                using var maskPass = mRenderPassStack[mRenderPassStack.Count - 1];
                 mRenderPassStack.RemoveAt(mRenderPassStack.Count - 1);
 
                 GlProgram? program = null;
@@ -971,8 +1059,8 @@ namespace ThorVG
 
                     PrepareCmpTask(composeTask, glCmp.bbox, selfPass.GetFboWidth(), selfPass.GetFboHeight());
 
-                    composeTask.AddBindResource(new GlBindingResource(0, selfPass.GetTextureId(), program.GetUniformLocation("uSrcTexture\0"u8)));
-                    composeTask.AddBindResource(new GlBindingResource(1, maskPass.GetTextureId(), program.GetUniformLocation("uMaskTexture\0"u8)));
+                    composeTask.AddBindResource(new GlBindingResource(0, selfPass.GetTextureId(), program.GetUniformLocation(GlShaderUniform.SourceTexture)));
+                    composeTask.AddBindResource(new GlBindingResource(1, maskPass.GetTextureId(), program.GetUniformLocation(GlShaderUniform.MaskTexture)));
 
                     composeTask.SetDrawDepth(CurrentPass()!.NextDrawDepth());
                     composeTask.SetParentSize(CurrentPass()!.GetViewport().W(), CurrentPass()!.GetViewport().H());
@@ -981,18 +1069,21 @@ namespace ThorVG
             }
             else if (glCmp.blendMethod != BlendMethod.Normal)
             {
-                var renderPass = mRenderPassStack[mRenderPassStack.Count - 1];
+                using var renderPass = mRenderPassStack[mRenderPassStack.Count - 1];
                 mRenderPassStack.RemoveAt(mRenderPassStack.Count - 1);
 
                 if (!renderPass.IsEmpty())
                 {
-                    if (mBlendPool.Count < 1) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-                    if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-                    // Desktop GL path
+                    if (mBlendPool.Count < 1) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
+                    if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
+#if THORVG_GL_TARGET_GLES
+                    var dstCopyFbo = mBlendPool[1].GetRenderTarget(CurrentPass()!.GetViewport());
+#else
                     var dstCopyFbo = mBlendPool[1].GetRenderTarget(renderPass.GetViewport());
+#endif
                     // image info
                     var info = stackalloc uint[4];
-                    info[0] = (uint)ColorSpace.ABGR8888; info[1] = 0; info[2] = cmp.opacity; info[3] = 0;
+                    info[0] = cmp.opacity; info[1] = info[2] = info[3] = 0;
 
                     var program = GetBlendProgram(glCmp.blendMethod, BlendSource.Scene);
                     var blendTask = renderPass.EndRenderPass<GlSceneBlendTask>(program, CurrentPass()!.GetFboId());
@@ -1001,20 +1092,23 @@ namespace ThorVG
                     blendTask.SetRenderSize(glCmp.bbox.W(), glCmp.bbox.H());
                     PrepareCmpTask(blendTask, glCmp.bbox, renderPass.GetFboWidth(), renderPass.GetFboHeight());
                     blendTask.SetDrawDepth(CurrentPass()!.NextDrawDepth());
+#if THORVG_GL_TARGET_GLES
+                    BindResolvedBlendRegion(blendTask, dstCopyFbo, 1);
+#endif
 
                     // info
                     var infoOffset = mGpuBuffer.Push(info, (uint)(4 * sizeof(uint)), true);
-                    blendTask.AddBindResource(new GlBindingResource(0, blendTask.GetProgram()!.GetUniformBlockIndex("ColorInfo\0"u8), mGpuBuffer.GetBufferId(), infoOffset, (uint)(4 * sizeof(uint))));
+                    blendTask.AddBindResource(new GlBindingResource(0, blendTask.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.ColorInfo), mGpuBuffer.GetBufferId(), infoOffset, (uint)(4 * sizeof(uint))));
                     // textures
-                    blendTask.AddBindResource(new GlBindingResource(0, renderPass.GetTextureId(), blendTask.GetProgram()!.GetUniformLocation("uSrcTexture\0"u8)));
-                    blendTask.AddBindResource(new GlBindingResource(1, dstCopyFbo.colorTex, blendTask.GetProgram()!.GetUniformLocation("uDstTexture\0"u8)));
+                    blendTask.AddBindResource(new GlBindingResource(0, renderPass.GetTextureId(), blendTask.GetProgram()!.GetUniformLocation(GlShaderUniform.SourceTexture)));
+                    blendTask.AddBindResource(new GlBindingResource(1, dstCopyFbo.colorTex, blendTask.GetProgram()!.GetUniformLocation(GlShaderUniform.DestinationTexture)));
                     blendTask.SetParentSize(CurrentPass()!.GetViewport().W(), CurrentPass()!.GetViewport().H());
                     CurrentPass()!.AddRenderTask(blendTask);
                 }
             }
             else
             {
-                var renderPass = mRenderPassStack[mRenderPassStack.Count - 1];
+                using var renderPass = mRenderPassStack[mRenderPassStack.Count - 1];
                 mRenderPassStack.RemoveAt(mRenderPassStack.Count - 1);
 
                 if (!renderPass.IsEmpty())
@@ -1027,18 +1121,18 @@ namespace ThorVG
 
                     // image info
                     var info = stackalloc uint[4];
-                    info[0] = (uint)ColorSpace.ABGR8888; info[1] = 0; info[2] = cmp.opacity; info[3] = 0;
+                    info[0] = cmp.opacity; info[1] = info[2] = info[3] = 0;
                     var infoOffset = mGpuBuffer.Push(info, (uint)(4 * sizeof(uint)), true);
 
                     drawBlitTask.AddBindResource(new GlBindingResource(
                         1,
-                        drawBlitTask.GetProgram()!.GetUniformBlockIndex("ColorInfo\0"u8),
+                        drawBlitTask.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.ColorInfo),
                         mGpuBuffer.GetBufferId(),
                         infoOffset,
                         (uint)(4 * sizeof(uint))));
 
                     // texture id
-                    drawBlitTask.AddBindResource(new GlBindingResource(0, renderPass.GetTextureId(), drawBlitTask.GetProgram()!.GetUniformLocation("uTexture\0"u8)));
+                    drawBlitTask.AddBindResource(new GlBindingResource(0, renderPass.GetTextureId(), drawBlitTask.GetProgram()!.GetUniformLocation(GlShaderUniform.Texture)));
                     drawBlitTask.SetParentSize(CurrentPass()!.GetViewport().W(), CurrentPass()!.GetViewport().H());
                     CurrentPass()!.AddRenderTask(drawBlitTask);
                 }
@@ -1075,6 +1169,7 @@ namespace ThorVG
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && mDisplay != 0 && display != mDisplay)
                 return Result.InsufficientCondition;
 
+            mStateCache.Invalidate();
             if (mContext != 0)
             {
                 if (!CurrentContext()) return Result.InsufficientCondition;
@@ -1095,14 +1190,20 @@ namespace ThorVG
 
             if (!CurrentContext()) return Result.InsufficientCondition;
 
+            mOwnerThread = Environment.CurrentManagedThreadId;
+            // Object IDs can be reused by another context.
+            mStateCache.Invalidate();
+
             mRootTarget.viewport = new RenderRegion(0, 0, (int)surface.w, (int)surface.h);
-            mRootTarget.Init(surface.w, surface.h, mTargetFboId);
+            mRootTarget.Init(mStateCache, surface.w, surface.h, mTargetFboId);
+            mStateCache.Invalidate();
 
             return Result.Success;
         }
 
         public override bool Sync()
         {
+            mStateCache.Invalidate();
             if (mDisposed) return false;
             // nothing to be done.
             if (mRenderPassStack.Count == 0) return true;
@@ -1110,31 +1211,32 @@ namespace ThorVG
             if (!CurrentContext()) return false;
 
             // Blend function for straight alpha
-            GL.glBlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
-            GL.glEnable(GL.GL_BLEND);
-            GL.glEnable(GL.GL_SCISSOR_TEST);
+            mStateCache.BlendFunc(GL.GL_ONE, GL.GL_ONE_MINUS_SRC_ALPHA);
+            mStateCache.Enable(GL.GL_BLEND);
+            mStateCache.Enable(GL.GL_SCISSOR_TEST);
             GL.glCullFace(GL.GL_FRONT_AND_BACK);
             GL.glFrontFace(GL.GL_CCW);
-            GL.glEnable(GL.GL_DEPTH_TEST);
-            GL.glDepthFunc(GL.GL_GREATER);
+            mStateCache.Enable(GL.GL_DEPTH_TEST);
+            mStateCache.DepthFunc(GL.GL_GREATER);
 
-            var task = mRenderPassStack[0].EndRenderPass<GlBlitTask>(mPrograms[(int)RenderTypes.RT_Blit], (uint)mTargetFboId);
+            using var task = mRenderPassStack[0].EndRenderPass<GlBlitTask>(mPrograms[(int)RenderTypes.RT_Blit], (uint)mTargetFboId);
 
             PrepareBlitTask(task);
 
             task.mClearBuffer = mClearBuffer;
             task.SetTargetViewport(new RenderRegion(0, 0, (int)surface.w, (int)surface.h));
 
-            if (mGpuBuffer.FlushToGPU())
+            if (mGpuBuffer.FlushToGPU(mStateCache))
             {
-                mGpuBuffer.Bind();
-                task.Run();
+                mGpuBuffer.Bind(mStateCache);
+                task.Run(mStateCache);
             }
 
-            mGpuBuffer.Unbind();
+            mGpuBuffer.Unbind(mStateCache);
 
-            GL.glDisable(GL.GL_SCISSOR_TEST);
+            mStateCache.Disable(GL.GL_SCISSOR_TEST);
 
+            mStateCache.Invalidate();
             ClearDisposes();
 
             // Reset clear buffer flag to default (false) after use.
@@ -1144,6 +1246,9 @@ namespace ThorVG
         }
 
         public override bool Bounds(object? data, Point[] pt4, in Matrix m)
+            => Bounds(data, pt4.AsSpan(), m);
+
+        public override bool Bounds(object? data, Span<Point> pt4, in Matrix m)
         {
             if (data != null)
             {
@@ -1156,8 +1261,10 @@ namespace ThorVG
                     for (uint i = 0; i < vertexes.count / 2; i++)
                     {
                         var vert = TvgMath.Transform(new Point(vertexes[i * 2 + 0], vertexes[i * 2 + 1]), m);
-                        bbox.min = new Point(MathF.Min(bbox.min.x, vert.x), MathF.Min(bbox.min.y, vert.y));
-                        bbox.max = new Point(MathF.Max(bbox.max.x, vert.x), MathF.Max(bbox.max.y, vert.y));
+                        if (vert.x < bbox.min.x) bbox.min.x = vert.x;
+                        if (vert.y < bbox.min.y) bbox.min.y = vert.y;
+                        if (vert.x > bbox.max.x) bbox.max.x = vert.x;
+                        if (vert.y > bbox.max.y) bbox.max.y = vert.y;
                     }
                     pt4[0] = bbox.min;
                     pt4[1] = new Point(bbox.max.x, bbox.min.y);
@@ -1181,6 +1288,10 @@ namespace ThorVG
             if (mDisposed || mRootTarget.Invalid()) return false;
 
             if (!CurrentContext()) return false;
+            // Legacy public render-target helpers issue direct GL setup calls.
+            // Forget those preparation assumptions before the conversion pass.
+            mStateCache.Invalidate();
+            if (!mTextures.FlushPreprocess(mStateCache, (int)mTargetFboId)) return false;
             if (mPrograms.Count == 0) InitShaders();
             mRenderPassStack.Add(new GlRenderPass((GlRenderTarget?)mRootTarget));
 
@@ -1213,7 +1324,7 @@ namespace ThorVG
             glCmp.blendMethod = mBlendMethod;
 
             var index = mRenderPassStack.Count - 1;
-            if (index >= mComposePool.Count) mComposePool.Add(new GlRenderTargetPool(surface.w, surface.h));
+            if (index >= mComposePool.Count) mComposePool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
 
             if (glCmp.bbox.Valid()) mRenderPassStack.Add(new GlRenderPass(mComposePool[index].GetRenderTarget(glCmp.bbox)));
             else mRenderPassStack.Add(new GlRenderPass((GlRenderTarget?)null));
@@ -1238,8 +1349,8 @@ namespace ThorVG
         public override void Prepare(RenderEffect effect, in Matrix transform)
         {
             // we must be sure, that we have intermediate FBOs
-            if (mBlendPool.Count < 1) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
-            if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h));
+            if (mBlendPool.Count < 1) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
+            if (mBlendPool.Count < 2) mBlendPool.Add(new GlRenderTargetPool(surface.w, surface.h, mStateCache));
 
             mEffect.Update(effect, transform);
         }
@@ -1291,6 +1402,13 @@ namespace ThorVG
 
             var drawDepth = CurrentPass()!.NextDrawDepth();
 
+            if (CurrentPass()!.GetFbo() == mRootTarget && mBlendMethod == BlendMethod.Normal && sdata.clips.Count == 0 && sdata.geometry.viewport == vp)
+            {
+                var region = ViewportRegion(vp, bbox);
+                mSolidBatch.Draw(this, sdata, drawDepth, region, region);
+                return true;
+            }
+
             if (sdata.clips.Count > 0) DrawClip(ref sdata.clips, bbox);
 
             var task = new GlRenderTask(mPrograms[(int)RenderTypes.RT_Image]);
@@ -1304,18 +1422,18 @@ namespace ThorVG
 
             // image info
             var info = stackalloc uint[4];
-            info[0] = (uint)sdata.texColorSpace; info[1] = sdata.texFlipY; info[2] = sdata.opacity; info[3] = 0;
+            info[0] = sdata.opacity; info[1] = info[2] = info[3] = 0;
             var infoOffset = mGpuBuffer.Push(info, (uint)(4 * sizeof(uint)), true);
 
             task.AddBindResource(new GlBindingResource(
                 1,
-                task.GetProgram()!.GetUniformBlockIndex("ColorInfo\0"u8),
+                task.GetProgram()!.GetUniformBlockIndex(GlShaderUniformBlock.ColorInfo),
                 mGpuBuffer.GetBufferId(),
                 infoOffset,
                 (uint)(4 * sizeof(uint))));
 
             // texture id
-            task.AddBindResource(new GlBindingResource(0, sdata.texId, task.GetProgram()!.GetUniformLocation("uTexture\0"u8)));
+            task.AddBindResource(new GlBindingResource(0, sdata.texId, task.GetProgram()!.GetUniformLocation(GlShaderUniform.Texture)));
 
             var taskBounds = bbox;
             taskBounds.IntersectWith(vp);
@@ -1398,12 +1516,20 @@ namespace ThorVG
             if (sdata == null) return;
             var ownsTexture = sdata.texId != 0 && (sdata.texStamp == mTextures.stamp);
             if (ownsTexture) DisposeTexture(mTextures.Release(sdata.texSource, sdata.texFilter, sdata.texId));
+            sdata.texId = 0;
+            sdata.texSource = null;
+            sdata.geometry.Dispose();
+            sdata.clips = default;
         }
 
         public override object? Prepare(RenderSurface image, object? data, in Matrix transform, ref ValueList<object?> clips, byte opacity, FilterMethod filter, RenderUpdateFlag flags)
         {
             var sdata = data as GlShape;
-            if (sdata == null) sdata = new GlShape();
+            if (sdata == null)
+            {
+                sdata = new GlShape();
+                flags = RenderUpdateFlag.All;
+            }
 
             if (opacity == 0)
             {
@@ -1416,7 +1542,8 @@ namespace ThorVG
             sdata.deferredFlags = RenderUpdateFlag.None;
 
             var cacheStale = sdata.texId != 0 && (sdata.texStamp != mTextures.stamp);
-            if (flags == RenderUpdateFlag.None && !cacheStale) return data;
+            if (cacheStale) flags |= RenderUpdateFlag.Image;
+            if (flags == RenderUpdateFlag.None) return sdata;
 
             sdata.validFill = false;
 
@@ -1427,23 +1554,27 @@ namespace ThorVG
             {
                 var ownsTexture = sdata.texId != 0 && (sdata.texStamp == mTextures.stamp);
                 if (ownsTexture) DisposeTexture(mTextures.Release(sdata.texSource, sdata.texFilter, sdata.texId));
-                sdata.texId = mTextures.Retain(image, filter);
+                sdata.texId = mTextures.Retain(mStateCache, image, filter);
                 sdata.texSource = image;
                 sdata.texFilter = filter;
                 sdata.texStamp = mTextures.stamp;
+                sdata.geometry.Dispose();
                 sdata.geometry = new GlGeometry();
             }
             else if ((flags & RenderUpdateFlag.Image) != 0)
             {
-                TextureMgr.Upload(sdata.texId, image, filter);
+                mTextures.Upload(mStateCache, sdata.texId, image, filter, false);
             }
 
             sdata.texColorSpace = image.cs;
             sdata.texFlipY = 1;
             sdata.opacity = opacity;
-            sdata.geometry.SetMatrix(transform);
+            if ((flags & (RenderUpdateFlag.Image | RenderUpdateFlag.Transform)) != 0)
+            {
+                sdata.geometry.SetMatrix(transform);
+                sdata.geometry.TesselateImage(image);
+            }
             sdata.geometry.viewport = vport;
-            sdata.geometry.TesselateImage(image);
             sdata.validFill = true;
 
             if ((flags & RenderUpdateFlag.Clip) != 0)
@@ -1477,34 +1608,25 @@ namespace ThorVG
 
             sdata.viewWd = (float)surface.w;
             sdata.viewHt = (float)surface.h;
-            sdata.opacity = opacity;
-
-            if ((flags & RenderUpdateFlag.Path) != 0) sdata.geometry = new GlGeometry();
+            if ((flags & RenderUpdateFlag.Path) != 0)
+            {
+                sdata.geometry.Dispose();
+                sdata.geometry = new GlGeometry();
+            }
 
             sdata.geometry.SetMatrix(transform);
             sdata.geometry.viewport = vport;
             var strokePathMissing = (flags & RenderUpdateFlag.Stroke) != 0 && rshape.stroke != null &&
                 float.IsFinite(rshape.StrokeWidth()) && !TvgMath.Zero(rshape.StrokeWidth()) && sdata.geometry.optStrokePath.Empty();
-            if ((flags & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform)) != 0 || strokePathMissing) sdata.geometry.Prepare(rshape);
-
-            // TODO: Please precisely update tessellation not to update only if the color is changed.
-            if ((flags & (RenderUpdateFlag.Color | RenderUpdateFlag.Gradient | RenderUpdateFlag.Transform | RenderUpdateFlag.Path)) != 0)
+            var updatePath = (flags & (RenderUpdateFlag.Path | RenderUpdateFlag.Transform)) != 0 || strokePathMissing;
+            if (updatePath)
             {
+                sdata.geometry.Prepare(rshape);
                 sdata.validFill = false;
-                float opacityMultiplier = 1.0f;
-                if (sdata.geometry.TesselateShape(sdata.rshape!, ref opacityMultiplier))
-                {
-                    sdata.opacity = (uint)(sdata.opacity * opacityMultiplier);
-                    sdata.validFill = true;
-                }
+                if (sdata.geometry.TesselateShape(sdata.rshape!, ref sdata.multiplier)) sdata.validFill = true;
+                sdata.validStroke = sdata.geometry.TesselateStroke(sdata.rshape!);
             }
-
-            // TODO: Please precisely update tessellation not to update only if the color is changed.
-            if ((flags & (RenderUpdateFlag.Color | RenderUpdateFlag.Stroke | RenderUpdateFlag.GradientStroke | RenderUpdateFlag.Transform | RenderUpdateFlag.Path)) != 0)
-            {
-                sdata.validStroke = false;
-                if (sdata.geometry.TesselateStroke(sdata.rshape!)) sdata.validStroke = true;
-            }
+            sdata.opacity = (uint)(opacity * sdata.multiplier);
 
             if ((flags & RenderUpdateFlag.Clip) != 0)
             {
@@ -1528,6 +1650,15 @@ namespace ThorVG
         public override void Damage(object? rd, in RenderRegion region)
         {
             // TODO
+        }
+
+        public override uint DirtyRegions() => 1;
+
+        public override Result DirtyRegions(Span<Region> regions)
+        {
+            if (regions.IsEmpty) return Result.InvalidArguments;
+            regions[0] = new Region(0, 0, (int)surface.w, (int)surface.h);
+            return Result.Success;
         }
 
         public override bool Partial(bool disable)

@@ -47,21 +47,9 @@ namespace ThorVG
         public static RGB32 Lerp(in RGB32 s, in RGB32 e, float t)
         {
             return new RGB32(
-                Math.Clamp((int)(s.r + (e.r - s.r) * t), 0, 255),
-                Math.Clamp((int)(s.g + (e.g - s.g) * t), 0, 255),
-                Math.Clamp((int)(s.b + (e.b - s.b) * t), 0, 255));
-        }
-    }
-
-    public struct Point3
-    {
-        public float x, y, z;
-
-        public Point3(float x, float y, float z)
-        {
-            this.x = x;
-            this.y = y;
-            this.z = z;
+                Math.Clamp((int)TvgMath.MultiplyAdd(e.r - s.r, t, s.r), 0, 255),
+                Math.Clamp((int)TvgMath.MultiplyAdd(e.g - s.g, t, s.g), 0, 255),
+                Math.Clamp((int)TvgMath.MultiplyAdd(e.b - s.b, t, s.b), 0, 255));
         }
     }
 
@@ -87,6 +75,20 @@ namespace ThorVG
     public class TextDocument
     {
         public string? text;
+        private string? cachedText;
+        private byte[] cachedUtf8 = System.Array.Empty<byte>();
+        internal byte[] Utf8
+        {
+            get
+            {
+                if (!ReferenceEquals(cachedText, text))
+                {
+                    cachedUtf8 = LottieDataHelper.Utf8CString(text);
+                    cachedText = text;
+                }
+                return cachedUtf8;
+            }
+        }
         public float height;
         public float shift;
         public RGB32 color;
@@ -101,6 +103,8 @@ namespace ThorVG
         public float justify;    // horizontal alignment
         public byte caps;        // 0: Regular, 1: AllCaps, 2: SmallCaps
 
+        public TextDocument Clone() => (TextDocument)MemberwiseClone();
+
         public void Copy(TextDocument rhs)
         {
             text = rhs.text;
@@ -110,6 +114,13 @@ namespace ThorVG
 
     public static class LottieDataHelper
     {
+        internal static byte[] Utf8CString(string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return System.Array.Empty<byte>();
+            int end = value.IndexOf('\0');
+            return TvgUtf8.Encode(end < 0 ? value : TvgUtf8.Slice(value, 0, end));
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int REMAP255(float val)
         {
@@ -119,7 +130,7 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte LerpByte(byte start, byte end, float t)
         {
-            return (byte)TvgMath.Clamp((int)(start + (end - start) * t), 0, 255);
+            return TvgMath.Lerp(start, end, t);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -31,6 +31,7 @@ public readonly struct AvailableSpace : IEquatable<AvailableSpace>
 
     /// <summary>The amount of space available is the specified number of pixels.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static AvailableSpace Definite(double value) => Definite((float)value);
     public static AvailableSpace Definite(float value) => new(Tag.Definite, value);
 
     /// <summary>
@@ -60,6 +61,7 @@ public readonly struct AvailableSpace : IEquatable<AvailableSpace>
 
     /// <summary>Creates a Definite AvailableSpace from a length value.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static AvailableSpace FromLength(double value) => FromLength((float)value);
     public static AvailableSpace FromLength(float value) => Definite(value);
 
     // --- Instance methods ---
@@ -150,7 +152,7 @@ public readonly struct AvailableSpace : IEquatable<AvailableSpace>
 
     /// <summary>
     /// Compare equality with another AvailableSpace, treating definite values
-    /// that are within float.Epsilon of each other as equal.
+    /// that differ by less than Rust's f32::EPSILON (the gap above 1) as equal.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsRoughlyEqual(AvailableSpace other)
@@ -158,7 +160,7 @@ public readonly struct AvailableSpace : IEquatable<AvailableSpace>
         if (_tag != other._tag)
             return false;
 
-        return _tag != Tag.Definite || MathF.Abs(_value - other._value) < float.Epsilon;
+        return _tag != Tag.Definite || MathF.Abs(_value - other._value) < 1.1920928955078125e-7f;
     }
 
     // --- Conversions ---

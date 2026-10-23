@@ -1,13 +1,13 @@
 // Ported from ThorVG/src/renderer/tvgRender.h and tvgRender.cpp
 // RenderMethod abstract class.
 
+using System;
 using System.Collections.Generic;
 
 namespace ThorVG
 {
     /// <summary>
     /// Abstract rendering backend. Mirrors C++ RenderMethod.
-    /// Concrete implementations (SW, GL) will be ported in later batches.
     /// </summary>
     public abstract class RenderMethod
     {
@@ -24,9 +24,15 @@ namespace ThorVG
 
         public uint Unref()
         {
-            using var lk = new ScopedLock(_key);
-            return --_refCnt;
+            uint count;
+            using (var lk = new ScopedLock(_key)) count = --_refCnt;
+            if (count == 0) ReleaseResources();
+            return count;
         }
+
+        // Mirrors the virtual RenderMethod destructor. Backends with owned
+        // resources release them when the last canvas/paint reference drops.
+        protected virtual void ReleaseResources() { }
 
         public RenderRegion Viewport() => vport;
 
@@ -48,6 +54,15 @@ namespace ThorVG
         public abstract void Dispose(object? data);
         public abstract RenderRegion Region(object? data);
         public abstract bool Bounds(object? data, Point[] pt4, in Matrix m);
+        // Preserve existing custom renderer overrides; the included CPU/GL
+        // backends override this span entry to retain native stack storage.
+        public virtual bool Bounds(object? data, Span<Point> pt4, in Matrix m)
+        {
+            var points = new Point[4];
+            if (!Bounds(data, points, m)) return false;
+            points.AsSpan().CopyTo(pt4);
+            return true;
+        }
         public abstract bool Blend(BlendMethod method);
         public abstract ColorSpace ColorSpaceValue();
         public abstract RenderSurface? MainSurface();
@@ -70,5 +85,7 @@ namespace ThorVG
         // --- Partial rendering ---
         public abstract void Damage(object? rd, in RenderRegion region);
         public abstract bool Partial(bool disable);
+        public abstract uint DirtyRegions();
+        public abstract Result DirtyRegions(System.Span<Region> regions);
     }
 }

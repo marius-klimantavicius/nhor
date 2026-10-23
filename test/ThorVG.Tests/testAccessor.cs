@@ -6,7 +6,7 @@ namespace ThorVG.Tests
 {
     public class testAccessor
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void AccessorCreation()
@@ -23,7 +23,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -64,6 +64,7 @@ namespace ThorVG.Tests
 
             Paint.Rel(picture);
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
     }

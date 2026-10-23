@@ -25,11 +25,13 @@ namespace Marius.Winter.Taffy
         public readonly ulong KnownDimensionsAvailableSpace;
         /// <summary>The parent size with the requested axis packed into its sign bits</summary>
         public readonly ulong ParentSizeBits;
+        public readonly Size<bool> KnownDimensionsAreDefinite;
 
-        private CacheKey(ulong knownDimensionsAvailableSpace, ulong parentSizeBits)
+        private CacheKey(ulong knownDimensionsAvailableSpace, ulong parentSizeBits, Size<bool> knownDimensionsAreDefinite)
         {
             KnownDimensionsAvailableSpace = knownDimensionsAvailableSpace;
             ParentSizeBits = parentSizeBits;
+            KnownDimensionsAreDefinite = knownDimensionsAreDefinite;
         }
 
         /// <summary>Pack a nullable float into a uint</summary>
@@ -95,7 +97,10 @@ namespace Marius.Winter.Taffy
 
             return new CacheKey(
                 SizeMixedCacheKey(input.KnownDimensions, input.AvailableSpace),
-                (SizeOptionCacheKey(input.ParentSize) & NON_SIGN_BITS_MASK) | extraBits);
+                (SizeOptionCacheKey(input.ParentSize) & NON_SIGN_BITS_MASK) | extraBits,
+                new Size<bool>(
+                    input.KnownDimensionsAreDefinite.Width || !input.KnownDimensions.Width.HasValue,
+                    input.KnownDimensionsAreDefinite.Height || !input.KnownDimensions.Height.HasValue));
         }
 
         /// <summary>Return the parent size with the requested-axis bits masked out</summary>
@@ -115,12 +120,20 @@ namespace Marius.Winter.Taffy
         public bool Equals(CacheKey other)
         {
             return KnownDimensionsAvailableSpace == other.KnownDimensionsAvailableSpace
-                && ParentSizeBits == other.ParentSizeBits;
+                && ParentSizeBits == other.ParentSizeBits
+                && KnownDimensionsAreDefinite.Width == other.KnownDimensionsAreDefinite.Width
+                && KnownDimensionsAreDefinite.Height == other.KnownDimensionsAreDefinite.Height;
+        }
+
+        public bool SizeIsValidFor(CacheKey other)
+        {
+            ulong axis = ParentSizeBits & BOTH_SIGN_BITS_MASK;
+            return axis == BOTH_SIGN_BITS_MASK || axis == (other.ParentSizeBits & BOTH_SIGN_BITS_MASK);
         }
 
         public override bool Equals(object? obj) => obj is CacheKey other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(KnownDimensionsAvailableSpace, ParentSizeBits);
+        public override int GetHashCode() => HashCode.Combine(KnownDimensionsAvailableSpace, ParentSizeBits, KnownDimensionsAreDefinite);
 
         public static bool operator ==(CacheKey left, CacheKey right) => left.Equals(right);
 
@@ -169,6 +182,21 @@ namespace Marius.Winter.Taffy
         private bool _isEmpty;
         /// <summary>Tracks if measure entries have been populated</summary>
         private bool _hasMeasureEntries;
+        private ushort _recentlyUsedEntries;
+        private byte _nextMeasureEntry;
+        private byte _mode;
+
+        /// <summary>Number of nonempty cache evictions caused by a sizing or margin-collapse mode change on this thread.</summary>
+#if DEBUG
+        [ThreadStatic]
+        private static int s_modeChangeEvictions;
+        public static int ModeChangeEvictions => s_modeChangeEvictions;
+#endif
+
+        private static byte Mode(in LayoutInput input) => (byte)(
+            (input.SizingMode == SizingMode.InherentSize ? 1 : 0)
+            | (input.VerticalMarginsAreCollapsible.Start ? 2 : 0)
+            | (input.VerticalMarginsAreCollapsible.End ? 4 : 0));
 
         /// <summary>Create a new empty cache</summary>
         public static Cache New()
@@ -182,41 +210,12 @@ namespace Marius.Winter.Taffy
             };
         }
 
-        /// <summary>
-        /// Return the cache slot to cache the current computed result in.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int ComputeCacheSlot(Size<float?> knownDimensions, Size<AvailableSpace> availableSpace)
-        {
-            bool hasKnownWidth = knownDimensions.Width.HasValue;
-            bool hasKnownHeight = knownDimensions.Height.HasValue;
-
-            // Slot 0: Both known_dimensions were set
-            if (hasKnownWidth && hasKnownHeight)
-                return 0;
-
-            // Slot 1-2: width but not height known
-            if (hasKnownWidth && !hasKnownHeight)
-                return 1 + (availableSpace.Height == AvailableSpace.MinContent ? 1 : 0);
-
-            // Slot 3-4: height but not width known
-            if (hasKnownHeight && !hasKnownWidth)
-                return 3 + (availableSpace.Width == AvailableSpace.MinContent ? 1 : 0);
-
-            // Slots 5-8: Neither known_dimensions were set
-            bool widthIsMinContent = availableSpace.Width == AvailableSpace.MinContent;
-            bool heightIsMinContent = availableSpace.Height == AvailableSpace.MinContent;
-
-            if (!widthIsMinContent && !heightIsMinContent) return 5;
-            if (!widthIsMinContent && heightIsMinContent) return 6;
-            if (widthIsMinContent && !heightIsMinContent) return 7;
-            return 8;
-        }
-
         /// <summary>Try to retrieve a cached result from the cache</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public LayoutOutput? Get(in LayoutInput input)
         {
+            if (_mode != Mode(input))
+                return null;
             var key = CacheKey.From(input);
             switch (input.RunMode)
             {
@@ -226,7 +225,7 @@ namespace Marius.Winter.Taffy
                     {
                         var entry = _finalLayoutEntry.Value;
                         if (entry.Key == key)
-                            return entry.Content;
+                            return entry.Content.Clone();
                     }
                     return null;
                 }
@@ -242,8 +241,12 @@ namespace Marius.Winter.Taffy
 
                             var entry = slot.Value;
                             if (entry.Key.KnownDimensionsAvailableSpace == key.KnownDimensionsAvailableSpace
-                                && entry.Key.XAxisParentSize() == key.XAxisParentSize())
+                                && entry.Key.KnownDimensionsAreDefinite.Width == key.KnownDimensionsAreDefinite.Width
+                                && entry.Key.KnownDimensionsAreDefinite.Height == key.KnownDimensionsAreDefinite.Height
+                                && entry.Key.XAxisParentSize() == key.XAxisParentSize()
+                                && entry.Key.SizeIsValidFor(key))
                             {
+                                _recentlyUsedEntries |= (ushort)(1 << i);
                                 return LayoutOutput.FromOuterSize(entry.Content);
                             }
                         }
@@ -259,6 +262,18 @@ namespace Marius.Winter.Taffy
         /// <summary>Store a computed size in the cache</summary>
         public void Store(in LayoutInput input, LayoutOutput layoutOutput)
         {
+            if (input.RunMode == RunMode.PerformHiddenLayout)
+                return;
+            byte mode = Mode(input);
+            if (_mode != mode)
+            {
+#if DEBUG
+                if (!_isEmpty)
+                    s_modeChangeEvictions++;
+#endif
+                Clear();
+                _mode = mode;
+            }
             var key = CacheKey.From(input);
             switch (input.RunMode)
             {
@@ -267,18 +282,43 @@ namespace Marius.Winter.Taffy
                     _finalLayoutEntry = new CacheEntry<LayoutOutput>
                     {
                         Key = key,
-                        Content = layoutOutput,
+                        Content = layoutOutput.Clone(),
                     };
                     break;
                 case RunMode.ComputeSize:
+                    if (layoutOutput.MarginsCanCollapseThrough
+                        || layoutOutput.TopMargin.Positive != 0f || layoutOutput.TopMargin.Negative != 0f
+                        || layoutOutput.BottomMargin.Positive != 0f || layoutOutput.BottomMargin.Negative != 0f)
+                        return;
                     _isEmpty = false;
                     _hasMeasureEntries = true;
-                    int cacheSlot = ComputeCacheSlot(input.KnownDimensions, input.AvailableSpace);
+                    for (int i = 0; i < CacheConstants.CACHE_SIZE; i++)
+                    {
+                        if (_measureEntries[i] is { } entry && entry.Key == key)
+                        {
+                            entry.Content = layoutOutput.Size;
+                            _measureEntries[i] = entry;
+                            _recentlyUsedEntries |= (ushort)(1 << i);
+                            return;
+                        }
+                    }
+                    while ((_recentlyUsedEntries & (1 << _nextMeasureEntry)) != 0)
+                    {
+                        _recentlyUsedEntries &= (ushort)~(1 << _nextMeasureEntry);
+                        _nextMeasureEntry++;
+                        if (_nextMeasureEntry == CacheConstants.CACHE_SIZE)
+                            _nextMeasureEntry = 0;
+                    }
+                    int cacheSlot = _nextMeasureEntry;
                     _measureEntries[cacheSlot] = new CacheEntry<Size<float>>
                     {
                         Key = key,
                         Content = layoutOutput.Size,
                     };
+                    _recentlyUsedEntries |= (ushort)(1 << cacheSlot);
+                    _nextMeasureEntry++;
+                    if (_nextMeasureEntry == CacheConstants.CACHE_SIZE)
+                        _nextMeasureEntry = 0;
                     break;
                 case RunMode.PerformHiddenLayout:
                     break;
@@ -293,6 +333,8 @@ namespace Marius.Winter.Taffy
 
             _isEmpty = true;
             _finalLayoutEntry = null;
+            _recentlyUsedEntries = 0;
+            _nextMeasureEntry = 0;
             if (_hasMeasureEntries)
             {
                 for (int i = 0; i < CacheConstants.CACHE_SIZE; i++)

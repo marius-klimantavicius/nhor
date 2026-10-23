@@ -1,0 +1,15 @@
+{
+  "kind": "authored deterministic regression derived from recorded fixture",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "sha256": "fc841c885b8b3b30e95e6fef7e117927ba1920001cb8be3175e590335a313487",
+  "description": "A defined midpoint decimal color parses to a different native float, changing an actual color channel. Preserve every pixel including a one-channel difference.",
+  "detail": {
+    "literal": "0.025490197353065013885498046874999813735485076904296875",
+    "nativeBitsX86": "3cd0d0d1,0",
+    "nativeBitsArm64": "3cd0d0d1,0",
+    "nativeChannel": 6,
+    "oldManagedChannel": 7
+  }
+}

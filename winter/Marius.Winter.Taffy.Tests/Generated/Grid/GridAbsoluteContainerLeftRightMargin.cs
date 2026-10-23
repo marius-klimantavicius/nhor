@@ -18,16 +18,17 @@ public class GridAbsoluteContainerLeftRightMargin
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(4f), LengthPercentageAuto.Length(2f), LengthPercentageAuto.Length(1f), LengthPercentageAuto.Length(3f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(5f), LengthPercentageAuto.Length(2f), LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO),
         });
-        var node1 = taffy.NewLeaf(new Style());
-        var node2 = taffy.NewLeaf(new Style());
-        var node3 = taffy.NewLeaf(new Style());
-        var node4 = taffy.NewLeaf(new Style());
-        var node5 = taffy.NewLeaf(new Style());
-        var node6 = taffy.NewLeaf(new Style());
-        var node7 = taffy.NewLeaf(new Style());
-        var node8 = taffy.NewLeaf(new Style());
+        var node1 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node2 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node3 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node4 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node5 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node6 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node7 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
+        var node8 = taffy.NewLeaf(new Style { PositionValue = Position.Relative });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             GridTemplateRows = ImmutableList.Create(GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f)),
             GridTemplateColumns = ImmutableList.Create(GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f)),
@@ -99,38 +100,47 @@ public class GridAbsoluteContainerLeftRightMargin
         });
         var node1 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node3 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node4 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node5 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node6 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node7 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node8 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             GridTemplateRows = ImmutableList.Create(GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f), GridTemplateComponent.FromLength(40f)),

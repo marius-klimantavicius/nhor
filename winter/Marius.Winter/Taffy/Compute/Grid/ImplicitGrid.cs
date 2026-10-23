@@ -29,10 +29,25 @@ namespace Marius.Winter.Taffy
             Direction direction,
             IEnumerable<Style> childStylesIter)
         {
-            // Iterate over children, producing an estimate of the min and max grid lines (in origin-zero coordinates)
-            // along with the span of each item
-            var (colMin, colMax, colMaxSpan, rowMin, rowMax, rowMaxSpan) =
-                GetKnownChildPositions(childStylesIter, explicitColCount, explicitRowCount, direction);
+            var placements = new List<InBothAbsAxis<Line<GenericGridPlacement<OriginZeroLine>>>>();
+            foreach (var child in childStylesIter)
+                placements.Add(new() { Horizontal = child.GridColumn.IntoOriginZeroIgnoringNamed(explicitColCount),
+                    Vertical = child.GridRow.IntoOriginZeroIgnoringNamed(explicitRowCount) });
+            return ComputeGridSizeEstimate(explicitColCount, explicitRowCount, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(placements));
+        }
+
+        public static (TrackCounts columnCounts, TrackCounts rowCounts) ComputeGridSizeEstimate(ushort explicitColCount, ushort explicitRowCount,
+            ReadOnlySpan<InBothAbsAxis<Line<GenericGridPlacement<OriginZeroLine>>>> placements)
+        {
+            var colMin = new OriginZeroLine(0); var colMax = new OriginZeroLine(0); ushort colMaxSpan = 0;
+            var rowMin = new OriginZeroLine(0); var rowMax = new OriginZeroLine(0); ushort rowMaxSpan = 0;
+            foreach (var placement in placements)
+            {
+                var (cmin, cmax, cspan) = ChildMinLineMaxLineSpan(placement.Horizontal);
+                var (rmin, rmax, rspan) = ChildMinLineMaxLineSpan(placement.Vertical);
+                colMin = cmin < colMin ? cmin : colMin; colMax = cmax > colMax ? cmax : colMax; colMaxSpan = Math.Max(colMaxSpan, cspan);
+                rowMin = rmin < rowMin ? rmin : rowMin; rowMax = rmax > rowMax ? rmax : rowMax; rowMaxSpan = Math.Max(rowMaxSpan, rspan);
+            }
 
             // Compute *track* count estimates for each axis from:
             //   - The explicit track counts
@@ -65,58 +80,6 @@ namespace Marius.Winter.Taffy
         }
 
         /// <summary>
-        /// Iterate over children, producing an estimate of the min and max grid *lines* along with the span of each item
-        ///
-        /// Min and max grid lines are returned in origin-zero coordinates
-        /// The span is measured in tracks spanned
-        /// </summary>
-        private static (OriginZeroLine colMin, OriginZeroLine colMax, ushort colMaxSpan,
-            OriginZeroLine rowMin, OriginZeroLine rowMax, ushort rowMaxSpan)
-            GetKnownChildPositions(
-                IEnumerable<Style> childrenIter,
-                ushort explicitColCount,
-                ushort explicitRowCount,
-                Direction direction)
-        {
-            var colMin = new OriginZeroLine(0);
-            var colMax = new OriginZeroLine(0);
-            ushort colMaxSpan = 0;
-            var rowMin = new OriginZeroLine(0);
-            var rowMax = new OriginZeroLine(0);
-            ushort rowMaxSpan = 0;
-
-            foreach (var childStyle in childrenIter)
-            {
-                // Note: that the children reference the lines in between (and around) the tracks not tracks themselves,
-                // and thus we must subtract 1 to get an accurate estimate of the number of tracks
-                var (childColMin, childColMax, childColSpan) =
-                    ChildMinLineMaxLineSpan(childStyle.GetGridColumn(), explicitColCount);
-                var (childRowMin, childRowMax, childRowSpan) =
-                    ChildMinLineMaxLineSpan(childStyle.GetGridRow(), explicitRowCount);
-
-                // Placement mirrors horizontal spans in RTL, so mirror known column line bounds here
-                // to keep implicit-grid pre-sizing consistent with actual placement.
-                if (direction.IsRtl() && (childColMin != new OriginZeroLine(0) || childColMax != new OriginZeroLine(0)))
-                {
-                    var explicitColEndLine = (short)explicitColCount;
-                    var mirroredMin = new OriginZeroLine((short)(explicitColEndLine - childColMax.Value));
-                    var mirroredMax = new OriginZeroLine((short)(explicitColEndLine - childColMin.Value));
-                    childColMin = mirroredMin;
-                    childColMax = mirroredMax;
-                }
-
-                colMin = (childColMin < colMin ? childColMin : colMin);
-                colMax = (childColMax > colMax ? childColMax : colMax);
-                colMaxSpan = Math.Max(colMaxSpan, childColSpan);
-                rowMin = (childRowMin < rowMin ? childRowMin : rowMin);
-                rowMax = (childRowMax > rowMax ? childRowMax : rowMax);
-                rowMaxSpan = Math.Max(rowMaxSpan, childRowSpan);
-            }
-
-            return (colMin, colMax, colMaxSpan, rowMin, rowMax, rowMaxSpan);
-        }
-
-        /// <summary>
         /// Helper function for ComputeGridSizeEstimate
         /// Produces a conservative estimate of the greatest and smallest grid lines used by a single grid item
         ///
@@ -124,18 +87,13 @@ namespace Marius.Winter.Taffy
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static (OriginZeroLine min, OriginZeroLine max, ushort span) ChildMinLineMaxLineSpan(
-            Line<GridPlacement> line,
-            ushort explicitTrackCount)
+            Line<GenericGridPlacement<OriginZeroLine>> ozLine)
         {
             // 8.3.1. Grid Placement Conflict Handling
             // A. If the placement for a grid item contains two lines, and the start line is further end-ward than the end line, swap the two lines.
             // B. If the start line is equal to the end line, remove the end line.
             // C. If the placement contains two spans, remove the one contributed by the end grid-placement property.
             // D. If the placement contains only a span for a named line, replace it with a span of 1.
-
-            // Convert line into origin-zero coordinates before attempting to analyze
-            // We ignore named lines here as they are accounted for separately
-            var ozLine = line.IntoOriginZeroIgnoringNamed(explicitTrackCount);
 
             OriginZeroLine min;
             if (ozLine.Start.IsLine && ozLine.End.IsLine)
@@ -150,7 +108,7 @@ namespace Marius.Winter.Taffy
             }
             else if (ozLine.End.IsLine && ozLine.Start.IsAuto)
             {
-                min = ozLine.End.LineValue;
+                min = ozLine.End.LineValue - 1;
             }
             else if (ozLine.End.IsLine && ozLine.Start.IsSpan)
             {
@@ -201,7 +159,7 @@ namespace Marius.Winter.Taffy
                 span = 1;
             }
 
-            return (min, max, span);
+            return (new OriginZeroLine((short)Math.Max((int)min.Value, -10000)), new OriginZeroLine((short)Math.Min((int)max.Value, 10000)), span);
         }
     }
 }

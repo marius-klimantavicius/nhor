@@ -14,12 +14,13 @@ namespace ThorVG.Tools
         private uint height = 600;
         private byte r, g, b;
         private bool background = false;
+        private uint? randomSeed;
 
         private static void HelpMsg()
         {
             Console.WriteLine(
                 "Usage: \n" +
-                "   lottie2gif-gl [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color]\n\n" +
+                "   lottie2gif-gl [Lottie file] or [Lottie folder] [-r resolution] [-f fps] [-b background color] [-s random seed]\n\n" +
                 "Examples: \n" +
                 "    $ lottie2gif-gl input.json\n" +
                 "    $ lottie2gif-gl input.json -r 600x600\n" +
@@ -72,182 +73,198 @@ namespace ThorVG.Tools
             Glfw.Glfw.glfwMakeContextCurrent(window);
             Glfw.Glfw.glfwSwapInterval(0); // No vsync for maximum speed
 
-            // Load glReadPixels via GLFW
-            var readPixelsPtr = Glfw.Glfw.glfwGetProcAddress("glReadPixels");
-            if (readPixelsPtr == nint.Zero)
+            GlCanvas? canvas = null;
+            Animation? animation = null;
+            bool initialized = false;
+            GifWriter? writer = null;
+            try
             {
-                Console.WriteLine("Error: glReadPixels not available.");
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-            var glReadPixels = (delegate* unmanaged[Cdecl]<int, int, int, int, uint, uint, void*, void>)readPixelsPtr;
-
-            // 4. Initialize ThorVG (must happen after GL context is current)
-            if (Initializer.Init() != Result.Success)
-            {
-                Console.WriteLine("Error: Failed to initialize ThorVG.");
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-
-            // 5. Create GL canvas
-            var canvas = GlCanvas.Gen();
-            if (canvas == null)
-            {
-                Console.WriteLine("Error: Failed to create GL canvas.");
-                Initializer.Term();
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-
-            // context parameter is opaque — just needs to be non-zero
-            nint contextId = 1;
-            if (canvas.Target(nint.Zero, nint.Zero, contextId, 0, width, height, ColorSpace.ABGR8888S) != Result.Success)
-            {
-                Console.WriteLine("Error: Failed to set GL canvas target.");
-                Initializer.Term();
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-
-            // 6. Load animation
-            var animation = Animation.Gen();
-            var picture = animation.GetPicture();
-            if (picture.Load(input) != Result.Success)
-            {
-                Console.WriteLine($"Error: Failed to load \"{input}\".");
-                Initializer.Term();
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-
-            picture.GetSize(out float origW, out float origH);
-            var scale = (float)width / origW;
-            picture.SetSize(origW * scale, origH * scale);
-
-            // Use picture bounds for GIF dimensions (matches GifSaver behavior)
-            picture.Bounds(out float bx, out float by, out float bw, out float bh);
-            if (bx < 0) bw += bx;
-            if (by < 0) bh += by;
-            var w = (uint)bw;
-            var h = (uint)bh;
-
-            // Resize window and re-target canvas to match picture bounds
-            if (w != width || h != height)
-            {
-                Glfw.Glfw.glfwSetWindowSize(window, (int)w, (int)h);
-                canvas.Target(nint.Zero, nint.Zero, contextId, 0, w, h, ColorSpace.ABGR8888S);
-            }
-
-            // Background
-            if (background)
-            {
-                var bg = Shape.Gen();
-                bg.SetFill(r, g, b);
-                bg.AppendRect(0, 0, bw, bh);
-                canvas.Add(bg);
-            }
-
-            canvas.Add(picture);
-            var totalFrames = animation.TotalFrame();
-            var duration = animation.Duration();
-
-            var actualFps = (float)fps;
-            if (actualFps > 60.0f) actualFps = 60.0f;
-            else if (TvgMath.Zero(actualFps) || actualFps < 0.0f)
-                actualFps = totalFrames / duration;
-
-            var delay = 1.0f / actualFps;
-            var transparent = !background;
-
-            var buffer = new uint[w * h];
-            var tmpRow = new uint[w];
-
-            var writer = new GifWriter();
-            if (!GifEncoder.GifBegin(writer, output, w, h, (uint)(delay * 100.0f)))
-            {
-                Console.WriteLine("Error: Failed to begin GIF encoding.");
-                Initializer.Term();
-                Glfw.Glfw.glfwDestroyWindow(window);
-                Glfw.Glfw.glfwTerminate();
-                return false;
-            }
-
-            // 8. Frame loop
-            for (var p = 0.0f; p < duration; p += delay)
-            {
-                var frameNo = totalFrames * (p / duration);
-                animation.Frame(frameNo);
-                canvas.Update();
-                if (canvas.Draw(true) == Result.Success)
+                // Load glReadPixels via GLFW
+                var readPixelsPtr = Glfw.Glfw.glfwGetProcAddress("glReadPixels");
+                if (readPixelsPtr == nint.Zero)
                 {
-                    canvas.Sync();
+                    Console.WriteLine("Error: glReadPixels not available.");
+                    return false;
+                }
+                var glReadPixels = (delegate* unmanaged[Cdecl]<int, int, int, int, uint, uint, void*, void>)readPixelsPtr;
+
+                // 4. Initialize ThorVG (must happen after GL context is current)
+                if (Initializer.Init() != Result.Success)
+                {
+                    Console.WriteLine("Error: Failed to initialize ThorVG.");
+                    return false;
                 }
 
-                // Read pixels from GL framebuffer
-                fixed (uint* bufPtr = buffer)
+                // 5. Create GL canvas
+                initialized = true;
+                canvas = GlCanvas.Gen();
+                if (canvas == null)
                 {
-                    glReadPixels(0, 0, (int)w, (int)h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, bufPtr);
+                    Console.WriteLine("Error: Failed to create GL canvas.");
+                    return false;
                 }
 
-                // Flip vertically (GL has origin at bottom-left, GIF at top-left)
-                int rowWidth = (int)w;
-                for (int y = 0; y < (int)h / 2; y++)
+                if (canvas.Target(0, width, height, ColorSpace.ABGR8888S) != Result.Success)
                 {
-                    int topOff = y * rowWidth;
-                    int botOff = ((int)h - 1 - y) * rowWidth;
-                    Array.Copy(buffer, topOff, tmpRow, 0, rowWidth);
-                    Array.Copy(buffer, botOff, buffer, topOff, rowWidth);
-                    Array.Copy(tmpRow, 0, buffer, botOff, rowWidth);
+                    Console.WriteLine("Error: Failed to set GL canvas target.");
+                    return false;
                 }
 
-                // Encode frame
-                fixed (uint* bufPtr = buffer)
+                // 6. Load animation
+                animation = Animation.Gen();
+                var picture = animation.GetPicture();
+                if (randomSeed.HasValue) LottieExpressions.SeedRandom(randomSeed.Value);
+                if (picture.Load(input) != Result.Success)
                 {
-                    if (!GifEncoder.GifWriteFrame(writer, (byte*)bufPtr, w, h, (uint)(delay * 100.0f), transparent))
+                    Console.WriteLine($"Error: Failed to load \"{input}\".");
+                    return false;
+                }
+
+                picture.GetSize(out float origW, out float origH);
+                var scale = (float)width / origW;
+                picture.SetSize(origW * scale, origH * scale);
+
+                // Use picture bounds for GIF dimensions (matches GifSaver behavior)
+                picture.Bounds(out float bx, out float by, out float bw, out float bh);
+                if (bx < 0) bw += bx;
+                if (by < 0) bh += by;
+                var w = (uint)bw;
+                var h = (uint)bh;
+
+                // Resize window and re-target canvas to match picture bounds
+                if (w != width || h != height)
+                {
+                    Glfw.Glfw.glfwSetWindowSize(window, (int)w, (int)h);
+                    canvas.Target(0, w, h, ColorSpace.ABGR8888S);
+                }
+
+                // Background
+                if (background)
+                {
+                    var bg = Shape.Gen();
+                    bg.SetFill(r, g, b);
+                    bg.AppendRect(0, 0, bw, bh);
+                    canvas.Add(bg);
+                }
+
+                canvas.Add(picture);
+                var totalFrames = animation.TotalFrame();
+                var duration = animation.Duration();
+                if (!(duration > 0) || !float.IsFinite(duration) || !(totalFrames > 0) || w == 0 || h == 0)
+                {
+                    Console.WriteLine("Error: Animation has no renderable duration or bounds.");
+                    return false;
+                }
+
+                var actualFps = (float)fps;
+                if (actualFps > 60.0f) actualFps = 60.0f;
+                else if (TvgMath.Zero(actualFps) || actualFps < 0.0f)
+                    actualFps = totalFrames / duration;
+
+                var delay = 1.0f / actualFps;
+                var transparent = !background;
+
+                var buffer = new uint[w * h];
+                var tmpRow = new uint[w];
+
+                writer = new GifWriter();
+                if (!GifEncoder.GifBegin(writer, output, w, h, (uint)(delay * 100.0f)))
+                {
+                    Console.WriteLine("Error: Failed to begin GIF encoding.");
+                    return false;
+                }
+
+                // 8. Frame loop
+                for (var p = 0.0f; p < duration; p += delay)
+                {
+                    var frameNo = totalFrames * (p / duration);
+                    animation.Frame(frameNo);
+                    if (canvas.Update() != Result.Success || canvas.Draw(true) != Result.Success || canvas.Sync() != Result.Success)
                     {
-                        Console.WriteLine("Error: Failed to encode GIF frame.");
-                        break;
+                        Console.WriteLine("Error: Failed to render animation frame.");
+                        return false;
+                    }
+
+                    // Read pixels from GL framebuffer
+                    fixed (uint* bufPtr = buffer)
+                    {
+                        glReadPixels(0, 0, (int)w, (int)h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, bufPtr);
+                    }
+
+                    // Flip vertically (GL has origin at bottom-left, GIF at top-left)
+                    int rowWidth = (int)w;
+                    for (int y = 0; y < (int)h / 2; y++)
+                    {
+                        int topOff = y * rowWidth;
+                        int botOff = ((int)h - 1 - y) * rowWidth;
+                        Array.Copy(buffer, topOff, tmpRow, 0, rowWidth);
+                        Array.Copy(buffer, botOff, buffer, topOff, rowWidth);
+                        Array.Copy(tmpRow, 0, buffer, botOff, rowWidth);
+                    }
+
+                    // Encode frame
+                    fixed (uint* bufPtr = buffer)
+                    {
+                        if (!GifEncoder.GifWriteFrame(writer, (byte*)bufPtr, w, h, (uint)(delay * 100.0f), transparent))
+                        {
+                            Console.WriteLine("Error: Failed to encode GIF frame.");
+                            return false;
+                        }
+                    }
+
+                    Glfw.Glfw.glfwSwapBuffers(window);
+                    Glfw.Glfw.glfwPollEvents();
+                }
+
+                if (!GifEncoder.GifEnd(writer)) return false;
+                return true;
+            }
+            catch (Exception error)
+            {
+                Console.WriteLine($"Error: {error.Message}");
+                return false;
+            }
+            finally
+            {
+                try { if (writer?.f != null) GifEncoder.GifEnd(writer); }
+                finally
+                {
+                    try { canvas?.Dispose(); }
+                    finally
+                    {
+                        try { animation?.Dispose(); }
+                        finally
+                        {
+                            if (initialized) Initializer.Term();
+                            Glfw.Glfw.glfwDestroyWindow(window);
+                            Glfw.Glfw.glfwTerminate();
+                        }
                     }
                 }
-
-                Glfw.Glfw.glfwSwapBuffers(window);
-                Glfw.Glfw.glfwPollEvents();
             }
-
-            GifEncoder.GifEnd(writer);
-
-            // 9. Cleanup
-            Initializer.Term();
-            Glfw.Glfw.glfwDestroyWindow(window);
-            Glfw.Glfw.glfwTerminate();
-
-            return true;
         }
 
-        private void ConvertFile(string lottieName)
+        private bool ConvertFile(string lottieName)
         {
             var gifName = Path.ChangeExtension(lottieName, ".gif");
 
-            if (Convert(lottieName, gifName))
+            bool converted = Convert(lottieName, gifName);
+            if (converted)
                 Console.WriteLine($"Generated Gif file : {gifName}");
             else
                 Console.WriteLine($"Failed Converting Gif file : {lottieName}");
+            return converted;
         }
 
-        private void HandleDirectory(string path)
+        private bool HandleDirectory(string path)
         {
             if (!Directory.Exists(path))
             {
                 Console.WriteLine($"Couldn't open directory \"{path}\".");
-                return;
+                return false;
             }
 
+            bool succeeded = true;
             foreach (var entry in Directory.EnumerateFileSystemEntries(path))
             {
                 var name = Path.GetFileName(entry);
@@ -255,14 +272,15 @@ namespace ThorVG.Tools
 
                 if (Directory.Exists(entry))
                 {
-                    HandleDirectory(entry);
+                    succeeded &= HandleDirectory(entry);
                 }
                 else
                 {
                     if (!Validate(entry)) continue;
-                    ConvertFile(entry);
+                    succeeded &= ConvertFile(entry);
                 }
             }
+            return succeeded;
         }
 
         public int Setup(string[] args)
@@ -324,6 +342,15 @@ namespace ThorVG.Tools
                         b = (byte)(bgColor & 0x0000ff);
                         background = true;
                     }
+                    else if (p == "-s")
+                    {
+                        if (!uint.TryParse(pArg, out var seed))
+                        {
+                            Console.WriteLine($"Error: Invalid random seed ({pArg}). Expected a nonnegative integer.");
+                            return 1;
+                        }
+                        randomSeed = seed;
+                    }
                     else
                     {
                         Console.WriteLine($"Warning: Unknown flag ({p}).");
@@ -341,28 +368,30 @@ namespace ThorVG.Tools
                 return 0;
             }
 
+            bool succeeded = true;
             foreach (var input in inputs)
             {
                 var path = Path.GetFullPath(input);
                 if (!File.Exists(path) && !Directory.Exists(path))
                 {
                     Console.WriteLine($"Invalid file or path name: \"{input}\"");
+                    succeeded = false;
                     continue;
                 }
 
                 if (Directory.Exists(path))
                 {
                     Console.WriteLine($"Directory: \"{path}\"");
-                    HandleDirectory(path);
+                    succeeded &= HandleDirectory(path);
                 }
                 else
                 {
-                    if (!Validate(path)) continue;
-                    ConvertFile(path);
+                    if (!Validate(path)) { succeeded = false; continue; }
+                    succeeded &= ConvertFile(path);
                 }
             }
 
-            return 0;
+            return succeeded ? 0 : 1;
         }
     }
 

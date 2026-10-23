@@ -1,4 +1,4 @@
-// Ported from glfw/include/GLFW/glfw3.h (GLFW 3.5)
+// Ported from glfw/include/GLFW/glfw3.h (GLFW 3.6)
 // All #define GLFW_* constants and callback delegate types.
 
 namespace Glfw
@@ -8,7 +8,7 @@ namespace Glfw
         #region Version macros
 
         public const int GLFW_VERSION_MAJOR    = 3;
-        public const int GLFW_VERSION_MINOR    = 5;
+        public const int GLFW_VERSION_MINOR    = 6;
         public const int GLFW_VERSION_REVISION = 0;
 
         #endregion

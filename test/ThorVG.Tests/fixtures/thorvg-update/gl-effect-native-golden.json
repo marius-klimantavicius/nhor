@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual pinned native324 complete defined parameter/region/reuse records before managed arithmetic fix. Six effects, ordinary public argument generators, nine finite profiles including disabled strength/cardinal angles/quality transitions and three affine transforms; no new malformed/corruption/fuzz/UTF8 cases. CPU preparation only, no GPU context/render claim.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "gl-effect-normal-before.json",
+      "correctedEvidence": "gl-effect-normal-before.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54.json",
+        "sha256": "51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54",
+        "archive": "docs/thorvg-update/source-snapshots/51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54.tar.gz"
+      },
+      "bytes": 18528,
+      "sha256": "8a9fbbba8c1e90b001b82b3441620589d655a4eacb0324f10f05fe73433acd29",
+      "records": 324
+    },
+    "arm64": {
+      "nativeOrigin": "arm-gl-effect-normal-before.json",
+      "correctedEvidence": "arm-gl-effect-normal-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54.json",
+        "sha256": "51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54",
+        "archive": "docs/thorvg-update/source-snapshots/51157ea6d19575991a7f779ca2a1c427944b9a1bffa0d8dbe606cbb2aaecce54.tar.gz"
+      },
+      "bytes": 18528,
+      "sha256": "b77a62dc9cf574de41113428a7315954233e03523bc6f338a034428ee6d601bd",
+      "records": 324
+    }
+  },
+  "parentReview": "pending"
+}

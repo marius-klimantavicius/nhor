@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "lottie-text-color-selector.lot",
+  "basedOnSha256": "af6f68fa73867e73ed71c756854af44fc76ca2ab20a30de66847c7fe258cece5",
+  "sha256": "9868cc63335191cf6df76a6f522c1cd0e836042ba91a70c9982c1270c8ecd0a0",
+  "description": "The existing embedded-glyph/color-selector fixture receives an escaped JSON NUL after its first text character and in the layer name. Native GetStringCopy duplicates a C string, truncating each copied value at that byte; selector lengths and names must use the same stored text. No input file contains an unescaped JSON control byte."
+}

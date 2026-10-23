@@ -7,6 +7,15 @@ namespace ThorVG
 {
     public static class SvgUtil
     {
+        public static bool IsWhiteSpace(char c) => c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f';
+
+        public static string Trim(string value)
+        {
+            int begin = 0, end = value.Length;
+            while (begin < end && IsWhiteSpace(value[begin])) ++begin;
+            while (end > begin && IsWhiteSpace(value[end - 1])) --end;
+            return begin == 0 && end == value.Length ? value : value.Substring(begin, end - begin);
+        }
         private static byte HexCharToDec(char c)
         {
             if (c >= 'a') return (byte)(c - 'a' + 10);
@@ -18,7 +27,7 @@ namespace ThorVG
         {
             while ((itrEnd >= 0 && itr < itrEnd) || (itrEnd < 0 && itr < str.Length))
             {
-                if (!char.IsWhiteSpace(str[itr])) break;
+                if (!SvgUtil.IsWhiteSpace(str[itr])) break;
                 itr++;
             }
             return itr;
@@ -32,7 +41,7 @@ namespace ThorVG
             int end = itrEnd < 0 ? str.Length : itrEnd;
             while (itr < end)
             {
-                if (!char.IsWhiteSpace(str[itr])) break;
+                if (!SvgUtil.IsWhiteSpace(str[itr])) break;
                 itr++;
             }
             return itr;
@@ -42,7 +51,7 @@ namespace ThorVG
         {
             for (itr--; itr > itrStart; itr--)
             {
-                if (!char.IsWhiteSpace(str[itr])) break;
+                if (!SvgUtil.IsWhiteSpace(str[itr])) break;
             }
             return itr + 1;
         }
@@ -51,7 +60,7 @@ namespace ThorVG
         {
             for (itr--; itr > itrStart; itr--)
             {
-                if (!char.IsWhiteSpace(str[itr])) break;
+                if (!SvgUtil.IsWhiteSpace(str[itr])) break;
             }
             return itr + 1;
         }
@@ -67,31 +76,38 @@ namespace ThorVG
         public static string URLDecode(string src)
         {
             if (string.IsNullOrEmpty(src)) return string.Empty;
+            return System.Text.Encoding.UTF8.GetString(URLDecodeBytes(src));
+        }
 
-            var decoded = new char[src.Length];
+        // Native URL decoding operates on UTF8 bytes. Keep those bytes for
+        // embedded images instead of promoting each percent byte to UTF16.
+        internal static byte[] URLDecodeBytes(string src)
+        {
+            var decoded = System.Text.Encoding.UTF8.GetBytes(src);
             int idx = 0;
             int i = 0;
 
-            while (i < src.Length)
+            while (i < decoded.Length)
             {
-                if (src[i] == '%' && i + 2 < src.Length &&
-                    IsHexDigit(src[i + 1]) && IsHexDigit(src[i + 2]))
+                if (decoded[i] == '%' && i + 2 < decoded.Length &&
+                    IsHexDigit((char)decoded[i + 1]) && IsHexDigit((char)decoded[i + 2]))
                 {
-                    decoded[idx++] = (char)((HexCharToDec(src[i + 1]) << 4) + HexCharToDec(src[i + 2]));
+                    decoded[idx++] = (byte)((HexCharToDec((char)decoded[i + 1]) << 4) + HexCharToDec((char)decoded[i + 2]));
                     i += 3;
                 }
-                else if (src[i] == '+')
+                else if (decoded[i] == '+')
                 {
-                    decoded[idx++] = ' ';
+                    decoded[idx++] = (byte)' ';
                     i++;
                 }
                 else
                 {
-                    decoded[idx++] = src[i++];
+                    decoded[idx++] = decoded[i++];
                 }
             }
 
-            return new string(decoded, 0, idx);
+            if (idx != decoded.Length) System.Array.Resize(ref decoded, idx);
+            return decoded;
         }
 
         public static void HslToRgb(float h, float s, float l, out byte r, out byte g, out byte b)
@@ -110,14 +126,14 @@ namespace ThorVG
                 h /= 60.0f;
             }
 
-            var v = l <= 0.5f ? l * (1.0f + s) : l + s - l * s;
-            var p = l + l - v;
+            var v = l <= 0.5f ? l * (1.0f + s) : TvgMath.MultiplyAdd(-l, s, l + s);
+            var p = TvgMath.MultiplyAdd(2, l, -v);
             var sv = TvgMath.Zero(v) ? 0.0f : (v - p) / v;
             var i = (byte)h;
             var f = h - i;
-            var vsf = v * sv * f;
-            var t = p + vsf;
-            var q = v - vsf;
+            var vs = v * sv;
+            var t = TvgMath.MultiplyAdd(vs, f, p);
+            var q = TvgMath.MultiplyAdd(-vs, f, v);
             float tr, tg, tb;
 
             switch (i)

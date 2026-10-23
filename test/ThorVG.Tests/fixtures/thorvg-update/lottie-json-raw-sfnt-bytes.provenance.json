@@ -1,0 +1,12 @@
+{
+  "kind": "authored raw byte regression derived from recorded fixture",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-glyph-utf8.lot",
+  "basedOnSha256": "7bae966f248535278f76c85e2c274c4ea413a47fc706f2e53ddda41a3413b149",
+  "sha256": "558ba7408628464183e52e63e3af01418fa54c1b010999586c18287311c49a9b",
+  "description": "Native SFNT decodes the overlong slash and skips an invalid leading byte; preserve exact codepoint consumption and line preprocessing.",
+  "replacements": {
+    "RAWOVERLONG": "c0af",
+    "RAWBAD": "ff"
+  }
+}

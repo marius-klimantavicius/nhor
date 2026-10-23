@@ -4,6 +4,17 @@
 
 namespace ThorVG
 {
+    /// <summary>Axis-aligned rectangular region; maximum coordinates are exclusive.</summary>
+    public struct Region
+    {
+        public int xMin, yMin, xMax, yMax;
+
+        public Region(int xMin, int yMin, int xMax, int yMax)
+        {
+            this.xMin = xMin; this.yMin = yMin; this.xMax = xMax; this.yMax = yMax;
+        }
+    }
+
     /// <summary>Result codes returned by ThorVG APIs.</summary>
     public enum Result
     {
@@ -13,6 +24,7 @@ namespace ThorVG
         FailedAllocation,
         MemoryCorruption,
         NonSupport,
+        SystemError,
         Unknown = 255
     }
 
@@ -24,6 +36,8 @@ namespace ThorVG
         ABGR8888S,
         ARGB8888S,
         Grayscale8,
+        XBGR8888,
+        XRGB8888,
         Unknown = 255
     }
 
@@ -131,7 +145,8 @@ namespace ThorVG
         DropShadow,
         Fill,
         Tint,
-        Tritone
+        Tritone,
+        MotionBlur
     }
 
     /// <summary>Text wrapping modes.</summary>
@@ -153,7 +168,8 @@ namespace ThorVG
         Picture,
         Text,
         LinearGradient = 10,
-        RadialGradient
+        RadialGradient,
+        ConicGradient
     }
 
     /// <summary>2-D point (x, y).</summary>

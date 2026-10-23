@@ -151,101 +151,114 @@ namespace ThorVG.Tools
                 return 1;
             }
 
-            // Picture
+            // Each input owns a separate scene. Retain the picture until it
+            // has either been added to the canvas or released on failure.
+            if (canvas.Remove() != Result.Success) return 1;
             var picture = Picture.Gen();
-            var result = picture.Load(path);
-            if (result == Result.Unknown)
+            picture.Ref();
+            try
             {
-                Console.WriteLine($"Error: Couldn't load image {path}");
-                return 1;
-            }
-            else if (result == Result.InvalidArguments)
-            {
-                Console.WriteLine($"Error: Couldn't load image(Invalid path or invalid SVG image) : {path}");
-                return 1;
-            }
-            else if (result == Result.NonSupport)
-            {
-                Console.WriteLine($"Error: Couldn't load image(Not supported extension) : {path}");
-                return 1;
-            }
-
-            if (w == 0 || h == 0)
-            {
-                picture.GetSize(out float fw, out float fh);
-                w = (int)fw;
-                h = (int)fh;
-                if (fw > w) w++;
-                if (fh > h) h++;
-
-                if ((long)w * h > SIZE_8K)
+                // Picture
+                var result = picture.Load(path);
+                if (result == Result.Unknown)
                 {
-                    float scale = fw / fh;
-                    if (scale > 1)
+                    Console.WriteLine($"Error: Couldn't load image {path}");
+                    return 1;
+                }
+                else if (result == Result.InvalidArguments)
+                {
+                    Console.WriteLine($"Error: Couldn't load image(Invalid path or invalid SVG image) : {path}");
+                    return 1;
+                }
+                else if (result == Result.NonSupport)
+                {
+                    Console.WriteLine($"Error: Couldn't load image(Not supported extension) : {path}");
+                    return 1;
+                }
+
+                if (w == 0 || h == 0)
+                {
+                    picture.GetSize(out float fw, out float fh);
+                    w = (int)fw;
+                    h = (int)fh;
+                    if (fw > w) w++;
+                    if (fh > h) h++;
+
+                    if ((long)w * h > SIZE_8K)
                     {
-                        w = WIDTH_8K;
-                        h = (int)(w / scale);
+                        float scale = fw / fh;
+                        if (scale > 1)
+                        {
+                            w = WIDTH_8K;
+                            h = (int)(w / scale);
+                        }
+                        else
+                        {
+                            h = HEIGHT_8K;
+                            w = (int)(h * scale);
+                        }
+                        Console.WriteLine($"Warning: The SVG width and/or height values exceed the 8k resolution. " +
+                            $"To avoid the heap overflow, the conversion to the PNG file made in {w} x {h} resolution.");
+                        picture.SetSize((float)w, (float)h);
                     }
-                    else
-                    {
-                        h = HEIGHT_8K;
-                        w = (int)(h * scale);
-                    }
-                    Console.WriteLine($"Warning: The SVG width and/or height values exceed the 8k resolution. " +
-                        $"To avoid the heap overflow, the conversion to the PNG file made in {w} x {h} resolution.");
+                }
+                else
+                {
                     picture.SetSize((float)w, (float)h);
                 }
+
+                // Buffer
+                CreateBuffer(w, h);
+                if (buffer == null)
+                {
+                    Console.WriteLine("Error: Buffer failure");
+                    return 1;
+                }
+
+                if (canvas.Target(buffer, (uint)w, (uint)w, (uint)h, ColorSpace.ARGB8888S) != Result.Success)
+                {
+                    Console.WriteLine("Error: Canvas target failure");
+                    return 1;
+                }
+
+                // Background color if needed
+                if (bgColor != 0xffffffff)
+                {
+                    byte r = (byte)((bgColor & 0xff0000) >> 16);
+                    byte g = (byte)((bgColor & 0x00ff00) >> 8);
+                    byte b = (byte)(bgColor & 0x0000ff);
+
+                    var shape = Shape.Gen();
+                    shape.AppendRect(0, 0, (float)w, (float)h);
+                    shape.SetFill(r, g, b);
+
+                    if (canvas.Add(shape) != Result.Success) { Paint.Rel(shape); return 1; }
+                }
+
+                // Drawing
+                if (canvas.Add(picture) != Result.Success || canvas.Draw(true) != Result.Success || canvas.Sync() != Result.Success)
+                {
+                    Console.WriteLine("Error: Failed to render SVG.");
+                    return 1;
+                }
+
+                // Build Png
+                PngBuilder.Build(dst, (uint)w, (uint)h, buffer);
+
+                Console.WriteLine($"Generated PNG file: {dst}");
+
+                return 0;
             }
-            else
-            {
-                picture.SetSize((float)w, (float)h);
-            }
-
-            // Buffer
-            CreateBuffer(w, h);
-            if (buffer == null)
-            {
-                Console.WriteLine("Error: Buffer failure");
-                return 1;
-            }
-
-            if (canvas.Target(buffer, (uint)w, (uint)w, (uint)h, ColorSpace.ARGB8888S) != Result.Success)
-            {
-                Console.WriteLine("Error: Canvas target failure");
-                return 1;
-            }
-
-            // Background color if needed
-            if (bgColor != 0xffffffff)
-            {
-                byte r = (byte)((bgColor & 0xff0000) >> 16);
-                byte g = (byte)((bgColor & 0x00ff00) >> 8);
-                byte b = (byte)(bgColor & 0x0000ff);
-
-                var shape = Shape.Gen();
-                shape.AppendRect(0, 0, (float)w, (float)h);
-                shape.SetFill(r, g, b);
-
-                if (canvas.Add(shape) != Result.Success) return 1;
-            }
-
-            // Drawing
-            canvas.Add(picture);
-            canvas.Draw(true);
-            canvas.Sync();
-
-            // Build Png
-            PngBuilder.Build(dst, (uint)w, (uint)h, buffer);
-
-            Console.WriteLine($"Generated PNG file: {dst}");
-
-            return 0;
+            finally { picture.Unref(); }
         }
 
         public void Terminate()
         {
+            canvas?.Dispose();
+            canvas = null;
             Initializer.Term();
             buffer = null;
+            bufferSize = 0;
         }
 
         private void CreateCanvas()

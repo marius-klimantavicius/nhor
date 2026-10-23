@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native160 complete defined path/dash/convexity/transform/bounds/arc/hit records, captured before managed corrections.96 existing public shapes plus36 ordinary explicit-closed/repeated endpoint/cubic/oval/multiple-contour paths;27 ordinary conic/bounds/arc and81x5 mesh-hit booleans. Complete original failures remain. No malformed/corruption/fuzz/UTF8 input. Timing diagnostic not an acceptance threshold; zero managed steady-state rectangle allocation is asserted separately.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "gpu-common-normal-typed-harness-before.json",
+      "correctedEvidence": "gl-shared-gpu-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c.json",
+        "sha256": "a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c",
+        "archive": "docs/thorvg-update/source-snapshots/a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c.tar.gz"
+      },
+      "bytes": 118240,
+      "sha256": "4ee62b81fd7c5e35d66702dbb974f826f6951041d5924c596164206b58eff8f6",
+      "records": 160
+    },
+    "arm64": {
+      "nativeOrigin": "arm-gpu-common-normal-before.json",
+      "correctedEvidence": "gl-shared-gpu-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c.json",
+        "sha256": "a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c",
+        "archive": "docs/thorvg-update/source-snapshots/a1b62d5b92c153b3e84210c72b7fe68af737951d899499385472eaa2a2697b9c.tar.gz"
+      },
+      "bytes": 118240,
+      "sha256": "2fc4680dbc2f9c39f548aea3e2848722156a0ea9fc564e42e7c0c06f636b1301",
+      "records": 160
+    }
+  },
+  "parentReview": "pending"
+}

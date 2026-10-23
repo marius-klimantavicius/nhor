@@ -34,30 +34,30 @@ namespace ThorVG
             accessiblePicture = paint is Picture picture && picture.accessible ? picture : null;
             paint.Ref();
 
-            if (accessiblePicture != null)
+            try
             {
-                accessiblePicture.Access(func, data);
-                paint.Unref(false);
-                accessiblePicture = null;
+                if (accessiblePicture != null)
+                {
+                    accessiblePicture.Access(func, data);
+                    return Result.Success;
+                }
+
+                if (!func(paint, data)) return Result.Success;
+
+                var it = paint.pImpl.GetIterator();
+                if (it != null) AccessChildren(it, func, data);
                 return Result.Success;
             }
-
-            if (!func(paint, data))
+            finally
             {
+                // Managed callbacks can throw. Release the temporary owner
+                // and invalidate callback-only name access on every exit.
                 paint.Unref(false);
                 accessiblePicture = null;
-                return Result.Success;
             }
-
-            var it = paint.pImpl.GetIterator();
-            if (it != null) AccessChildren(it, func, data);
-
-            paint.Unref(false);
-            accessiblePicture = null;
-            return Result.Success;
         }
 
-        public static uint Id(string? name) => (uint)TvgCompressor.Djb2Encode(name);
+        public static uint Id(string? name) => (uint)TvgCompressor.Djb2EncodeNative(name);
 
         public string? Name(uint id)
         {

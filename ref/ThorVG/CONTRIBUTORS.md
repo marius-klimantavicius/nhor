@@ -1,4 +1,11 @@
+# Contributors
+
+For definitions and responsibilities of each project role, see [Roles & Responsibilities](https://github.com/thorvg/thorvg/wiki/Roles-&-Responsibilities).
+
 ## Project Lead
+- Hermet Park @hermet
+
+## Maintainer
 - Hermet Park @hermet
 
 ## Core Contributors
@@ -10,6 +17,7 @@
 - Jinny You @tinyjin
 - Jay WenJie @wenjieshen
 - SoonGeon Noh @Nor-s
+- Abdelrahman Ashraf @theashraf
 
 ## Contributors
 - Prudhvi Raj Vasireddi @prudhvirajv
@@ -35,7 +43,6 @@
 - Lorcán Mc Donagh @lmdsp
 - Lucas Niu @fall2019
 - Francisco Ramírez @franramirez688
-- Abdelrahman Ashraf @theashraf
 - Neo Xu @XuNeo
 - Thaddeus Crews @Repiteo
 - Josh Soref @jsoref
@@ -61,3 +68,14 @@
 - Andrew X @LizzaM1net
 - Geordie Jay @ephemer
 - Weihang Ding @xiaozhuai
+- Duram Kim @alpakaDurumi
+- Hoyang Tsai @hoyangtsai
+- DaHee Chae @chae-dahee
+- Sunyong Jeong @jeongsunyong
+- Park Sung Jun @J-unStiN
+- Yoonseok Kang @DaengDo
+- Ralf Preininger @rpreininger
+- Daniel Brát @LonerDan
+- Mao Shengrong @suda-morris
+- Alexander Musienko @dnepromell
+- Mikhail Teterin @UnitedMarsupials

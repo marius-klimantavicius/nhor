@@ -2,6 +2,8 @@
 // Helper functions and interfaces which make it easier to create instances of
 // types in the style and geometry modules.
 
+using System;
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Taffy
@@ -204,18 +206,22 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns a length value of type LengthPercentage</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage Length(double value) => Length((float)value);
         public static LengthPercentage Length(float value) => LengthPercentage.Length(value);
 
         /// <summary>Returns a length value of type LengthPercentageAuto</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto LengthLPA(double value) => LengthLPA((float)value);
         public static LengthPercentageAuto LengthLPA(float value) => LengthPercentageAuto.Length(value);
 
         /// <summary>Returns a length value of type Dimension</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension LengthDimension(double value) => LengthDimension((float)value);
         public static Dimension LengthDimension(float value) => Dimension.Length(value);
 
         /// <summary>Returns a Size of LengthPercentage with both values set to the given length</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Size<LengthPercentage> LengthSize(double value) => LengthSize((float)value);
         public static Size<LengthPercentage> LengthSize(float value)
         {
             var lp = LengthPercentage.Length(value);
@@ -224,6 +230,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns a Rect of LengthPercentage with all values set to the given length</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<LengthPercentage> LengthRect(double value) => LengthRect((float)value);
         public static Rect<LengthPercentage> LengthRect(float value)
         {
             var lp = LengthPercentage.Length(value);
@@ -234,18 +241,22 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns a percent value of type LengthPercentage</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage Percent(double value) => Percent((float)value);
         public static LengthPercentage Percent(float value) => LengthPercentage.Percent(value);
 
         /// <summary>Returns a percent value of type LengthPercentageAuto</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto PercentLPA(double value) => PercentLPA((float)value);
         public static LengthPercentageAuto PercentLPA(float value) => LengthPercentageAuto.Percent(value);
 
         /// <summary>Returns a percent value of type Dimension</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension PercentDimension(double value) => PercentDimension((float)value);
         public static Dimension PercentDimension(float value) => Dimension.Percent(value);
 
         /// <summary>Returns a Size of LengthPercentage with both values set to the given percent</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Size<LengthPercentage> PercentSize(double value) => PercentSize((float)value);
         public static Size<LengthPercentage> PercentSize(float value)
         {
             var lp = LengthPercentage.Percent(value);
@@ -254,6 +265,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns a Rect of LengthPercentage with all values set to the given percent</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<LengthPercentage> PercentRect(double value) => PercentRect((float)value);
         public static Rect<LengthPercentage> PercentRect(float value)
         {
             var lp = LengthPercentage.Percent(value);
@@ -264,9 +276,18 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns an fr value for CompactLength</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength Fr(double value) => Fr((float)value);
         public static CompactLength Fr(float value) => CompactLength.Fr(value);
 
         // --- Grid helpers ---
+
+        public static GridTemplateComponent Repeat(RepetitionCount count, ImmutableList<MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>> tracks) =>
+            GridTemplateComponent.FromRepeat(new(count, tracks));
+        public static GridTemplateComponent Repeat(string count, ImmutableList<MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>> tracks) =>
+            RepetitionCount.TryFromString(count, out var value) ? Repeat(value, tracks) : throw new ArgumentException("Invalid repetition count", nameof(count));
+        public static ImmutableList<GridTemplateComponent> EvenlySizedTracks(ushort count) => ImmutableList.Create(Repeat(RepetitionCount.Count(count), ImmutableList.Create(Flex(1))));
+        public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> Flex(double fraction) => Flex((float)fraction);
+        public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> Flex(float fraction) => new(MinTrackSizingFunction.ZERO, MaxTrackSizingFunction.Fr(fraction));
 
         /// <summary>
         /// Specifies a grid line to place a grid item between in CSS Grid Line coordinates.

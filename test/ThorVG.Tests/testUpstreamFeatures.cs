@@ -7,7 +7,7 @@ namespace ThorVG.Tests
 {
     public class testUpstreamFeatures
     {
-        private static readonly string TEST_DIR = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void DynamicTweenCapturesAndRebasesValues()
@@ -119,7 +119,7 @@ namespace ThorVG.Tests
                 Assert.Equal(Result.Success, picture.SetSize(400, 400));
 
                 var buffer = new uint[400 * 400];
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 Assert.Equal(Result.Success, canvas.Target(buffer, 400, 400, 400, ColorSpace.ARGB8888));
                 Assert.Equal(Result.Success, canvas.Add(picture));
                 Assert.Equal(Result.Success, canvas.Draw());
@@ -142,7 +142,7 @@ namespace ThorVG.Tests
             try
             {
                 var buffer = new uint[20 * 20];
-                var canvas = SwCanvas.Gen();
+                using var canvas = SwCanvas.Gen();
                 Assert.Equal(Result.Success, canvas.Target(buffer, 20, 20, 20, ColorSpace.ARGB8888));
 
                 var background = Shape.Gen();

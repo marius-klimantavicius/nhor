@@ -1,0 +1,25 @@
+{
+  "inputs": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-nested-groups.svg",
+      "sha256": "e9c29fc8d39228b09098b456ce118632208db29c62d82be14b65b017e91d0800",
+      "provenance": "Authored valid/near-valid ordinary SVG feature scenario; native target nestedSVG group fallback, style priority, cross-type gradient inheritance or valid Unicode data URL. No malformed/corrupt/fuzz/UTF8 byte fixture."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-transform-priority.svg",
+      "sha256": "e14d61034ef9b0c46258aff409b9655652a90fae5a864fca0ecd87a5d5e440d0",
+      "provenance": "Authored valid/near-valid ordinary SVG feature scenario; native target nestedSVG group fallback, style priority, cross-type gradient inheritance or valid Unicode data URL. No malformed/corrupt/fuzz/UTF8 byte fixture."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-cross-gradient.svg",
+      "sha256": "1fefefd8e3ec2856bce21944c64ea3be1f9d761ecb687ca383b3077ee3c4c2ef",
+      "provenance": "Authored valid/near-valid ordinary SVG feature scenario; native target nestedSVG group fallback, style priority, cross-type gradient inheritance or valid Unicode data URL. No malformed/corrupt/fuzz/UTF8 byte fixture."
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-normal-unicode-data-image.svg",
+      "sha256": "92b6de2ddbe591413237be308b06763df980b7b8c553afc0b4f13e5dca534838",
+      "provenance": "Authored valid/near-valid ordinary SVG feature scenario; native target nestedSVG group fallback, style priority, cross-type gradient inheritance or valid Unicode data URL. No malformed/corrupt/fuzz/UTF8 byte fixture."
+    }
+  ],
+  "parentReview": "pending"
+}

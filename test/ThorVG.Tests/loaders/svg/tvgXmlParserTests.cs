@@ -97,6 +97,26 @@ namespace ThorVG.Tests
         }
 
         [Fact]
+        public void ParseW3CAttribute_FontSourceWithoutTrailingSemicolon()
+        {
+            var data = MakeLoaderData();
+            data.svgParse!.node = new SvgNode { style = new SvgStyleProperty() };
+            var attrs = new List<(string key, string value)>();
+            var buf = "src:url(font.woff2)";
+
+            XmlParser.ParseW3CAttribute(buf, 0, buf.Length,
+                (SvgParserContext d, string key, string val) =>
+                {
+                    attrs.Add((key, val));
+                    return true;
+                }, data);
+
+            Assert.Single(attrs);
+            Assert.Equal("src", attrs[0].key);
+            Assert.Equal("url(font.woff2)", attrs[0].value);
+        }
+
+        [Fact]
         public void ParseCSSAttribute_SimpleClass()
         {
             var buf = ".myclass { fill: red; }";
@@ -130,11 +150,11 @@ namespace ThorVG.Tests
         }
 
         [Fact]
-        public void FindAttributesTag_NoAttributes()
+        public void FindAttributesTag_NoAttributesReturnsEnd()
         {
             var buf = "svg";
             var result = XmlParser.FindAttributesTag(buf, 0, buf.Length);
-            Assert.Equal(-1, result);
+            Assert.Equal(buf.Length, result);
         }
 
         [Fact]

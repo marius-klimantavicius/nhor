@@ -1,8 +1,12 @@
 // Ported from ThorVG/src/loaders/lottie/tvgLottieExpressions.h and tvgLottieExpressions.cpp
-// Uses Jint (MIT-licensed) as the JavaScript engine, replacing JerryScript from the C++ version.
+// Uses the approved Jint 4.17.0 (BSD-2-Clause) interpreter in place of JerryScript.
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 using Jint;
 using Jint.Native;
 using Jint.Runtime.Interop;
@@ -33,36 +37,73 @@ namespace ThorVG
 
         private const int LOOP_OUT_OFFSET = 4;
 
-        // Kept for API compat with Retrieve(); no longer used.
-        #pragma warning disable CS0169
         private static LottieExpressions? _instance;
-        #pragma warning restore CS0169
+        private static readonly object InstanceLock = new();
+        private static uint _references;
 
-        // Per-instance random
-        private readonly Random _random = new();
+        // Upstream expressions and JerryScript Math.random share the platform C
+        // runtime's generator. Keep that dependency (and its platform sequence)
+        // rather than substituting System.Random's different algorithm.
+        [DllImport("libc", EntryPoint = "rand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int UnixRand();
+        [DllImport("libc", EntryPoint = "srand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void UnixSeed(uint seed);
+        [DllImport("libSystem.B.dylib", EntryPoint = "rand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int AppleRand();
+        [DllImport("libSystem.B.dylib", EntryPoint = "srand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void AppleSeed(uint seed);
+        [DllImport("ucrtbase.dll", EntryPoint = "rand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int WindowsRand();
+        [DllImport("ucrtbase.dll", EntryPoint = "srand", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void WindowsSeed(uint seed);
 
-        // The Jint engine is created once and reused across evaluations.
-        // BuildMath sets up constant math functions once; per-frame state is refreshed each call.
-        private Engine? _engine;
+        /// <summary>Seed the shared C runtime generator used by expressions.</summary>
+        public static void SeedRandom(uint seed)
+        {
+            if (OperatingSystem.IsWindows()) WindowsSeed(seed);
+            else if (OperatingSystem.IsMacOS() || OperatingSystem.IsIOS() || OperatingSystem.IsTvOS()) AppleSeed(seed);
+            else UnixSeed(seed);
+        }
+
+        internal static int NextRandom() => OperatingSystem.IsWindows() ? WindowsRand() :
+            OperatingSystem.IsMacOS() || OperatingSystem.IsIOS() || OperatingSystem.IsTvOS() ? AppleRand() : UnixRand();
+
+        // JerryScript native pointers are hidden metadata, not JS properties.
+        // Weak keys also allow self-referential JS values without rooting them.
+        private static readonly ConditionalWeakTable<Jint.Native.Object.ObjectInstance, LottiePropertyRef> NativeProperties = new();
+
+        private sealed class Context
+        {
+            public Engine? Engine;
+            public float Time;
+            public bool TimePending;
+            public LottieExpression? Expression;
+            public float Frame;
+            public JsValue? Comp;
+            public Jint.Native.JsObject? ThisComp;
+            public Jint.Native.JsObject? ThisLayer;
+            public Jint.Native.JsObject? ThisProperty;
+        }
+        // Native owns one persistent interpreter context per worker thread.
+        private readonly ThreadLocal<Context> _contexts = new(() => new Context(), true);
 
         private LottieExpressions()
         {
         }
 
         /// <summary>
-        /// Create a Jint FunctionInstance that properly handles variadic arguments.
-        /// Jint's Func&lt;JsValue[], JsValue&gt; doesn't work for JS variadic calls;
-        /// use this wrapper which creates a proper FunctionInstance.
+        /// Create a native-style external function with variadic arguments,
+        /// construction and lazy prototype metadata.
         /// </summary>
         private static JsValue MakeVariadicFunc(Engine engine, string name, Func<JsValue[], JsValue> fn)
         {
-            return new Jint.Runtime.Interop.ClrFunction(engine, name, (thisObj, args) => fn(args));
+            return new LottieExpressionFunction(engine, name, (thisObj, args) => fn(args));
         }
 
         /// <summary>
         /// Creates a callable object (mirrors C++ _layerChild).
         /// In C++, the layer object IS a function that can be called with an index
-        /// or ADBE name. This creates the same pattern using ClrFunction.
+        /// or ADBE name. This creates the same external function pattern.
         /// </summary>
         private JsValue MakeLayerChildObj(Engine engine, float frameNo, LottieObject obj, LottieExpression exp)
         {
@@ -70,7 +111,7 @@ namespace ThorVG
             // When called by name, it uses data->obj. When called by index from
             // a children-array context, it uses data->data. We split these into
             // separate methods: this one handles the "object" case.
-            var fn = new Jint.Runtime.Interop.ClrFunction(engine, "_layerChild", (thisObj, args) =>
+            var fn = new LottieExpressionFunction(engine, "_layerChild", (thisObj, args) =>
             {
                 if (args.Length == 0) return JsValue.Undefined;
                 var arg = args[0];
@@ -102,7 +143,7 @@ namespace ThorVG
 
             // Set layer properties on the function object
             if (obj is LottieLayer layer)
-                SetLayerProps(engine, fn, frameNo, layer, layer.comp, exp);
+                SetLayerProps(engine, fn, frameNo, layer, layer.precomp, exp);
 
             return fn;
         }
@@ -114,7 +155,7 @@ namespace ThorVG
         /// </summary>
         private JsValue MakeChildrenCallable(Engine engine, float frameNo, List<LottieObject> children, LottieExpression exp)
         {
-            return new Jint.Runtime.Interop.ClrFunction(engine, "_layerChild", (thisObj, args) =>
+            return new LottieExpressionFunction(engine, "_layerChild", (thisObj, args) =>
             {
                 if (args.Length == 0) return JsValue.Undefined;
                 var arg = args[0];
@@ -152,30 +193,38 @@ namespace ThorVG
         }
 
         // ================================================================
-        //  Singleton (no thread safety, matching C++)
+        //  Shared instance, reference count, and per-thread contexts
         // ================================================================
 
         public static LottieExpressions? Instance()
         {
-            // Each caller gets its own instance with its own Jint engine.
-            // Unlike the C++ upstream (which uses a singleton JerryScript context),
-            // Jint's engine accumulates global state across evaluations, so sharing
-            // a single instance causes cross-animation pollution.
-            return new LottieExpressions();
+            lock (InstanceLock)
+            {
+                _instance ??= new LottieExpressions();
+                ++_references;
+                return _instance;
+            }
         }
 
         public static void Retrieve(LottieExpressions? instance)
         {
-            // No-op: each instance is independently owned by its LottieBuilder.
+            if (instance == null) return;
+            lock (InstanceLock)
+            {
+                if (!ReferenceEquals(_instance, instance) || _references == 0) return;
+                if (--_references != 0) return;
+                _instance = null;
+                instance._contexts.Dispose();
+            }
         }
 
         public void Update(float curTime)
         {
-            // time is set per-evaluation in Evaluate(); store for later
-            _currentTime = curTime;
+            var context = _contexts.Value!;
+            context.Time = curTime;
+            context.TimePending = context.Engine == null;
+            if (context.Engine != null) context.Engine.SetValue(EXP_TIME, (double)curTime);
         }
-
-        private float _currentTime;
 
         // ================================================================
         //  Result methods -- called from property Evaluate overloads
@@ -278,7 +327,9 @@ namespace ThorVG
             }
             else
             {
-                outVal = (byte)TvgMath.Clamp((int)(ToFloat(bm_rt) * 2.55f), 0, 255);
+                var scaled = ToFloat(bm_rt) * 2.55f;
+                outVal = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ?
+                    unchecked((byte)(uint)scaled) : unchecked((byte)(int)scaled);
             }
             return true;
         }
@@ -307,6 +358,13 @@ namespace ThorVG
             return true;
         }
 
+        /// <summary>
+        /// Applies the pinned expression adapter's UTF16-unit byte capacity,
+        /// copying complete UTF8 characters and retaining initialized old bytes.
+        /// If the result would require reading an unwritten grown-allocation tail,
+        /// returns false and leaves the document unchanged. This bounded contract
+        /// does not promise that a Unicode return replaces the whole text.
+        /// </summary>
         public bool ResultTextDoc(float frameNo, TextDocument doc, LottieExpression exp)
         {
             var bm_rt = Evaluate(frameNo, exp);
@@ -314,8 +372,46 @@ namespace ThorVG
 
             if (bm_rt is string text)
             {
-                doc.text = text;
+                // The pinned native adapter sizes its UTF8 destination with
+                // jerry_string_length (UTF16 units), then copies complete UTF8
+                // characters into that capacity and terminates at that length.
+                // Preserve its initialized old bytes when a character will not
+                // fit. In particular, do not silently replace this with a full
+                // Unicode assignment: that changes the rendered text.
+                if (!AssignText(doc, text))
+                {
+                    TvgCommon.TVGERR("LOTTIE", "Expression text exceeds the initialized native UTF8 destination");
+                    return false;
+                }
             }
+            return true;
+        }
+
+        private static bool AssignText(TextDocument doc, string text)
+        {
+            var capacity = text.Length;
+            if (Encoding.UTF8.GetByteCount(text) == capacity)
+            {
+                var nul = text.IndexOf('\0');
+                doc.text = nul < 0 ? text : text[..nul];
+                return true;
+            }
+            var old = TvgUtf8.Encode(doc.text ?? "");
+            var buffer = new byte[capacity + 1];
+            old.AsSpan(0, Math.Min(old.Length, capacity)).CopyTo(buffer);
+            var written = 0;
+            foreach (var rune in text.EnumerateRunes())
+            {
+                if (rune.Utf8SequenceLength > capacity - written) break;
+                written += rune.EncodeToUtf8(buffer.AsSpan(written));
+            }
+            // Native leaves unwritten bytes from a grown allocation undefined.
+            // Reject that undefined read instead of manufacturing garbage text.
+            var initialized = Math.Min(capacity, Math.Max(doc.text == null ? 0 : old.Length + 1, written));
+            var end = buffer.AsSpan(0, initialized).IndexOf((byte)0);
+            if (end < 0 && initialized < capacity) return false;
+            if (end < 0) end = capacity;
+            doc.text = TvgUtf8.Decode(buffer.AsSpan(0, end));
             return true;
         }
 
@@ -330,34 +426,47 @@ namespace ThorVG
 
             try
             {
-                // Create engine once, reuse across evaluations (matches C++ JerryScript pattern)
-                if (_engine == null)
+                var context = _contexts.Value!;
+                context.Expression = exp;
+                context.Frame = frameNo;
+                var engine = context.Engine;
+                if (engine == null)
                 {
-                    _engine = new Engine(cfg => cfg.Strict(false));
-                    BuildMath(_engine);
+                    engine = context.Engine = LottieExpressionRuntime.CreateEngine();
+                    BuildCompFunction(engine);
+                    context.ThisComp = new Jint.Native.JsObject(engine);
+                    context.ThisLayer = new Jint.Native.JsObject(engine);
+                    context.ThisProperty = new Jint.Native.JsObject(engine);
+                    engine.SetValue("thisComp", context.ThisComp);
+                    engine.SetValue("thisLayer", context.ThisLayer);
+                    engine.SetValue("thisProperty", context.ThisProperty);
+                    BuildMath(engine);
+                    LottieExpressionNumbers.Install(engine);
+                }
+                if (context.TimePending)
+                {
+                    engine.SetValue(EXP_TIME, (double)context.Time);
+                    context.TimePending = false;
                 }
 
                 // Refresh per-frame state (overwrites globals each call, like C++)
-                BuildGlobal(_engine, frameNo, exp);
-                BuildComp(_engine, exp.comp, frameNo, exp);
-                BuildThisComp(_engine, frameNo, exp);
-                BuildProperty(_engine, frameNo, exp, "");
-                BuildThisLayer(_engine, frameNo, exp);
-                BuildThisProperty(_engine, frameNo, exp);
+                BuildGlobal(engine, frameNo, exp);
+                BuildComp(engine, exp.comp, frameNo, exp);
+                BuildThisComp(engine, frameNo, exp);
+                BuildProperty(engine, frameNo, exp, "");
+                BuildThisLayer(engine, frameNo, exp);
+                BuildThisProperty(engine, frameNo, exp);
 
                 // Transform context
                 if (exp.obj?.type == LottieObject.ObjectType.Transform)
-                    BuildTransformGlobal(_engine, frameNo, (LottieTransform)exp.obj);
-
-                // time
-                _engine.SetValue(EXP_TIME, (double)_currentTime);
+                    BuildTransformGlobal(engine, frameNo, (LottieTransform)exp.obj);
 
                 // Execute the expression code
-                _engine.Execute(exp.code);
+                engine.Execute(LottieExpressionNumbers.Prepare(exp));
 
                 // Get $bm_rt (the standard After Effects expression result variable)
-                var bmRt = _engine.GetValue("$bm_rt");
-                if (bmRt == null || bmRt.IsUndefined() || bmRt.IsNull())
+                var bmRt = engine.GetValue("$bm_rt");
+                if (bmRt == null || bmRt.IsUndefined())
                     return null;
 
                 return UnwrapJsValue(bmRt);
@@ -385,32 +494,19 @@ namespace ThorVG
 
         private static object? UnwrapJsValue(JsValue val)
         {
-            if (val.IsUndefined() || val.IsNull()) return null;
+            if (val.IsUndefined()) return null;
+            if (val.IsNull()) return val;
             if (val.IsString()) return val.AsString();
             if (val.IsNumber()) return val.AsNumber();
             if (val.IsBoolean()) return val.AsBoolean();
 
-            // Check for our CLR-wrapped objects
-            var obj = val.ToObject();
-            if (obj is LottiePropertyRef) return obj;
-            if (obj is double[] arr) return arr;
-            if (obj is Dictionary<string, object?> dict) return dict;
-
-            // For plain JS objects, convert to a dictionary
             if (val.IsObject())
             {
                 var jsObj = val.AsObject();
-                // Check for _nativeRef (our marker for native property refs)
-                var nativeRef = jsObj.Get("_nativeRef");
-                if (nativeRef != null && !nativeRef.IsUndefined() && !nativeRef.IsNull())
-                {
-                    var native = nativeRef.ToObject();
-                    if (native is LottiePropertyRef) return native;
-                }
+                if (NativeProperties.TryGetValue(jsObj, out var native)) return native;
                 return jsObj;
             }
-
-            return obj;
+            return null;
         }
 
         // ================================================================
@@ -428,17 +524,12 @@ namespace ThorVG
                 if (jv.IsNumber()) return (float)jv.AsNumber();
                 if (jv.IsObject())
                 {
-                    // Try index 0 or "value" property
                     var obj = jv.AsObject();
-                    var v = obj.Get("0");
-                    if (v != null && !v.IsUndefined()) return (float)v.AsNumber();
-                    v = obj.Get(EXP_VALUE);
-                    if (v != null && !v.IsUndefined()) return (float)v.AsNumber();
+                    return Numeric(obj.Get("0"));
                 }
             }
             if (val is Jint.Native.JsNumber jn) return (float)jn.AsNumber();
-            try { return Convert.ToSingle(val); }
-            catch { return 0; }
+            return 0;
         }
 
         private static Point ToPoint2d(object? val)
@@ -450,16 +541,10 @@ namespace ThorVG
                 var v0 = obj.Get("0");
                 var v1 = obj.Get("1");
                 if (v0 != null && !v0.IsUndefined() && v1 != null && !v1.IsUndefined())
-                    return new Point((float)v0.AsNumber(), (float)v1.AsNumber());
-                // Fallback: try x/y
-                var vx = obj.Get("x");
-                var vy = obj.Get("y");
-                if (vx != null && !vx.IsUndefined() && vy != null && !vy.IsUndefined())
-                    return new Point((float)vx.AsNumber(), (float)vy.AsNumber());
+                    return new Point(Numeric(v0), Numeric(v1));
+                return new Point(Numeric(v0), Numeric(v1));
             }
-            // Single number -> Point(val, val)
-            var f = ToFloat(val);
-            return new Point(f, f);
+            return default;
         }
 
         private static RGB32 ToColor(object? val)
@@ -472,7 +557,8 @@ namespace ThorVG
                 var g = obj.Get("1");
                 var b = obj.Get("2");
                 if (r != null && !r.IsUndefined() && g != null && !g.IsUndefined() && b != null && !b.IsUndefined())
-                    return new RGB32((int)r.AsNumber(), (int)g.AsNumber(), (int)b.AsNumber());
+                    return new RGB32(TvgMath.Remap255<int>(Numeric(r)),
+                        TvgMath.Remap255<int>(Numeric(g)), TvgMath.Remap255<int>(Numeric(b)));
             }
             return default;
         }
@@ -500,26 +586,23 @@ namespace ThorVG
         private JsValue MakePointWithValue(Engine engine, Point pt)
         {
             var obj = MakePoint2d(engine, pt);
-            // C++ does obj.value = obj (self-reference). Jint detects cycles,
-            // so create a separate object with the same point data for "value".
-            var valObj = MakePoint2d(engine, pt);
-            obj.AsObject().Set(EXP_VALUE, valObj);
+            obj.AsObject().Set(EXP_VALUE, obj);
             return obj;
         }
 
         private JsValue MakeColorObj(Engine engine, RGB32 rgb)
         {
             var obj = new Jint.Native.JsObject(engine);
-            obj.Set("0", new JsNumber(rgb.r));
-            obj.Set("1", new JsNumber(rgb.g));
-            obj.Set("2", new JsNumber(rgb.b));
+            obj.Set("0", new JsNumber(rgb.r / 255.0f));
+            obj.Set("1", new JsNumber(rgb.g / 255.0f));
+            obj.Set("2", new JsNumber(rgb.b / 255.0f));
             return obj;
         }
 
         private JsValue MakeNativeRef(Engine engine, LottieProperty property)
         {
             var obj = new Jint.Native.JsObject(engine);
-            obj.Set("_nativeRef", JsValue.FromObject(engine, new LottiePropertyRef(property)));
+            NativeProperties.Add(obj, new LottiePropertyRef(property));
             return obj;
         }
 
@@ -541,6 +624,8 @@ namespace ThorVG
                     return MakeColorObj(engine, ((LottieColor)property).Evaluate(frameNo));
                 case LottieProperty.PropertyType.Opacity:
                     return new JsNumber(((LottieOpacity)property).Evaluate(frameNo) / 2.55f);
+                case LottieProperty.PropertyType.TextDoc:
+                    return new JsString(((LottieTextDoc)property).Evaluate(frameNo).text ?? "");
                 default:
                     TvgCommon.TVGERR("LOTTIE", "Non supported type for value? = {0}", (int)property.type);
                     break;
@@ -554,31 +639,31 @@ namespace ThorVG
 
         private float Rand()
         {
-            return (float)(_random.Next(10000001)) * 0.0000001f;
+            return (float)(NextRandom() % 10000001) * 0.0000001f;
         }
 
         private void BuildMath(Engine engine)
         {
             // $bm_mul, $bm_sum, $bm_add, $bm_sub, $bm_div
-            engine.SetValue("$bm_mul", new ClrFunction(engine, "$bm_mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
-            engine.SetValue("$bm_sum", new ClrFunction(engine, "$bm_sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
-            engine.SetValue("$bm_add", new ClrFunction(engine, "$bm_add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
-            engine.SetValue("$bm_sub", new ClrFunction(engine, "$bm_sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
-            engine.SetValue("$bm_div", new ClrFunction(engine, "$bm_div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
+            engine.SetValue("$bm_mul", new LottieExpressionFunction(engine, "$bm_mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
+            engine.SetValue("$bm_sum", new LottieExpressionFunction(engine, "$bm_sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("$bm_add", new LottieExpressionFunction(engine, "$bm_add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("$bm_sub", new LottieExpressionFunction(engine, "$bm_sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
+            engine.SetValue("$bm_div", new LottieExpressionFunction(engine, "$bm_div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
 
             // Non-prefixed versions
-            engine.SetValue("mul", new ClrFunction(engine, "mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
-            engine.SetValue("sum", new ClrFunction(engine, "sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
-            engine.SetValue("add", new ClrFunction(engine, "add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
-            engine.SetValue("sub", new ClrFunction(engine, "sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
-            engine.SetValue("div", new ClrFunction(engine, "div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
+            engine.SetValue("mul", new LottieExpressionFunction(engine, "mul", (_, args) => DoMulDiv(engine, args[0], JsToNumber(args[1]))));
+            engine.SetValue("sum", new LottieExpressionFunction(engine, "sum", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("add", new LottieExpressionFunction(engine, "add", (_, args) => DoAddSub(engine, args[0], args[1], 1.0f)));
+            engine.SetValue("sub", new LottieExpressionFunction(engine, "sub", (_, args) => DoAddSub(engine, args[0], args[1], -1.0f)));
+            engine.SetValue("div", new LottieExpressionFunction(engine, "div", (_, args) => DoMulDiv(engine, args[0], 1.0f / JsToNumber(args[1]))));
 
             // $bm_mod, mod
-            engine.SetValue("$bm_mod", new ClrFunction(engine, "$bm_mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
-            engine.SetValue("mod", new ClrFunction(engine, "mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
+            engine.SetValue("$bm_mod", new LottieExpressionFunction(engine, "$bm_mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
+            engine.SetValue("mod", new LottieExpressionFunction(engine, "mod", (_, args) => new JsNumber(JsToNumber(args[0]) % JsToNumber(args[1]))));
 
             // clamp
-            engine.SetValue("clamp", new ClrFunction(engine, "clamp", (_, args) =>
+            engine.SetValue("clamp", new LottieExpressionFunction(engine, "clamp", (_, args) =>
             {
                 var n = JsToNumber(args[0]);
                 var l1 = JsToNumber(args[1]);
@@ -589,35 +674,39 @@ namespace ThorVG
             }));
 
             // dot, cross, normalize, length
-            engine.SetValue("dot", new ClrFunction(engine, "dot", (_, args) =>
+            engine.SetValue("dot", new LottieExpressionFunction(engine, "dot", (_, args) =>
             {
                 var pa = JsToPoint(args[0]); var pb = JsToPoint(args[1]);
                 return new JsNumber(TvgMath.Dot(pa, pb));
             }));
-            engine.SetValue("cross", new ClrFunction(engine, "cross", (_, args) =>
+            engine.SetValue("cross", new LottieExpressionFunction(engine, "cross", (_, args) =>
             {
                 var pa = JsToPoint(args[0]); var pb = JsToPoint(args[1]);
                 return new JsNumber(TvgMath.Cross(pa, pb));
             }));
-            engine.SetValue("normalize", new ClrFunction(engine, "normalize", (_, args) =>
+            engine.SetValue("normalize", new LottieExpressionFunction(engine, "normalize", (_, args) =>
             {
                 var pt = JsToPoint(args[0]);
                 var len = TvgMath.PointLength(pt);
-                if (len > 0) pt = TvgMath.PointDiv(pt, len);
+                pt = TvgMath.PointDiv(pt, len);
                 return MakePoint2d(engine, pt);
             }));
-            engine.SetValue("length", new ClrFunction(engine, "length", (_, args) =>
+            engine.SetValue("length", new LottieExpressionFunction(engine, "length", (_, args) =>
             {
-                if (args[0].IsNumber()) return new JsNumber(MathF.Abs(JsToNumber(args[0])));
                 return new JsNumber(TvgMath.PointLength(JsToPoint(args[0])));
             }));
 
             // random
-            engine.SetValue("random", new ClrFunction(engine, "random", (_, args) => new JsNumber(Rand())));
+            engine.SetValue("random", new LottieExpressionFunction(engine, "random", (_, args) => new JsNumber(Rand())));
+            engine.GetValue("Math").AsObject().Set("random", new ClrFunction(engine, "random", (_, args) =>
+            {
+                double max = OperatingSystem.IsWindows() ? 32767 : int.MaxValue;
+                return new JsNumber(NextRandom() / max * (max - 1) / max);
+            }, 0, Jint.Runtime.Descriptors.PropertyFlag.Configurable));
 
             // degreesToRadians, radiansToDegrees
-            engine.SetValue("degreesToRadians", new ClrFunction(engine, "degreesToRadians", (_, args) => new JsNumber(TvgMath.Deg2Rad(JsToNumber(args[0])))));
-            engine.SetValue("radiansToDegrees", new ClrFunction(engine, "radiansToDegrees", (_, args) => new JsNumber(TvgMath.Rad2Deg(JsToNumber(args[0])))));
+            engine.SetValue("degreesToRadians", new LottieExpressionFunction(engine, "degreesToRadians", (_, args) => new JsNumber(TvgMath.Deg2Rad(JsToNumber(args[0])))));
+            engine.SetValue("radiansToDegrees", new LottieExpressionFunction(engine, "radiansToDegrees", (_, args) => new JsNumber(TvgMath.Rad2Deg(JsToNumber(args[0])))));
 
             // linear, ease, easeIn, easeOut
             engine.SetValue("linear", MakeVariadicFunc(engine, "linear", args => DoLinear(engine, args)));
@@ -635,20 +724,12 @@ namespace ThorVG
             if (v.IsObject())
             {
                 var obj = v.AsObject();
-                var v0 = obj.Get("0");
-                var v1 = obj.Get("1");
-                if (v0 != null && !v0.IsUndefined())
-                {
-                    if (v1 != null && !v1.IsUndefined())
-                        return new Point((float)v0.AsNumber(), (float)v1.AsNumber());
-                    // 1d value wrapped as object (e.g. from MakeNumber)
-                    var f0 = (float)v0.AsNumber();
-                    return new Point(f0, f0);
-                }
+                return new Point(Numeric(obj.Get("0")), Numeric(obj.Get("1")));
             }
-            var f = (float)v.AsNumber();
-            return new Point(f, f);
+            return default;
         }
+
+        private static float Numeric(JsValue value) => value.IsNumber() ? (float)value.AsNumber() : 0;
 
         private static float JsToNumber(JsValue v)
         {
@@ -657,7 +738,7 @@ namespace ThorVG
             {
                 var obj = v.AsObject();
                 var val = obj.Get("0");
-                if (val != null && !val.IsUndefined()) return (float)val.AsNumber();
+                return Numeric(val);
             }
             return 0;
         }
@@ -674,9 +755,9 @@ namespace ThorVG
             var obj = value.AsObject();
             var x = obj.Get("0");
             var y = obj.Get("1");
-            result.x = x.IsUndefined() ? 0.0f : (float)x.AsNumber();
+            result.x = Numeric(x);
             if (y.IsUndefined()) return true;
-            result.y = (float)y.AsNumber();
+            result.y = Numeric(y);
             return false;
         }
 
@@ -725,7 +806,7 @@ namespace ThorVG
             {
                 var p1 = JsToPoint(args[idx + 1]);
                 var p2 = JsToPoint(args[idx + 2]);
-                var result = new Point(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+                var result = TvgMath.Lerp(p1, p2, t);
                 return MakePoint2d(engine, result);
             }
 
@@ -769,17 +850,26 @@ namespace ThorVG
             engine.SetValue("inPoint", new JsNumber(exp.comp != null ? exp.layer.inFrame / exp.comp.frameRate : 0));
             engine.SetValue("outPoint", new JsNumber(exp.comp != null ? exp.layer.outFrame / exp.comp.frameRate : 0));
 
-            // comp(name) function
-            engine.SetValue("comp", new ClrFunction(engine, "comp", (_, args) =>
+        }
+
+        private void BuildCompFunction(Engine engine)
+        {
+            // Created before thisComp/thisLayer/thisProperty and native math.
+            var context = _contexts.Value!;
+            if (context.Comp != null) return;
+            context.Comp = new LottieExpressionFunction(engine, "comp", (_, args) =>
             {
+                var exp = context.Expression!;
+                var frameNo = context.Frame;
                 var name = args[0].AsString();
-                var id = TvgCompressor.Djb2Encode(name);
-                var layer = exp.comp?.root?.LayerById(id);
+                var id = TvgCompressor.Djb2EncodeNative(name);
+                var layer = exp.layer?.LayerById(id);
                 if (layer == null) return JsValue.Undefined;
                 var obj = new Jint.Native.JsObject(engine);
                 SetLayerProps(engine, obj, frameNo, layer, exp.comp!.root!, exp);
                 return obj;
-            }));
+            });
+            engine.SetValue("comp", context.Comp);
         }
 
         private void BuildComp(Engine engine, LottieComposition? comp, float frameNo, LottieExpression exp)
@@ -787,23 +877,19 @@ namespace ThorVG
             if (comp?.root == null) return;
 
             // layer(index/name) function on comp -- also set layer and numLayers as properties on it
-            var compFunc = new ClrFunction(engine, "comp", (_, args) =>
+            var compFunc = new LottieExpressionFunction(engine, "comp", (_, args) =>
             {
                 var root = comp.root;
                 LottieLayer? layer;
                 if (args[0].IsNumber())
                     layer = root.LayerByIdx((short)args[0].AsNumber());
                 else
-                    layer = root.LayerById(TvgCompressor.Djb2Encode(args[0].AsString()));
+                    layer = root.LayerById(TvgCompressor.Djb2EncodeNative(args[0].AsString()));
                 if (layer == null) return JsValue.Undefined;
-                var obj = new Jint.Native.JsObject(engine);
-                SetLayerProps(engine, obj, frameNo, layer, root, exp);
-                return obj;
+                return MakeLayerChildObj(engine, frameNo, layer, exp);
             });
-            engine.SetValue("comp", compFunc);
-
             // Also set layer and numLayers as properties on the comp function object
-            var compJsObj = engine.GetValue("comp");
+            var compJsObj = _contexts.Value!.Comp!;
             if (compJsObj.IsObject())
             {
                 compJsObj.AsObject().Set("layer", compFunc);
@@ -813,24 +899,7 @@ namespace ThorVG
 
         private void BuildThisComp(Engine engine, float frameNo, LottieExpression exp)
         {
-            var thisCompObj = new Jint.Native.JsObject(engine);
-
-            // layer(index/name) on thisComp
-            var layerComp = exp.layer?.comp ?? exp.comp?.root;
-            if (layerComp != null)
-            {
-                thisCompObj.Set("layer", new ClrFunction(engine, "layer", (_, args) =>
-                {
-                    LottieLayer? layer;
-                    if (args[0].IsNumber())
-                        layer = layerComp.LayerByIdx((short)args[0].AsNumber());
-                    else
-                        layer = layerComp.LayerById(TvgCompressor.Djb2Encode(args[0].AsString()));
-                    if (layer == null) return JsValue.Undefined;
-                    return MakeLayerChildObj(engine, frameNo, layer, exp);
-                }));
-                thisCompObj.Set("numLayers", new JsNumber(layerComp.children.Count));
-            }
+            var thisCompObj = _contexts.Value!.ThisComp!;
 
             if (exp.comp != null)
             {
@@ -842,205 +911,169 @@ namespace ThorVG
                     thisCompObj.Set(EXP_NAME, new JsString(exp.comp.name));
             }
 
-            engine.SetValue("thisComp", thisCompObj);
+
+            // layer(index/name) on thisComp
+            var layerComp = exp.layer?.precomp ?? exp.comp?.root;
+            if (layerComp != null)
+            {
+                thisCompObj.Set("layer", new LottieExpressionFunction(engine, "layer", (_, args) =>
+                {
+                    LottieLayer? layer;
+                    if (args[0].IsNumber())
+                        layer = layerComp.LayerByIdx((short)args[0].AsNumber());
+                    else
+                        layer = layerComp.LayerById(TvgCompressor.Djb2EncodeNative(args[0].AsString()));
+                    if (layer == null) return JsValue.Undefined;
+                    return MakeLayerChildObj(engine, frameNo, layer, exp);
+                }));
+                thisCompObj.Set("numLayers", new JsNumber(layerComp.children.Count));
+            }
+
+
         }
 
         private void BuildThisLayer(Engine engine, float frameNo, LottieExpression exp)
         {
-            var thisLayerObj = new Jint.Native.JsObject(engine);
+            var thisLayerObj = _contexts.Value!.ThisLayer!;
             if (exp.layer != null)
             {
                 SetLayerProps(engine, thisLayerObj, frameNo, exp.layer, exp.comp?.root, exp);
             }
-            engine.SetValue("thisLayer", thisLayerObj);
         }
 
         private void BuildThisProperty(Engine engine, float frameNo, LottieExpression exp)
         {
-            var thisPropertyObj = new Jint.Native.JsObject(engine);
+            var thisPropertyObj = _contexts.Value!.ThisProperty!;
             if (exp.property != null)
             {
                 SetPropertyProps(engine, thisPropertyObj, frameNo, exp);
             }
-            engine.SetValue("thisProperty", thisPropertyObj);
+            if (exp.property != null)
+            {
+                if (NativeProperties.TryGetValue(thisPropertyObj, out var reference)) reference.Property = exp.property;
+                else NativeProperties.Add(thisPropertyObj, new LottiePropertyRef(exp.property));
+            }
         }
 
-        private void BuildTransformGlobal(Engine engine, float frameNo, LottieTransform transform)
+        private void BuildTransformGlobal(Engine engine, float frameNo, LottieTransform transform) =>
+            BuildTransform(engine, engine.Global, frameNo, transform);
+
+        private void BuildTransform(Engine engine, Jint.Native.Object.ObjectInstance context, float frameNo, LottieTransform transform)
         {
             var transformObj = new Jint.Native.JsObject(engine);
+            context.Set("transform", transformObj);
             transformObj.Set("anchorPoint", MakePointWithValue(engine, transform.anchor.Evaluate(frameNo)));
             transformObj.Set("position", MakePointWithValue(engine, transform.position.Evaluate(frameNo)));
             transformObj.Set("scale", MakePointWithValue(engine, transform.scale.Evaluate(frameNo)));
             transformObj.Set("rotation", new JsNumber(transform.rotation.Evaluate(frameNo)));
             transformObj.Set("opacity", new JsNumber(transform.opacity.Evaluate(frameNo) / 2.55f));
-            engine.SetValue("transform", transformObj);
         }
 
         // ================================================================
         //  Build property onto a context (global or thisProperty)
         // ================================================================
 
-        private void BuildProperty(Engine engine, float frameNo, LottieExpression exp, string prefix)
+        private sealed class PropertyBinding
         {
-            if (exp.property == null) return;
-
-            // value
-            var value = BuildValue(engine, frameNo, exp.property);
-            engine.SetValue(EXP_VALUE, value);
-
-            // valueAtTime
-            engine.SetValue("valueAtTime", new ClrFunction(engine, "valueAtTime", (_, args) =>
-            {
-                var time = (float)args[0].AsNumber();
-                var fn = exp.comp!.FrameAtTime(time);
-                return BuildValue(engine, fn, exp.property);
-            }));
-
-            // velocity (static 0)
-            engine.SetValue("velocity", new JsNumber(0));
-
-            // velocityAtTime
-            engine.SetValue("velocityAtTime", new ClrFunction(engine, "velocityAtTime", (_, args) =>
-                DoVelocityAtTime(engine, exp, (float)args[0].AsNumber())));
-
-            // speed (static 0)
-            engine.SetValue("speed", new JsNumber(0));
-
-            // speedAtTime
-            engine.SetValue("speedAtTime", new ClrFunction(engine, "speedAtTime", (_, args) =>
-                DoSpeedAtTime(engine, exp, (float)args[0].AsNumber())));
-
-            // propertyIndex
-            engine.SetValue("propertyIndex", new JsNumber(exp.property.ix));
-
-            // wiggle
-            engine.SetValue("wiggle", MakeVariadicFunc(engine, "wiggle", args =>
-                DoWiggle(engine, frameNo, exp, args)));
-
-            // temporalWiggle
-            engine.SetValue("temporalWiggle", MakeVariadicFunc(engine, "temporalWiggle", args =>
-                DoTemporalWiggle(engine, frameNo, exp, args)));
-
-            // propertyGroup
-            engine.SetValue("propertyGroup", new ClrFunction(engine, "propertyGroup", (_, args) =>
-                DoPropertyGroup(engine, frameNo, exp, (int)args[0].AsNumber())));
-
-            // loopIn, loopOut, loopInDuration, loopOutDuration
-            engine.SetValue("loopIn", MakeVariadicFunc(engine, "loopIn", args =>
-                DoLoopIn(engine, frameNo, exp, args)));
-            engine.SetValue("loopOut", MakeVariadicFunc(engine, "loopOut", args =>
-                DoLoopOut(engine, frameNo, exp, args)));
-            engine.SetValue("loopInDuration", MakeVariadicFunc(engine, "loopInDuration", args =>
-                DoLoopInDuration(engine, frameNo, exp, args)));
-            engine.SetValue("loopOutDuration", MakeVariadicFunc(engine, "loopOutDuration", args =>
-                DoLoopOutDuration(engine, frameNo, exp, args)));
-
-            // key(index)
-            engine.SetValue("key", new ClrFunction(engine, "key", (_, args) =>
-                DoKey(engine, exp, (int)args[0].AsNumber())));
-
-            // nearestKey(time)
-            engine.SetValue("nearestKey", new ClrFunction(engine, "nearestKey", (_, args) =>
-            {
-                var time = (float)args[0].AsNumber();
-                var fn = exp.comp!.FrameAtTime(time);
-                var idx = exp.property.Nearest(fn);
-                var obj = new Jint.Native.JsObject(engine);
-                obj.Set(EXP_INDEX, new JsNumber(idx));
-                return obj;
-            }));
-
-            // numKeys
-            engine.SetValue("numKeys", new JsNumber(exp.property.FrameCnt()));
-
-            // content(name) -- look for named property from layer
-            if (exp.layer != null)
-            {
-                engine.SetValue(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
-                    DoContent(engine, frameNo, exp.layer, args[0])));
-                engine.SetValue(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
-                    DoEffect(engine, frameNo, exp, exp.layer, args[0])));
-            }
-
-            // Path expansions
-            if (exp.property.type == LottieProperty.PropertyType.PathSet)
-            {
-                BuildPathExpansion(engine, frameNo, exp.property);
-            }
+            public LottieExpression Expression = null!;
+            public float Frame;
         }
 
-        private void SetPropertyProps(Engine engine, Jint.Native.JsObject ctx, float frameNo, LottieExpression exp)
+        private static readonly ConditionalWeakTable<Jint.Native.Object.ObjectInstance, PropertyBinding> FunctionBindings = new();
+
+        private static PropertyBinding? Binding(JsValue value) => value.IsObject() &&
+            FunctionBindings.TryGetValue(value.AsObject(), out var binding) ? binding : null;
+
+        private void BuildProperty(Engine engine, float frameNo, LottieExpression exp, string prefix) =>
+            SetPropertyProps(engine, engine.Global, frameNo, exp);
+
+        private void SetPropertyProps(Engine engine, Jint.Native.Object.ObjectInstance ctx, float frameNo, LottieExpression exp)
         {
             if (exp.property == null) return;
-
             ctx.Set(EXP_VALUE, BuildValue(engine, frameNo, exp.property));
-            ctx.Set("valueAtTime", new ClrFunction(engine, "valueAtTime", (_, args) =>
+            var init = ctx.Get("valueAtTime").IsUndefined();
+
+            // These functions each carry an expression pointer upstream. An
+            // alias keeps its identity while the registered function's binding
+            // is refreshed; overwritten JS functions retain their JS behavior.
+            void SetFunction(string name, Func<PropertyBinding, JsValue[], JsValue> callback)
             {
-                var time = (float)args[0].AsNumber();
-                var fn = exp.comp!.FrameAtTime(time);
-                return BuildValue(engine, fn, exp.property);
-            }));
+                var binding = init ? new PropertyBinding() : Binding(ctx.Get(name));
+                if (binding == null) return;
+                binding.Expression = exp;
+                binding.Frame = frameNo;
+                if (!init) return;
+                var function = new LottieExpressionFunction(engine, name, (_, args) => callback(binding, args));
+                FunctionBindings.Add(function, binding);
+                ctx.Set(name, function);
+            }
+
+            SetFunction("valueAtTime", (b, args) => BuildValue(engine,
+                b.Expression.comp!.FrameAtTime(JsToNumber(args[0])), b.Expression.property!));
+            SetFunction("velocityAtTime", (b, args) => DoVelocityAtTime(engine, b.Expression, JsToNumber(args[0])));
+            SetFunction("speedAtTime", (b, args) => DoSpeedAtTime(engine, b.Expression, JsToNumber(args[0])));
+            SetFunction("key", (b, args) => DoKey(engine, b.Expression, (int)Numeric(args[0])));
+            SetFunction("nearestKey", (b, args) =>
+            {
+                var frame = b.Expression.comp!.FrameAtTime(JsToNumber(args[0]));
+                var obj = new Jint.Native.JsObject(engine);
+                obj.Set(EXP_INDEX, new JsNumber(b.Expression.property!.Nearest(frame)));
+                return obj;
+            });
             ctx.Set("velocity", new JsNumber(0));
-            ctx.Set("velocityAtTime", new ClrFunction(engine, "velocityAtTime", (_, args) =>
-                DoVelocityAtTime(engine, exp, (float)args[0].AsNumber())));
             ctx.Set("speed", new JsNumber(0));
-            ctx.Set("speedAtTime", new ClrFunction(engine, "speedAtTime", (_, args) =>
-                DoSpeedAtTime(engine, exp, (float)args[0].AsNumber())));
             ctx.Set("propertyIndex", new JsNumber(exp.property.ix));
             ctx.Set("numKeys", new JsNumber(exp.property.FrameCnt()));
 
-            ctx.Set("wiggle", MakeVariadicFunc(engine, "wiggle", args =>
-                DoWiggle(engine, frameNo, exp, args)));
-            ctx.Set("temporalWiggle", MakeVariadicFunc(engine, "temporalWiggle", args =>
-                DoTemporalWiggle(engine, frameNo, exp, args)));
-            ctx.Set("loopIn", MakeVariadicFunc(engine, "loopIn", args =>
-                DoLoopIn(engine, frameNo, exp, args)));
-            ctx.Set("loopOut", MakeVariadicFunc(engine, "loopOut", args =>
-                DoLoopOut(engine, frameNo, exp, args)));
-            ctx.Set("loopInDuration", MakeVariadicFunc(engine, "loopInDuration", args =>
-                DoLoopInDuration(engine, frameNo, exp, args)));
-            ctx.Set("loopOutDuration", MakeVariadicFunc(engine, "loopOutDuration", args =>
-                DoLoopOutDuration(engine, frameNo, exp, args)));
-            ctx.Set("key", new ClrFunction(engine, "key", (_, args) =>
-                DoKey(engine, exp, (int)args[0].AsNumber())));
-            ctx.Set("nearestKey", new ClrFunction(engine, "nearestKey", (_, args) =>
+            // Seven property functions share one ExpContent; content/effect
+            // share another. Update the same binding through the same keys as
+            // native so saved aliases and function overwrites have its lifetime.
+            void Shared(string name, PropertyBinding binding, Func<PropertyBinding, JsValue[], JsValue> callback)
             {
-                var time = (float)args[0].AsNumber();
-                var fn = exp.comp!.FrameAtTime(time);
-                var idx = exp.property.Nearest(fn);
-                var obj = new Jint.Native.JsObject(engine);
-                obj.Set(EXP_INDEX, new JsNumber(idx));
-                return obj;
-            }));
-
-            // propertyGroup
-            ctx.Set("propertyGroup", new ClrFunction(engine, "propertyGroup", (_, args) =>
-                DoPropertyGroup(engine, frameNo, exp, (int)args[0].AsNumber())));
-
-            // content(name) -- look for named property from layer
-            if (exp.layer != null)
-            {
-                ctx.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
-                    DoContent(engine, frameNo, exp.layer, args[0])));
-                ctx.Set(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
-                    DoEffect(engine, frameNo, exp, exp.layer, args[0])));
+                var function = new LottieExpressionFunction(engine, name, (_, args) => callback(binding, args));
+                FunctionBindings.Add(function, binding);
+                ctx.Set(name, function);
             }
-
+            if (init)
+            {
+                var property = new PropertyBinding { Expression = exp, Frame = frameNo };
+                Shared("wiggle", property, (b, args) => DoWiggle(engine, b.Frame, b.Expression, args));
+                Shared("temporalWiggle", property, (b, args) => DoTemporalWiggle(engine, b.Frame, b.Expression, args));
+                Shared("propertyGroup", property, (b, args) => DoPropertyGroup(engine, b.Frame, b.Expression, (int)Numeric(args[0])));
+                Shared("loopIn", property, (b, args) => DoLoopIn(engine, b.Frame, b.Expression, args));
+                Shared("loopOut", property, (b, args) => DoLoopOut(engine, b.Frame, b.Expression, args));
+                Shared("loopInDuration", property, (b, args) => DoLoopInDuration(engine, b.Frame, b.Expression, args));
+                Shared("loopOutDuration", property, (b, args) => DoLoopOutDuration(engine, b.Frame, b.Expression, args));
+                var layer = new PropertyBinding { Expression = exp, Frame = frameNo };
+                Shared(EXP_CONTENT, layer, (b, args) => DoContent(engine, b.Frame, b.Expression.layer!, args[0]));
+                Shared(EXP_EFFECT, layer, (b, args) => DoEffect(engine, b.Frame, b.Expression, b.Expression.layer!, args[0]));
+            }
+            else
+            {
+                foreach (var key in new[] { "wiggle", EXP_CONTENT })
+                {
+                    var binding = Binding(ctx.Get(key));
+                    if (binding == null) { TvgCommon.TVGERR("LOTTIE", "ExpContent lost due to function overwrite"); continue; }
+                    binding.Expression = exp;
+                    binding.Frame = frameNo;
+                }
+            }
             if (exp.property.type == LottieProperty.PropertyType.PathSet)
-            {
                 BuildPathExpansionOnObj(engine, ctx, frameNo, exp.property);
-            }
         }
 
         // ================================================================
         //  Layer builder
         // ================================================================
 
-        private void SetLayerProps(Engine engine, Jint.Native.Object.ObjectInstance ctx, float frameNo, LottieLayer layer, LottieLayer? comp, LottieExpression exp)
+        private void SetLayerProps(Engine engine, Jint.Native.Object.ObjectInstance ctx, float frameNo, LottieLayer layer, LottieRootLayer? comp, LottieExpression exp)
         {
             ctx.Set(EXP_WIDTH, new JsNumber(layer.w));
             ctx.Set(EXP_HEIGHT, new JsNumber(layer.h));
             ctx.Set(EXP_INDEX, new JsNumber(layer.ix));
+
+            // parent
+            ctx.Set("parent", new Jint.Native.JsObject(engine));
 
             ctx.Set("hasParent", layer.parent != null ? JsBoolean.True : JsBoolean.False);
             ctx.Set("inPoint", new JsNumber(exp.comp != null ? layer.inFrame / exp.comp.frameRate : 0));
@@ -1051,45 +1084,25 @@ namespace ThorVG
             ctx.Set("enabled", layer.hidden ? JsBoolean.False : JsBoolean.True);
             ctx.Set("audioActive", JsBoolean.False);
 
-            // parent
-            if (layer.parent != null)
-            {
-                var parentObj = new Jint.Native.JsObject(engine);
-                parentObj.Set("_nativeRef", JsValue.FromObject(engine, layer.parent));
-                ctx.Set("parent", parentObj);
-            }
+            if (layer.transform != null) BuildTransform(engine, ctx, frameNo, layer.transform);
+
+            // timeRemap
+            ctx.Set("timeRemap", MakeNativeRef(engine, layer.timeRemap));
 
             // toComp(point) -- transform point to composition space
-            ctx.Set("toComp", new ClrFunction(engine, "toComp", (_, args) =>
+            ctx.Set("toComp", new LottieExpressionFunction(engine, "toComp", (_, args) =>
             {
                 var pt = JsToPoint(args[0]);
                 pt = TvgMath.Transform(pt, layer.cacheMatrix);
                 return MakePoint2d(engine, pt);
             }));
 
-            // transform
-            if (layer.transform != null)
-            {
-                var transformObj = new Jint.Native.JsObject(engine);
-                transformObj.Set("anchorPoint", MakePointWithValue(engine, layer.transform.anchor.Evaluate(frameNo)));
-                transformObj.Set("position", MakePointWithValue(engine, layer.transform.position.Evaluate(frameNo)));
-                transformObj.Set("scale", MakePointWithValue(engine, layer.transform.scale.Evaluate(frameNo)));
-                transformObj.Set("rotation", new JsNumber(layer.transform.rotation.Evaluate(frameNo)));
-                transformObj.Set("opacity", new JsNumber(layer.transform.opacity.Evaluate(frameNo) / 2.55f));
-                ctx.Set("transform", transformObj);
-            }
-
-            // timeRemap
-            var timeRemapObj = new Jint.Native.JsObject(engine);
-            timeRemapObj.Set("_nativeRef", JsValue.FromObject(engine, new LottiePropertyRef(layer.timeRemap)));
-            ctx.Set("timeRemap", timeRemapObj);
-
             // content(name)
-            ctx.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
+            ctx.Set(EXP_CONTENT, new LottieExpressionFunction(engine, EXP_CONTENT, (_, args) =>
                 DoContent(engine, frameNo, layer, args[0])));
 
             // effect(name/index)
-            ctx.Set(EXP_EFFECT, new ClrFunction(engine, EXP_EFFECT, (_, args) =>
+            ctx.Set(EXP_EFFECT, new LottieExpressionFunction(engine, EXP_EFFECT, (_, args) =>
                 DoEffect(engine, frameNo, exp, layer, args[0])));
         }
 
@@ -1100,7 +1113,7 @@ namespace ThorVG
         private JsValue DoContent(Engine engine, float frameNo, LottieGroup group, JsValue nameArg)
         {
             var name = nameArg.AsString();
-            var id = TvgCompressor.Djb2Encode(name);
+            var id = TvgCompressor.Djb2EncodeNative(name);
             var target = group.Content(id);
             if (target == null) return JsValue.Undefined;
 
@@ -1109,45 +1122,31 @@ namespace ThorVG
                 case LottieObject.ObjectType.Group:
                 {
                     var grp = (LottieGroup)target;
-                    var obj = new Jint.Native.JsObject(engine);
+                    var obj = new LottieExpressionFunction(engine, EXP_CONTENT, (_, args) =>
+                        DoContent(engine, frameNo, grp, args[0]));
                     // Attach transform
                     foreach (var child in grp.children)
                     {
                         if (child.type == LottieObject.ObjectType.Transform)
                         {
-                            var transformObj = new Jint.Native.JsObject(engine);
-                            var tr = (LottieTransform)child;
-                            transformObj.Set("anchorPoint", MakePointWithValue(engine, tr.anchor.Evaluate(frameNo)));
-                            transformObj.Set("position", MakePointWithValue(engine, tr.position.Evaluate(frameNo)));
-                            transformObj.Set("scale", MakePointWithValue(engine, tr.scale.Evaluate(frameNo)));
-                            transformObj.Set("rotation", new JsNumber(tr.rotation.Evaluate(frameNo)));
-                            transformObj.Set("opacity", new JsNumber(tr.opacity.Evaluate(frameNo) / 2.55f));
-                            obj.Set("transform", transformObj);
+                            BuildTransform(engine, obj, frameNo, (LottieTransform)child);
                             break;
                         }
                     }
-                    obj.Set(EXP_CONTENT, new ClrFunction(engine, EXP_CONTENT, (_, args) =>
-                        DoContent(engine, frameNo, grp, args[0])));
+                    obj.Set(EXP_CONTENT, obj);
                     return obj;
                 }
                 case LottieObject.ObjectType.Path:
                 {
                     var path = (LottiePath)target;
-                    var obj = new Jint.Native.JsObject(engine);
-                    var nativeRef = JsValue.FromObject(engine, new LottiePropertyRef(path.pathset));
-                    obj.Set("_nativeRef", nativeRef);
-                    // C++ does obj.path = obj (self-reference for content('X').path access).
-                    // Jint detects cyclic refs, so point "path" at a wrapper with the same native ref.
-                    var pathObj = new Jint.Native.JsObject(engine);
-                    pathObj.Set("_nativeRef", nativeRef);
-                    obj.Set("path", pathObj);
+                    var obj = MakeNativeRef(engine, path.pathset).AsObject();
+                    obj.Set("path", obj);
                     return obj;
                 }
                 case LottieObject.ObjectType.Polystar:
                 {
                     var polystar = (LottiePolyStar)target;
                     var obj = new Jint.Native.JsObject(engine);
-                    obj.Set("_nativeRef", JsValue.FromObject(engine, new LottiePropertyRef(polystar.position)));
                     obj.Set("position", MakeNativeRef(engine, polystar.position));
                     obj.Set("innerRadius", new JsNumber(polystar.innerRadius.Evaluate(frameNo)));
                     obj.Set("outerRadius", new JsNumber(polystar.outerRadius.Evaluate(frameNo)));
@@ -1199,12 +1198,12 @@ namespace ThorVG
             if (nameArg.IsNumber())
                 effect = layer.EffectByIdx((short)nameArg.AsNumber());
             else
-                effect = layer.EffectById(TvgCompressor.Djb2Encode(nameArg.AsString()));
+                effect = layer.EffectById(TvgCompressor.Djb2EncodeNative(nameArg.AsString()));
 
             if (effect == null) return JsValue.Undefined;
 
             // Return a function that looks up effect properties by name
-            return new ClrFunction(engine, "effect", (_, args) =>
+            return new LottieExpressionFunction(engine, "effect", (_, args) =>
             {
                 if (effect is LottieFxCustom custom)
                 {
@@ -1224,23 +1223,23 @@ namespace ThorVG
         private void BuildPathExpansion(Engine engine, float frameNo, LottieProperty pathset)
         {
             // points() -- returns native ref to the pathset property
-            engine.SetValue("points", new ClrFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
+            engine.SetValue("points", new LottieExpressionFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
 
             // pointOnPath(progress) -- evaluate path at progress and return point
-            engine.SetValue("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
+            engine.SetValue("pointOnPath", new LottieExpressionFunction(engine, "pointOnPath", (_, args) =>
                 DoPointOnPath(engine, frameNo, pathset, args[0])));
 
             // tangentOnPath(progress) -- evaluate tangent at progress and return normalized direction
-            engine.SetValue("tangentOnPath", new ClrFunction(engine, "tangentOnPath", (_, args) =>
+            engine.SetValue("tangentOnPath", new LottieExpressionFunction(engine, "tangentOnPath", (_, args) =>
                 DoTangentOnPath(engine, frameNo, pathset, args[0])));
         }
 
-        private void BuildPathExpansionOnObj(Engine engine, Jint.Native.JsObject ctx, float frameNo, LottieProperty pathset)
+        private void BuildPathExpansionOnObj(Engine engine, Jint.Native.Object.ObjectInstance ctx, float frameNo, LottieProperty pathset)
         {
-            ctx.Set("points", new ClrFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
-            ctx.Set("pointOnPath", new ClrFunction(engine, "pointOnPath", (_, args) =>
+            ctx.Set("points", new LottieExpressionFunction(engine, "points", (_, args) => MakeNativeRef(engine, pathset)));
+            ctx.Set("pointOnPath", new LottieExpressionFunction(engine, "pointOnPath", (_, args) =>
                 DoPointOnPath(engine, frameNo, pathset, args[0])));
-            ctx.Set("tangentOnPath", new ClrFunction(engine, "tangentOnPath", (_, args) =>
+            ctx.Set("tangentOnPath", new LottieExpressionFunction(engine, "tangentOnPath", (_, args) =>
                 DoTangentOnPath(engine, frameNo, pathset, args[0])));
         }
 
@@ -1249,9 +1248,9 @@ namespace ThorVG
             if (pathset is LottiePathSet ps)
             {
                 var progress = JsToNumber(progressArg);
-                var renderPath = new RenderPath();
+                var renderPath = RenderPath.Scratch();
                 unsafe { ps.DefaultPath(frameNo, renderPath, null); }
-                var pt = RenderPathPoint(renderPath, progress);
+                var pt = renderPath.PointAt(progress);
                 return MakePoint2d(engine, pt);
             }
             return JsValue.Undefined;
@@ -1262,122 +1261,16 @@ namespace ThorVG
             if (pathset is LottiePathSet ps)
             {
                 var progress = JsToNumber(progressArg);
-                var renderPath = new RenderPath();
+                var renderPath = RenderPath.Scratch();
                 unsafe { ps.DefaultPath(frameNo, renderPath, null); }
-                var a = RenderPathPoint(renderPath, Math.Max(0.0f, progress - 0.001f));
-                var b = RenderPathPoint(renderPath, Math.Min(1.0f, progress + 0.001f));
+                var a = renderPath.PointAt(Math.Max(0.0f, progress - 0.001f));
+                var b = renderPath.PointAt(Math.Min(1.0f, progress + 0.001f));
                 var t = new Point(b.x - a.x, b.y - a.y);
                 var len = TvgMath.PointLength(t);
                 if (len > 0.0f) { t.x /= len; t.y /= len; }
                 return MakePoint2d(engine, t);
             }
             return JsValue.Undefined;
-        }
-
-        /// <summary>
-        /// Evaluate a point at a given progress along a RenderPath.
-        /// Mirrors C++ RenderPath::point(float progress).
-        /// </summary>
-        private static unsafe Point RenderPathPoint(RenderPath path, float progress)
-        {
-            if (path.pts.count == 0) return default;
-            if (progress <= 0.0f) return path.pts.First();
-            if (progress >= 1.0f) return path.pts.Last();
-
-            // Calculate total path length
-            var totalLength = 0.0f;
-            Point curr = default, start = default;
-            var ptsPtr = path.pts.Begin();
-            var cmdsPtr = path.cmds.Begin();
-            var cmdsEnd = path.cmds.End();
-            var p = ptsPtr;
-            var c = cmdsPtr;
-
-            // First pass: compute total length
-            while (c < cmdsEnd)
-            {
-                switch (*c)
-                {
-                    case PathCommand.MoveTo:
-                        curr = start = *p++;
-                        break;
-                    case PathCommand.LineTo:
-                        totalLength += TvgMath.LineLength(curr, *p);
-                        curr = *p++;
-                        break;
-                    case PathCommand.CubicTo:
-                    {
-                        var bz = new Bezier(curr, *p, *(p + 1), *(p + 2));
-                        totalLength += bz.Length();
-                        curr = *(p + 2);
-                        p += 3;
-                        break;
-                    }
-                    case PathCommand.Close:
-                        totalLength += TvgMath.LineLength(curr, start);
-                        curr = start;
-                        break;
-                }
-                ++c;
-            }
-
-            // Second pass: find point at target length
-            var targetLen = totalLength * progress;
-            var runningLen = 0.0f;
-            p = ptsPtr;
-            c = cmdsPtr;
-
-            while (c < cmdsEnd)
-            {
-                switch (*c)
-                {
-                    case PathCommand.MoveTo:
-                        curr = start = *p++;
-                        break;
-                    case PathCommand.LineTo:
-                    {
-                        var next = *p;
-                        var segLen = TvgMath.LineLength(curr, next);
-                        if (runningLen + segLen >= targetLen)
-                        {
-                            var t = (targetLen - runningLen) / segLen;
-                            return new Point(curr.x + (next.x - curr.x) * t, curr.y + (next.y - curr.y) * t);
-                        }
-                        runningLen += segLen;
-                        curr = *p++;
-                        break;
-                    }
-                    case PathCommand.CubicTo:
-                    {
-                        var bz = new Bezier(curr, *p, *(p + 1), *(p + 2));
-                        var segLen = bz.Length();
-                        if (runningLen + segLen >= targetLen)
-                        {
-                            // Match C++: use arc-length fraction directly as bezier parameter
-                            return bz.At((targetLen - runningLen) / segLen);
-                        }
-                        runningLen += segLen;
-                        curr = *(p + 2);
-                        p += 3;
-                        break;
-                    }
-                    case PathCommand.Close:
-                    {
-                        var segLen = TvgMath.LineLength(curr, start);
-                        if (runningLen + segLen >= targetLen)
-                        {
-                            var t = (targetLen - runningLen) / segLen;
-                            return new Point(curr.x + (start.x - curr.x) * t, curr.y + (start.y - curr.y) * t);
-                        }
-                        runningLen += segLen;
-                        curr = start;
-                        break;
-                    }
-                }
-                ++c;
-            }
-
-            return path.pts.Last();
         }
 
         // ================================================================
@@ -1411,7 +1304,7 @@ namespace ThorVG
                 var fx = x - (float)x0;
 
                 // Quintic fade curve for smooth interpolation (6t^5 - 15t^4 + 10t^3)
-                var u = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+                var u = fx * fx * fx * TvgMath.MultiplyAdd(fx, TvgMath.MultiplyAdd(fx, 6.0f, -15.0f), 10.0f);
 
                 // Deterministic random generator using glibc's LCG algorithm
                 static float Gradient1D(long seed)
@@ -1432,8 +1325,8 @@ namespace ThorVG
             {
                 var repeat = time * freq;
                 // Factors (1000000, 2000000) separate X/Y axes to prevent seed collisions across octaves
-                result.x += Perlin1D(repeat, 1000000 + o) * amp;
-                result.y += Perlin1D(repeat, 2000000 + o) * amp;
+                result.x = TvgMath.MultiplyAdd(Perlin1D(repeat, 1000000 + o), amp, result.x);
+                result.y = TvgMath.MultiplyAdd(Perlin1D(repeat, 2000000 + o), amp, result.y);
                 freq *= 2.0f;
                 amp *= ampm;
             }
@@ -1459,7 +1352,7 @@ namespace ThorVG
                 var frac = (time * freq - repeat);
                 for (int i = 0; i < repeat; ++i)
                 {
-                    wiggleTime += (Rand() * 2.0f - 1.0f) * amp * frac;
+                    wiggleTime = TvgMath.MultiplyAdd((Rand() * 2.0f - 1.0f) * amp, frac, wiggleTime);
                 }
                 freq *= 2.0f;
                 amp *= ampm;
@@ -1573,7 +1466,6 @@ namespace ThorVG
             var pframe = exp.property.FrameNo(key - 1);
             var cframe = exp.property.FrameNo(key);
             var elapsed = (cframe - pframe) / exp.comp.frameRate;
-            if (MathF.Abs(elapsed) < MathConstants.FLOAT_EPSILON) return new JsNumber(0);
 
             switch (exp.property.type)
             {
@@ -1627,8 +1519,7 @@ namespace ThorVG
             }
 
             var elapsed = (cframe - pframe) / exp.comp.frameRate;
-            if (MathF.Abs(elapsed) < MathConstants.FLOAT_EPSILON) return new JsNumber(0);
-            var speed = MathF.Sqrt(MathF.Pow(cur.x - prv.x, 2) + MathF.Pow(cur.y - prv.y, 2)) / elapsed;
+            var speed = MathF.Sqrt((float)(Math.Pow(cur.x - prv.x, 2) + Math.Pow(cur.y - prv.y, 2))) / elapsed;
             return new JsNumber(speed);
         }
 
@@ -1641,7 +1532,7 @@ namespace ThorVG
             if (level == 1 && exp.obj != null)
             {
                 // Return a function that looks up properties by index
-                return new ClrFunction(engine, "propertyGroup", (_, args) =>
+                return new LottieExpressionFunction(engine, "propertyGroup", (_, args) =>
                 {
                     var property = exp.obj.FindProperty((ushort)args[0].AsNumber());
                     if (property == null) return JsValue.Undefined;

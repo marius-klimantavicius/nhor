@@ -10,7 +10,7 @@ namespace ThorVG
         public float segmentBegin;
         public float segmentEnd;            // Initialize the value with the total frame number
 
-        protected AnimLoader(FileType type) : base(type) { }
+        protected AnimLoader(FileType type) : base(type, true) { }
 
         public abstract bool Frame(float no);           // set the current frame number
         public abstract float TotalFrame();             // return the total frame count

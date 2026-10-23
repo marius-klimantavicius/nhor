@@ -83,7 +83,7 @@ namespace ThorVG
         public LottieProperty? FindProperty(string? name)
         {
             if (name == null) return null;
-            var id = TvgCompressor.Djb2Encode(name);
+            var id = TvgCompressor.Djb2EncodeNative(name);
             foreach (var p in props)
             {
                 if (p.mn == id || p.nm == id) return p.property;
@@ -183,10 +183,24 @@ namespace ThorVG
         public string? style;
         public ushort size;
         public byte len;
+        private string? cachedCode;
+        private byte[] cachedUtf8 = System.Array.Empty<byte>();
+        internal byte[] Utf8Code
+        {
+            get
+            {
+                if (!ReferenceEquals(cachedCode, code))
+                {
+                    cachedUtf8 = LottieDataHelper.Utf8CString(code);
+                    cachedCode = code;
+                }
+                return cachedUtf8;
+            }
+        }
 
         public bool Prepare()
         {
-            len = (byte)(code?.Length ?? 0);
+            len = (byte)Utf8Code.Length;
             return len > 0;
         }
     }
@@ -325,7 +339,8 @@ namespace ThorVG
                 if (minEaseVal > 0.0f) outPt.x = minEaseVal * 0.01f;
                 else outPt.y = -minEaseVal * 0.01f;
 
-                interpolator!.Set(null, inPt, outPt);
+                interpolator ??= new LottieInterpolator();
+                interpolator.Set(null, inPt, outPt);
                 f = interpolator.Progress(f);
             }
             f = TvgMath.Clamp(f, 0.0f, 1.0f);
@@ -338,89 +353,37 @@ namespace ThorVG
             if (style.flagFillColor)
             {
                 var color = style.fillColor.Evaluate(frameNo, tween, exps);
-                fillColor.r = LottieDataHelper.LerpInt(fillColor.r, color.r, factor);
-                fillColor.g = LottieDataHelper.LerpInt(fillColor.g, color.g, factor);
-                fillColor.b = LottieDataHelper.LerpInt(fillColor.b, color.b, factor);
+                fillColor = RGB32.Lerp(fillColor, color, factor);
             }
             if (style.flagStrokeColor)
             {
                 var color = style.strokeColor.Evaluate(frameNo, tween, exps);
-                strokeColor.r = LottieDataHelper.LerpInt(strokeColor.r, color.r, factor);
-                strokeColor.g = LottieDataHelper.LerpInt(strokeColor.g, color.g, factor);
-                strokeColor.b = LottieDataHelper.LerpInt(strokeColor.b, color.b, factor);
+                strokeColor = RGB32.Lerp(strokeColor, color, factor);
             }
         }
 
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (style.fillColor.sid == prop.sid)
-            {
-                if (release) style.fillColor.Release();
-                else backup = new LottieColor(style.fillColor.value) { sid = style.fillColor.sid };
-                style.fillColor.CopyFrom((LottieColor)prop, false);
-            }
-            else if (style.strokeColor.sid == prop.sid)
-            {
-                if (release) style.strokeColor.Release();
-                else backup = new LottieColor(style.strokeColor.value) { sid = style.strokeColor.sid };
-                style.strokeColor.CopyFrom((LottieColor)prop, false);
-            }
-            else if (style.position.sid == prop.sid)
-            {
-                if (release) style.position.Release();
-                else backup = new LottieVector(style.position.value) { sid = style.position.sid };
-                style.position.CopyFrom((LottieVector)prop, false);
-            }
-            else if (style.scale.sid == prop.sid)
-            {
-                if (release) style.scale.Release();
-                else backup = new LottieScalar(style.scale.value) { sid = style.scale.sid };
-                style.scale.CopyFrom((LottieScalar)prop, false);
-            }
-            else if (style.rotation.sid == prop.sid)
-            {
-                if (release) style.rotation.Release();
-                else backup = new LottieFloat(style.rotation.value) { sid = style.rotation.sid };
-                style.rotation.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (style.letterSpace.sid == prop.sid)
-            {
-                if (release) style.letterSpace.Release();
-                else backup = new LottieFloat(style.letterSpace.value) { sid = style.letterSpace.sid };
-                style.letterSpace.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (style.lineSpace.sid == prop.sid)
-            {
-                if (release) style.lineSpace.Release();
-                else backup = new LottieFloat(style.lineSpace.value) { sid = style.lineSpace.sid };
-                style.lineSpace.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (style.strokeWidth.sid == prop.sid)
-            {
-                if (release) style.strokeWidth.Release();
-                else backup = new LottieFloat(style.strokeWidth.value) { sid = style.strokeWidth.sid };
-                style.strokeWidth.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (style.fillOpacity.sid == prop.sid)
-            {
-                if (release) style.fillOpacity.Release();
-                else backup = new LottieOpacity(style.fillOpacity.value) { sid = style.fillOpacity.sid };
-                style.fillOpacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            else if (style.strokeOpacity.sid == prop.sid)
-            {
-                if (release) style.strokeOpacity.Release();
-                else backup = new LottieOpacity(style.strokeOpacity.value) { sid = style.strokeOpacity.sid };
-                style.strokeOpacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            else if (style.opacity.sid == prop.sid)
-            {
-                if (release) style.opacity.Release();
-                else backup = new LottieOpacity(style.opacity.value) { sid = style.opacity.sid };
-                style.opacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            return backup;
+            if (LottieOverride.Apply(style.fillColor, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.strokeColor, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.scale, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.rotation, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.letterSpace, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.lineSpace, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.strokeWidth, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.fillOpacity, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.strokeOpacity, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(style.opacity, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(offset, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(maxEase, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(minEase, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(maxAmount, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(smoothness, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(start, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(end, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -435,28 +398,40 @@ namespace ThorVG
         public string? family;
         public string? style;
         public string? mime;
-        public uint size;      // string length of b64src
+        public uint size;      // decoded font byte count after Prepare
         public float ascent;
         public Origin origin = Origin.Local;
+        public bool external;
+        private bool released;
 
         public void Prepare()
         {
-            if (b64src == null) return;
-            // Decode from base64 string to binary, then load
-            try
+            released = false;
+            if (external) { Text.LoadFont(b64src); return; }
+            if (b64src == null)
             {
-                var decoded = System.Convert.FromBase64String(b64src);
-                Text.LoadFont(name!, decoded, (uint)decoded.Length, mime ?? "ttf", false);
+                Text.LoadFont(name!, null, size, mime, Ownership.Transfer);
+                return;
             }
-            catch (FormatException)
-            {
-                TvgCommon.TVGERR("LOTTIE", "Failed to decode base64 font data");
-            }
+            // Native parseFontData uses the shared permissive decoder, and
+            // prepare transfers the decoded allocation to the font loader.
+            var decoded = TvgCompressor.B64Decode(b64src);
+            size = (uint)decoded.Length;
+            Text.LoadFont(name!, decoded, size, mime, Ownership.Transfer);
         }
 
         ~LottieFont()
         {
-            if (b64src != null) Text.UnloadFont(name);
+            Release();
+        }
+
+        public void Release()
+        {
+            if (released) return;
+            released = true;
+            if (external) Text.UnloadFont(name!);
+            else if (name != null) Text.LoadFont(name, null, size, mime, false);
+            b64src = null;
         }
     }
 
@@ -467,7 +442,7 @@ namespace ThorVG
         public float duration;
     }
 
-    public unsafe class LottieTextFollowPath
+    public unsafe class LottieTextFollowPath : IDisposable
     {
         private RenderPath path = new();
         private PathCommand* cmds;
@@ -486,8 +461,26 @@ namespace ThorVG
         }
 
         public LottieFloat firstMargin = new(0.0f);
+        public LottieInteger perpendicular = new(0);
         public LottieMask? mask;
         public sbyte maskIdx = -1;
+
+        ~LottieTextFollowPath() => Release();
+
+        public void Dispose()
+        {
+            Release();
+            GC.SuppressFinalize(this);
+        }
+
+        public void Release()
+        {
+            path.cmds.Dispose();
+            path.pts.Dispose();
+            cmds = null;
+            pts = start = null;
+            cmdsCnt = 0;
+        }
 
         private Point Split(float dLen, float lenSearched, ref float angle)
         {
@@ -555,12 +548,12 @@ namespace ThorVG
                         {
                             var dp = new Point((pts + 1)->x - pts->x, (pts + 1)->y - pts->y);
                             angle = TvgMath.Atan2(dp.y, dp.x);
-                            return new Point(pts->x + lenSearched * MathF.Cos(angle), pts->y + lenSearched * MathF.Sin(angle));
+                            return new Point(TvgMath.MultiplyAdd(lenSearched, MathF.Cos(angle), pts->x), TvgMath.MultiplyAdd(lenSearched, MathF.Sin(angle), pts->y));
                         }
                         case PathCommand.CubicTo:
                         {
-                            angle = TvgMath.Deg2Rad(new Bezier(*pts, *(pts + 1), *(pts + 2), *(pts + 3)).Angle(0.0001f));
-                            return new Point(pts->x + lenSearched * MathF.Cos(angle), pts->y + lenSearched * MathF.Sin(angle));
+                            angle = TvgMath.Deg2Rad(new Bezier(*pts, *(pts + 1), *(pts + 2), *(pts + 3)).AngleAtConstant(0.0001f));
+                            return new Point(TvgMath.MultiplyAdd(lenSearched, MathF.Cos(angle), pts->x), TvgMath.MultiplyAdd(lenSearched, MathF.Sin(angle), pts->y));
                         }
                         default:
                             angle = 0.0f;
@@ -604,20 +597,20 @@ namespace ThorVG
                             var len = lenSearched - totalLen;
                             var dp = new Point(pts->x - (pts - 1)->x, pts->y - (pts - 1)->y);
                             angle = TvgMath.Atan2(dp.y, dp.x);
-                            return new Point(pts->x + len * MathF.Cos(angle), pts->y + len * MathF.Sin(angle));
+                            return new Point(TvgMath.MultiplyAdd(len, MathF.Cos(angle), pts->x), TvgMath.MultiplyAdd(len, MathF.Sin(angle), pts->y));
                         }
                         case PathCommand.CubicTo:
                         {
                             var len = lenSearched - totalLen;
-                            angle = TvgMath.Deg2Rad(new Bezier(*(pts - 1), *pts, *(pts + 1), *(pts + 2)).Angle(0.999f));
-                            return new Point((pts + 2)->x + len * MathF.Cos(angle), (pts + 2)->y + len * MathF.Sin(angle));
+                            angle = TvgMath.Deg2Rad(new Bezier(*(pts - 1), *pts, *(pts + 1), *(pts + 2)).AngleAtConstant(0.999f));
+                            return new Point(TvgMath.MultiplyAdd(len, MathF.Cos(angle), (pts + 2)->x), TvgMath.MultiplyAdd(len, MathF.Sin(angle), (pts + 2)->y));
                         }
                         case PathCommand.Close:
                         {
                             var len = lenSearched - totalLen;
                             var dp = new Point(start->x - (pts - 1)->x, start->y - (pts - 1)->y);
                             angle = TvgMath.Atan2(dp.y, dp.x);
-                            return new Point((pts - 1)->x + len * MathF.Cos(angle), (pts - 1)->y + len * MathF.Sin(angle));
+                            return new Point(TvgMath.MultiplyAdd(len, MathF.Cos(angle), (pts - 1)->x), TvgMath.MultiplyAdd(len, MathF.Sin(angle), (pts - 1)->y));
                         }
                     }
                 }
@@ -674,10 +667,9 @@ namespace ThorVG
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (release) doc.Release();
-            else backup = new LottieTextDoc(doc);
-            doc.CopyFrom((LottieTextDoc)prop, false);
-            return backup;
+            if (LottieOverride.Apply(doc, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(alignOp.anchor, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
 
         public override LottieProperty? FindProperty(ushort ix)
@@ -738,6 +730,14 @@ namespace ThorVG
             startVal += o;
             endVal += o;
         }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(start, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(end, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(offset, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieShape : LottieObject
@@ -760,6 +760,12 @@ namespace ThorVG
             if (radius.ix == ix) return radius;
             return null;
         }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(radius, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottiePath : LottieShape
@@ -771,6 +777,12 @@ namespace ThorVG
         {
             if (pathset.ix == ix) return pathset;
             return null;
+        }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(pathset, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -787,6 +799,14 @@ namespace ThorVG
             if (size.ix == ix) return size;
             if (radius.ix == ix) return radius;
             return null;
+        }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(size, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(radius, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -816,6 +836,18 @@ namespace ThorVG
             if (ptsCnt.ix == ix) return ptsCnt;
             return null;
         }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(innerRadius, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(outerRadius, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(innerRoundness, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(outerRoundness, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(rotation, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(ptsCnt, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieEllipse : LottieShape
@@ -829,6 +861,13 @@ namespace ThorVG
             if (position.ix == ix) return position;
             if (size.ix == ix) return size;
             return null;
+        }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(size, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -886,43 +925,14 @@ namespace ThorVG
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (rotation.sid == prop.sid)
-            {
-                if (release) rotation.Release();
-                else backup = new LottieFloat(rotation.value) { sid = rotation.sid };
-                rotation.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (scale.sid == prop.sid)
-            {
-                if (release) scale.Release();
-                else backup = new LottieScalar(scale.value) { sid = scale.sid };
-                scale.CopyFrom((LottieScalar)prop, false);
-            }
-            else if (position.sid == prop.sid)
-            {
-                if (release) position.Release();
-                else backup = new LottieVector(position.value) { sid = position.sid };
-                position.CopyFrom((LottieVector)prop, false);
-            }
-            else if (opacity.sid == prop.sid)
-            {
-                if (release) opacity.Release();
-                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
-                opacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            else if (skewAngle.sid == prop.sid)
-            {
-                if (release) skewAngle.Release();
-                else backup = new LottieFloat(skewAngle.value) { sid = skewAngle.sid };
-                skewAngle.CopyFrom((LottieFloat)prop, false);
-            }
-            else if (skewAxis.sid == prop.sid)
-            {
-                if (release) skewAxis.Release();
-                else backup = new LottieFloat(skewAxis.value) { sid = skewAxis.sid };
-                skewAxis.CopyFrom((LottieFloat)prop, false);
-            }
-            return backup;
+            if (LottieOverride.Apply(rotation, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(scale, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(anchor, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(opacity, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(skewAngle, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(skewAxis, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -941,19 +951,9 @@ namespace ThorVG
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (color.sid == prop.sid)
-            {
-                if (release) color.Release();
-                else backup = new LottieColor(color.value) { sid = color.sid };
-                color.CopyFrom((LottieColor)prop, false);
-            }
-            else if (opacity.sid == prop.sid)
-            {
-                if (release) opacity.Release();
-                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
-                opacity.CopyFrom((LottieOpacity)prop, false);
-            }
-            return backup;
+            if (LottieOverride.Apply(color, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(opacity, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
         }
     }
 
@@ -974,6 +974,12 @@ namespace ThorVG
             return base.FindProperty(ix);
         }
 
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(stroke.width, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieSolidFill : LottieSolid
@@ -1029,19 +1035,12 @@ namespace ThorVG
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
             LottieProperty? backup = null;
-            if (colorStops.sid == prop.sid)
-            {
-                if (release) colorStops.Release();
-                else backup = new LottieColorStop(colorStops);
-                colorStops.CopyFrom((LottieColorStop)prop, false);
-                Prepare();
-            }
-            else if (opacity.sid == prop.sid)
-            {
-                if (release) opacity.Release();
-                else backup = new LottieOpacity(opacity.value) { sid = opacity.sid };
-                opacity.CopyFrom((LottieOpacity)prop, false);
-            }
+            if (LottieOverride.Apply(colorStops, prop, ref backup, release)) Prepare();
+            else if (LottieOverride.Apply(opacity, prop, ref backup, release)) return backup;
+            else if (LottieOverride.Apply(start, prop, ref backup, release)) return backup;
+            else if (LottieOverride.Apply(end, prop, ref backup, release)) return backup;
+            else if (LottieOverride.Apply(height, prop, ref backup, release)) return backup;
+            else if (LottieOverride.Apply(angle, prop, ref backup, release)) return backup;
             return backup;
         }
 
@@ -1050,18 +1049,24 @@ namespace ThorVG
             if (color.input == null) return 0;
 
             var input = color.input.Value;
-            uint alphaCnt = (input.count - (count * 4)) / 2;
+            ulong colorLast = (ulong)count * 4;
+            if (input.count < colorLast)
+            {
+                TvgCommon.TVGERR("LOTTIE", "Malformed asset!");
+                return 0;
+            }
+            uint clast = (uint)colorLast;
+            uint inputLast = input.count - ((input.count - clast) % 2);
+            uint alphaCnt = (inputLast - clast) / 2;
             var output = new List<Fill.ColorStop>((int)(count + alphaCnt));
             uint cidx = 0;
-            uint clast = count * 4;
-            if (clast > input.count) clast = input.count;
             uint aidx = clast;
             Fill.ColorStop cs = default;
 
             // merge color stops
-            for (uint i = 0; i < input.count; ++i)
+            for (uint i = 0; i < inputLast; ++i)
             {
-                if (cidx == clast || aidx == input.count) break;
+                if (cidx == clast || aidx == inputLast) break;
                 if (input[cidx] == input[aidx])
                 {
                     cs.offset = input[cidx];
@@ -1125,7 +1130,7 @@ namespace ThorVG
             }
 
             // alpha remains
-            while (aidx < input.count)
+            while (aidx < inputLast)
             {
                 cs.offset = input[aidx];
                 cs.a = (byte)MathF.Round(input[aidx + 1] * 255.0f);
@@ -1143,6 +1148,7 @@ namespace ThorVG
             }
 
             color.data = output.ToArray();
+            color.input?.Dispose();
             color.input = null;
 
             return (uint)output.Count;
@@ -1168,7 +1174,7 @@ namespace ThorVG
                 fill = RadialGradient.Gen();
                 var w = MathF.Abs(e.x - s.x);
                 var h = MathF.Abs(e.y - s.y);
-                var r = (w > h) ? (w + 0.375f * h) : (h + 0.375f * w);
+                var r = (w > h) ? TvgMath.MultiplyAdd(0.375f, h, w) : TvgMath.MultiplyAdd(0.375f, w, h);
                 var progress = height.Evaluate(frameNo, tween, exps) * 0.01f;
 
                 if (TvgMath.Zero(progress))
@@ -1177,11 +1183,10 @@ namespace ThorVG
                 }
                 else
                 {
-                    var startAngle = TvgMath.Rad2Deg(TvgMath.Atan2(e.y - s.y, e.x - s.x));
-                    var angleDeg = startAngle + angle.Evaluate(frameNo, tween, exps);
+                    var angleDeg = TvgMath.MultiplyAdd(TvgMath.Atan2(e.y - s.y, e.x - s.x), 180.0f / MathConstants.MATH_PI, angle.Evaluate(frameNo, tween, exps));
                     var angleRad = TvgMath.Deg2Rad(angleDeg);
-                    var fx = s.x + MathF.Cos(angleRad) * progress * r;
-                    var fy = s.y + MathF.Sin(angleRad) * progress * r;
+                    var fx = TvgMath.MultiplyAdd(MathF.Cos(angleRad) * progress, r, s.x);
+                    var fy = TvgMath.MultiplyAdd(MathF.Sin(angleRad) * progress, r, s.y);
                     ((RadialGradient)fill).Radial(s.x, s.y, r, fx, fy, 0.0f);
                 }
             }
@@ -1227,38 +1232,53 @@ namespace ThorVG
             }
             return base.FindProperty(ix);
         }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(stroke.width, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieImage : LottieObject
     {
-        public LottieBitmap bitmap = new();
-        public bool resolved;
+        public LottieBitmap asset = new();
+        public LottieBitmap bitmap => asset;
+        public Picture? picture { get => asset.picture; set => asset.picture = value; }
+        public bool valid;
+        public bool resolved { get => valid; set => valid = value; }
 
         public LottieImage() { type = ObjectType.Image; }
 
+        public void Release()
+        {
+            if (picture != null) { picture.Unref(); picture = null; }
+        }
+
         public override LottieProperty? Override(LottieProperty prop, bool release)
         {
+            Release();
             LottieProperty? backup = null;
-            if (release) bitmap.Release();
-            else backup = new LottieBitmap(bitmap);
-            bitmap.CopyFrom((LottieBitmap)prop, false);
+            LottieOverride.Apply(asset, prop, ref backup, release);
+            valid = false;
             return backup;
         }
 
-        public void Prepare(bool external = false)
+        public Picture Get()
         {
-            type = ObjectType.Image;
-
-            // Prepare the Picture image
-            var result = Result.Unknown;
-            var picture = Picture.Gen();
-            if (bitmap.size > 0 && bitmap.b64Data != null) result = picture.Load(bitmap.b64Data, bitmap.size, bitmap.mimeType);
-            else if (external) result = picture.Load(bitmap.path);
-            if (result == Result.Success) resolved = true;
-            picture.SetSize(bitmap.width, bitmap.height);
-            bitmap.picture = picture;
+            if (picture != null) return picture;
+            picture = Picture.Gen();
             picture.Ref();
+            var result = Result.Unknown;
+            if (asset.size > 0 && asset.b64Data != null) result = picture.Load(asset.b64Data, asset.size, asset.mimeType);
+            else if (asset.external) result = picture.Load(asset.path);
+            picture.SetSize(asset.width, asset.height);
+            valid = result == Result.Success;
+            return picture;
         }
+
+        // Retained compatibility entry point; decoding now happens on first Get.
+        public void Prepare(bool external = false) { asset.external = external; }
     }
 
     public class LottieAudio : LottieObject
@@ -1266,6 +1286,7 @@ namespace ThorVG
         public object? data;
         public string? mimeType;
         public uint size;
+        public bool external;
 
         public LottieAudio() { type = ObjectType.Audio; }
     }
@@ -1296,6 +1317,19 @@ namespace ThorVG
             if (endOpacity.ix == ix) return endOpacity;
             return null;
         }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(copies, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(offset, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(position, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(rotation, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(scale, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(anchor, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(startOpacity, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(endOpacity, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieOffsetPath : LottieObject
@@ -1305,6 +1339,13 @@ namespace ThorVG
         public StrokeJoin join = StrokeJoin.Miter;
 
         public LottieOffsetPath() { type = ObjectType.OffsetPath; }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(offset, prop, ref backup, release)) return backup;
+            if (LottieOverride.Apply(miterLimit, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottiePuckerBloat : LottieObject
@@ -1312,6 +1353,12 @@ namespace ThorVG
         public LottieFloat amount = new();
 
         public LottiePuckerBloat() { type = ObjectType.PuckerBloat; }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(amount, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieZigZag : LottieObject
@@ -1321,6 +1368,12 @@ namespace ThorVG
         public LottieInteger point = new(1);
 
         public LottieZigZag() { type = ObjectType.ZigZag; }
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            if (LottieOverride.Apply(amplitude, prop, ref backup, release)) return backup;
+            return base.Override(prop, release);
+        }
     }
 
     public class LottieGroup : LottieObject
@@ -1336,8 +1389,9 @@ namespace ThorVG
         public bool visible;
         public bool allowMerge;
 
-        public LottieGroup()
+        public LottieGroup(ObjectType type = ObjectType.Group)
         {
+            this.type = type;
             reqFragment = false;
             buildDone = false;
             trimpath = false;
@@ -1357,9 +1411,9 @@ namespace ThorVG
             return null;
         }
 
-        public void Prepare(ObjectType objType = ObjectType.Group)
+        public void Prepare(ObjectType? objType = null)
         {
-            type = objType;
+            if (objType.HasValue) type = objType.Value;
 
             if (children.Count == 0) return;
 
@@ -1457,7 +1511,61 @@ namespace ThorVG
         }
     }
 
-    public class LottieLayer : LottieGroup
+    public class LottieRootLayer : LottieGroup
+    {
+        public LottieFloat timeRemap = new(-1.0f);
+        public float timeStretch = 1.0f;
+        public float w, h;
+        public float inPoint, outPoint;
+        public float startFrame;
+        public bool effect;
+
+        // Retain the existing managed names for callers of the model API.
+        public float inFrame { get => inPoint; set => inPoint = value; }
+        public float outFrame { get => outPoint; set => outPoint = value; }
+
+        public LottieRootLayer(ObjectType type = ObjectType.Composition) : base(type) { }
+
+        public float Remap(LottieComposition comp, float frameNo, LottieExpressions? exp)
+        {
+            if (timeRemap.frames != null || timeRemap.value >= 0.0f)
+            {
+                return comp.FrameAtTime(timeRemap.Evaluate(frameNo, exp));
+            }
+            return (frameNo - startFrame) / timeStretch;
+        }
+
+        public LottieLayer? LayerById(ulong id)
+        {
+            foreach (var child in children)
+            {
+                if (child.type != ObjectType.Layer) continue;
+                var layer = (LottieLayer)child;
+                if (layer.id == id) return layer;
+            }
+            return null;
+        }
+
+        public LottieLayer? LayerByIdx(short idx)
+        {
+            foreach (var child in children)
+            {
+                if (child.type != ObjectType.Layer) continue;
+                var layer = (LottieLayer)child;
+                if (layer.ix == idx) return layer;
+            }
+            return null;
+        }
+
+        public override LottieProperty? Override(LottieProperty prop, bool release)
+        {
+            LottieProperty? backup = null;
+            LottieOverride.Apply(timeRemap, prop, ref backup, release);
+            return backup;
+        }
+    }
+
+    public class LottieLayer : LottieRootLayer
     {
         public enum LayerType : byte { Precomp = 0, Solid, Image, Null, Shape, Text, Audio }
 
@@ -1470,19 +1578,14 @@ namespace ThorVG
 
         public string? name;
         public LottieLayer? parent;
-        public LottieFloat timeRemap = new(-1.0f);
-        public LottieLayer? comp;
+        public LottieRootLayer? precomp;
+        public LottieRootLayer? comp { get => precomp; set => precomp = value; }
         public LottieTransform? transform;
         public List<LottieMask> masks = new();
         public List<LottieEffect> effects = new();
         public LottieLayer? matteTarget;
         public LottieRenderPooler<Shape> statical = new();
 
-        public float timeStretch = 1.0f;
-        public float w, h;
-        public float inFrame;
-        public float outFrame;
-        public float startFrame;
         public ulong rid;         // pre-composition reference id
         public short mix = -1;    // index of the matte layer
         public short pix = -1;    // index of the parent layer
@@ -1494,12 +1597,11 @@ namespace ThorVG
 
         public MaskMethod matteType = MaskMethod.None;
         public LayerType layerType = LayerType.Null;
-        public bool effect;
         public bool autoOrient;
         public bool matteSrc;
         private AudioControl? audioCtrl;
 
-        public LottieLayer() { type = ObjectType.Layer; }
+        public LottieLayer() : base(ObjectType.Layer) { }
 
         public override bool Mergeable() => false;
 
@@ -1532,7 +1634,7 @@ namespace ThorVG
                 statical.pooler.Add(solidFill);
             }
 
-            base.Prepare(ObjectType.Layer);
+            base.Prepare();
         }
 
         public override LottieProperty? FindProperty(ushort ix)
@@ -1543,15 +1645,6 @@ namespace ThorVG
                 if (property != null) return property;
             }
             return base.FindProperty(ix);
-        }
-
-        public float Remap(LottieComposition comp, float frameNo, LottieExpressions? exp)
-        {
-            if (timeRemap.frames != null || timeRemap.value >= 0.0f)
-            {
-                return comp.FrameAtTime(timeRemap.Evaluate(frameNo, exp));
-            }
-            return (frameNo - startFrame) / timeStretch;
         }
 
         public AudioControl Audio() => audioCtrl ??= new AudioControl();
@@ -1570,28 +1663,6 @@ namespace ThorVG
             foreach (var e in effects)
             {
                 if (idx == e.ix) return e;
-            }
-            return null;
-        }
-
-        public LottieLayer? LayerById(ulong id)
-        {
-            foreach (var child in children)
-            {
-                if (child.type != ObjectType.Layer) continue;
-                var layer = (LottieLayer)child;
-                if (layer.id == id) return layer;
-            }
-            return null;
-        }
-
-        public LottieLayer? LayerByIdx(short idx)
-        {
-            foreach (var child in children)
-            {
-                if (child.type != ObjectType.Layer) continue;
-                var layer = (LottieLayer)child;
-                if (layer.ix == idx) return layer;
             }
             return null;
         }
@@ -1632,6 +1703,7 @@ namespace ThorVG
             foreach (var pair in pairs)
             {
                 pair.obj!.Override(pair.prop!, true);
+                pair.prop?.Release();
                 pair.prop = null;
             }
             overridden = false;
@@ -1654,7 +1726,7 @@ namespace ThorVG
 
     public class LottieComposition
     {
-        public LottieLayer? root;
+        public LottieRootLayer? root;
         public string? version;
         public string? name;
         public float w, h;
@@ -1705,12 +1777,59 @@ namespace ThorVG
             if (root == null) return;
             frameNo += root.inFrame;
             if (frameNo < root.inFrame) frameNo = root.inFrame;
-            if (frameNo >= root.outFrame) frameNo = root.outFrame - 1;
+            if (frameNo > root.outFrame - 1.0f) frameNo = root.outFrame - 1.0f;
         }
 
         public void Clear()
         {
             if (root?.scene != null) root.scene.Remove();
+        }
+
+        public void Release()
+        {
+            if (!initiated && root?.scene != null) Paint.Rel(root.scene);
+            var released = new HashSet<LottieObject>();
+            ReleaseObject(root);
+            foreach (var asset in assets) ReleaseObject(asset);
+            foreach (var font in fonts)
+            {
+                foreach (var glyph in font.chars) foreach (var child in glyph.children) ReleaseObject(child);
+                font.chars.Clear();
+                font.Release();
+            }
+            foreach (var slot in slots)
+            {
+                foreach (var pair in slot.pairs)
+                {
+                    pair.prop?.Release();
+                    pair.prop = null;
+                }
+                slot.pairs.Clear();
+            }
+            assets.Clear(); fonts.Clear(); slots.Clear(); interpolators.Clear(); markers.Clear();
+            root = null;
+
+            void ReleaseObject(LottieObject? obj)
+            {
+                if (obj == null || !released.Add(obj)) return;
+                if (obj is LottieGroup group)
+                {
+                    foreach (var child in group.children) ReleaseObject(child);
+                    group.children.Clear();
+                    group.renderPooler.Dispose();
+                    group.scene = null;
+                }
+                if (obj is LottieLayer layer)
+                {
+                    layer.statical.Dispose();
+                    layer.masks.Clear();
+                    layer.effects.Clear();
+                }
+                if (obj is LottieShape shape) shape.renderPooler.Dispose();
+                if (obj is LottieImage image) { image.Release(); image.asset.Release(); }
+                if (obj is LottieGradient gradient) gradient.colorStops.Release();
+                if (obj is LottieText text) { text.renderPooler.Dispose(); text.follow?.Release(); text.ranges.Clear(); }
+            }
         }
     }
 }

@@ -14,8 +14,10 @@ namespace ThorVG
         {
             if (from == null) return;
 
+            var keep = overwrite ? to.flagsImportance & ~from.flagsImportance : to.flags;
+
             // Color
-            if ((from.curColorSet && (overwrite || (to.flags & SvgStyleFlags.Color) == 0)) ||
+            if ((from.curColorSet && (keep & SvgStyleFlags.Color) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.Color))
             {
                 to.color = from.color;
@@ -24,7 +26,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.Color) != 0) to.flagsImportance |= SvgStyleFlags.Color;
             }
             // PaintOrder
-            if (((from.flags & SvgStyleFlags.PaintOrder) != 0 && (overwrite || (to.flags & SvgStyleFlags.PaintOrder) == 0)) ||
+            if (((from.flags & SvgStyleFlags.PaintOrder) != 0 && (keep & SvgStyleFlags.PaintOrder) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.PaintOrder))
             {
                 to.paintOrder = from.paintOrder;
@@ -32,7 +34,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.PaintOrder) != 0) to.flagsImportance |= SvgStyleFlags.PaintOrder;
             }
             // Display
-            if (((from.flags & SvgStyleFlags.Display) != 0 && (overwrite || (to.flags & SvgStyleFlags.Display) == 0)) ||
+            if (((from.flags & SvgStyleFlags.Display) != 0 && (keep & SvgStyleFlags.Display) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.Display))
             {
                 to.display = from.display;
@@ -40,7 +42,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.Display) != 0) to.flagsImportance |= SvgStyleFlags.Display;
             }
             // Fill Paint
-            if (((from.fill.flags & SvgFillFlags.Paint) != 0 && (overwrite || (to.flags & SvgStyleFlags.Fill) == 0)) ||
+            if (((from.fill.flags & SvgFillFlags.Paint) != 0 && (keep & SvgStyleFlags.Fill) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.Fill))
             {
                 to.fill.paint.color = from.fill.paint.color;
@@ -52,7 +54,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.Fill) != 0) to.flagsImportance |= SvgStyleFlags.Fill;
             }
             // Fill Opacity
-            if (((from.fill.flags & SvgFillFlags.Opacity) != 0 && (overwrite || (to.flags & SvgStyleFlags.FillOpacity) == 0)) ||
+            if (((from.fill.flags & SvgFillFlags.Opacity) != 0 && (keep & SvgStyleFlags.FillOpacity) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.FillOpacity))
             {
                 to.fill.opacity = from.fill.opacity;
@@ -61,7 +63,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.FillOpacity) != 0) to.flagsImportance |= SvgStyleFlags.FillOpacity;
             }
             // Fill Rule
-            if (((from.fill.flags & SvgFillFlags.FillRule) != 0 && (overwrite || (to.flags & SvgStyleFlags.FillRule) == 0)) ||
+            if (((from.fill.flags & SvgFillFlags.FillRule) != 0 && (keep & SvgStyleFlags.FillRule) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.FillRule))
             {
                 to.fill.fillRule = from.fill.fillRule;
@@ -70,7 +72,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.FillRule) != 0) to.flagsImportance |= SvgStyleFlags.FillRule;
             }
             // Stroke Paint
-            if (((from.stroke.flags & SvgStrokeFlags.Paint) != 0 && (overwrite || (to.flags & SvgStyleFlags.Stroke) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Paint) != 0 && (keep & SvgStyleFlags.Stroke) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.Stroke))
             {
                 to.stroke.paint.color = from.stroke.paint.color;
@@ -82,7 +84,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.Stroke) != 0) to.flagsImportance |= SvgStyleFlags.Stroke;
             }
             // Stroke Opacity
-            if (((from.stroke.flags & SvgStrokeFlags.Opacity) != 0 && (overwrite || (to.flags & SvgStyleFlags.StrokeOpacity) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Opacity) != 0 && (keep & SvgStyleFlags.StrokeOpacity) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.StrokeOpacity))
             {
                 to.stroke.opacity = from.stroke.opacity;
@@ -91,7 +93,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.StrokeOpacity) != 0) to.flagsImportance |= SvgStyleFlags.StrokeOpacity;
             }
             // Stroke Width
-            if (((from.stroke.flags & SvgStrokeFlags.Width) != 0 && (overwrite || (to.flags & SvgStyleFlags.StrokeWidth) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Width) != 0 && (keep & SvgStyleFlags.StrokeWidth) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.StrokeWidth))
             {
                 to.stroke.width = from.stroke.width;
@@ -100,10 +102,10 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.StrokeWidth) != 0) to.flagsImportance |= SvgStyleFlags.StrokeWidth;
             }
             // Stroke Dash
-            if (((from.stroke.flags & SvgStrokeFlags.Dash) != 0 && (overwrite || (to.flags & SvgStyleFlags.StrokeDashArray) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Dash) != 0 && (keep & SvgStyleFlags.StrokeDashArray) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.StrokeDashArray))
             {
-                if (from.stroke.dash.array.Count > 0)
+                if ((from.stroke.flags & SvgStrokeFlags.Dash) != 0)
                 {
                     to.stroke.dash.array.Clear();
                     to.stroke.dash.array.AddRange(from.stroke.dash.array);
@@ -113,7 +115,7 @@ namespace ThorVG
                 }
             }
             // Stroke Cap
-            if (((from.stroke.flags & SvgStrokeFlags.Cap) != 0 && (overwrite || (to.flags & SvgStyleFlags.StrokeLineCap) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Cap) != 0 && (keep & SvgStyleFlags.StrokeLineCap) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.StrokeLineCap))
             {
                 to.stroke.cap = from.stroke.cap;
@@ -122,7 +124,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.StrokeLineCap) != 0) to.flagsImportance |= SvgStyleFlags.StrokeLineCap;
             }
             // Stroke Join
-            if (((from.stroke.flags & SvgStrokeFlags.Join) != 0 && (overwrite || (to.flags & SvgStyleFlags.StrokeLineJoin) == 0)) ||
+            if (((from.stroke.flags & SvgStrokeFlags.Join) != 0 && (keep & SvgStyleFlags.StrokeLineJoin) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.StrokeLineJoin))
             {
                 to.stroke.join = from.stroke.join;
@@ -131,7 +133,7 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.StrokeLineJoin) != 0) to.flagsImportance |= SvgStyleFlags.StrokeLineJoin;
             }
             // Opacity
-            if (((from.flags & SvgStyleFlags.Opacity) != 0 && (overwrite || (to.flags & SvgStyleFlags.Opacity) == 0)) ||
+            if (((from.flags & SvgStyleFlags.Opacity) != 0 && (keep & SvgStyleFlags.Opacity) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.Opacity))
             {
                 to.opacity = from.opacity;
@@ -139,40 +141,86 @@ namespace ThorVG
                 if ((from.flagsImportance & SvgStyleFlags.Opacity) != 0) to.flagsImportance |= SvgStyleFlags.Opacity;
             }
             // BlendMode
-            if (((from.flags & SvgStyleFlags.BlendMode) != 0 && (overwrite || (to.flags & SvgStyleFlags.BlendMode) == 0)) ||
+            if (((from.flags & SvgStyleFlags.BlendMode) != 0 && (keep & SvgStyleFlags.BlendMode) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.BlendMode))
             {
                 to.blendMode = from.blendMode;
                 to.flags |= SvgStyleFlags.BlendMode;
                 if ((from.flagsImportance & SvgStyleFlags.BlendMode) != 0) to.flagsImportance |= SvgStyleFlags.BlendMode;
             }
-            if (((from.flags & SvgStyleFlags.TextAnchor) != 0 && (overwrite || (to.flags & SvgStyleFlags.TextAnchor) == 0)) ||
+            if (((from.flags & SvgStyleFlags.TextAnchor) != 0 && (keep & SvgStyleFlags.TextAnchor) == 0) ||
                 IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.TextAnchor))
             {
                 to.textAnchor = from.textAnchor;
                 to.flags |= SvgStyleFlags.TextAnchor;
                 if ((from.flagsImportance & SvgStyleFlags.TextAnchor) != 0) to.flagsImportance |= SvgStyleFlags.TextAnchor;
             }
+            if (((from.flags & SvgStyleFlags.AlignmentBaseline) != 0 && (keep & SvgStyleFlags.AlignmentBaseline) == 0) ||
+                IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.AlignmentBaseline))
+            {
+                to.alignmentBaseline = from.alignmentBaseline;
+                to.flags |= SvgStyleFlags.AlignmentBaseline;
+                if ((from.flagsImportance & SvgStyleFlags.AlignmentBaseline) != 0) to.flagsImportance |= SvgStyleFlags.AlignmentBaseline;
+            }
+
+            if (((from.flags & SvgStyleFlags.DominantBaseline) != 0 && (keep & SvgStyleFlags.DominantBaseline) == 0) || IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.DominantBaseline))
+            {
+                to.dominantBaseline = from.dominantBaseline;
+                to.flags |= SvgStyleFlags.DominantBaseline;
+                if ((from.flagsImportance & SvgStyleFlags.DominantBaseline) != 0) to.flagsImportance |= SvgStyleFlags.DominantBaseline;
+            }
+
+            if (((from.flags & SvgStyleFlags.FontWeight) != 0 && (keep & SvgStyleFlags.FontWeight) == 0) || IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.FontWeight))
+            {
+                to.fontWeight = from.fontWeight;
+                to.flags |= SvgStyleFlags.FontWeight;
+                if ((from.flagsImportance & SvgStyleFlags.FontWeight) != 0) to.flagsImportance |= SvgStyleFlags.FontWeight;
+            }
+
+            if (((from.flags & SvgStyleFlags.LetterSpacing) != 0 && (keep & SvgStyleFlags.LetterSpacing) == 0) || IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.LetterSpacing))
+            {
+                to.letterSpacing = from.letterSpacing;
+                to.letterSpacingRelative = from.letterSpacingRelative;
+                to.flags |= SvgStyleFlags.LetterSpacing;
+                if ((from.flagsImportance & SvgStyleFlags.LetterSpacing) != 0) to.flagsImportance |= SvgStyleFlags.LetterSpacing;
+            }
+
+            if (((from.flags & SvgStyleFlags.WordSpacing) != 0 && (keep & SvgStyleFlags.WordSpacing) == 0) || IsImportanceApplicable(to.flagsImportance, from.flagsImportance, SvgStyleFlags.WordSpacing))
+            {
+                to.wordSpacing = from.wordSpacing;
+                to.wordSpacingRelative = from.wordSpacingRelative;
+                to.flags |= SvgStyleFlags.WordSpacing;
+                if ((from.flagsImportance & SvgStyleFlags.WordSpacing) != 0) to.flagsImportance |= SvgStyleFlags.WordSpacing;
+            }
+        }
+
+        private static bool TakesPrecedence(SvgStyleProperty from, SvgStyleProperty to, SvgStyleFlags flag, bool overwrite)
+            => overwrite ? (to.flagsImportance & flag) == 0 || (from.flagsImportance & flag) != 0
+                         : (to.flags & flag) == 0 || IsImportanceApplicable(to.flagsImportance, from.flagsImportance, flag);
+
+        private static void MarkCopied(SvgStyleProperty to, SvgStyleProperty from, SvgStyleFlags flag)
+        {
+            to.flags |= flag;
+            if ((from.flagsImportance & flag) != 0) to.flagsImportance |= flag;
         }
 
         public static void CopyStyleAttr(SvgNode to, SvgNode from, bool overwrite = false)
         {
-            // Copy matrix attribute
-            if (from.transform.HasValue && (overwrite || (to.style!.flags & SvgStyleFlags.Transform) == 0))
+            if (from.transform.HasValue && TakesPrecedence(from.style!, to.style!, SvgStyleFlags.Transform, overwrite))
             {
                 to.transform = from.transform;
-                to.style!.flags |= SvgStyleFlags.Transform;
+                MarkCopied(to.style!, from.style!, SvgStyleFlags.Transform);
             }
-            // Copy style attribute
             CopyStyle(to.style!, from.style, overwrite);
-
-            if (from.style!.clipPath.url != null)
+            if ((from.style!.flags & SvgStyleFlags.ClipPath) != 0 && TakesPrecedence(from.style, to.style!, SvgStyleFlags.ClipPath, overwrite))
             {
                 to.style!.clipPath.url = from.style.clipPath.url;
+                MarkCopied(to.style, from.style, SvgStyleFlags.ClipPath);
             }
-            if (from.style.mask.url != null)
+            if ((from.style.flags & SvgStyleFlags.Mask) != 0 && TakesPrecedence(from.style, to.style!, SvgStyleFlags.Mask, overwrite))
             {
                 to.style!.mask.url = from.style.mask.url;
+                MarkCopied(to.style, from.style, SvgStyleFlags.Mask);
             }
         }
 

@@ -1,0 +1,5 @@
+lazy-index-keys	0,7,prototype	0
+lazy-named-keys	prototype,width,height,index,parent,hasParent,inPoint,outPoint,startTime,hasVideo,hasAudio,enabled,audioActive,transform,timeRemap,toComp,content,effect,extra	0
+materialized-index-keys	0,7,prototype	0
+composition-key-order	width,height,duration,frameDuration,name,layer,numLayers	0
+layer-key-order	width,height,index,parent,hasParent,inPoint,outPoint,startTime,hasVideo,hasAudio,enabled,audioActive,transform,timeRemap,toComp,content,effect	0

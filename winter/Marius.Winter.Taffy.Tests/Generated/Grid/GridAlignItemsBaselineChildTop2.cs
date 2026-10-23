@@ -13,22 +13,26 @@ public class GridAlignItemsBaselineChildTop2
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(50f)),
         });
         var node10 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(20f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(5f), LengthPercentageAuto.AUTO),
         }, new NodeId[] { node10 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             AlignItemsValue = AlignItems.Baseline,
             SizeValue = new Size<Dimension>(Dimension.FromLength(100f), Dimension.FromLength(100f)),
@@ -62,18 +66,21 @@ public class GridAlignItemsBaselineChildTop2
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(50f)),
         });
         var node10 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(20f)),
@@ -81,6 +88,7 @@ public class GridAlignItemsBaselineChildTop2
         }, new NodeId[] { node10 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Grid,
             BoxSizingValue = BoxSizing.ContentBox,
             AlignItemsValue = AlignItems.Baseline,

@@ -8,12 +8,25 @@
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(ThorVGGlTarget)' == 'GLES'">
+        <DefineConstants>$(DefineConstants);THORVG_GL_TARGET_GLES</DefineConstants>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(ThorVGEnableParallelRendering)' == 'true'">
+        <DefineConstants>$(DefineConstants);THORVG_PARALLEL_RENDERING;THORVG_PARALLEL_EFFECTS</DefineConstants>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(ThorVGEnableParallelEffects)' == 'true'">
+        <DefineConstants>$(DefineConstants);THORVG_PARALLEL_EFFECTS</DefineConstants>
+    </PropertyGroup>
+
     <ItemGroup>
         <InternalsVisibleTo Include="Marius.Winter" />
+        <InternalsVisibleTo Include="ThorVG.Tests" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Jint" Version="4.*" />
+        <PackageReference Include="Jint" Version="4.17.0" />
     </ItemGroup>
 
     <ItemGroup>

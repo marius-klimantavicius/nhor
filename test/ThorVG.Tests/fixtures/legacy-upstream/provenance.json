@@ -1,0 +1,225 @@
+{
+  "sourceRepository": "https://github.com/thorvg/thorvg.git",
+  "upstreamRevision": "26a6d0932d1e57a101e7a16b27ca2aa5bad7b6f1",
+  "localRevision": "ff6fe4fcdaaecfa74df7e2d3b26b8d52b621217a",
+  "reason": "Preserve the complete older resource set used by existing managed regression tests, with original names/relative image and font references. It is separate from the pristine pinned source/test snapshots.",
+  "files": [
+    {
+      "path": "resources/DMSans.otf",
+      "originalPath": "ref/ThorVG/test/resources/DMSans.otf",
+      "gitBlob": "98e18d844dad7723abb7db5ba2526d8eb4d76bb3",
+      "sha256": "851e616f6a44b0357193aa6dbb7919166ed5b4520ca6e7376cab4378e99f7ce9",
+      "bytes": 48800
+    },
+    {
+      "path": "resources/PublicSans-Regular.ttf",
+      "originalPath": "ref/ThorVG/test/resources/PublicSans-Regular.ttf",
+      "gitBlob": "7bfaf5420aae8ca88b3eaa210fe800e9162ed448",
+      "sha256": "b577e9bc9887284e90aae5ad0699689ce36b5cd96207efbec68f77f8aed88379",
+      "bytes": 84836
+    },
+    {
+      "path": "resources/audio_layer.json",
+      "originalPath": "ref/ThorVG/test/resources/audio_layer.json",
+      "gitBlob": "501d2932d405a92ccb809b3a412dd65e45e9a13b",
+      "sha256": "e17ebcb18068bcb4a56eac1e48b924c8903bd9cbd2fd3b699c9c5f8229cc4c12",
+      "bytes": 11016
+    },
+    {
+      "path": "resources/rawimage_200x300.raw",
+      "originalPath": "ref/ThorVG/test/resources/rawimage_200x300.raw",
+      "gitBlob": "83958db7852a3c2f5346a341250523ac2975c33e",
+      "sha256": "8f5fce8495154f719ef56d6b48712b9b4b2905553196b7b2242bbfa0baab86dc",
+      "bytes": 240000
+    },
+    {
+      "path": "resources/rawimage_250x375.raw",
+      "originalPath": "ref/ThorVG/test/resources/rawimage_250x375.raw",
+      "gitBlob": "d6946b00123b3da7c02914ec260ddbfc8549cfaa",
+      "sha256": "da7eceef004f0c9f19afb6dfd3a6cbe88f866f027805210697bcbd760614e457",
+      "bytes": 375000
+    },
+    {
+      "path": "resources/resolver.json",
+      "originalPath": "ref/ThorVG/test/resources/resolver.json",
+      "gitBlob": "60cc91413452e684bcffbe022e8dc6beb4449870",
+      "sha256": "e6fb70652b40df4f0df861ef382f83320bf5139fad9407a4913763c1dbc57cae",
+      "bytes": 1585
+    },
+    {
+      "path": "resources/segment.lot",
+      "originalPath": "ref/ThorVG/test/resources/segment.lot",
+      "gitBlob": "6cb4ce290d9c36f65e323fa2f4a9a2d6f81d5cab",
+      "sha256": "1112f5d1fe91a3a35d6fb5b4251601c3263e16eae8eff27f70d2383ef7a8af56",
+      "bytes": 28107
+    },
+    {
+      "path": "resources/slot.lot",
+      "originalPath": "ref/ThorVG/test/resources/slot.lot",
+      "gitBlob": "1cf6601304c14108f72904685b66c1e0feaa4a96",
+      "sha256": "2ed324fea633711717f8a66da82288b51cca9628756b955d0a35e4ed713e0a50",
+      "bytes": 11497
+    },
+    {
+      "path": "resources/test.jpg",
+      "originalPath": "ref/ThorVG/test/resources/test.jpg",
+      "gitBlob": "73a40e4c239d2bbde69228514b438a2f7ff658f3",
+      "sha256": "30068ed408eecb21f29c57b8b76954d0a3dc8b0703cfb7be8bca8214692be3f5",
+      "bytes": 408932
+    },
+    {
+      "path": "resources/test.lot",
+      "originalPath": "ref/ThorVG/test/resources/test.lot",
+      "gitBlob": "f52bcc2a7711e57dbf005a50dcfecfadca39951e",
+      "sha256": "19f51cbb8690c24bf725b6c994eac1e943065158ecbe80507c514497a01b0e1c",
+      "bytes": 4382
+    },
+    {
+      "path": "resources/test.png",
+      "originalPath": "ref/ThorVG/test/resources/test.png",
+      "gitBlob": "a6f2a317a7bc29a2e91d9e1d96f1691e1fed29b6",
+      "sha256": "d77bf068d8ed662c6a4683a78e40f169223b4cfbd059a720ff2736113109fd2f",
+      "bytes": 473695
+    },
+    {
+      "path": "resources/test.webp",
+      "originalPath": "ref/ThorVG/test/resources/test.webp",
+      "gitBlob": "eff7ada76e079a10e63a833ecbb9cdd3e26ba550",
+      "sha256": "8eb38cc1925d177abf133b134ddd811af44c3e1331abe2c1fa45079cd1707d4b",
+      "bytes": 435790
+    },
+    {
+      "path": "resources/test0.svg",
+      "originalPath": "ref/ThorVG/test/resources/test0.svg",
+      "gitBlob": "a59da8d38fdf42f6312c84dfce3367ff648024de",
+      "sha256": "7eebc46d5ff7a8ddb03d7301557a1f2f427dd174456e12de6f867d63f5b593cd",
+      "bytes": 86486
+    },
+    {
+      "path": "resources/test1.svg",
+      "originalPath": "ref/ThorVG/test/resources/test1.svg",
+      "gitBlob": "0932d56d0bc51ee860514550b641c8128001216a",
+      "sha256": "fd931d2d92600934d8038f0096d404074c34c6288644abe11ccf696376519a80",
+      "bytes": 946
+    },
+    {
+      "path": "resources/test10.lot",
+      "originalPath": "ref/ThorVG/test/resources/test10.lot",
+      "gitBlob": "9672ee4d35db6f07f22a3231e59e3c8de4c1a87a",
+      "sha256": "6cea99d7427534d580478570e0cf6df3fa12255dfcd636e144097270cffd7837",
+      "bytes": 12747
+    },
+    {
+      "path": "resources/test11.lot",
+      "originalPath": "ref/ThorVG/test/resources/test11.lot",
+      "gitBlob": "404d6a9abb196467f1367b3197ee0aeec386ac26",
+      "sha256": "e335749b5b31b2b380c6986f1049d9ef231eb19210da97c39f2471cb3eacab1d",
+      "bytes": 36960
+    },
+    {
+      "path": "resources/test12.lot",
+      "originalPath": "ref/ThorVG/test/resources/test12.lot",
+      "gitBlob": "b4b729b91b7adee6af3ebe4893cf1250e63fe925",
+      "sha256": "e9a654654239046d7e2500224c77ead51c46a9857af77baad2ed4cad19c264cc",
+      "bytes": 3256
+    },
+    {
+      "path": "resources/test13.lot",
+      "originalPath": "ref/ThorVG/test/resources/test13.lot",
+      "gitBlob": "cdb2a8b05be2ae9f60abed3216c8b5a51f274a29",
+      "sha256": "70767ea3d67100f06fae88ca5b8c2638d5589c147c985f2729bb24003c7f5af7",
+      "bytes": 1311832
+    },
+    {
+      "path": "resources/test14.lot",
+      "originalPath": "ref/ThorVG/test/resources/test14.lot",
+      "gitBlob": "dba357da133ac7b6097e60ae2a6e3bc5309158ea",
+      "sha256": "4f7cbe3e1409dca0fbcfa0ce91dcc29d4cfb55d56af0c056bacca0f91ef05cf5",
+      "bytes": 1037
+    },
+    {
+      "path": "resources/test2.lot",
+      "originalPath": "ref/ThorVG/test/resources/test2.lot",
+      "gitBlob": "4b2b5fce06398690b33045697f004c059e9ee5b9",
+      "sha256": "abaeccc40a2a19315375a7fdc09db291744794db74caf4add4fb3ff04a5beb35",
+      "bytes": 417975
+    },
+    {
+      "path": "resources/test2.svg",
+      "originalPath": "ref/ThorVG/test/resources/test2.svg",
+      "gitBlob": "a2f2e93999fad0e1f0c1c3d2d5099267974b2d82",
+      "sha256": "a1a5821c1f4142d865961256cb39ca9a02c08f4b5b9641828db758e50543dfd6",
+      "bytes": 5821
+    },
+    {
+      "path": "resources/test3.lot",
+      "originalPath": "ref/ThorVG/test/resources/test3.lot",
+      "gitBlob": "631d5235718ffb2723465d9ce90d498e454d38f0",
+      "sha256": "4523a14be616f478ee2573b4274b82d7eb3580a8db1244b22dff5c66dcb16457",
+      "bytes": 7257
+    },
+    {
+      "path": "resources/test3.svg",
+      "originalPath": "ref/ThorVG/test/resources/test3.svg",
+      "gitBlob": "313568940fd68ae4efb093309414ca49b46156f8",
+      "sha256": "c5e06c50601f36ef4d33dabfcf86a4f0e06c88ff8d951df05cb972326a7914e6",
+      "bytes": 7857
+    },
+    {
+      "path": "resources/test4.lot",
+      "originalPath": "ref/ThorVG/test/resources/test4.lot",
+      "gitBlob": "68d0681ce0211b692ffedc4a0bfac1db08190b9d",
+      "sha256": "a113be42a2970a3a6207012add8cff3a53f1a92a6c3303dd0d00721d0f14602c",
+      "bytes": 3201
+    },
+    {
+      "path": "resources/test4.svg",
+      "originalPath": "ref/ThorVG/test/resources/test4.svg",
+      "gitBlob": "2f29ceb6875aad1646b7071f7d07595286e05fa0",
+      "sha256": "a104acba2659a8e3630ff34db5661914b3c572abd3d8b1e2ff109c135f85e57c",
+      "bytes": 4573
+    },
+    {
+      "path": "resources/test5.lot",
+      "originalPath": "ref/ThorVG/test/resources/test5.lot",
+      "gitBlob": "8e12a007c767b3b010cd1966bdcde13b94b5083c",
+      "sha256": "a82ea6da280559941f0b9dd19e2cfbd8d427aaa1afd3737c77802e79b9cb1b99",
+      "bytes": 10994
+    },
+    {
+      "path": "resources/test6.lot",
+      "originalPath": "ref/ThorVG/test/resources/test6.lot",
+      "gitBlob": "e603ab2319c02df308c0772ae0bc5d13d9a0c458",
+      "sha256": "daecc234faf1095add29a6b03103dd598c3582978063d7cdb79ffa7749324245",
+      "bytes": 8898
+    },
+    {
+      "path": "resources/test7.lot",
+      "originalPath": "ref/ThorVG/test/resources/test7.lot",
+      "gitBlob": "650530e9b79f3b372bd00faf82d71bec59365804",
+      "sha256": "207c8e36245fc7098d089e7f2b8b4caa5710979d5d45b1053bc748d46d540d04",
+      "bytes": 81184
+    },
+    {
+      "path": "resources/test8.lot",
+      "originalPath": "ref/ThorVG/test/resources/test8.lot",
+      "gitBlob": "d1838d49481a700fff166634f09a21be2948295a",
+      "sha256": "7092b90e43e3d842a37fadb3d1a2ea4827b91394f78bf42f34ede8348fb1f07b",
+      "bytes": 18769
+    },
+    {
+      "path": "resources/test9.lot",
+      "originalPath": "ref/ThorVG/test/resources/test9.lot",
+      "gitBlob": "45479a7b359b432a7fdbf0d81f429bd9b1044d5a",
+      "sha256": "5af06b3b9e4b916e1e32e99e9ae7ea49cbc65621a994013d5ff9005b1cf88ff1",
+      "bytes": 1697
+    },
+    {
+      "path": "resources/tween.lot",
+      "originalPath": "ref/ThorVG/test/resources/tween.lot",
+      "gitBlob": "f5c0f86a20da4cd16700da1c3df8db0f1e18b42c",
+      "sha256": "04b9f676e2d5d6a35e34fbab25f5d782d4c6ce080972451e50544be3bc353d49",
+      "bytes": 86986
+    }
+  ]
+}

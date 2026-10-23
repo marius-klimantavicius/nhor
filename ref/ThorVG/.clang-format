@@ -3,7 +3,6 @@
 # Requires clang-format == 18
 
 ---
-Language: Cpp
 Standard: c++14
 
 # Base style
@@ -41,7 +40,8 @@ ReferenceAlignment: Left
 DerivePointerAlignment: false
 
 # Spacing
-SpaceBeforeParens: ControlStatements
+ForEachMacros: [ARRAY_FOREACH]
+SpaceBeforeParens: ControlStatementsExceptControlMacros
 SpaceInEmptyParentheses: false
 SpacesInParentheses: false
 SpaceAfterCStyleCast: false

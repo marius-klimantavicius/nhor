@@ -1,4 +1,4 @@
-// Ported from glfw/src/posix_poll.c (GLFW 3.5)
+// Ported from glfw/src/posix_poll.c (GLFW 3.6)
 //
 // Copyright (c) 2022 Camilla Loewy <elmindreda@glfw.org>
 //
@@ -23,6 +23,10 @@ namespace Glfw
 
     public static partial class Glfw
     {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PollTimespec { internal nint Seconds, Nanoseconds; }
+        [DllImport("libc", EntryPoint = "ppoll", SetLastError = true)]
+        private static extern unsafe int NativePPoll(PollFd* fds, nuint count, PollTimespec* timeout, nint signalMask);
         public const short POLLIN = 0x0001;
 
         private const int EINTR  = 4;
@@ -50,9 +54,9 @@ namespace Glfw
                 {
                     ulong baseTime = _glfwPlatformGetTimerValue();
 
-                    int milliseconds = (int)(*timeout * 1e3);
-                    int result = x11.libc.poll(fds, count, milliseconds);
-                    int error = x11.libc.errno;
+                    var ts = new PollTimespec { Seconds = (nint)(*timeout), Nanoseconds = (nint)((*timeout - (nint)(*timeout)) * 1e9) };
+                    int result = NativePPoll(fds, count, &ts, 0);
+                    int error = Marshal.GetLastPInvokeError();
 
                     *timeout -= (_glfwPlatformGetTimerValue() - baseTime) /
                         (double)_glfwPlatformGetTimerFrequency();

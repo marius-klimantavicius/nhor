@@ -16,6 +16,7 @@ namespace ThorVG
         public byte r, g, b, a;
 
         public RGBA(byte r, byte g, byte b, byte a) { this.r = r; this.g = g; this.b = b; this.a = a; }
+        public static implicit operator RGBA(RGB color) => new RGBA(color.r, color.g, color.b, 255);
     }
 
     public struct HSL

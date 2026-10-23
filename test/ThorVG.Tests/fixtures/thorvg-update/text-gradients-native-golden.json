@@ -1,0 +1,60 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "font": "fixtures/legacy-upstream/resources/DMSans.otf",
+  "fontSha256": "851e616f6a44b0357193aa6dbb7919166ed5b4520ca6e7376cab4378e99f7ce9",
+  "configuration": "SwCanvas EngineOption.None,96x64 ABGR8888, unhinted pinned CFF font, textAg at24pt translated4,6; same text at scales1,2,4,.5, repeat stops exactly as retained public native helpers.",
+  "evidence": [
+    "isolated-text-gradient-corrected-cpu.json",
+    "isolated-arm-text-gradient-corrected.json",
+    "isolated-text-gradient-before-cpu.json",
+    "isolated-text-gradient-before-gl.json",
+    "isolated-text-gradient-corrected-gl.json"
+  ],
+  "cases": [
+    {
+      "type": "conic",
+      "expectedX86": [
+        "9a853c431e98773bba390b2f17a34ad31f5968f15086b89b466e73b26d828094",
+        "041e6bfca4313da6afc0824c395dcf90e7e39582e040d50cecf618ec66e91cca",
+        "b174e5872ea0a2a40ae95675819acf14feb71cbcc45fcd9a5057ef1cd053736d",
+        "359b1c0d1a955ab3035ffe8985119a12403fee51718022e0e0883977971f253d"
+      ],
+      "expectedLinuxArm64": [
+        "9a853c431e98773bba390b2f17a34ad31f5968f15086b89b466e73b26d828094",
+        "041e6bfca4313da6afc0824c395dcf90e7e39582e040d50cecf618ec66e91cca",
+        "b174e5872ea0a2a40ae95675819acf14feb71cbcc45fcd9a5057ef1cd053736d",
+        "359b1c0d1a955ab3035ffe8985119a12403fee51718022e0e0883977971f253d"
+      ]
+    },
+    {
+      "type": "linear",
+      "expectedX86": [
+        "15f001be6ee64cfd9bb257bd6bc6df5f73fe5312d14f6157a79b62b989bd9e79",
+        "bab04ce7d371939669dfa9e27761a66976ef0856344d1036879c573061a3fd6f",
+        "c616202028adbf13f1f74fc0435d0bf0f87fe941ec6ae8a975cf6d7aa65dfe88",
+        "2f6ce711d2865771e99c65f4f111ede615551a178afc725c565ab3f1fb3cc99e"
+      ],
+      "expectedLinuxArm64": [
+        "15f001be6ee64cfd9bb257bd6bc6df5f73fe5312d14f6157a79b62b989bd9e79",
+        "bab04ce7d371939669dfa9e27761a66976ef0856344d1036879c573061a3fd6f",
+        "c616202028adbf13f1f74fc0435d0bf0f87fe941ec6ae8a975cf6d7aa65dfe88",
+        "2f6ce711d2865771e99c65f4f111ede615551a178afc725c565ab3f1fb3cc99e"
+      ]
+    },
+    {
+      "type": "radial",
+      "expectedX86": [
+        "27073f6efada85999b1c6ce1eff14c5241bb755625e4a9213a9b3959fbe807ee",
+        "e89bcb730a58db5ecee56f788d922acaedc8a783fef131b63b59669f5865ca76",
+        "04cbe47245e3fbde6d5f1031fbcb09e173fd3aa81397b2c2646bc82558a7846d",
+        "8b8fe885e42b11423313f7ba228e25cff2132f07a778d099ef0284cc71da196f"
+      ],
+      "expectedLinuxArm64": [
+        "27073f6efada85999b1c6ce1eff14c5241bb755625e4a9213a9b3959fbe807ee",
+        "e89bcb730a58db5ecee56f788d922acaedc8a783fef131b63b59669f5865ca76",
+        "04cbe47245e3fbde6d5f1031fbcb09e173fd3aa81397b2c2646bc82558a7846d",
+        "8b8fe885e42b11423313f7ba228e25cff2132f07a778d099ef0284cc71da196f"
+      ]
+    }
+  ]
+}

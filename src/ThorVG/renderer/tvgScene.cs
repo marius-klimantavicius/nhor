@@ -10,22 +10,39 @@ namespace ThorVG
     {
         private readonly List<Paint> _paints;
         private int _index;
+        private Paint? _next;
 
         public SceneIterator(List<Paint> paints)
         {
             _paints = paints;
-            _index = 0;
+            Begin();
         }
 
         public override Paint? Next()
         {
-            if (_index >= _paints.Count) return null;
-            return _paints[_index++];
+            if (_next == null) return null;
+            // Native saves the next list iterator before invoking a callback.
+            // Retain that successor through removal of the visited child or
+            // insertion before it. Ordinary traversal remains O(1) per child;
+            // only a changed list position needs a search in the managed list.
+            if (_index >= _paints.Count || !ReferenceEquals(_paints[_index], _next))
+            {
+                _index = _paints.IndexOf(_next);
+                if (_index < 0) { _next = null; return null; }
+            }
+            var paint = _next;
+            ++_index;
+            _next = _index < _paints.Count ? _paints[_index] : null;
+            return paint;
         }
 
         public override uint Count() => (uint)_paints.Count;
 
-        public override void Begin() { _index = 0; }
+        public override void Begin()
+        {
+            _index = 0;
+            _next = _paints.Count == 0 ? null : _paints[0];
+        }
     }
 
     /// <summary>
@@ -61,9 +78,7 @@ namespace ThorVG
                 if (idx < 0) return Result.InvalidArguments;
                 paints.Insert(idx, target);
             }
-            target.pImpl.parent = this;
-            if (target.pImpl.clipper != null) target.pImpl.clipper.pImpl.parent = this;
-            if (target.pImpl.maskData != null) target.pImpl.maskData.target.pImpl.parent = this;
+            target.pImpl.AttachTo(this);
             return Result.Success;
         }
 
@@ -127,6 +142,9 @@ namespace ThorVG
                         Convert.ToInt32(args[2]), Convert.ToInt32(args[3]),
                         Convert.ToSingle(args[4]), Convert.ToSingle(args[5]),
                         Convert.ToSingle(args[6]), Convert.ToInt32(args[7]));
+                    break;
+                case SceneEffect.MotionBlur:
+                    re = RenderEffectMotionBlur.Gen(Convert.ToSingle(args[0]), Convert.ToSingle(args[1]), Convert.ToInt32(args[2]));
                     break;
                 case SceneEffect.Fill:
                     re = RenderEffectFill.Gen(
@@ -281,8 +299,10 @@ namespace ThorVG
             {
                 tmp.Clear();
 
-                // For non-obb, pass the matrix down; for obb, pass identity to get local coords
-                if (!paint.pImpl.GeometricBounds(tmp, obb ? TvgMath.Identity() : m, false)) continue;
+                // OBB gathers child bounds in local scene space. Native
+                // passes nullptr here, bypassing parent multiplication.
+                if (!(obb ? paint.pImpl.GeometricBounds(tmp, null, false) :
+                            paint.pImpl.GeometricBounds(tmp, m, false))) continue;
                 // Merge regions
                 for (int i = 0; i < 4; ++i)
                 {
@@ -328,19 +348,17 @@ namespace ThorVG
             }
 
             // Extends the render region if post effects require
-            var eRegion = default(RenderRegion);
             if (effects != null)
             {
                 foreach (var effect in effects)
                 {
-                    if (effect.valid && pImpl.renderer!.Region(effect)) eRegion.AddWith(effect.extend);
+                    if (!effect.valid || !pImpl.renderer!.Region(effect)) continue;
+                    pRegion.min.x += effect.extend.min.x;
+                    pRegion.min.y += effect.extend.min.y;
+                    pRegion.max.x += effect.extend.max.x;
+                    pRegion.max.y += effect.extend.max.y;
                 }
             }
-
-            pRegion.min.x += eRegion.min.x;
-            pRegion.min.y += eRegion.min.y;
-            pRegion.max.x += eRegion.max.x;
-            pRegion.max.y += eRegion.max.y;
 
             vport2 = RenderRegion.Intersect(vport2, pRegion);
             return vport2;
@@ -421,6 +439,13 @@ namespace ThorVG
                                 type = src.type,
                                 extend = src.extend
                             };
+                            break;
+                        }
+                        case SceneEffect.MotionBlur:
+                        {
+                            var src = (RenderEffectMotionBlur)effect;
+                            dupEffect = new RenderEffectMotionBlur { distance = src.distance, angle = src.angle,
+                                quality = src.quality, type = src.type, extend = src.extend };
                             break;
                         }
                         case SceneEffect.DropShadow:

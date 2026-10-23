@@ -52,6 +52,8 @@ namespace ThorVG
             return pImpl.cnt;
         }
 
+        public uint GetColorStops() => GetColorStops(out _);
+
         public FillSpread GetSpread() => pImpl.spread;
 
         public ref Matrix GetTransform() => ref pImpl.transform;
@@ -88,6 +90,7 @@ namespace ThorVG
         {
             if (stops == null && cnt > 0) return Result.InvalidArguments;
             if (stops != null && cnt == 0) return Result.InvalidArguments;
+            if (stops != null && cnt > stops.Length) return Result.InvalidArguments;
 
             if (cnt == 0)
             {
@@ -96,7 +99,10 @@ namespace ThorVG
                 return Result.Success;
             }
 
-            colorStops = new Fill.ColorStop[cnt];
+            // Native reallocates only when the count changes. Preserve the
+            // storage returned by GetColorStops across same-count updates,
+            // including updates whose source is that same owned buffer.
+            if (cnt != this.cnt) colorStops = new Fill.ColorStop[cnt];
             System.Array.Copy(stops!, colorStops, cnt);
             this.cnt = (ushort)cnt;
             return Result.Success;
@@ -138,6 +144,37 @@ namespace ThorVG
         }
     }
 
+    /// <summary>Angular gradient, clockwise from the positive X axis.</summary>
+    public class ConicGradient : Fill
+    {
+        internal Point center;
+        internal float angle;
+        private ConicGradient() { }
+        public Result Conic(float cx, float cy, float angle = 0.0f)
+        {
+            center = new Point(cx, cy);
+            this.angle = angle;
+            return Result.Success;
+        }
+        public Result Conic(out float cx, out float cy, out float angle)
+        {
+            cx = center.x; cy = center.y; angle = this.angle;
+            return Result.Success;
+        }
+
+        public Result Conic(out float cx, out float cy) => Conic(out cx, out cy, out _);
+        public static ConicGradient Gen() => new ConicGradient();
+        public override Type GetFillType() => Type.ConicGradient;
+        public override Fill Duplicate()
+        {
+            var ret = Gen();
+            ret.pImpl.Copy(pImpl);
+            ret.center = center;
+            ret.angle = angle;
+            return ret;
+        }
+    }
+
     /// <summary>Radial gradient fill. Mirrors C++ tvg::RadialGradient.</summary>
     public class RadialGradient : Fill
     {
@@ -164,6 +201,9 @@ namespace ThorVG
             return Result.Success;
         }
 
+        public Result Radial(out float cx, out float cy, out float radius) =>
+            Radial(out cx, out cy, out radius, out _, out _, out _);
+
         public static RadialGradient Gen() => new RadialGradient();
 
         public override Type GetFillType() => Type.RadialGradient;
@@ -178,6 +218,7 @@ namespace ThorVG
             if (r < PRECISION) return false; // too small, treated as solid fill
 
             var dist = TvgMath.PointLength(center, focal);
+            float maxFr;
 
             // clamp focal point to inside end circle if outside
             if (r - dist < PRECISION)
@@ -185,19 +226,18 @@ namespace ThorVG
                 var diff = new Point(center.x - focal.x, center.y - focal.y);
                 if (dist < PRECISION) { dist = diff.x = PRECISION; }
                 var scale = r * (1.0f - PRECISION) / dist;
-                diff = new Point(diff.x * scale, diff.y * scale);
-                dist *= scale; // update effective dist after scaling
-                fx = center.x - diff.x;
-                fy = center.y - diff.y;
+                fx = TvgMath.MultiplyAdd(-diff.x, scale, center.x);
+                fy = TvgMath.MultiplyAdd(-diff.y, scale, center.y);
+                maxFr = TvgMath.MultiplyAdd(-dist, scale, r) * (1.0f - PRECISION);
             }
             else
             {
                 fx = focal.x;
                 fy = focal.y;
+                maxFr = (r - dist) * (1.0f - PRECISION);
             }
 
             // ensure start circle radius fr doesn't exceed the difference
-            var maxFr = (r - dist) * (1.0f - PRECISION);
             fr = (this.fr > maxFr) ? MathF.Max(0.0f, maxFr) : this.fr;
             return true;
         }

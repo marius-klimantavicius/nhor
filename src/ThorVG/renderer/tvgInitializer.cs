@@ -7,9 +7,10 @@ namespace ThorVG
     /// </summary>
     public static class Initializer
     {
-        public const string VersionString = "1.0.0";
+        public const string VersionString = "1.2.0";
 
         private static ushort _version;
+        private static readonly StrictKey _key = new StrictKey();
 
         private static bool BuildVersionInfo(out uint major, out uint minor, out uint micro)
         {
@@ -28,6 +29,7 @@ namespace ThorVG
 
         public static Result Init(uint threads = 0)
         {
+            using var lk = new ScopedLock(_key);
             if (TvgCommon.engineInit++ > 0) return Result.Success;
 
             if (!BuildVersionInfo(out _, out _, out _)) return Result.Unknown;
@@ -41,15 +43,18 @@ namespace ThorVG
 
         public static Result Term()
         {
+            using var lk = new ScopedLock(_key);
             if (TvgCommon.engineInit == 0) return Result.InsufficientCondition;
 
             if (--TvgCommon.engineInit > 0) return Result.Success;
 
-            // SW renderer term (mirrors C++ #ifdef THORVG_SW_RASTER_SUPPORT)
-            SwRenderer.Term();
+            // A live renderer prevents global pool/loader/scheduler teardown.
+            // The reference count has already reached zero, as in the native
+            // API; the caller must dispose its canvases before reinitializing.
+            if (!SwRenderer.Term()) return Result.InsufficientCondition;
 
             // GL renderer term
-            GlRenderer.Term();
+            if (!GlRenderer.Term()) return Result.InsufficientCondition;
 
             TaskScheduler.Term();
 

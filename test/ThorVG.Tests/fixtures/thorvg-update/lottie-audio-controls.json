@@ -1,0 +1,1 @@
+{"v":"5.7.4","fr":10,"w":16,"h":16,"ip":0,"op":40,"assets":[{"id":"audio","p":"tone.wav","u":"","e":0}],"layers":[{"ty":6,"ind":1,"nm":"Audio controls","refId":"audio","ip":10,"op":30,"st":5,"sr":2,"au":{"lv":{"a":0,"k":80}}}]}

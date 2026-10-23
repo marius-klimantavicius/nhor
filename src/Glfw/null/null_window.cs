@@ -1,4 +1,4 @@
-// Ported from glfw/src/null_window.c (GLFW 3.5)
+// Ported from glfw/src/null_window.c (GLFW 3.6)
 //
 // Copyright (c) 2016 Google Inc.
 // Copyright (c) 2016-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -137,18 +137,25 @@ namespace Glfw
 
         /// <summary>
         /// Creates a null window. Corresponds to C++ <c>_glfwCreateWindowNull</c>.
-        /// GL context creation (OSMesa/EGL) is skipped for the null platform;
-        /// only the native window part is created.
+        /// Creates the requested OSMesa or surfaceless EGL context as upstream does.
         /// </summary>
         public bool CreateWindow(GlfwWindow window, GlfwWndConfig wndconfig, GlfwCtxConfig ctxconfig, GlfwFbConfig fbconfig)
         {
             if (!CreateNativeWindow(window, wndconfig, fbconfig))
                 return false;
 
-            // Skip GL context creation for null platform.
-            // In the C++ version this would call _glfwInitOSMesa / _glfwCreateContextOSMesa
-            // or _glfwInitEGL / _glfwCreateContextEGL, then _glfwRefreshContextAttribs.
-            // For our headless C# port we skip all of that.
+            if (ctxconfig.Client != GLFW_NO_API)
+            {
+                if (ctxconfig.Source == GLFW_NATIVE_CONTEXT_API || ctxconfig.Source == GLFW_OSMESA_CONTEXT_API)
+                {
+                    if (!Glfw._glfwInitOSMesa() || !Glfw._glfwCreateContextOSMesa(window, ctxconfig, fbconfig)) return false;
+                }
+                else if (ctxconfig.Source == GLFW_EGL_CONTEXT_API)
+                {
+                    if (!Glfw._glfwInitEGL() || !Glfw._glfwCreateContextEGL(window, ctxconfig, fbconfig)) return false;
+                }
+                if (!Glfw._glfwRefreshContextAttribs(window, ctxconfig)) return false;
+            }
 
             if (wndconfig.MousePassthrough)
                 SetWindowMousePassthrough(window, true);

@@ -47,10 +47,12 @@ namespace Marius.Winter.Taffy
                 trackAlignment = trackAlignment.Reversed();
 
             // Compute offsets
-            float totalOffset = origin;
+            float totalOffset = origin + (numTracks == 0
+                ? AlignmentUtils.ComputeAlignmentOffset(freeSpace, numTracks, gap, trackAlignment, false, true) : 0);
             bool seenNonCollapsedTrack = false;
-            for (int i = 0; i < tracks.Count; i++)
+            for (int step = 0; step < tracks.Count; step++)
             {
+                int i = axisIsReversed ? tracks.Count - 1 - step : step;
                 var track = tracks[i];
                 // Odd tracks are gutters (but slices are zero-indexed, so odd tracks have even indices)
                 bool isGutter = i % 2 == 0;
@@ -81,14 +83,18 @@ namespace Marius.Winter.Taffy
         /// <summary>
         /// Align and size a grid item into its final position
         /// </summary>
-        public static (Size<float> contentSizeContribution, float yPosition, float height) AlignAndPositionItem(
+        public static (Rect<float> contentSizeContribution, float yPosition, float height, float? baseline) AlignAndPositionItem(
             ILayoutGridContainer tree,
             NodeId node,
             uint order,
             Rect<float> gridArea,
             InBothAbsAxis<AlignItems?> containerAlignmentStyles,
             float baselineShim,
-            Direction direction)
+            Direction direction,
+            float containerWidth,
+            Rect<float> containerBorder,
+            bool parentIsScrollContainer,
+            ref OofCandidates candidates)
         {
             var gridAreaSize = new Size<float>
             {
@@ -101,8 +107,8 @@ namespace Marius.Winter.Taffy
             var overflow = style.Overflow();
             var scrollbarWidth = style.ScrollbarWidth();
             var aspectRatio = style.AspectRatio();
-            var justifySelf = style.JustifySelf();
-            var alignSelf = style.AlignSelf();
+            var justifySelf = (style.JustifySelf() ?? containerAlignmentStyles.Horizontal ?? AlignItems.Normal).ResolveSelfRelative(style.Direction(), direction, true);
+            var alignSelf = (style.AlignSelf() ?? containerAlignmentStyles.Vertical ?? AlignItems.Normal).ResolveSelfRelative(style.Direction(), direction, false);
 
             var position = style.Position();
             var insetH = style.Inset().HorizontalComponents()
@@ -138,8 +144,8 @@ namespace Marius.Winter.Taffy
             // Resolve default alignment styles if they are set on neither the parent or the node itself
             var alignmentStyles = new InBothAbsAxis<AlignItems>
             {
-                Horizontal = justifySelf ?? containerAlignmentStyles.Horizontal ?? (inherentSize.Width.HasValue ? AlignItems.Start : AlignItems.Stretch),
-                Vertical = alignSelf ?? containerAlignmentStyles.Vertical ?? ((inherentSize.Height.HasValue || aspectRatio.HasValue) ? AlignItems.Start : AlignItems.Stretch),
+                Horizontal = justifySelf.Keyword == AlignItemsKeyword.Normal ? (inherentSize.Width.HasValue || style.Size().Width.IsSizingKeyword() || style.IsReplaced() ? AlignItems.Start : AlignItems.Stretch) : justifySelf,
+                Vertical = alignSelf.Keyword == AlignItemsKeyword.Normal ? (inherentSize.Height.HasValue || style.Size().Height.IsSizingKeyword() || aspectRatio.HasValue || style.IsReplaced() ? AlignItems.Start : AlignItems.Stretch) : alignSelf,
             };
 
             // Note: This is not a bug. It is part of the CSS spec that both horizontal and vertical margins
@@ -149,9 +155,16 @@ namespace Marius.Winter.Taffy
 
             var gridAreaMinusItemMarginsSize = new Size<float>
             {
-                Width = gridAreaSize.Width.MaybeSub(margin.Left).MaybeSub(margin.Right),
-                Height = gridAreaSize.Height.MaybeSub(margin.Top).MaybeSub(margin.Bottom) - baselineShim,
+                Width = TaffySys.F32Max(gridAreaSize.Width.MaybeSub(margin.Left).MaybeSub(margin.Right), 0),
+                Height = TaffySys.F32Max(gridAreaSize.Height.MaybeSub(margin.Top).MaybeSub(margin.Bottom) - baselineShim, 0),
             };
+
+            var sizeStyle = style.Size();
+            var keywordWidth = inherentSize.Width.HasValue ? null : SizingKeywordUtils.ResolveSizingKeyword(sizeStyle.Width, gridAreaMinusItemMarginsSize.Width, gridAreaSize.Width, tree.Calc);
+            var keywordHeight = inherentSize.Height.HasValue ? null : SizingKeywordUtils.ResolveSizingKeyword(sizeStyle.Height, gridAreaMinusItemMarginsSize.Height, gridAreaSize.Height, tree.Calc);
+            var keywordMeasured = SizeExtensions.NoneF32;
+            if (keywordWidth is { IsExact: false } kw && keywordHeight is { IsExact: false } kh)
+                keywordMeasured = tree.MeasureChildSizeBoth(node, SizeExtensions.NoneF32, gridAreaSizeN, new(kw.AvailableSpace, kh.AvailableSpace), SizingMode.InherentSize, LineExtensions.FalseLine).Map<float?>(v => v);
 
             // If node is absolutely positioned and width is not set explicitly, then deduce it
             float? width = inherentSize.Width;
@@ -159,8 +172,11 @@ namespace Marius.Winter.Taffy
             {
                 if (position == Position.Absolute && insetH.Start.HasValue && insetH.End.HasValue)
                 {
-                    width = MathF.Max(gridAreaMinusItemMarginsSize.Width - insetH.Start.Value - insetH.End.Value, 0f);
+                    width = TaffySys.F32Max(gridAreaMinusItemMarginsSize.Width - insetH.Start.Value - insetH.End.Value, 0f);
                 }
+                else if (keywordWidth is { } keyword)
+                    width = keyword.IsExact ? keyword.Size : keywordMeasured.Width ?? tree.MeasureChildSize(node, SizeExtensions.NoneF32, gridAreaSizeN,
+                        new(keyword.AvailableSpace, AvailableSpace.Definite(gridAreaMinusItemMarginsSize.Height)), SizingMode.InherentSize, AbsoluteAxis.Horizontal, LineExtensions.FalseLine);
                 else if (margin.Left.HasValue && margin.Right.HasValue
                     && alignmentStyles.Horizontal == AlignItems.Stretch
                     && position != Position.Absolute)
@@ -178,8 +194,11 @@ namespace Marius.Winter.Taffy
             {
                 if (position == Position.Absolute && insetV.Start.HasValue && insetV.End.HasValue)
                 {
-                    height = MathF.Max(gridAreaMinusItemMarginsSize.Height - insetV.Start.Value - insetV.End.Value, 0f);
+                    height = TaffySys.F32Max(gridAreaMinusItemMarginsSize.Height - insetV.Start.Value - insetV.End.Value, 0f);
                 }
+                else if (keywordHeight is { } keyword)
+                    height = keyword.IsExact ? keyword.Size : keywordMeasured.Height ?? tree.MeasureChildSize(node, new(width, null), gridAreaSizeN,
+                        new(AvailableSpace.Definite(width ?? gridAreaMinusItemMarginsSize.Width), keyword.AvailableSpace), SizingMode.InherentSize, AbsoluteAxis.Vertical, LineExtensions.FalseLine);
                 else if (margin.Top.HasValue && margin.Bottom.HasValue
                     && alignmentStyles.Vertical == AlignItems.Stretch
                     && position != Position.Absolute)
@@ -232,7 +251,7 @@ namespace Marius.Winter.Taffy
 
             var (x, xMargin) = AlignItemWithinArea(
                 new Line<float> { Start = gridArea.Left, End = gridArea.Right },
-                justifySelf ?? alignmentStyles.Horizontal,
+                alignmentStyles.Horizontal,
                 finalWidth,
                 position,
                 insetH,
@@ -242,7 +261,7 @@ namespace Marius.Winter.Taffy
 
             var (y, yMargin) = AlignItemWithinArea(
                 new Line<float> { Start = gridArea.Top, End = gridArea.Bottom },
-                alignSelf ?? alignmentStyles.Vertical,
+                alignmentStyles.Vertical,
                 finalHeight,
                 position,
                 insetV,
@@ -250,6 +269,12 @@ namespace Marius.Winter.Taffy
                 baselineShim,
                 Direction.Ltr);
 
+            float yWithoutRelative = y;
+            if (position == Position.Relative)
+            {
+                x += direction.IsRtl() ? -insetH.End ?? insetH.Start ?? 0 : insetH.Start ?? -insetH.End ?? 0;
+                y += insetV.Start ?? -insetV.End ?? 0;
+            }
             var scrollbarSize = new Size<float>
             {
                 Width = overflow.Y == Overflow.Scroll ? scrollbarWidth : 0f,
@@ -269,20 +294,22 @@ namespace Marius.Winter.Taffy
                 Order = order,
                 Location = new Point<float> { X = x, Y = y },
                 Size = new Size<float> { Width = finalWidth, Height = finalHeight },
-                ContentSize = layoutOutput.ContentSize,
+                ScrollableOverflowRect = layoutOutput.ScrollableOverflowRect,
                 ScrollbarSize = scrollbarSize,
                 Padding = paddingRect,
                 Border = borderRect,
                 Margin = resolvedMargin,
             });
 
-            var contribution = ContentSizeUtils.ComputeContentSizeContribution(
-                new Point<float> { X = x, Y = y },
-                new Size<float> { Width = finalWidth, Height = finalHeight },
-                layoutOutput.ContentSize,
-                overflow);
+            candidates = layoutOutput.OofCandidates.Take();
+            candidates.Translate(new(x, y));
+            var relative = new Point<float>(direction.IsRtl() ? containerWidth - (x + finalWidth) - containerBorder.Right : x - containerBorder.Left,
+                y - containerBorder.Top);
+            var contribution = ScrollableOverflow.ComputeContribution(relative, new(finalWidth, finalHeight),
+                layoutOutput.ScrollableOverflowRect, overflow, style.Contain(), parentIsScrollContainer);
+            var baseline = AlignmentUtils.ChildFirstBaseline(layoutOutput.FirstBaselines.Y, finalHeight, overflow.Y);
+            return (contribution, yWithoutRelative, finalHeight, baseline);
 
-            return (contribution, y, finalHeight);
         }
 
         /// <summary>
@@ -304,8 +331,8 @@ namespace Marius.Winter.Taffy
                 Start = (margin.Start ?? 0f) + baselineShim,
                 End = margin.End ?? 0f,
             };
-            float gridAreaSize = MathF.Max(gridArea.End - gridArea.Start, 0f);
-            float freeSpace = MathF.Max(gridAreaSize - resolvedSize - nonAutoMargin.Sum(), 0f);
+            float gridAreaSize = TaffySys.F32Max(gridArea.End - gridArea.Start, 0f);
+            float freeSpace = TaffySys.F32Max(gridAreaSize - resolvedSize - nonAutoMargin.Sum(), 0f);
 
             // Expand auto margins to fill available space
             int autoMarginCount = (margin.Start.HasValue ? 0 : 1) + (margin.End.HasValue ? 0 : 1);
@@ -356,16 +383,6 @@ namespace Marius.Winter.Taffy
             }
 
             float start = gridArea.Start + offsetWithinArea;
-            if (position == Position.Relative)
-            {
-                float? relativeInset;
-                if (direction.IsRtl())
-                    relativeInset = inset.End.HasValue ? -inset.End.Value : inset.Start;
-                else
-                    relativeInset = inset.Start ?? (inset.End.HasValue ? -inset.End.Value : (float?)null);
-                start += relativeInset ?? 0f;
-            }
-
             return (start, resolvedMargin);
         }
     }

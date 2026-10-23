@@ -1,4 +1,4 @@
-// Ported from glfw/src/x11_window.c (GLFW 3.5)
+// Ported from glfw/src/x11_window.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -179,7 +179,7 @@ public static partial class Glfw
         fds[1].fd = x11.emptyEventPipeRead;
         fds[1].events = Glfw.POLLIN;
         fds[1].revents = 0;
-        fds[2].fd = -1;
+        fds[2].fd = _glfw.joysticksInitialized ? linuxInotify : -1;
         fds[2].events = Glfw.POLLIN;
         fds[2].revents = 0;
 
@@ -310,11 +310,11 @@ public static partial class Glfw
         ev.xclient.window = window.X11!.handle;
         ev.xclient.format = 32;
         ev.xclient.message_type = type;
-        ev.xclient.l[0] = a;
-        ev.xclient.l[1] = b;
-        ev.xclient.l[2] = c;
-        ev.xclient.l[3] = d;
-        ev.xclient.l[4] = e;
+        ev.xclient.l[0] = (nint)a;
+        ev.xclient.l[1] = (nint)b;
+        ev.xclient.l[2] = (nint)c;
+        ev.xclient.l[3] = (nint)d;
+        ev.xclient.l[4] = (nint)e;
 
         x11.xlib.SendEvent(x11.display, x11.root, 0,
                             SubstructureNotifyMask | SubstructureRedirectMask,
@@ -916,130 +916,99 @@ public static partial class Glfw
         x11.xlib.SendEvent(x11.display, request->requestor, 0, 0, &reply);
     }
 
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe int isSelPropNewValueNotify(nint display, XEvent* ev, nint pointer)
+    {
+        var notification = (XEvent*)pointer;
+        return ev->type == PropertyNotify && ev->xproperty.state == PropertyNewValue &&
+            ev->xproperty.window == notification->xselection.requestor &&
+            ev->xproperty.atom == notification->xselection.property ? 1 : 0;
+    }
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe int isSelectionEvent(nint display, XEvent* ev, nint pointer) =>
+        ev->xkey.window == _glfw.X11!.helperWindowHandle &&
+        (ev->type == SelectionRequest || ev->type == SelectionNotify || ev->type == SelectionClear) ? 1 : 0;
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    private static unsafe int isFrameExtentsEvent(nint display, XEvent* ev, nint window) =>
+        ev->type == PropertyNotify && ev->xproperty.state == PropertyNewValue &&
+        ev->xproperty.window == (nuint)window && ev->xproperty.atom == _glfw.X11!.NET_FRAME_EXTENTS ? 1 : 0;
+
+    private static string convertLatin1toUTF8(ReadOnlySpan<byte> source)
+    {
+        // Upstream passes plain char directly to the uint32_t UTF-8 encoder.
+        // Preserve its sign extension, including dropped high-bit bytes on
+        // signed-char targets. ARM Linux's default plain char is unsigned.
+        bool signed = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture is not
+            (System.Runtime.InteropServices.Architecture.Arm or System.Runtime.InteropServices.Architecture.Arm64);
+        byte[] result = new byte[checked(source.Length * 2)];
+        int length = 0;
+        foreach (byte value in source)
+        {
+            if (value == 0) break;
+            uint codepoint = signed ? unchecked((uint)(sbyte)value) : value;
+            length += _glfwEncodeUTF8(result, length, codepoint);
+        }
+        return Encoding.UTF8.GetString(result, 0, length);
+    }
+
     private static unsafe string? getSelectionString(nuint selection)
     {
         var x11 = _glfw.X11!;
-        nuint* targets = stackalloc nuint[2];
-        targets[0] = x11.UTF8_STRING;
-        targets[1] = XA_STRING;
-        int targetCount = 2;
-
-        bool isPrimary = (selection == x11.PRIMARY);
-
+        nuint* targets = stackalloc nuint[2] { x11.UTF8_STRING, XA_STRING };
+        bool primary = selection == x11.PRIMARY;
         if (x11.xlib.GetSelectionOwner(x11.display, selection) == x11.helperWindowHandle)
+            return primary ? x11.primarySelectionString : x11.clipboardString;
+        if (primary) x11.primarySelectionString = null; else x11.clipboardString = null;
+        string? result = null;
+        nint predicate = (nint)(delegate* unmanaged[Cdecl]<nint, XEvent*, nint, int>)&isSelPropNewValueNotify;
+        for (int i = 0; i < 2; i++)
         {
-            return isPrimary ? x11.primarySelectionString : x11.clipboardString;
-        }
-
-        if (isPrimary)
-            x11.primarySelectionString = null;
-        else
-            x11.clipboardString = null;
-
-        for (int i = 0; i < targetCount; i++)
-        {
-            x11.xlib.ConvertSelection(x11.display, selection, targets[i],
-                                       x11.GLFW_SELECTION, x11.helperWindowHandle,
-                                       CurrentTime);
-
-            XEvent notification;
-            while (x11.xlib.CheckTypedWindowEvent(x11.display, x11.helperWindowHandle,
-                                                    SelectionNotify, &notification) == 0)
-            {
+            x11.xlib.ConvertSelection(x11.display, selection, targets[i], x11.GLFW_SELECTION, x11.helperWindowHandle, CurrentTime);
+            XEvent notification, dummy;
+            while (x11.xlib.CheckTypedWindowEvent(x11.display, x11.helperWindowHandle, SelectionNotify, &notification) == 0)
                 waitForX11Event(null);
-            }
-
-            if (notification.xselection.property == None_)
-                continue;
-
+            if (notification.xselection.property == None_) continue;
+            x11.xlib.CheckIfEvent(x11.display, &dummy, predicate, (nint)(&notification));
             byte* data = null;
-            nuint actualType;
-            int actualFormat;
-            nuint itemCount, bytesAfter;
-
-            x11.xlib.GetWindowProperty(x11.display,
-                                        notification.xselection.requestor,
-                                        notification.xselection.property,
-                                        0, (nint)0x7FFFFFFF, 1, // delete = True
-                                        0, // AnyPropertyType
-                                        &actualType, &actualFormat,
-                                        &itemCount, &bytesAfter, &data);
-
+            nuint actualType, count, after;
+            int format;
+            x11.xlib.GetWindowProperty(x11.display, notification.xselection.requestor, notification.xselection.property,
+                0, nint.MaxValue, 1, 0, &actualType, &format, &count, &after, &data);
             if (actualType == x11.INCR)
             {
-                // Incremental transfer
-                StringBuilder sb = new StringBuilder();
-
+                System.Collections.Generic.List<byte>? bytes = null;
                 for (;;)
                 {
-                    // Wait for property notify
-                    XEvent dummy;
-                    while (true)
+                    while (x11.xlib.CheckIfEvent(x11.display, &dummy, predicate, (nint)(&notification)) == 0)
+                        waitForX11Event(null);
+                    x11.xlib.Free((nint)data);
+                    x11.xlib.GetWindowProperty(x11.display, notification.xselection.requestor, notification.xselection.property,
+                        0, nint.MaxValue, 1, 0, &actualType, &format, &count, &after, &data);
+                    if (count > 0)
                     {
-                        // Poll for PropertyNotify on the requestor window
-                        if (x11.xlib.Pending(x11.display) > 0)
-                        {
-                            x11.xlib.NextEvent(x11.display, &dummy);
-                            if (dummy.type == PropertyNotify &&
-                                dummy.xproperty.state == PropertyNewValue &&
-                                dummy.xproperty.window == notification.xselection.requestor &&
-                                dummy.xproperty.atom == notification.xselection.property)
-                                break;
-                        }
-                        else
-                            waitForX11Event(null);
+                        bytes ??= new();
+                        for (nuint b = 0; b < count && data[b] != 0; b++) bytes.Add(data[b]);
                     }
-
-                    if (data != null)
-                        x11.xlib.Free((nint)data);
-                    data = null;
-
-                    x11.xlib.GetWindowProperty(x11.display,
-                                                notification.xselection.requestor,
-                                                notification.xselection.property,
-                                                0, (nint)0x7FFFFFFF, 1,
-                                                0, &actualType, &actualFormat,
-                                                &itemCount, &bytesAfter, &data);
-
-                    if (itemCount > 0 && data != null)
-                        sb.Append(Encoding.UTF8.GetString(data, (int)itemCount));
-
-                    if (itemCount == 0)
+                    else
                     {
-                        string result = sb.ToString();
-                        if (isPrimary)
-                            x11.primarySelectionString = result;
-                        else
-                            x11.clipboardString = result;
+                        if (bytes != null) result = targets[i] == XA_STRING ? convertLatin1toUTF8(bytes.ToArray()) : Encoding.UTF8.GetString(bytes.ToArray());
                         break;
                     }
                 }
             }
             else if (actualType == targets[i] && data != null)
             {
-                string result = Encoding.UTF8.GetString(data, (int)itemCount);
-                if (isPrimary)
-                    x11.primarySelectionString = result;
-                else
-                    x11.clipboardString = result;
+                nuint length = 0; while (length < count && data[length] != 0) length++;
+                result = targets[i] == XA_STRING ? convertLatin1toUTF8(new ReadOnlySpan<byte>(data, checked((int)length))) : Encoding.UTF8.GetString(data, checked((int)length));
             }
-
-            if (data != null)
-                x11.xlib.Free((nint)data);
-
-            string? sel = isPrimary ? x11.primarySelectionString : x11.clipboardString;
-            if (sel != null)
-                break;
+            x11.xlib.Free((nint)data);
+            if (result != null) break;
         }
-
-        string? finalResult = isPrimary ? x11.primarySelectionString : x11.clipboardString;
-        if (finalResult == null)
-        {
-            _glfwInputError(GLFW_FORMAT_UNAVAILABLE,
-                            "X11: Failed to convert selection to string");
-        }
-
-        return finalResult;
+        if (primary) x11.primarySelectionString = result; else x11.clipboardString = result;
+        if (result == null) _glfwInputError(GLFW_FORMAT_UNAVAILABLE, "X11: Failed to convert selection to string");
+        return result;
     }
 
     // Make the specified window and its video mode active on its monitor
@@ -1128,36 +1097,10 @@ public static partial class Glfw
         {
             if (ev->type == x11.xkb.eventBase + XkbEventCode)
             {
-                // XkbEvent overlay: the xkb_type is at a fixed offset
-                // xkb_type is at offset 4 (after int type), changed is at offset 16-ish
-                // We read via xany overlay: serial field contains xkb_type info
-                // Actually need to cast: the XkbEvent first field after 'type' is 'serial'
-                // then 'send_event', then 'display', then 'time', then 'xkb_type'
-                // For simplicity, read the raw bytes
-                byte* raw = (byte*)ev;
-                // XkbEvent layout: int type (4), unsigned long serial (ptr-size), ...
-                // XkbAnyEvent: type(4), serial(8), send_event(4), display(8), time(8), xkb_type(4)
-                // On 64-bit: offset of xkb_type = 4+8+4+8+8 = 32
-                int xkbType = *(int*)(raw + (nint.Size == 8 ? 32 : 20));
-                if (xkbType == XkbStateNotify)
-                {
-                    // XkbStateNotifyEvent: after XkbAnyEvent fields, has changed(4)
-                    // then many fields, then group at a specific offset
-                    // XkbStateNotifyEvent: type(4), serial(8), send_event(4), display(8), time(8),
-                    //   xkb_type(4), device(4), changed(4), group(4), ...
-                    uint changed = *(uint*)(raw + (nint.Size == 8 ? 40 : 24));
-                    if ((changed & XkbGroupStateMask) != 0)
-                    {
-                        // group field follows changed, base_group, latched_group, locked_group
-                        // Actually in XkbStateNotifyEvent:
-                        // after changed(4): keycode(4), event_type(4), req_major(1), req_minor(1)
-                        // ... group(4) at offset... this is complex.
-                        // Simplified: just read the xkb group from XkbGetState
-                        XkbStateRec state;
-                        x11.xkb.GetState(x11.display, 0x0100 /*XkbUseCoreKbd*/, &state);
-                        x11.xkb.group = state.group;
-                    }
-                }
+                var state = (XkbStateNotifyEvent*)ev;
+                if (state->xkb_type == XkbStateNotify &&
+                    (state->changed & XkbGroupStateMask) != 0)
+                    x11.xkb.group = (uint)state->group;
                 return;
             }
         }
@@ -1256,26 +1199,31 @@ public static partial class Glfw
                     if (filtered == 0)
                     {
                         byte* buffer = stackalloc byte[100];
-                        nuint keysym;
                         int status;
 
                         int count = x11.xlib.utf8LookupString(window.X11.ic,
                                                                &ev->xkey,
                                                                buffer, 99,
-                                                               &keysym, &status);
-
-                        if (status == XLookupChars || status == XLookupBoth)
+                                                               null, &status);
+                        byte* chars = buffer;
+                        if (status == XBufferOverflow)
                         {
-                            byte* c = buffer;
-                            buffer[count] = 0;
-                            int remaining = count;
-                            while (remaining > 0)
+                            chars = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)count + 1);
+                            count = x11.xlib.utf8LookupString(window.X11.ic, &ev->xkey, chars, count, null, &status);
+                        }
+                        try
+                        {
+                            if (status == XLookupChars || status == XLookupBoth)
                             {
-                                byte* before = c;
-                                uint codepoint = decodeUTF8(ref c);
-                                remaining -= (int)(c - before);
-                                _glfwInputChar(window, codepoint, mods, plain);
+                                byte* c = chars;
+                                chars[count] = 0;
+                                while (c - chars < count)
+                                    _glfwInputChar(window, decodeUTF8(ref c), mods, plain);
                             }
+                        }
+                        finally
+                        {
+                            if (chars != buffer) System.Runtime.InteropServices.NativeMemory.Free(chars);
                         }
                     }
                 }
@@ -1557,9 +1505,9 @@ public static partial class Glfw
                         reply.xclient.window = x11.xdnd.source;
                         reply.xclient.message_type = x11.XdndFinished;
                         reply.xclient.format = 32;
-                        reply.xclient.l[0] = (long)window.X11!.handle;
+                        reply.xclient.l[0] = (nint)window.X11!.handle;
                         reply.xclient.l[1] = 0;
-                        reply.xclient.l[2] = (long)None_;
+                        reply.xclient.l[2] = (nint)None_;
 
                         x11.xlib.SendEvent(x11.display, x11.xdnd.source,
                                             0, NoEventMask, &reply);
@@ -1587,7 +1535,7 @@ public static partial class Glfw
                     reply.xclient.window = x11.xdnd.source;
                     reply.xclient.message_type = x11.XdndStatus;
                     reply.xclient.format = 32;
-                    reply.xclient.l[0] = (long)window.X11.handle;
+                    reply.xclient.l[0] = (nint)window.X11.handle;
                     reply.xclient.l[2] = 0;
                     reply.xclient.l[3] = 0;
 
@@ -1595,7 +1543,7 @@ public static partial class Glfw
                     {
                         reply.xclient.l[1] = 1;
                         if (x11.xdnd.version >= 2)
-                            reply.xclient.l[4] = (long)x11.XdndActionCopy;
+                            reply.xclient.l[4] = (nint)x11.XdndActionCopy;
                     }
 
                     x11.xlib.SendEvent(x11.display, x11.xdnd.source,
@@ -1638,9 +1586,9 @@ public static partial class Glfw
                         reply.xclient.window = x11.xdnd.source;
                         reply.xclient.message_type = x11.XdndFinished;
                         reply.xclient.format = 32;
-                        reply.xclient.l[0] = (long)window.X11!.handle;
+                        reply.xclient.l[0] = (nint)window.X11!.handle;
                         reply.xclient.l[1] = (ic > 0 ? 1 : 0);
-                        reply.xclient.l[2] = (long)x11.XdndActionCopy;
+                        reply.xclient.l[2] = (nint)x11.XdndActionCopy;
 
                         x11.xlib.SendEvent(x11.display, x11.xdnd.source,
                                             0, NoEventMask, &reply);
@@ -1769,23 +1717,11 @@ public static partial class Glfw
         for (;;)
         {
             XEvent sev;
-            // Check for selection events on helper window
-            while (x11.xlib.Pending(x11.display) > 0)
+            nint predicate = (nint)(delegate* unmanaged[Cdecl]<nint, XEvent*, nint, int>)&isSelectionEvent;
+            while (x11.xlib.CheckIfEvent(x11.display, &sev, predicate, 0) != 0)
             {
-                x11.xlib.NextEvent(x11.display, &sev);
-
-                if (sev.xkey.window != x11.helperWindowHandle)
-                    continue;
-
-                if (sev.type == SelectionRequest)
-                {
-                    handleSelectionRequest(&sev);
-                }
-                else if (sev.type == SelectionNotify)
-                {
-                    if (sev.xselection.target == x11.SAVE_TARGETS)
-                        return;
-                }
+                if (sev.type == SelectionRequest) handleSelectionRequest(&sev);
+                else if (sev.type == SelectionNotify && sev.xselection.target == x11.SAVE_TARGETS) return;
             }
 
             waitForX11Event(null);
@@ -1795,34 +1731,49 @@ public static partial class Glfw
     // Create input context for a window
     internal static unsafe void _glfwCreateInputContextX11(GlfwWindow window)
     {
-        var x11 = _glfw.X11!;
-
-        // XCreateIC requires varargs -- for now, leave ic as 0 (no XIM support)
-        // Full XIM support would require a managed wrapper for the varargs call
-        // This is a known limitation of the initial port
-        window.X11!.ic = 0;
+        CreateX11InputContext(window);
     }
 
     // Parse a URI list (from drag and drop) into an array of file paths
     internal static string[] _glfwParseUriList(string text)
     {
         var paths = new System.Collections.Generic.List<string>();
-        string[] lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        string[] lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
         foreach (string line in lines)
         {
-            string trimmed = line.Trim('\r');
-            if (trimmed.StartsWith("#"))
+            if (line.StartsWith("#", StringComparison.Ordinal))
                 continue;
-
-            if (trimmed.StartsWith("file://"))
+            int start = 0;
+            if (line.StartsWith("file://", StringComparison.Ordinal))
             {
-                string path = Uri.UnescapeDataString(trimmed.Substring(7));
-                // Remove trailing whitespace
-                path = path.TrimEnd();
-                if (!string.IsNullOrEmpty(path))
-                    paths.Add(path);
+                start = line.IndexOf('/', 7);
+                if (start < 0) start = line.Length;
             }
+            byte[] bytes = Encoding.UTF8.GetBytes(line[start..]);
+            int length = 0;
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                byte value = bytes[i];
+                if (value == '%' && i + 2 < bytes.Length)
+                {
+                    // strtol permits partial hex values; decode UTF-8 bytes,
+                    // not UTF-16 characters, just like the native parser.
+                    int parsed = 0, sign = 1, p = i + 1;
+                    while (p <= i + 2 && " \t\r\n\f\v".IndexOf((char)bytes[p]) >= 0) p++;
+                    if (p <= i + 2 && (bytes[p] == '-' || bytes[p] == '+')) { if (bytes[p] == '-') sign = -1; p++; }
+                    for (; p <= i + 2; p++)
+                    {
+                        int digit = bytes[p] >= '0' && bytes[p] <= '9' ? bytes[p] - '0' : bytes[p] >= 'a' && bytes[p] <= 'f' ? bytes[p] - 'a' + 10 : bytes[p] >= 'A' && bytes[p] <= 'F' ? bytes[p] - 'A' + 10 : -1;
+                        if (digit < 0) break;
+                        parsed = parsed * 16 + digit;
+                    }
+                    value = unchecked((byte)(parsed * sign)); i += 2;
+                }
+                bytes[length++] = value;
+            }
+            int nul = Array.IndexOf(bytes, (byte)0, 0, length);
+            paths.Add(Encoding.UTF8.GetString(bytes, 0, nul < 0 ? length : nul));
         }
 
         return paths.ToArray();
@@ -1850,7 +1801,11 @@ public static partial class Glfw
                 if (!_glfwChooseVisualGLX(wndconfig, ctxconfig, fbconfig, out visual, out depth))
                     return false;
             }
-            // EGL and OSMesa paths omitted for now
+            else if (ctxconfig.Source == GLFW_EGL_CONTEXT_API)
+            {
+                if (!_glfwInitEGL()) return false;
+                if (!_glfwChooseVisualEGL(wndconfig, ctxconfig, fbconfig, out visual, out depth)) return false;
+            }
         }
 
         if (visual == 0)
@@ -1868,6 +1823,14 @@ public static partial class Glfw
             {
                 if (!_glfwCreateContextGLX(window, ctxconfig, fbconfig))
                     return false;
+            }
+            else if (ctxconfig.Source == GLFW_EGL_CONTEXT_API)
+            {
+                if (!_glfwCreateContextEGL(window, ctxconfig, fbconfig)) return false;
+            }
+            else if (ctxconfig.Source == GLFW_OSMESA_CONTEXT_API)
+            {
+                if (!_glfwInitOSMesa() || !_glfwCreateContextOSMesa(window, ctxconfig, fbconfig)) return false;
             }
 
             if (!_glfwRefreshContextAttribs(window, ctxconfig))
@@ -1914,6 +1877,12 @@ public static partial class Glfw
         {
             x11.xlib.DestroyIC(window.X11.ic);
             window.X11.ic = 0;
+        }
+
+        if (window.X11 != null && window.X11.icHandle != 0)
+        {
+            System.Runtime.InteropServices.GCHandle.FromIntPtr(window.X11.icHandle).Free();
+            window.X11.icHandle = 0;
         }
 
         if (window.context.destroy != null)
@@ -2111,6 +2080,22 @@ public static partial class Glfw
 
         if (x11.NET_FRAME_EXTENTS == None_)
             return;
+
+        if (!_glfwWindowVisibleX11(window) && x11.NET_REQUEST_FRAME_EXTENTS != 0)
+        {
+            XEvent ev;
+            double timeout = 0.5;
+            sendEventToWM(window, x11.NET_REQUEST_FRAME_EXTENTS, 0, 0, 0, 0, 0);
+            nint predicate = (nint)(delegate* unmanaged[Cdecl]<nint, XEvent*, nint, int>)&isFrameExtentsEvent;
+            while (x11.xlib.CheckIfEvent(x11.display, &ev, predicate, (nint)window.X11!.handle) == 0)
+            {
+                if (!waitForX11Event(&timeout))
+                {
+                    _glfwInputError(GLFW_PLATFORM_ERROR, "X11: The window manager has a broken _NET_REQUEST_FRAME_EXTENTS implementation; please report this issue");
+                    return;
+                }
+            }
+        }
 
         byte* extents = null;
         nuint count = _glfwGetWindowPropertyX11(window.X11!.handle,
@@ -2523,6 +2508,9 @@ public static partial class Glfw
         var x11 = _glfw.X11!;
 
         drainEmptyEvents();
+
+        if (_glfw.joysticksInitialized)
+            _glfwDetectJoystickConnectionLinux();
 
         x11.xlib.Pending(x11.display);
 

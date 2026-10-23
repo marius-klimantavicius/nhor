@@ -26,7 +26,7 @@ namespace Marius.Winter.Taffy
         /// <summary>Create an initial BlockContext for this BlockFormattingContext</summary>
         public BlockContext RootBlockContext()
         {
-            return new BlockContext(this, 0.0f, new float[] { 0.0f, 0.0f }, new float[] { 0.0f, 0.0f }, 0.0f, true);
+            return new BlockContext(this, 0.0f, new float[] { 0.0f, 0.0f }, new float[] { 0.0f, 0.0f }, float.NegativeInfinity, true);
         }
     }
 
@@ -34,7 +34,7 @@ namespace Marius.Winter.Taffy
     /// Context for each individual Block within a Block Formatting Context.
     /// Contains a reference to the BlockFormattingContext + block-specific data.
     /// </summary>
-    public class BlockContext
+    public partial class BlockContext
     {
         /// <summary>A reference to the root BlockFormattingContext that this BlockContext belongs to</summary>
         internal BlockFormattingContext Bfc;
@@ -74,14 +74,16 @@ namespace Marius.Winter.Taffy
         public BlockContext SubContext(float additionalYOffset, float[] insets)
         {
             var newInsets = new float[] { this.Insets[0] + insets[0], this.Insets[1] + insets[1] };
-            return new BlockContext(
+            var child = new BlockContext(
                 Bfc,
                 YOffset + additionalYOffset,
                 newInsets,
                 new float[] { newInsets[0], newInsets[1] },
-                0.0f,
+                float.NegativeInfinity,
                 false
             );
+            child.AdjoiningLeft = AdjoiningLeft; child.AdjoiningRight = AdjoiningRight;
+            return child;
         }
 
         /// <summary>Returns whether this block is the root block of its Block Formatting Context</summary>
@@ -142,7 +144,7 @@ namespace Marius.Winter.Taffy
             pos.Y -= YOffset;
             pos.X -= Insets[0];
 
-            FloatContentContribution = MathF.Max(FloatContentContribution, pos.Y + floatedBox.Height);
+            FloatContentContribution = TaffySys.F32Max(FloatContentContribution, pos.Y + floatedBox.Height);
 
             return pos;
         }
@@ -166,7 +168,7 @@ namespace Marius.Winter.Taffy
         /// <summary>Update the height that descendant floats with the height that floats consume within a particular child</summary>
         internal void AddChildFloatedContentHeightContribution(float childContribution)
         {
-            FloatContentContribution = MathF.Max(FloatContentContribution, childContribution);
+            FloatContentContribution = TaffySys.F32Max(FloatContentContribution, childContribution);
         }
 
         /// <summary>Returns the height that descendant floats consume</summary>
@@ -185,6 +187,12 @@ namespace Marius.Winter.Taffy
     {
         /// <summary>The identifier for the associated node</summary>
         public NodeId NodeId;
+        public OofCandidates OofCandidates;
+        public Size<Dimension> SizeStyle;
+        public bool IsCompressibleReplaced;
+        public Direction Direction;
+        public AlignItems? AlignSelf, JustifySelf;
+        public Contain Contain;
 
         /// <summary>
         /// The "source order" of the item. This is the index of the item within the children iterator,
@@ -249,7 +257,7 @@ namespace Marius.Winter.Taffy
     /// <summary>
     /// Computes the layout of LayoutBlockContainer according to the block layout algorithm
     /// </summary>
-    public static class BlockAlgorithm
+    public static partial class BlockAlgorithm
     {
         /// <summary>
         /// Computes the layout of LayoutBlockContainer according to the block layout algorithm
@@ -325,45 +333,13 @@ namespace Marius.Winter.Taffy
                 }
             }
 
-            // Unwrap the block formatting context if one was passed, or else create a new one
-            if (blockCtx != null && !isScrollContainer)
-            {
-                return ComputeInner(
-                    tree,
-                    nodeId,
-                    new LayoutInput
-                    {
-                        KnownDimensions = styledBasedKnownDimensions,
-                        ParentSize = inputs.ParentSize,
-                        AvailableSpace = inputs.AvailableSpace,
-                        RunMode = inputs.RunMode,
-                        SizingMode = inputs.SizingMode,
-                        Axis = inputs.Axis,
-                        VerticalMarginsAreCollapsible = inputs.VerticalMarginsAreCollapsible,
-                    },
-                    blockCtx
-                );
-            }
-            else
-            {
-                var rootBfc = new BlockFormattingContext();
-                var rootCtx = rootBfc.RootBlockContext();
-                return ComputeInner(
-                    tree,
-                    nodeId,
-                    new LayoutInput
-                    {
-                        KnownDimensions = styledBasedKnownDimensions,
-                        ParentSize = inputs.ParentSize,
-                        AvailableSpace = inputs.AvailableSpace,
-                        RunMode = inputs.RunMode,
-                        SizingMode = inputs.SizingMode,
-                        Axis = inputs.Axis,
-                        VerticalMarginsAreCollapsible = inputs.VerticalMarginsAreCollapsible,
-                    },
-                    rootCtx
-                );
-            }
+            bool establishesBfc = isScrollContainer || (style.AlignContent() ?? AlignContent.Normal).Keyword != AlignContentKeyword.Normal
+                || style.Contain().EstablishesIndependentFormattingContext();
+            var innerInput = inputs; innerInput.KnownDimensions = styledBasedKnownDimensions;
+            var context = blockCtx != null && !establishesBfc ? blockCtx : new BlockFormattingContext().RootBlockContext();
+            var output = ComputeInner(tree, nodeId, innerInput, context);
+            if (style.Contain().SuppressesBaseline()) output.Baselines = Baselines.None;
+            return output;
         }
 
         /// <summary>
@@ -435,35 +411,20 @@ namespace Marius.Winter.Taffy
             knownDimensions = new Size<float?>(
                 knownDimensions.Width ?? derivedKnownDimensions.Width,
                 knownDimensions.Height ?? derivedKnownDimensions.Height);
-            var containerContentBoxSize = knownDimensions.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
+            var percentageBasis = knownDimensions;
+            if (!inputs.KnownDimensionsAreDefinite.Height) percentageBasis.Height = null;
+            var containerContentBoxSize = percentageBasis.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
 
             var overflow = style.Overflow();
             bool isScrollContainer = overflow.X.IsScrollContainer() || overflow.Y.IsScrollContainer();
 
-            // Determine margin collapsing behaviour
-            var ownMarginsCollapseWithChildren = new Line<bool>(
-                start: verticalMarginsAreCollapsible.Start
-                    && !isScrollContainer
-                    && style.Position() == Position.Relative
-                    && padding.Top == 0.0f
-                    && border.Top == 0.0f,
-                end: verticalMarginsAreCollapsible.End
-                    && !isScrollContainer
-                    && style.Position() == Position.Relative
-                    && padding.Bottom == 0.0f
-                    && border.Bottom == 0.0f
-                    && !size.Height.HasValue
-            );
-            bool hasStylesPreventingBeingCollapsedThrough = !style.IsBlock()
-                || blockCtx.IsBfcRoot()
-                || isScrollContainer
-                || style.Position() == Position.Absolute
-                || padding.Top > 0.0f
-                || padding.Bottom > 0.0f
-                || border.Top > 0.0f
-                || border.Bottom > 0.0f
-                || (size.Height.HasValue && size.Height.Value > 0.0f)
-                || (minSize.Height.HasValue && minSize.Height.Value > 0.0f);
+            bool establishesBfc = isScrollContainer || (style.AlignContent() ?? AlignContent.Normal).Keyword != AlignContentKeyword.Normal
+                || style.Contain().EstablishesIndependentFormattingContext();
+            var childrenAdjoin = new Line<bool>(verticalMarginsAreCollapsible.Start && !establishesBfc && !style.Position().IsOutOfFlow() && padding.Top == 0 && border.Top == 0,
+                verticalMarginsAreCollapsible.End && !establishesBfc && !style.Position().IsOutOfFlow() && padding.Bottom == 0 && border.Bottom == 0);
+            var ownMarginsCollapseWithChildren = new Line<bool>(childrenAdjoin.Start, childrenAdjoin.End && !size.Height.HasValue);
+            bool hasStylesPreventingBeingCollapsedThrough = !style.IsBlock() || blockCtx.IsBfcRoot() || establishesBfc || style.Position().IsOutOfFlow()
+                || padding.Top > 0 || padding.Bottom > 0 || border.Top > 0 || border.Bottom > 0;
 
             var textAlign = style.TextAlign();
             var alignContent = style.AlignContent();
@@ -498,13 +459,13 @@ namespace Marius.Winter.Taffy
             }
 
             float? containerPercentageResolutionHeight =
-                knownDimensions.Height ?? size.Height.MaybeMax(minSize.Height) ?? minSize.Height;
+                percentageBasis.Height ?? (inputs.SizingMode == SizingMode.InherentSize ? size.Height.MaybeMax(minSize.Height) : null);
 
             // 3. Perform final item layout and return content height
-            var resolvedPadding = rawPadding.ResolveOrZero((float?)containerOuterWidth, tree.Calc);
-            var resolvedBorder = rawBorder.ResolveOrZero((float?)containerOuterWidth, tree.Calc);
+            var resolvedPadding = rawPadding.ResolveOrZero(parentSize.Width ?? containerOuterWidth, tree.Calc);
+            var resolvedBorder = rawBorder.ResolveOrZero(parentSize.Width ?? containerOuterWidth, tree.Calc);
             var resolvedContentBoxInset = resolvedPadding.Add(resolvedBorder).Add(scrollbarGutter);
-            var (inflowContentSize, intrinsicOuterHeight, firstChildTopMarginSet, lastChildBottomMarginSet) =
+            var (inflowContentSize, intrinsicOuterHeight, firstChildTopMarginSet, lastChildBottomMarginSet, firstBaseline) =
                 PerformFinalLayoutOnInFlowChildren(
                     tree,
                     runMode,
@@ -516,23 +477,24 @@ namespace Marius.Winter.Taffy
                     textAlign,
                     direction,
                     ownMarginsCollapseWithChildren,
-                    blockCtx
+                    blockCtx, resolvedBorder, isScrollContainer, style.JustifyItems() ?? AlignItems.Normal, childrenAdjoin
                 );
 
             // Root BFCs contain floats
-            if (blockCtx.IsBfcRoot() || isScrollContainer)
+            if (blockCtx.IsBfcRoot() || establishesBfc)
             {
-                intrinsicOuterHeight = MathF.Max(intrinsicOuterHeight, blockCtx.FloatedContentHeightContribution());
+                intrinsicOuterHeight = TaffySys.F32Max(intrinsicOuterHeight, blockCtx.FloatedContentHeightContribution());
             }
 
             float containerOuterHeight = (knownDimensions.Height ??
                 intrinsicOuterHeight.MaybeClamp(minSize.Height, maxSize.Height))
                 .MaybeMax(paddingBorderSize.Height);
             var finalOuterSize = new Size<float>(containerOuterWidth, containerOuterHeight);
+            bool ownBottomCollapses = ownMarginsCollapseWithChildren.End && !(minSize.Height is { } mh && mh > 0 && mh >= containerOuterHeight);
 
             // Treat the entire stack of in-flow children as one alignment subject. Passing one
             // item applies the single-subject fallback for all distribution keywords.
-            if (alignContent.HasValue)
+            if (alignContent is { Keyword: not AlignContentKeyword.Normal })
             {
                 float containerInnerHeight = containerOuterHeight - resolvedContentBoxInset.VerticalAxisSum();
                 float inflowContentHeight = intrinsicOuterHeight - resolvedContentBoxInset.VerticalAxisSum();
@@ -547,38 +509,26 @@ namespace Marius.Winter.Taffy
                     }
                 }
 
+                float groupOffset = ComputeBlockAlignContentOffset(alignContent.Value, freeSpace);
+                firstBaseline = firstBaseline.MaybeAdd(groupOffset);
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    if (item.FinalLayout is { } layout) { layout.Location.Y += groupOffset; item.FinalLayout = layout; }
+                    if (item.Position.IsOutOfFlow()) item.StaticPosition.Y += groupOffset;
+                    items[i] = item;
+                }
                 if (anyInFlow)
                 {
-                    var keyword = AlignmentUtils.ApplyAlignmentFallback(freeSpace, 1, alignContent.Value);
-                    float groupOffset = AlignmentUtils.ComputeAlignmentOffset(freeSpace, 1, 0.0f, keyword, false, true);
+                    inflowContentSize = default;
                     for (int i = 0; i < items.Count; i++)
                     {
                         var item = items[i];
                         if (!item.FinalLayout.HasValue) continue;
 
                         var layout = item.FinalLayout.Value;
-                        layout.Location.Y += groupOffset;
-                        item.FinalLayout = layout;
-                        items[i] = item;
-                    }
-
-                    inflowContentSize = SizeExtensions.ZeroF32;
-                    for (int i = 0; i < items.Count; i++)
-                    {
-                        var item = items[i];
-                        if (!item.FinalLayout.HasValue) continue;
-
-                        var layout = item.FinalLayout.Value;
-                        inflowContentSize = inflowContentSize.F32Max(
-                            ContentSizeUtils.ComputeContentSizeContribution(
-                                new Point<float>(
-                                    layout.Location.X - resolvedContentBoxInset.Left,
-                                    layout.Location.Y - resolvedContentBoxInset.Top),
-                                layout.Size,
-                                layout.ContentSize,
-                                item.Overflow
-                            )
-                        );
+                        inflowContentSize = inflowContentSize.Union(Contribution(tree, item, layout.Location,
+                            layout.Size, layout.ScrollableOverflowRect, containerOuterWidth, direction, resolvedBorder, isScrollContainer));
                     }
                 }
             }
@@ -587,25 +537,25 @@ namespace Marius.Winter.Taffy
             bool allInFlowChildrenCanBeCollapsedThrough = true;
             for (int i = 0; i < items.Count; i++)
             {
-                if (items[i].Position != Position.Absolute && !items[i].CanBeCollapsedThrough)
+                if (!items[i].Position.IsOutOfFlow() && !items[i].Float.IsFloated() && !items[i].CanBeCollapsedThrough)
                 {
                     allInFlowChildrenCanBeCollapsedThrough = false;
                     break;
                 }
             }
             bool canBeCollapsedThrough =
-                !hasStylesPreventingBeingCollapsedThrough && allInFlowChildrenCanBeCollapsedThrough;
+                !hasStylesPreventingBeingCollapsedThrough && containerOuterHeight == 0 && allInFlowChildrenCanBeCollapsedThrough;
 
             var output = new LayoutOutput
             {
                 Size = finalOuterSize,
                 ContentSize = SizeExtensions.ZeroF32,
-                FirstBaselines = PointExtensions.NoneF32,
+                FirstBaselines = new Point<float?>(null, firstBaseline),
                 TopMargin = ownMarginsCollapseWithChildren.Start
                     ? firstChildTopMarginSet
                     : CollapsibleMarginSet.FromMargin(
                         rawMargin.Top.ResolveOrZero(parentSize.Width, tree.Calc)),
-                BottomMargin = ownMarginsCollapseWithChildren.End
+                BottomMargin = ownBottomCollapses
                     ? lastChildBottomMarginSet
                     : CollapsibleMarginSet.FromMargin(
                         rawMargin.Bottom.ResolveOrZero(parentSize.Width, tree.Calc)),
@@ -634,9 +584,34 @@ namespace Marius.Winter.Taffy
             var absolutePositionInset = resolvedBorder.Add(scrollbarGutter);
             var absolutePositionArea = finalOuterSize.Sub(absolutePositionInset.SumAxes());
             var absolutePositionOffset = new Point<float>(absolutePositionInset.Left, absolutePositionInset.Top);
-            var absoluteContentSize =
-                PerformAbsoluteLayoutOnAbsoluteChildren(tree, items, absolutePositionArea, absolutePositionOffset, direction);
-            output.ContentSize = inflowContentSize.F32Max(absoluteContentSize);
+            var candidates = new OofCandidates();
+            foreach (var item in items)
+            {
+                if (item.Position.IsOutOfFlow())
+                {
+                    var justify = (item.JustifySelf ?? style.JustifyItems() ?? AlignItems.Normal)
+                        .ResolveSelfRelative(item.Direction, direction, true);
+                    var align = (item.AlignSelf ?? AlignItems.Normal).ResolveSelfRelative(item.Direction, direction, false);
+                    candidates.Push(new OofCandidate { Node = item.NodeId, Order = item.Order, Position = item.Position,
+                        StaticPosition = new(AxisStaticPosition.FromAlignment(justify,
+                            new(resolvedContentBoxInset.Left, containerOuterWidth - resolvedContentBoxInset.Right), direction.IsRtl()),
+                            AxisStaticPosition.FromAlignment(align, new(item.StaticPosition.Y, item.StaticPosition.Y), false)) });
+                }
+                else
+                {
+                    var surfaced = item.OofCandidates;
+                    if (item.FinalLayout is { } layout) surfaced.Translate(layout.Location);
+                    candidates.Append(ref surfaced);
+                }
+            }
+            output.OofCandidates = candidates;
+            output.OofPositioningArea = new(absolutePositionArea, absolutePositionOffset);
+            if (isScrollContainer)
+            {
+                inflowContentSize.Right += direction.IsRtl() ? resolvedPadding.Left : resolvedPadding.Right;
+                inflowContentSize.Bottom += resolvedPadding.Bottom;
+            }
+            output.ScrollableOverflowRect = inflowContentSize;
 
             // 5. Perform hidden layout on hidden children
             int len = tree.ChildCount(nodeId);
@@ -679,8 +654,8 @@ namespace Marius.Winter.Taffy
                     continue;
 
                 var aspectRatio = childStyle.AspectRatio();
-                var childPadding = childStyle.Padding().ResolveOrZero(nodeInnerSize, tree.Calc);
-                var childBorder = childStyle.Border().ResolveOrZero(nodeInnerSize, tree.Calc);
+                var childPadding = childStyle.Padding().ResolveOrZero(nodeInnerSize.Width, tree.Calc);
+                var childBorder = childStyle.Border().ResolveOrZero(nodeInnerSize.Width, tree.Calc);
                 var pbSum = childPadding.Add(childBorder).SumAxes();
                 var boxSizingAdj =
                     childStyle.BoxSizing() == BoxSizing.ContentBox ? pbSum : SizeExtensions.ZeroF32;
@@ -696,13 +671,15 @@ namespace Marius.Winter.Taffy
                 bool isChildScrollContainer = childOverflow.X.IsScrollContainer() || childOverflow.Y.IsScrollContainer();
 
                 bool isInSameBfc =
-                    isBlock && !isTable && position != Position.Absolute && isNotFloated && !isChildScrollContainer;
+                    isBlock && !isTable && !position.IsOutOfFlow() && isNotFloated && !isChildScrollContainer && !childStyle.Contain().EstablishesIndependentFormattingContext()
+                    && (childStyle.AlignContent() ?? AlignContent.Normal).Keyword == AlignContentKeyword.Normal;
 
                 var boxSizingAdjOpt = boxSizingAdj.Map<float?>(v => v);
 
                 items.Add(new BlockItem
                 {
-                    NodeId = childNodeId,
+                    NodeId = childNodeId, SizeStyle = childStyle.Size(), IsCompressibleReplaced = childStyle.IsCompressibleReplaced(),
+                    Direction = childStyle.Direction(), AlignSelf = childStyle.AlignSelf(), JustifySelf = childStyle.JustifySelf(), Contain = childStyle.Contain(),
                     Order = (uint)order,
                     IsTable = isTable,
                     IsInSameBfc = isInSameBfc,
@@ -762,7 +739,7 @@ namespace Marius.Winter.Taffy
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                if (item.Position == Position.Absolute) continue;
+                if (item.Position.IsOutOfFlow()) continue;
 
                 var knownDims = item.Size.MaybeClamp(item.MinSize, item.MaxSize);
 
@@ -778,18 +755,21 @@ namespace Marius.Winter.Taffy
                 }
                 else
                 {
+                    var keyword = SizingKeywordUtils.ResolveSizingKeyword(item.SizeStyle.Width, null, null, tree.Calc);
+                    var itemWidth = keyword is { IsExact: true } exact ? AvailableSpace.Definite(exact.Size)
+                        : keyword is { IsExact: false } measured ? measured.AvailableSpace : availSpace.Width.MaybeSub(itemXMarginSum);
                     width = tree.MeasureChildSize(
                         item.NodeId,
                         knownDims,
                         SizeExtensions.NoneF32,
-                        new Size<AvailableSpace>(availSpace.Width.MaybeSub(itemXMarginSum), availSpace.Height),
+                        new Size<AvailableSpace>(itemWidth, availSpace.Height),
                         SizingMode.InherentSize,
                         AbsoluteAxis.Horizontal,
-                        LineExtensions.TrueLine
+                        item.IsInSameBfc ? LineExtensions.TrueLine : LineExtensions.FalseLine
                     );
                 }
 
-                width = MathF.Max(width, item.PaddingBorderSum.Width) + itemXMarginSum;
+                width = TaffySys.F32Max(width, item.PaddingBorderSum.Width) + itemXMarginSum;
 
                 var floatDir = item.Float.GetFloatDirection();
                 if (floatDir.HasValue)
@@ -798,10 +778,10 @@ namespace Marius.Winter.Taffy
                     continue;
                 }
 
-                maxChildWidth = MathF.Max(maxChildWidth, width);
+                maxChildWidth = TaffySys.F32Max(maxChildWidth, width);
             }
 
-            maxChildWidth = MathF.Max(maxChildWidth, floatContribution.Result());
+            maxChildWidth = TaffySys.F32Max(maxChildWidth, floatContribution.Result());
 
             return maxChildWidth;
         }
@@ -810,648 +790,13 @@ namespace Marius.Winter.Taffy
         /// Compute each child's final size and position
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static (Size<float> inflowContentSize, float intrinsicOuterHeight, CollapsibleMarginSet firstChildTopMarginSet, CollapsibleMarginSet lastChildBottomMarginSet)
-            PerformFinalLayoutOnInFlowChildren(
-                ILayoutBlockContainer tree,
-                RunMode runMode,
-                List<BlockItem> items,
-                float containerOuterWidth,
-                float? containerPercentageResolutionHeight,
-                Rect<float> contentBoxInset,
-                Rect<float> resolvedContentBoxInset,
-                TextAlign textAlign,
-                Direction direction,
-                Line<bool> ownMarginsCollapseWithChildren,
-                BlockContext blockCtx)
+        private static Rect<float> Contribution(ILayoutBlockContainer tree, BlockItem item, Point<float> location,
+            Size<float> size, Rect<float> rect, float containerWidth, Direction direction, Rect<float> border, bool scroll)
         {
-            // Resolve container_inner_width for sizing child nodes using initial content_box_inset
-            float containerInnerWidth = containerOuterWidth - resolvedContentBoxInset.HorizontalAxisSum();
-            float? containerPctResHeight =
-                containerPercentageResolutionHeight.MaybeSub(resolvedContentBoxInset.VerticalAxisSum());
-            var parentSize = new Size<float?>(containerInnerWidth, containerPctResHeight);
-            // Vertical available space in block flow is indefinite, not a min-content constraint.
-            var availableSpace =
-                new Size<AvailableSpace>(AvailableSpace.Definite(containerInnerWidth), AvailableSpace.MAX_CONTENT);
-
-            // TODO: handle nested blocks with different widths
-            if (blockCtx.IsBfcRoot())
-            {
-                blockCtx.SetWidth(containerOuterWidth);
-                blockCtx.ApplyContentBoxInset(new float[] { resolvedContentBoxInset.Left, resolvedContentBoxInset.Right });
-            }
-
-            var inflowContentSize = SizeExtensions.ZeroF32;
-            float committedYOffset = resolvedContentBoxInset.Top;
-            float yOffsetForAbsolute = resolvedContentBoxInset.Top;
-            var firstChildTopMarginSet = CollapsibleMarginSet.ZERO;
-            var activeCollapsibleMarginSet = CollapsibleMarginSet.ZERO;
-            bool isCollapsingWithFirstMarginSet = true;
-
-            bool hasActiveFloats = blockCtx.HasActiveFloats(committedYOffset);
-            float yOffsetForFloat = resolvedContentBoxInset.Top;
-
-            for (int idx = 0; idx < items.Count; idx++)
-            {
-                var item = items[idx];
-
-                if (item.Position == Position.Absolute)
-                {
-                    float x = direction == Direction.Ltr
-                        ? resolvedContentBoxInset.Left
-                        : containerOuterWidth - resolvedContentBoxInset.Right;
-                    item.StaticPosition = new Point<float>(x, yOffsetForAbsolute);
-                    items[idx] = item;
-                }
-                else
-                {
-                    var itemMargin = item.Margin.Map(margin =>
-                        margin.ResolveToOption(containerOuterWidth, tree.Calc));
-                    var itemNonAutoMargin = itemMargin.Map(m => m ?? 0.0f);
-                    float itemNonAutoXMarginSum = itemNonAutoMargin.HorizontalAxisSum();
-
-                    var scrollbarSize = new Size<float>(
-                        item.Overflow.Y == Overflow.Scroll ? item.ScrollbarWidth : 0.0f,
-                        item.Overflow.X == Overflow.Scroll ? item.ScrollbarWidth : 0.0f
-                    );
-
-                    // Handle floated boxes
-                    var floatDirection = item.Float.GetFloatDirection();
-                    if (floatDirection.HasValue)
-                    {
-                        hasActiveFloats = true;
-
-                        var floatLayout = tree.PerformChildLayout(
-                            item.NodeId,
-                            SizeExtensions.NoneF32,
-                            parentSize,
-                            new Size<AvailableSpace>(AvailableSpace.MAX_CONTENT, AvailableSpace.MAX_CONTENT),
-                            SizingMode.InherentSize,
-                            LineExtensions.TrueLine
-                        );
-                        var marginBox = floatLayout.Size.Add(itemNonAutoMargin.SumAxes());
-
-                        var floatLocation = blockCtx.PlaceFloatedBox(marginBox, yOffsetForFloat, floatDirection.Value, item.Clear);
-
-                        // Convert the margin-box location returned by float placement into a border-box location
-                        // for the output Layout
-                        floatLocation.Y += itemNonAutoMargin.Top;
-                        floatLocation.X += itemNonAutoMargin.Left;
-
-                        tree.SetUnroundedLayout(
-                            item.NodeId,
-                            new Layout
-                            {
-                                Order = item.Order,
-                                Size = floatLayout.Size,
-                                ContentSize = floatLayout.ContentSize,
-                                ScrollbarSize = scrollbarSize,
-                                Location = floatLocation,
-                                Padding = item.Padding,
-                                Border = item.Border,
-                                Margin = itemNonAutoMargin,
-                            }
-                        );
-
-                        inflowContentSize = inflowContentSize.F32Max(
-                            ContentSizeUtils.ComputeContentSizeContribution(
-                                floatLocation,
-                                floatLayout.Size,
-                                floatLayout.ContentSize,
-                                item.Overflow
-                            )
-                        );
-
-                        continue;
-                    }
-
-                    // Handle non-floated boxes
-
-                    float yMarginOffset = 0.0f;
-
-                    float stretchWidth;
-                    Point<float> floatAvoidingPosition;
-                    float floatAvoidingWidth;
-
-                    if (item.IsInSameBfc)
-                    {
-                        stretchWidth = containerInnerWidth - itemNonAutoXMarginSum;
-                        floatAvoidingPosition = new Point<float>(0.0f, 0.0f);
-                        floatAvoidingWidth = 0.0f;
-                    }
-                    else
-                    {
-                        // Set y_margin_offset (different bfc child)
-                        if (!isCollapsingWithFirstMarginSet || !ownMarginsCollapseWithChildren.Start)
-                        {
-                            yMarginOffset =
-                                activeCollapsibleMarginSet.CollapseWithMargin(itemNonAutoMargin.Top).Resolve();
-                        }
-                        float minY = committedYOffset + yMarginOffset;
-
-                        if (hasActiveFloats)
-                        {
-                            var slot = blockCtx.FindContentSlot(minY, item.Clear, null);
-                            hasActiveFloats = slot.SegmentId.HasValue;
-                            stretchWidth = slot.Width - itemNonAutoXMarginSum;
-                            floatAvoidingPosition = new Point<float>(slot.X, slot.Y);
-                            floatAvoidingWidth = slot.Width;
-                        }
-                        else
-                        {
-                            stretchWidth = containerInnerWidth - itemNonAutoXMarginSum;
-                            floatAvoidingPosition = new Point<float>(resolvedContentBoxInset.Left, minY);
-                            floatAvoidingWidth = containerInnerWidth;
-                        }
-                    }
-
-                    Size<float?> knownDimensions;
-                    if (item.IsTable)
-                    {
-                        knownDimensions = SizeExtensions.NoneF32;
-                    }
-                    else
-                    {
-                        knownDimensions = item.Size
-                            .MapWidth(w =>
-                            {
-                                // TODO: Allow stretch-sizing to be conditional, as there are exceptions.
-                                // e.g. Table children of blocks do not stretch fit
-                                return (float?)((w ?? stretchWidth).MaybeClamp(item.MinSize.Width, item.MaxSize.Width));
-                            })
-                            .MaybeClamp(item.MinSize, item.MaxSize);
-                    }
-
-                    var layoutInputs = new LayoutInput
-                    {
-                        RunMode = runMode,
-                        SizingMode = SizingMode.InherentSize,
-                        Axis = RequestedAxis.Both,
-                        KnownDimensions = knownDimensions,
-                        ParentSize = parentSize,
-                        AvailableSpace = new Size<AvailableSpace>(AvailableSpace.Definite(stretchWidth), availableSpace.Height),
-                        VerticalMarginsAreCollapsible = item.IsInSameBfc ? LineExtensions.TrueLine : LineExtensions.FalseLine,
-                    };
-
-                    float clearPos = blockCtx.ClearedThreshold(item.Clear) ?? 0.0f;
-
-                    LayoutOutput itemLayout;
-                    if (item.IsInSameBfc)
-                    {
-                        float width = knownDimensions.Width
-                            ?? throw new InvalidOperationException("Same-bfc child will always have defined width due to stretch sizing");
-
-                        // TODO: account for auto margins
-                        float insetLeft = itemNonAutoMargin.Left + contentBoxInset.Left;
-                        float insetRight = containerOuterWidth - width - insetLeft;
-                        var insets = new float[] { insetLeft, insetRight };
-
-                        // Compute child layout
-                        var childBlockCtx =
-                            blockCtx.SubContext(MathF.Max(yOffsetForAbsolute + itemNonAutoMargin.Top, clearPos), insets);
-                        itemLayout = tree.ComputeBlockChildLayout(item.NodeId, layoutInputs, childBlockCtx);
-
-                        // Extract float contribution from child block context
-                        float childContribution = childBlockCtx.FloatedContentHeightContribution();
-                        blockCtx.AddChildFloatedContentHeightContribution(yOffsetForAbsolute + childContribution);
-                    }
-                    else
-                    {
-                        itemLayout = tree.ComputeChildLayout(item.NodeId, layoutInputs);
-                    }
-                    var finalSize = itemLayout.Size;
-
-                    var topMarginSet = itemLayout.TopMargin.CollapseWithMargin(itemMargin.Top ?? 0.0f);
-                    var bottomMarginSet = itemLayout.BottomMargin.CollapseWithMargin(itemMargin.Bottom ?? 0.0f);
-
-                    // Expand auto margins to fill available space
-                    // Note: Vertical auto-margins for relatively positioned block items simply resolve to 0.
-                    // See: https://www.w3.org/TR/CSS21/visudet.html#abs-non-replaced-width
-                    float freeXSpace = MathF.Max(0.0f, stretchWidth - finalSize.Width);
-                    float xAxisAutoMarginSize;
-                    {
-                        int autoMarginCount = (!itemMargin.Left.HasValue ? 1 : 0) + (!itemMargin.Right.HasValue ? 1 : 0);
-                        xAxisAutoMarginSize = autoMarginCount > 0 ? freeXSpace / autoMarginCount : 0.0f;
-                    }
-                    var resolvedMargin = new Rect<float>(
-                        itemMargin.Left ?? xAxisAutoMarginSize,
-                        itemMargin.Right ?? xAxisAutoMarginSize,
-                        topMarginSet.Resolve(),
-                        bottomMarginSet.Resolve()
-                    );
-
-                    // Resolve item inset
-                    var insetRect = item.Inset.ZipSize(
-                        new Size<float>(containerInnerWidth, 0.0f),
-                        (p, s) => p.MaybeResolve(s, tree.Calc)
-                    );
-                    var insetOffset = new Point<float>(
-                        direction.IsRtl()
-                            ? (insetRect.Right.HasValue ? -insetRect.Right.Value : insetRect.Left ?? 0.0f)
-                            : (insetRect.Left ?? (insetRect.Right.HasValue ? -insetRect.Right.Value : 0.0f)),
-                        insetRect.Top ?? (insetRect.Bottom.HasValue ? -insetRect.Bottom.Value : 0.0f)
-                    );
-
-                    // Set y_margin_offset (same bfc child)
-                    if (item.IsInSameBfc
-                        && (!isCollapsingWithFirstMarginSet || !ownMarginsCollapseWithChildren.Start))
-                    {
-                        yMarginOffset = activeCollapsibleMarginSet.CollapseWithMargin(resolvedMargin.Top).Resolve();
-                    }
-
-                    bool floatOrNotClear = item.Float.IsFloated() || item.Clear == Clear.None;
-
-                    item.ComputedSize = itemLayout.Size;
-                    item.CanBeCollapsedThrough = itemLayout.MarginsCanCollapseThrough && floatOrNotClear;
-                    if (item.IsInSameBfc)
-                    {
-                        float unclearedY = committedYOffset + activeCollapsibleMarginSet.Resolve();
-                        item.StaticPosition = new Point<float>(
-                            direction == Direction.Ltr
-                                ? resolvedContentBoxInset.Left
-                                : containerOuterWidth - resolvedContentBoxInset.Right - finalSize.Width,
-                            MathF.Max(unclearedY, clearPos));
-                    }
-                    else
-                    {
-                        item.StaticPosition = new Point<float>(
-                            direction == Direction.Ltr
-                                ? floatAvoidingPosition.X
-                                : floatAvoidingPosition.X + floatAvoidingWidth - finalSize.Width,
-                            floatAvoidingPosition.Y);
-                    }
-
-                    Point<float> location;
-                    if (item.IsInSameBfc)
-                    {
-                        float locationX = direction == Direction.Ltr
-                            ? resolvedContentBoxInset.Left + insetOffset.X + resolvedMargin.Left
-                            : containerOuterWidth - resolvedContentBoxInset.Right - finalSize.Width - resolvedMargin.Right + insetOffset.X;
-                        location = new Point<float>(
-                            locationX,
-                            MathF.Max(committedYOffset, clearPos) + insetOffset.Y + yMarginOffset
-                        );
-                    }
-                    else
-                    {
-                        // TODO: handle inset and margins
-                        float locationX = direction == Direction.Ltr
-                            ? floatAvoidingPosition.X + resolvedMargin.Left + insetOffset.X
-                            : floatAvoidingPosition.X + floatAvoidingWidth - finalSize.Width - resolvedMargin.Right + insetOffset.X;
-                        location = new Point<float>(
-                            locationX,
-                            floatAvoidingPosition.Y + insetOffset.Y
-                        );
-                    }
-
-                    // Apply alignment
-                    float itemOuterWidth = itemLayout.Size.Width + resolvedMargin.HorizontalAxisSum();
-                    if (itemOuterWidth < containerInnerWidth)
-                    {
-                        float alignmentFreeSpace = containerInnerWidth - itemOuterWidth;
-                        switch (textAlign, direction)
-                        {
-                            case (TextAlign.Auto, _):
-                                // Do nothing
-                                break;
-                            case (TextAlign.LegacyLeft, Direction.Ltr):
-                                // Do nothing. Left aligned by default.
-                                break;
-                            case (TextAlign.LegacyLeft, Direction.Rtl):
-                                location.X -= alignmentFreeSpace;
-                                break;
-                            case (TextAlign.LegacyRight, Direction.Ltr):
-                                location.X += alignmentFreeSpace;
-                                break;
-                            case (TextAlign.LegacyRight, Direction.Rtl):
-                                // Do nothing. Right aligned by default.
-                                break;
-                            case (TextAlign.LegacyCenter, Direction.Ltr):
-                                location.X += alignmentFreeSpace / 2.0f;
-                                break;
-                            case (TextAlign.LegacyCenter, Direction.Rtl):
-                                location.X -= alignmentFreeSpace / 2.0f;
-                                break;
-                        }
-                    }
-
-                    // Defer committing in-flow layouts so align-content can shift the stack after
-                    // the container's final height has been resolved.
-                    item.FinalLayout = new Layout
-                    {
-                        Order = item.Order,
-                        Size = itemLayout.Size,
-                        ContentSize = itemLayout.ContentSize,
-                        ScrollbarSize = scrollbarSize,
-                        Location = location,
-                        Padding = item.Padding,
-                        Border = item.Border,
-                        Margin = resolvedMargin,
-                    };
-
-                    inflowContentSize = inflowContentSize.F32Max(
-                        ContentSizeUtils.ComputeContentSizeContribution(
-                            new Point<float>(location.X - resolvedContentBoxInset.Left, location.Y - resolvedContentBoxInset.Top),
-                            finalSize,
-                            itemLayout.ContentSize,
-                            item.Overflow
-                        )
-                    );
-
-                    // Update first_child_top_margin_set
-                    if (isCollapsingWithFirstMarginSet)
-                    {
-                        if (item.CanBeCollapsedThrough)
-                        {
-                            firstChildTopMarginSet = firstChildTopMarginSet
-                                .CollapseWithSet(topMarginSet)
-                                .CollapseWithSet(bottomMarginSet);
-                        }
-                        else
-                        {
-                            firstChildTopMarginSet = firstChildTopMarginSet.CollapseWithSet(topMarginSet);
-                            isCollapsingWithFirstMarginSet = false;
-                        }
-                    }
-
-                    // Update active_collapsible_margin_set
-                    if (item.CanBeCollapsedThrough)
-                    {
-                        activeCollapsibleMarginSet = activeCollapsibleMarginSet
-                            .CollapseWithSet(topMarginSet)
-                            .CollapseWithSet(bottomMarginSet);
-                        yOffsetForAbsolute = committedYOffset + itemLayout.Size.Height + yMarginOffset;
-                        yOffsetForFloat = committedYOffset + itemLayout.Size.Height + yMarginOffset;
-                    }
-                    else
-                    {
-                        committedYOffset = location.Y - insetOffset.Y + itemLayout.Size.Height;
-                        activeCollapsibleMarginSet = bottomMarginSet;
-                        yOffsetForAbsolute = committedYOffset + activeCollapsibleMarginSet.Resolve();
-                        yOffsetForFloat = committedYOffset;
-                    }
-
-                    items[idx] = item;
-                }
-            }
-
-            var lastChildBottomMarginSet = activeCollapsibleMarginSet;
-            float bottomYMarginOffset =
-                ownMarginsCollapseWithChildren.End ? 0.0f : lastChildBottomMarginSet.Resolve();
-
-            committedYOffset += resolvedContentBoxInset.Bottom + bottomYMarginOffset;
-            float contentHeight = MathF.Max(0.0f, committedYOffset);
-            return (inflowContentSize, contentHeight, firstChildTopMarginSet, lastChildBottomMarginSet);
+            var relative = new Point<float>(direction.IsRtl() ? containerWidth - (location.X + size.Width) - border.Right : location.X - border.Left,
+                location.Y - border.Top);
+            return ScrollableOverflow.ComputeContribution(relative, size, rect, item.Overflow, tree.GetBlockChildStyle(item.NodeId).Contain(), scroll);
         }
 
-        /// <summary>
-        /// Perform absolute layout on all absolutely positioned children.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Size<float> PerformAbsoluteLayoutOnAbsoluteChildren(
-            ILayoutBlockContainer tree,
-            List<BlockItem> items,
-            Size<float> areaSize,
-            Point<float> areaOffset,
-            Direction direction)
-        {
-            float areaWidth = areaSize.Width;
-            float areaHeight = areaSize.Height;
-
-            var absoluteContentSize = SizeExtensions.ZeroF32;
-
-            for (int i = 0; i < items.Count; i++)
-            {
-                var item = items[i];
-                if (item.Position != Position.Absolute) continue;
-
-                var childStyle = tree.GetBlockChildStyle(item.NodeId);
-
-                // Skip items that are display:none or are not position:absolute
-                if (childStyle.BoxGenerationMode() == BoxGenerationMode.None || childStyle.Position() != Position.Absolute)
-                {
-                    continue;
-                }
-
-                var aspectRatio = childStyle.AspectRatio();
-                var margin = childStyle.Margin().Map(m =>
-                    m.ResolveToOption(areaWidth, tree.Calc));
-                var childPadding = childStyle.Padding().ResolveOrZero((float?)areaWidth, tree.Calc);
-                var childBorder = childStyle.Border().ResolveOrZero((float?)areaWidth, tree.Calc);
-                var paddingBorderSum = childPadding.Add(childBorder).SumAxes();
-                var boxSizingAdj =
-                    childStyle.BoxSizing() == BoxSizing.ContentBox ? paddingBorderSum : SizeExtensions.ZeroF32;
-
-                // Resolve inset
-                var childInset = childStyle.Inset();
-                float? left = childInset.Left.MaybeResolve(areaWidth, tree.Calc);
-                float? right = childInset.Right.MaybeResolve(areaWidth, tree.Calc);
-                float? top = childInset.Top.MaybeResolve(areaHeight, tree.Calc);
-                float? bottom = childInset.Bottom.MaybeResolve(areaHeight, tree.Calc);
-
-                // Compute known dimensions from min/max/inherent size styles
-                var boxSizingAdjOpt = boxSizingAdj.Map<float?>(v => v);
-                var styleSize = childStyle
-                    .Size()
-                    .MaybeResolve(areaSize.Map<float?>(v => v), tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdjOpt);
-                var minSizeAbs = childStyle
-                    .MinSize()
-                    .MaybeResolve(areaSize.Map<float?>(v => v), tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdjOpt)
-                    .Or(paddingBorderSum.Map<float?>(v => v))
-                    .MaybeMax(paddingBorderSum.Map<float?>(v => v));
-                var maxSizeAbs = childStyle
-                    .MaxSize()
-                    .MaybeResolve(areaSize.Map<float?>(v => v), tree.Calc)
-                    .MaybeApplyAspectRatio(aspectRatio)
-                    .MaybeAdd(boxSizingAdjOpt);
-                var knownDims = styleSize.MaybeClamp(minSizeAbs, maxSizeAbs);
-
-                // Fill in width from left/right and reapply aspect ratio if:
-                //   - Width is not already known
-                //   - Item has both left and right inset properties set
-                if (!knownDims.Width.HasValue && left.HasValue && right.HasValue)
-                {
-                    float newWidthRaw = areaWidth.MaybeSub(margin.Left).MaybeSub(margin.Right) - left.Value - right.Value;
-                    knownDims.Width = MathF.Max(newWidthRaw, 0.0f);
-                    knownDims = knownDims.MaybeApplyAspectRatio(aspectRatio).MaybeClamp(minSizeAbs, maxSizeAbs);
-                }
-
-                // Fill in height from top/bottom and reapply aspect ratio if:
-                //   - Height is not already known
-                //   - Item has both top and bottom inset properties set
-                if (!knownDims.Height.HasValue && top.HasValue && bottom.HasValue)
-                {
-                    float newHeightRaw = areaHeight.MaybeSub(margin.Top).MaybeSub(margin.Bottom) - top.Value - bottom.Value;
-                    knownDims.Height = MathF.Max(newHeightRaw, 0.0f);
-                    knownDims = knownDims.MaybeApplyAspectRatio(aspectRatio).MaybeClamp(minSizeAbs, maxSizeAbs);
-                }
-
-                var measuredSize = tree.MeasureChildSizeBoth(
-                    item.NodeId,
-                    knownDims,
-                    areaSize.Map<float?>(v => v),
-                    new Size<AvailableSpace>(
-                        AvailableSpace.Definite(areaWidth.MaybeClamp(minSizeAbs.Width, maxSizeAbs.Width)),
-                        AvailableSpace.Definite(areaHeight.MaybeClamp(minSizeAbs.Height, maxSizeAbs.Height))
-                    ),
-                    SizingMode.ContentSize,
-                    LineExtensions.FalseLine
-                );
-
-                var finalSize = knownDims.UnwrapOr(measuredSize).MaybeClamp(minSizeAbs, maxSizeAbs);
-
-                var layoutOutput = tree.PerformChildLayout(
-                    item.NodeId,
-                    finalSize.Map<float?>(v => v),
-                    areaSize.Map<float?>(v => v),
-                    new Size<AvailableSpace>(
-                        AvailableSpace.Definite(areaWidth.MaybeClamp(minSizeAbs.Width, maxSizeAbs.Width)),
-                        AvailableSpace.Definite(areaHeight.MaybeClamp(minSizeAbs.Height, maxSizeAbs.Height))
-                    ),
-                    SizingMode.ContentSize,
-                    LineExtensions.FalseLine
-                );
-
-                var nonAutoMargin = new Rect<float>(
-                    left.HasValue ? margin.Left ?? 0.0f : 0.0f,
-                    right.HasValue ? margin.Right ?? 0.0f : 0.0f,
-                    top.HasValue ? margin.Top ?? 0.0f : 0.0f,
-                    bottom.HasValue ? margin.Bottom ?? 0.0f : 0.0f
-                );
-
-                // Expand auto margins to fill available space
-                // https://www.w3.org/TR/CSS21/visudet.html#abs-non-replaced-width
-                Rect<float> autoMargin;
-                {
-                    // Auto margins for absolutely positioned elements in block containers only resolve
-                    // if inset is set. Otherwise they resolve to 0.
-                    var absoluteAutoMarginSpace = new Point<float>(
-                        right.HasValue ? areaSize.Width - right.Value - (left ?? 0.0f) : finalSize.Width,
-                        bottom.HasValue ? areaSize.Height - bottom.Value - (top ?? 0.0f) : finalSize.Height
-                    );
-                    var freeSpace = new Size<float>(
-                        absoluteAutoMarginSpace.X - finalSize.Width - nonAutoMargin.HorizontalAxisSum(),
-                        absoluteAutoMarginSpace.Y - finalSize.Height - nonAutoMargin.VerticalAxisSum()
-                    );
-
-                    float autoMarginWidth;
-                    {
-                        int autoMarginCount = (!margin.Left.HasValue ? 1 : 0) + (!margin.Right.HasValue ? 1 : 0);
-                        if (autoMarginCount == 2
-                            && (!styleSize.Width.HasValue || styleSize.Width.Value >= freeSpace.Width))
-                        {
-                            autoMarginWidth = 0.0f;
-                        }
-                        else if (autoMarginCount > 0)
-                        {
-                            autoMarginWidth = freeSpace.Width / autoMarginCount;
-                        }
-                        else
-                        {
-                            autoMarginWidth = 0.0f;
-                        }
-                    }
-                    float autoMarginHeight;
-                    {
-                        int autoMarginCount = (!margin.Top.HasValue ? 1 : 0) + (!margin.Bottom.HasValue ? 1 : 0);
-                        if (autoMarginCount == 2
-                            && (!styleSize.Height.HasValue || styleSize.Height.Value >= freeSpace.Height))
-                        {
-                            autoMarginHeight = 0.0f;
-                        }
-                        else if (autoMarginCount > 0)
-                        {
-                            autoMarginHeight = freeSpace.Height / autoMarginCount;
-                        }
-                        else
-                        {
-                            autoMarginHeight = 0.0f;
-                        }
-                    }
-
-                    autoMargin = new Rect<float>(
-                        margin.Left.HasValue ? 0.0f : autoMarginWidth,
-                        margin.Right.HasValue ? 0.0f : autoMarginWidth,
-                        margin.Top.HasValue ? 0.0f : autoMarginHeight,
-                        margin.Bottom.HasValue ? 0.0f : autoMarginHeight
-                    );
-                }
-
-                var resolvedMargin = new Rect<float>(
-                    margin.Left ?? autoMargin.Left,
-                    margin.Right ?? autoMargin.Right,
-                    margin.Top ?? autoMargin.Top,
-                    margin.Bottom ?? autoMargin.Bottom
-                );
-
-                float xOffset;
-                if (left.HasValue && right.HasValue)
-                {
-                    xOffset = direction.IsRtl()
-                        ? areaSize.Width - finalSize.Width - right.Value - resolvedMargin.Right
-                        : left.Value + resolvedMargin.Left;
-                }
-                else if (left.HasValue)
-                {
-                    xOffset = left.Value + resolvedMargin.Left;
-                }
-                else if (right.HasValue)
-                {
-                    xOffset = areaSize.Width - finalSize.Width - right.Value - resolvedMargin.Right;
-                }
-                else
-                {
-                    xOffset = direction.IsRtl()
-                        ? item.StaticPosition.X - finalSize.Width - resolvedMargin.Right - areaOffset.X
-                        : item.StaticPosition.X + resolvedMargin.Left - areaOffset.X;
-                }
-
-                var location = new Point<float>(
-                    x: xOffset + areaOffset.X,
-                    y: top.HasValue
-                        ? (top.Value + resolvedMargin.Top + areaOffset.Y)
-                        : bottom.HasValue
-                            ? (areaSize.Height - finalSize.Height - bottom.Value - resolvedMargin.Bottom + areaOffset.Y)
-                            : (item.StaticPosition.Y + resolvedMargin.Top)
-                );
-
-                // Note: axis intentionally switched here as scrollbars take up space in the opposite axis
-                // to the axis in which scrolling is enabled.
-                var scrollbarSize = new Size<float>(
-                    item.Overflow.Y == Overflow.Scroll ? item.ScrollbarWidth : 0.0f,
-                    item.Overflow.X == Overflow.Scroll ? item.ScrollbarWidth : 0.0f
-                );
-
-                tree.SetUnroundedLayout(
-                    item.NodeId,
-                    new Layout
-                    {
-                        Order = item.Order,
-                        Size = finalSize,
-                        ContentSize = layoutOutput.ContentSize,
-                        ScrollbarSize = scrollbarSize,
-                        Location = location,
-                        Padding = childPadding,
-                        Border = childBorder,
-                        Margin = resolvedMargin,
-                    }
-                );
-
-                var relativeLocation = new Point<float>(location.X - areaOffset.X, location.Y - areaOffset.Y);
-                absoluteContentSize = absoluteContentSize.F32Max(
-                    ContentSizeUtils.ComputeContentSizeContribution(
-                        relativeLocation,
-                        finalSize,
-                        layoutOutput.ContentSize,
-                        item.Overflow
-                    )
-                );
-            }
-
-            return absoluteContentSize;
-        }
     }
 }

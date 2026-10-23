@@ -1,0 +1,7 @@
+{
+  "kind": "authored valid JPEG image rendering regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "jpegSourceSha256": "4db07f228d77e3d85aacf195fb6f1d89af79babf8d2f73680f27cb7d9d5400ed",
+  "sha256": "692f779ffee191342445420be7e752a1c3963f9002223d23c0776065f233252e",
+  "description": "Standard cjpeg progressive one-pixel JPEG, embedded at ordinary displayed dimensions. Normal JPEG decoding formerly returned null; no corruption, malformed input or UTF8 probe."
+}

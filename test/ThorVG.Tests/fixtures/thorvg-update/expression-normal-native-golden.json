@@ -1,0 +1,78 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "groups": {
+    "bridge": {
+      "count": 88,
+      "before": "expression-bridge-descriptors-before-x86.json",
+      "verified": [
+        "expression-bridge-native-functions-x86.json",
+        "expression-bridge-native-functions-arm.json"
+      ],
+      "inputSha256": "4f005881e6256a70be093702d9f830f6cb37baff63c430decfc3d8eaad3bf3ef",
+      "architectures": {
+        "x64": "5389438ddc95e4b73eba1a2debc7cee50e7515669bb38f0334921ce3a52cf214",
+        "arm64": "57899501a24aa63ddca205cee5a97aa0baf2c457c1d5f1596447348ab6f89391"
+      },
+      "provenance": "Original pinned native expression library; all x86 native expected bytes identical to before-fix baseline. ARM expected bytes from same unchanged original native target/config. No expected output rewritten."
+    },
+    "text": {
+      "count": 60,
+      "before": "expression-text-defined-before-x86.json",
+      "verified": [
+        "expression-text-defined-corrected-x86.json",
+        "expression-text-defined-corrected-arm.json"
+      ],
+      "inputSha256": "5dcac757d34d83198813c2da48fda3c6fd3a5d2011a99409cd8d0ecc4bcfbb76",
+      "architectures": {
+        "x64": "a17b70a910a40618189a1c16fdcd9ec10e969aa57de0cb955ed43574e7541b98",
+        "arm64": "a17b70a910a40618189a1c16fdcd9ec10e969aa57de0cb955ed43574e7541b98"
+      },
+      "provenance": "Original pinned native expression library; all x86 native expected bytes identical to before-fix baseline. ARM expected bytes from same unchanged original native target/config. No expected output rewritten."
+    },
+    "keys": {
+      "count": 5,
+      "before": "expression-state-keys-before-x86.json",
+      "verified": [
+        "expression-state-keys-corrected-x86.json",
+        "expression-state-keys-corrected-arm.json"
+      ],
+      "inputSha256": "f3624c7b5786c7cdf6928f34eb436a30f0af6650c92c2bab9c1caff7e3f28c7e",
+      "architectures": {
+        "x64": "51cd05f8c8551d8157efd43e2fca2ca3b3c1402f8e556b90ee3310ed8a5c461c",
+        "arm64": "51cd05f8c8551d8157efd43e2fca2ca3b3c1402f8e556b90ee3310ed8a5c461c"
+      },
+      "provenance": "Actual unchanged original native library; all x86 bytes equal before-fix baseline. Earlier3key records and2original failures retained in expression-keys-normal-before-x86.json. No expected output rewritten."
+    },
+    "time": {
+      "count": 3,
+      "before": "expression-time-normal-before-x86.json",
+      "verified": [
+        "expression-time-normal-corrected-x86.json",
+        "expression-time-normal-corrected-arm.json"
+      ],
+      "inputSha256": "0b687aa8b908dc0c61039961031403d754257a710a970dd3ce6ade92c6b6f98f",
+      "architectures": {
+        "x64": "1c356f0bf3e20ee76734a64a07b2be8e1b48c9fefd067b78e4911a4478eaa012",
+        "arm64": "1c356f0bf3e20ee76734a64a07b2be8e1b48c9fefd067b78e4911a4478eaa012"
+      },
+      "provenance": "Actual unchanged original native library; all x86 bytes equal before-fix baseline. Earlier3key records and2original failures retained in expression-keys-normal-before-x86.json. No expected output rewritten."
+    },
+    "hidden": {
+      "count": 13,
+      "before": "expression-hidden-profile-before-x86.json",
+      "verified": [
+        "expression-hidden-profile-corrected-x86.json",
+        "expression-hidden-profile-corrected-arm.json"
+      ],
+      "inputSha256": "998453f5ab310b0933c96560be0a4d0e6318ca912f01ffe807f6eedcc22f545c",
+      "architectures": {
+        "x64": "43ae08a0d345a1b2fd1a749314dd7d4d8e64719202a3650ca108172254150328",
+        "arm64": "43ae08a0d345a1b2fd1a749314dd7d4d8e64719202a3650ca108172254150328"
+      },
+      "provenance": "Actual original compiled native library before/after; all x86 native bytes unchanged.12ordinary supported hidden-prototype/unscopables own-key and symbol metadata records plus one finite ordinary generator resume. No malformed/error/corruption/fuzz/UTF8 probing."
+    }
+  },
+  "records": 169,
+  "testingScope": "Ordinary valid finite arithmetic/motion/temporal noise; supported callable layer/host descriptors/construction/subclass/reentry; ordinary words and valid Unicode builtin outputs serialized as ASCII code units to avoid unrelated native TextDoc capacity limitation. No new malformed/corruption/fuzz or dedicated UTF8 probing. Original52directTextDoc observation retained as historical failed evidence, not installed as a builtin acceptance claim. Eight additional ordinary host/layer/composition key-order and same-frame time lifecycle witnesses. Each complete group runs on a separate native-style worker context in the test, keeping every assertion/expected byte and native within-group persistence.",
+  "parentReview": "pending"
+}

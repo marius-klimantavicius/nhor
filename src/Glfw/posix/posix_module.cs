@@ -1,4 +1,4 @@
-// Ported from glfw/src/posix_module.c (GLFW 3.5)
+// Ported from glfw/src/posix_module.c (GLFW 3.6)
 //
 // Copyright (c) 2021 Camilla Loewy <elmindreda@glfw.org>
 //

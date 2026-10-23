@@ -1,0 +1,6 @@
+{
+  "origin": "Authored CPU shape clipping regression, 2026-10-22",
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-fill-stroke-clip.svg",
+  "sha256": "1c876b95f3e26066d0946faa5960ee21f1f1510eb01f42b6a3f3891db7ed3804",
+  "behavior": "First clip retains only stroke, second clip only fill. Target dismisses the shape only if both clip operations empty their RLEs."
+}

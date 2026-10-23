@@ -2,7 +2,7 @@
 
 namespace ThorVG
 {
-    public class TextureMgr
+    public partial class TextureMgr
     {
         public struct Entry
         {
@@ -36,19 +36,21 @@ namespace ThorVG
 
         public static unsafe void Upload(uint texId, RenderSurface surface, FilterMethod filter)
         {
-            GL.glBindTexture(GL.GL_TEXTURE_2D, texId);
-            fixed (uint* dataPtr = surface.data)
+            // Preserve immediate upload for existing callers. Renderer-owned
+            // uploads queue conversion and share one preprocessing pass.
+            var manager = new TextureMgr(); var state = new GlStateCache(); int restore;
+            GL.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, &restore);
+            try
             {
-                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, (int)GL.GL_RGBA8, (int)surface.w, (int)surface.h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, dataPtr);
+                manager.Upload(state, texId, surface, filter, true);
+                if (!manager.FlushPreprocess(state, restore)) throw new System.InvalidOperationException("Texture preprocessing failed.");
             }
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, (int)GL.GL_CLAMP_TO_EDGE);
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, (int)GL.GL_CLAMP_TO_EDGE);
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, (int)(filter == FilterMethod.Bilinear ? GL.GL_LINEAR : GL.GL_NEAREST));
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, (int)(filter == FilterMethod.Bilinear ? GL.GL_LINEAR : GL.GL_NEAREST));
-            GL.glBindTexture(GL.GL_TEXTURE_2D, 0);
+            finally { manager.ClearPreprocess(); }
         }
 
-        public unsafe uint Retain(RenderSurface? surface, FilterMethod filter)
+        public uint Retain(RenderSurface? surface, FilterMethod filter) => Retain(new GlStateCache(), surface, filter);
+
+        public unsafe uint Retain(GlStateCache state, RenderSurface? surface, FilterMethod filter)
         {
             var surfaceEntry = Find(surface);
             if (surfaceEntry == null)
@@ -67,7 +69,7 @@ namespace ThorVG
 
             uint texId;
             GL.glGenTextures(1, &texId);
-            Upload(texId, surface!, filter);
+            Upload(state, texId, surface!, filter, true);
 
             entry.texId = texId;
             entry.refCnt = 1;
@@ -87,6 +89,7 @@ namespace ThorVG
             texId = entry.texId;
             entry.texId = 0;
             entry.refCnt = 0;
+            RequestPreprocess(texId, 0, 0, 0);
 
             if (surfaceEntry.bilinear.texId == 0 && surfaceEntry.nearest.texId == 0)
             {
@@ -108,6 +111,7 @@ namespace ThorVG
                 entry = entry.Next;
             }
             surfaces.Free();
+            ClearPreprocess();
             stamp++;
             if (stamp == 0) stamp = 1;  // avoid zero stamp, which is used to indicate stale cache.
             if (textures.count > 0)

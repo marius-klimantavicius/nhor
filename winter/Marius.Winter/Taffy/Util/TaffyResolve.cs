@@ -88,6 +88,8 @@ namespace Marius.Winter.Taffy
                 CompactLength.LENGTH_TAG => self.Inner.Value,
                 CompactLength.PERCENT_TAG => context.HasValue ? context.Value * self.Inner.Value : null,
                 _ when self.Inner.IsCalc() => context.HasValue ? calc(self.Inner.CalcValue, context.Value) : null,
+                CompactLength.CONTENT_TAG => null,
+                _ when self.Inner.IsSizingKeyword() => null,
                 _ => throw new InvalidOperationException("Unexpected CompactLength tag in Dimension"),
             };
         }

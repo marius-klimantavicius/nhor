@@ -47,10 +47,24 @@ namespace ThorVG
         Stroke,
     }
 
-    public class GlGeometryBuffer
+    public class GlGeometryBuffer : IDisposable
     {
         public Array<float> vertex;
         public Array<uint> index;
+
+        ~GlGeometryBuffer() => ReleaseNativeStorage();
+
+        public void Dispose()
+        {
+            ReleaseNativeStorage();
+            GC.SuppressFinalize(this);
+        }
+
+        private void ReleaseNativeStorage()
+        {
+            vertex.Dispose();
+            index.Dispose();
+        }
 
         public void Clear()
         {
@@ -59,8 +73,26 @@ namespace ThorVG
         }
     }
 
-    public unsafe class GlGeometry
+    public unsafe class GlGeometry : IDisposable
     {
+        ~GlGeometry() => ReleaseNativeStorage();
+
+        public void Dispose()
+        {
+            ReleaseNativeStorage();
+            GC.SuppressFinalize(this);
+        }
+
+        private void ReleaseNativeStorage()
+        {
+            // A finalizer can also observe partially initialized fields after
+            // a failed managed allocation. Each owning array resets on free.
+            fill?.Dispose();
+            stroke?.Dispose();
+            if (optPath != null) { optPath.cmds.Dispose(); optPath.pts.Dispose(); }
+            if (optStrokePath != null) { optStrokePath.cmds.Dispose(); optStrokePath.pts.Dispose(); }
+        }
+
         public Matrix InverseMatrix()
         {
             if (!inverseMatrixDirty) return cachedInverseMatrix;
@@ -81,13 +113,16 @@ namespace ThorVG
             if (rshape.Trimpath())
             {
                 var trimmedPath = new RenderPath();
-                if (rshape.stroke!.trim.Trim(rshape.path, trimmedPath))
+                try
                 {
-                    GpuCommon.GpuOptimize(trimmedPath, optPath, localOut, matrix, out optPathThin, out optPathSkipFill);
+                    if (rshape.stroke!.trim.Trim(rshape.path, trimmedPath))
+                        GpuCommon.GpuOptimize(trimmedPath, optPath, localOut, matrix, out optPathThin, out optPathSkipFill);
+                    else optPath.Clear();
                 }
-                else
+                finally
                 {
-                    optPath.Clear();
+                    trimmedPath.cmds.Dispose();
+                    trimmedPath.pts.Dispose();
                 }
             }
             else
@@ -102,6 +137,7 @@ namespace ThorVG
             fillBounds = default;
             fillWorld = true;
             convex = false;
+            opacityMultiplier = 1;
 
             if (optPathSkipFill) return false;
 
@@ -144,7 +180,7 @@ namespace ThorVG
             strokeRenderWidth = GlConstants.MIN_GL_STROKE_WIDTH;
             if (path.pts.count < 2) return false;
             var stroker = new Stroker(stroke, GlConstants.MIN_GL_STROKE_WIDTH, StrokeCap.Butt, StrokeJoin.Bevel);
-            stroker.Run(path);
+            stroker.Run(path, true);
             strokeBounds = stroker.Bounds();
             return true;
         }
@@ -164,9 +200,18 @@ namespace ThorVG
 
             var stroker = new Stroker(stroke, strokeWidth, rshape.StrokeCap(), rshape.StrokeJoin(), rshape.StrokeMiterlimit(), qualityScale);
             var dashedPath = new RenderPath();
-            if (GpuCommon.GpuStrokeDash(rshape, dashedPath, null)) stroker.Run(dashedPath);
-            else stroker.Run(optStrokePath);
+            try
+            {
+                if (GpuCommon.GpuStrokeDash(rshape, dashedPath, null)) stroker.Run(dashedPath);
+                else stroker.Run(optStrokePath);
+            }
+            finally
+            {
+                dashedPath.cmds.Dispose();
+                dashedPath.pts.Dispose();
+            }
             strokeBounds = stroker.Bounds();
+            strokeDirect = stroker.overlapFree;
             return true;
         }
 
@@ -184,10 +229,10 @@ namespace ThorVG
             var rightTop = TvgMath.Transform(new Point((float)image.w, 0f), matrix);
             var rightBottom = TvgMath.Transform(new Point((float)image.w, (float)image.h), matrix);
 
-            AppendImageVertex(leftTop, 0f, 1f);
-            AppendImageVertex(leftBottom, 0f, 0f);
-            AppendImageVertex(rightTop, 1f, 1f);
-            AppendImageVertex(rightBottom, 1f, 0f);
+            AppendImageVertex(leftTop, 0f, 0f);
+            AppendImageVertex(leftBottom, 0f, 1f);
+            AppendImageVertex(rightTop, 1f, 0f);
+            AppendImageVertex(rightBottom, 1f, 1f);
 
             fill.index.Push(0);
             fill.index.Push(1);
@@ -224,20 +269,20 @@ namespace ThorVG
             if ((flag & RenderUpdateFlag.Image) != 0)
             {
                 // image has two attributes: [pos, uv]
-                task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 4 * sizeof(float), offset = vertexOffset });
-                task.AddVertexLayout(new GlVertexLayout { index = 1, size = 2, stride = 4 * sizeof(float), offset = vertexOffset + 2 * sizeof(float) });
+                task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 4 * sizeof(float), offset = vertexOffset, arrayBufferId = gpuBuffer.GetBufferId() });
+                task.AddVertexLayout(new GlVertexLayout { index = 1, size = 2, stride = 4 * sizeof(float), offset = vertexOffset + 2 * sizeof(float), arrayBufferId = gpuBuffer.GetBufferId() });
             }
             else
             {
-                task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = vertexOffset });
+                task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = vertexOffset, arrayBufferId = gpuBuffer.GetBufferId() });
             }
             task.SetDrawRange(indexOffset, buffer.index.count);
         }
 
         public GlStencilMode GetStencilMode(RenderUpdateFlag flag)
         {
-            if ((flag & RenderUpdateFlag.Stroke) != 0) return GlStencilMode.Stroke;
-            if ((flag & RenderUpdateFlag.GradientStroke) != 0) return GlStencilMode.Stroke;
+            if ((flag & (RenderUpdateFlag.Stroke | RenderUpdateFlag.GradientStroke)) != 0)
+                return strokeDirect ? GlStencilMode.None : GlStencilMode.Stroke;
             if ((flag & RenderUpdateFlag.Image) != 0) return GlStencilMode.None;
 
             if (convex) return GlStencilMode.None;
@@ -290,6 +335,7 @@ namespace ThorVG
         public RenderPath optPath = new RenderPath();
         public RenderPath optStrokePath = new RenderPath();
         public float strokeRenderWidth;
+        public bool strokeDirect;
         private Matrix cachedInverseMatrix;
         private bool inverseMatrixDirty = true;
         public bool fillWorld;
@@ -304,6 +350,7 @@ namespace ThorVG
         public float viewWd;
         public float viewHt;
         public uint opacity;
+        public float multiplier = 1.0f;
         public RenderUpdateFlag deferredFlags;
         public uint texId;
         public RenderSurface? texSource;
@@ -317,7 +364,7 @@ namespace ThorVG
         public bool validStroke;
     }
 
-    public class GlIntersector
+    public unsafe class GlIntersector
     {
         public bool IsPointInImage(Point p, GlGeometryBuffer mesh, in Matrix tr)
         {
@@ -370,18 +417,19 @@ namespace ThorVG
 
         public bool IntersectClips(Point pt, ref ValueList<object?> clips)
         {
-            for (int i = 0; i < clips.Count; i++)
+            for (int i = 0; i < clips.Count; ++i)
             {
-                var clip = (GlShape?)clips[i];
-                if (clip == null) continue;
+                if (clips[i] is not GlShape clip) continue;
+                var g = clip.geometry;
                 if (clip.validFill)
                 {
-                    var id = TvgMath.Identity();
-                    if (!IsPointInMesh(pt, clip.geometry.fill, clip.geometry.fillWorld ? id : clip.geometry.matrix)) return false;
+                    var p = g.fillWorld ? pt : TvgMath.Transform(pt, g.InverseMatrix());
+                    if (!g.fillBounds.Inside(p) || !GpuCommon.GpuPointInFillMesh(p, g.fill.vertex.data, g.fill.index.data, g.fill.index.count, g.fillRule)) return false;
                 }
                 else if (clip.validStroke)
                 {
-                    if (!IsPointInTris(TvgMath.Transform(pt, clip.geometry.InverseMatrix()), clip.geometry.stroke)) return false;
+                    var p = TvgMath.Transform(pt, g.InverseMatrix());
+                    if (!g.strokeBounds.Inside(p) || !GpuCommon.GpuPointInAnyMesh(p, g.stroke.vertex.data, g.stroke.index.data, g.stroke.index.count)) return false;
                 }
             }
             return true;
@@ -389,22 +437,31 @@ namespace ThorVG
 
         public bool IntersectShape(RenderRegion region, GlShape? shape)
         {
-            if (shape == null || (shape.geometry.fill.index.count == 0 && shape.geometry.stroke.index.count == 0)) return false;
-            var sizeX = region.Sw();
-            var sizeY = region.Sh();
-            var id = TvgMath.Identity();
-
-            for (int y = 0; y <= sizeY; y++)
+            if (shape == null) return false;
+            var g = shape.geometry;
+            bool fill = shape.validFill && !g.fill.index.Empty() && shape.rshape != null && (shape.rshape.fill != null || shape.rshape.color.a > 0);
+            bool stroke = shape.validStroke && !g.stroke.index.Empty();
+            if (!fill && !stroke) return false;
+            var inverse = g.InverseMatrix();
+            int width = region.Sw(), height = region.Sh();
+            for (int y = 0; y < height; ++y)
             {
-                for (int x = 0; x <= sizeX; x++)
+                int py = y % 2 == 0 ? y : height - y - height % 2;
+                for (int x = 0; x < width; ++x)
                 {
-                    var pt = new Point((float)x + region.min.x, (float)y + region.min.y);
-                    if (y % 2 == 1) pt.y = (float)sizeY - y - sizeY % 2 + region.min.y;
-                    if (IntersectClips(pt, ref shape.clips))
+                    var pt = new Point(x + region.min.x, py + region.min.y);
+                    bool hit = false;
+                    if (fill)
                     {
-                        if (shape.validFill && IsPointInMesh(pt, shape.geometry.fill, shape.geometry.fillWorld ? id : shape.geometry.matrix)) return true;
-                        if (shape.validStroke && IsPointInTris(TvgMath.Transform(pt, shape.geometry.InverseMatrix()), shape.geometry.stroke)) return true;
+                        var p = g.fillWorld ? pt : TvgMath.Transform(pt, inverse);
+                        hit = g.fillBounds.Inside(p) && GpuCommon.GpuPointInFillMesh(p, g.fill.vertex.data, g.fill.index.data, g.fill.index.count, g.fillRule);
                     }
+                    if (!hit && stroke)
+                    {
+                        var p = TvgMath.Transform(pt, inverse);
+                        hit = g.strokeBounds.Inside(p) && GpuCommon.GpuPointInAnyMesh(p, g.stroke.vertex.data, g.stroke.index.data, g.stroke.index.count);
+                    }
+                    if (hit && IntersectClips(pt, ref shape.clips)) return true;
                 }
             }
             return false;
@@ -412,19 +469,22 @@ namespace ThorVG
 
         public bool IntersectImage(RenderRegion region, GlShape? image)
         {
-            if (image != null)
+            if (image == null || image.geometry.fill.index.count < 6) return false;
+            var mesh = image.geometry.fill;
+            Span<Point> triangles = stackalloc Point[6];
+            for (uint i = 0; i < 6; ++i)
             {
-                var sizeX = region.Sw();
-                var sizeY = region.Sh();
-                var id = TvgMath.Identity();
-                for (int y = 0; y <= sizeY; y++)
+                uint index = mesh.index[i] * 4;
+                triangles[(int)i] = new Point(mesh.vertex[index], mesh.vertex[index + 1]);
+            }
+            int width = region.Sw(), height = region.Sh();
+            for (int y = 0; y < height; ++y)
+            {
+                int py = y % 2 == 0 ? y : height - y - height % 2;
+                for (int x = 0; x < width; ++x)
                 {
-                    for (int x = 0; x <= sizeX; x++)
-                    {
-                        var pt = new Point((float)x + region.min.x, (float)y + region.min.y);
-                        if (y % 2 == 1) pt.y = (float)sizeY - y - sizeY % 2 + region.min.y;
-                        if (IntersectClips(pt, ref image.clips) && IsPointInImage(pt, image.geometry.fill, image.geometry.fillWorld ? id : image.geometry.matrix)) return true;
-                    }
+                    var p = new Point(x + region.min.x, py + region.min.y);
+                    if (GpuCommon.GpuPointInQuad(p, triangles) && IntersectClips(p, ref image.clips)) return true;
                 }
             }
             return false;
@@ -471,6 +531,21 @@ namespace ThorVG
             idx += 2; // padding
             for (int i = 0; i < GlConstants.MAX_GRADIENT_STOPS; i++) data[idx++] = stopPoints[i];
             for (int i = 0; i < 4 * GlConstants.MAX_GRADIENT_STOPS; i++) data[idx++] = stopColors[i];
+        }
+    }
+
+    public unsafe struct GlConicGradientBlock
+    {
+        public fixed float nStops[4];
+        public fixed float stopPoints[GlConstants.MAX_GRADIENT_STOPS];
+        public fixed float stopColors[4 * GlConstants.MAX_GRADIENT_STOPS];
+        public const int PackedSize = 4 + 5 * GlConstants.MAX_GRADIENT_STOPS;
+        public void PackInto(float* data)
+        {
+            int index = 0;
+            for (int i = 0; i < 4; ++i) data[index++] = nStops[i];
+            for (int i = 0; i < GlConstants.MAX_GRADIENT_STOPS; ++i) data[index++] = stopPoints[i];
+            for (int i = 0; i < 4 * GlConstants.MAX_GRADIENT_STOPS; ++i) data[index++] = stopColors[i];
         }
     }
 

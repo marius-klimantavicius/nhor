@@ -58,8 +58,8 @@ namespace ThorVG
             ("darkcyan", 0xff008b8b),
             ("darkgoldenrod", 0xffb8860b),
             ("darkgray", 0xffa9a9a9),
-            ("darkgrey", 0xffa9a9a9),
             ("darkgreen", 0xff006400),
+            ("darkgrey", 0xffa9a9a9),
             ("darkkhaki", 0xffbdb76b),
             ("darkmagenta", 0xff8b008b),
             ("darkolivegreen", 0xff556b2f),
@@ -87,9 +87,9 @@ namespace ThorVG
             ("gold", 0xffffd700),
             ("goldenrod", 0xffdaa520),
             ("gray", 0xff808080),
-            ("grey", 0xff808080),
             ("green", 0xff008000),
             ("greenyellow", 0xffadff2f),
+            ("grey", 0xff808080),
             ("honeydew", 0xfff0fff0),
             ("hotpink", 0xffff69b4),
             ("indianred", 0xffcd5c5c),
@@ -105,8 +105,8 @@ namespace ThorVG
             ("lightcyan", 0xffe0ffff),
             ("lightgoldenrodyellow", 0xfffafad2),
             ("lightgray", 0xffd3d3d3),
-            ("lightgrey", 0xffd3d3d3),
             ("lightgreen", 0xff90ee90),
+            ("lightgrey", 0xffd3d3d3),
             ("lightpink", 0xffffb6c1),
             ("lightsalmon", 0xffffa07a),
             ("lightseagreen", 0xff20b2aa),
@@ -123,7 +123,7 @@ namespace ThorVG
             ("mediumaquamarine", 0xff66cdaa),
             ("mediumblue", 0xff0000cd),
             ("mediumorchid", 0xffba55d3),
-            ("mediumpurple", 0xff9370d8),
+            ("mediumpurple", 0xff9370db),
             ("mediumseagreen", 0xff3cb371),
             ("mediumslateblue", 0xff7b68ee),
             ("mediumspringgreen", 0xff00fa9a),
@@ -144,7 +144,7 @@ namespace ThorVG
             ("palegoldenrod", 0xffeee8aa),
             ("palegreen", 0xff98fb98),
             ("paleturquoise", 0xffafeeee),
-            ("palevioletred", 0xffd87093),
+            ("palevioletred", 0xffdb7093),
             ("papayawhip", 0xffffefd5),
             ("peachpuff", 0xffffdab9),
             ("peru", 0xffcd853f),
@@ -247,7 +247,12 @@ namespace ThorVG
             ("paint-order", HandlePaintOrderAttr, SvgStyleFlags.PaintOrder),
             ("filter", HandleFilterAttr, SvgStyleFlags.Filter),
             ("mix-blend-mode", HandleMixBlendModeAttr, SvgStyleFlags.BlendMode),
-            ("text-anchor", HandleTextAnchorAttr, SvgStyleFlags.TextAnchor)
+            ("text-anchor", HandleTextAnchorAttr, SvgStyleFlags.TextAnchor),
+            ("alignment-baseline", HandleAlignmentBaselineAttr, SvgStyleFlags.AlignmentBaseline),
+            ("dominant-baseline", HandleDominantBaselineAttr, SvgStyleFlags.DominantBaseline),
+            ("font-weight", HandleFontWeightAttr, SvgStyleFlags.FontWeight),
+            ("letter-spacing", HandleLetterSpacingAttr, SvgStyleFlags.LetterSpacing),
+            ("word-spacing", HandleWordSpacingAttr, SvgStyleFlags.WordSpacing)
         };
 
         // --- Blend mode tags ---
@@ -296,7 +301,6 @@ namespace ThorVG
         private static bool ParseNumber(string content, ref int pos, out float number)
         {
             int startPos = pos;
-            pos = SvgUtil.SkipWhiteSpace(content, pos, -1);
             number = TvgStr.ToFloat(content, ref pos);
             if (pos == startPos) return false;
             pos = SvgUtil.SkipWhiteSpaceAndComma(content, pos);
@@ -304,81 +308,82 @@ namespace ThorVG
         }
 
         // --- ToFloat (unit-aware) ---
-        private static float ToFloat(SvgParser? svgParse, string str, SvgParserLengthType type)
+        private static float FindEmBaseFontSize(SvgNode? node)
         {
-            int pos = 0;
-            float parsedValue = TvgStr.ToFloat(str, ref pos);
-
-            if (str.Contains("cm")) parsedValue *= PX_PER_CM;
-            else if (str.Contains("mm")) parsedValue *= PX_PER_MM;
-            else if (str.Contains("pt")) parsedValue *= PX_PER_PT;
-            else if (str.Contains("pc")) parsedValue *= PX_PER_PC;
-            else if (str.Contains("in")) parsedValue *= PX_PER_IN;
-            else if (str.Contains("%") && svgParse != null)
+            for (var n = node; n != null; n = n.parent)
+                if ((n.type == SvgNodeType.Text || n.type == SvgNodeType.Tspan) && n.text.fontSize > 0) return n.text.fontSize;
+            return 10;
+        }
+        private static float UnitScale(string value, float emBase)
+        {
+            if (value.Contains("em")) return emBase;
+            if (value.Contains("ex")) return emBase * .5f;
+            if (value.Contains("cm")) return PX_PER_CM;
+            if (value.Contains("mm")) return PX_PER_MM;
+            if (value.Contains("pt")) return PX_PER_PT;
+            if (value.Contains("pc")) return PX_PER_PC;
+            if (value.Contains("in")) return PX_PER_IN;
+            return 1;
+        }
+        private static bool IsPercentage(string value, int end)
+        {
+            end = SvgUtil.SkipWhiteSpace(value, end, value.Length);
+            return end < value.Length && value[end] == '%';
+        }
+        private static float ToFloat(SvgParser? parser, string value, SvgParserLengthType type)
+        {
+            int pos = 0; float parsed = TvgStr.ToFloat(value, ref pos);
+            if (IsPercentage(value, pos))
             {
-                if (type == SvgParserLengthType.Vertical) parsedValue = (parsedValue / 100.0f) * svgParse.global.h;
-                else if (type == SvgParserLengthType.Horizontal) parsedValue = (parsedValue / 100.0f) * svgParse.global.w;
-                else if (type == SvgParserLengthType.Diagonal)
-                    parsedValue = (MathF.Sqrt(svgParse.global.w * svgParse.global.w + svgParse.global.h * svgParse.global.h) / MathF.Sqrt(2.0f)) * (parsedValue / 100.0f);
-                else
-                {
-                    float max = svgParse.global.w > svgParse.global.h ? svgParse.global.w : svgParse.global.h;
-                    parsedValue = (parsedValue / 100.0f) * max;
-                }
+                var global = parser!.global;
+                float size = type == SvgParserLengthType.Vertical ? global.h : type == SvgParserLengthType.Horizontal ? global.w :
+                    type == SvgParserLengthType.Diagonal ? MathF.Sqrt(global.w * global.w + global.h * global.h) / MathF.Sqrt(2) : MathF.Max(global.w, global.h);
+                return parsed / 100 * size;
             }
-
-            return parsedValue;
+            return parsed * UnitScale(value, FindEmBaseFontSize(parser?.node));
+        }
+        private static float ToFontSize(SvgParser? parser, string value)
+        {
+            int pos = 0; float parsed = TvgStr.ToFloat(value, ref pos); if (parsed < 0) parsed = 0;
+            float basis = FindEmBaseFontSize(parser?.node?.parent);
+            return IsPercentage(value, pos) ? parsed / 100 * basis : parsed * UnitScale(value, basis);
         }
 
         // --- GradientToFloat ---
-        private static float GradientToFloat(SvgParser? svgParse, string str, ref bool isPercentage)
+        private static float GradientToFloat(SvgParser? parser, string value, ref bool isPercentage)
         {
-            int pos = 0;
-            var parsedValue = TvgStr.ToFloat(str, ref pos);
-            isPercentage = false;
-
-            if (str.Contains("%"))
-            {
-                parsedValue = parsedValue / 100.0f;
-                isPercentage = true;
-            }
-            else if (str.Contains("cm")) parsedValue *= PX_PER_CM;
-            else if (str.Contains("mm")) parsedValue *= PX_PER_MM;
-            else if (str.Contains("pt")) parsedValue *= PX_PER_PT;
-            else if (str.Contains("pc")) parsedValue *= PX_PER_PC;
-            else if (str.Contains("in")) parsedValue *= PX_PER_IN;
-
-            return parsedValue;
+            int pos = 0; float parsed = TvgStr.ToFloat(value, ref pos);
+            isPercentage = IsPercentage(value, pos);
+            return isPercentage ? parsed / 100 : parsed * UnitScale(value, FindEmBaseFontSize(parser?.node));
         }
 
         // --- ToOffset ---
-        private static float ToOffset(string str)
+        private static float ToOffset(string value)
         {
-            int pos = 0;
-            var parsedValue = TvgStr.ToFloat(str, ref pos);
-
-            pos = SvgUtil.SkipWhiteSpace(str, pos, -1);
-
-            if (str.Contains("%"))
-            {
-                parsedValue = parsedValue / 100.0f;
-            }
-
-            return parsedValue;
+            int pos = 0; float parsed = TvgStr.ToFloat(value, ref pos);
+            pos = SvgUtil.SkipWhiteSpace(value, pos, value.Length);
+            int percent = value.IndexOf('%');
+            if (percent >= 0) return pos == percent && pos + 1 == value.Length ? parsed / 100 : 0;
+            return pos == value.Length ? parsed : 0;
         }
 
         // --- ToOpacity ---
-        private static int ToOpacity(string str)
+        private static int ToOpacity(string value)
         {
-            int pos = 0;
-            var opacity = TvgStr.ToFloat(str, ref pos);
+            int pos = 0; float parsed = TvgStr.ToFloat(value, ref pos);
+            if (pos == value.Length) return OpacityRound(parsed * 255);
+            if (pos == value.Length - 1 && value[pos] == '%') return OpacityRound(parsed * 2.55f);
+            return 255;
+        }
 
-            if (pos < str.Length)
-            {
-                if (str[pos] == '%') return (int)Math.Round(opacity * 2.55f);
-                return (int)Math.Round(opacity * 255);
-            }
-            return (int)Math.Round(opacity * 255);
+        private static int OpacityRound(float value)
+        {
+            // _toOpacity returns int after lrint, whose intermediate C long is
+            // 64 bits on LP64 and 32 bits on Windows. Preserve both the rounding
+            // and narrowing: a direct float-to-int cast changes non-finite and
+            // large values, which subsequently participate in gradient alpha.
+            var rounded = MathF.Round(value, MidpointRounding.ToEven);
+            return OperatingSystem.IsWindows() ? unchecked((int)rounded) : unchecked((int)(long)rounded);
         }
 
         // --- ToMaskType ---
@@ -410,17 +415,17 @@ namespace ThorVG
                 i = SvgUtil.SkipWhiteSpace(str, i, -1);
                 if (i >= str.Length) break;
 
-                if (str.Length - i >= 4 && str.Substring(i, 4) == "fill")
+                if (str.Length - i >= 4 && str.AsSpan(i, 4).SequenceEqual("fill"))
                 {
                     fillPosition = position++;
                     i += 4;
                 }
-                else if (str.Length - i >= 6 && str.Substring(i, 6) == "stroke")
+                else if (str.Length - i >= 6 && str.AsSpan(i, 6).SequenceEqual("stroke"))
                 {
                     strokePosition = position++;
                     i += 6;
                 }
-                else if (str.Length - i >= 7 && str.Substring(i, 7) == "markers")
+                else if (str.Length - i >= 7 && str.AsSpan(i, 7).SequenceEqual("markers"))
                 {
                     i += 7;
                 }
@@ -469,60 +474,43 @@ namespace ThorVG
         // --- ParseAspectRatio ---
         private static void ParseAspectRatio(string content, ref int pos, ref AspectRatioAlign align, ref AspectRatioMeetOrSlice meetOrSlice)
         {
-            var remaining = content.Substring(pos).Trim();
-            if (SvgHelper.StrAs(remaining, "none"))
+            var remaining = content.AsSpan(pos);
+            if (remaining.SequenceEqual("none"))
             {
                 align = AspectRatioAlign.None;
                 return;
             }
-
-            for (int i = 0; i < AlignTags.Length; i++)
+            foreach (var entry in AlignTags)
             {
-                if (remaining.StartsWith(AlignTags[i].tag, StringComparison.Ordinal))
-                {
-                    align = AlignTags[i].align;
-                    remaining = remaining.Substring(8).TrimStart();
-                    break;
-                }
+                if (!remaining.StartsWith(entry.tag, StringComparison.Ordinal)) continue;
+                align = entry.align;
+                pos = SvgUtil.SkipWhiteSpace(content, pos + 8, -1);
+                remaining = content.AsSpan(pos);
+                break;
             }
-
-            if (SvgHelper.StrAs(remaining, "meet"))
-            {
-                meetOrSlice = AspectRatioMeetOrSlice.Meet;
-            }
-            else if (SvgHelper.StrAs(remaining, "slice"))
-            {
-                meetOrSlice = AspectRatioMeetOrSlice.Slice;
-            }
+            if (remaining.SequenceEqual("meet")) meetOrSlice = AspectRatioMeetOrSlice.Meet;
+            else if (remaining.SequenceEqual("slice")) meetOrSlice = AspectRatioMeetOrSlice.Slice;
         }
 
         // --- ParseDashArray ---
-        private static void ParseDashArray(SvgParserContext ctx, string str, SvgDash dash)
+        private static bool ParseDashArray(SvgParserContext ctx, string value, SvgDash dash)
         {
-            if (str.StartsWith("none", StringComparison.Ordinal)) return;
-
-            int pos = 0;
-            while (pos < str.Length)
+            if (value == "none") { dash.array.Clear(); return true; }
+            bool replaced = false; int pos = 0;
+            while (pos < value.Length)
             {
-                pos = SvgUtil.SkipWhiteSpaceAndComma(str, pos);
-                if (pos >= str.Length) break;
-                int startPos = pos;
-                var parsedValue = TvgStr.ToFloat(str, ref pos);
-                if (pos == startPos) break;
-                if (parsedValue < 0.0f)
+                pos = SvgUtil.SkipWhiteSpaceAndComma(value, pos); int start = pos;
+                float parsed = TvgStr.ToFloat(value, ref pos); if (start == pos) break;
+                if (!replaced) { dash.array.Clear(); replaced = true; }
+                if (parsed < 0) { dash.array.Clear(); return false; }
+                if (pos < value.Length && value[pos] == '%')
                 {
-                    dash.array.Clear();
-                    return;
+                    ++pos; var g = ctx.svgParse!.global;
+                    parsed = MathF.Sqrt(g.w * g.w + g.h * g.h) / MathF.Sqrt(2) * (parsed / 100);
                 }
-                if (pos < str.Length && str[pos] == '%')
-                {
-                    pos++;
-                    var gw = ctx.svgParse!.global.w;
-                    var gh = ctx.svgParse.global.h;
-                    parsedValue = (MathF.Sqrt(gw * gw + gh * gh) / MathF.Sqrt(2.0f)) * (parsedValue / 100.0f);
-                }
-                dash.array.Add(parsedValue);
+                dash.array.Add(parsed);
             }
+            return dash.array.Count > 0;
         }
 
         // --- IdFromUrl ---
@@ -532,7 +520,7 @@ namespace ThorVG
             int closeParen = url.IndexOf(')');
             if (openParen < 0 || closeParen < 0 || openParen >= closeParen) return null;
 
-            int hash = url.IndexOf('#', openParen);
+            int hash = url.IndexOf('#');
             if (hash < 0 || hash >= closeParen) return null;
 
             int start = hash + 1;
@@ -542,7 +530,7 @@ namespace ThorVG
             while (end > start && (url[end] == ' ' || url[end] == '\'' || url[end] == '"')) end--;
 
             // Verify: no spaces or quotes in the middle
-            for (int i = start; i <= end; i++)
+            for (int i = start; i < end; i++)
             {
                 if (url[i] == ' ' || url[i] == '\'') return null;
             }
@@ -570,7 +558,7 @@ namespace ThorVG
             }
             pos = SvgUtil.SkipWhiteSpace(value, pos, -1);
 
-            if (r < 0 || r > 255) return 0;
+            if (r < 0 || r > 255) { pos = -1; return 0; }
             return (byte)Math.Round(r);
         }
 
@@ -591,99 +579,62 @@ namespace ThorVG
         }
 
         // --- ToColor ---
-        private static bool ToColor(string str, ref byte r, ref byte g, ref byte b, ref string? paintUrl)
+        private static bool ToColor(string str, ref byte r, ref byte g, ref byte b, ref byte a, ref string? paintUrl, bool allowUrl = true)
         {
-            var len = str.Length;
-
-            if (len == 4 && str[0] == '#')
+            int len = str.Length;
+            if (len == 0) return false;
+            if (str[0] == '#')
             {
-                if (IsHexDigit(str[1]) && IsHexDigit(str[2]) && IsHexDigit(str[3]))
-                {
-                    r = HexToByte(str[1], str[1]);
-                    g = HexToByte(str[2], str[2]);
-                    b = HexToByte(str[3], str[3]);
-                }
+                if (len != 4 && len != 7) return false;
+                for (int i = 1; i < len; ++i) if (!IsHexDigit(str[i])) return false;
+                if (len == 4) { r = HexToByte(str[1], str[1]); g = HexToByte(str[2], str[2]); b = HexToByte(str[3], str[3]); }
+                else { r = HexToByte(str[1], str[2]); g = HexToByte(str[3], str[4]); b = HexToByte(str[5], str[6]); }
                 return true;
             }
-            else if (len == 7 && str[0] == '#')
+            bool rgba = len >= 12 && str.StartsWith("rgba(", StringComparison.OrdinalIgnoreCase);
+            if ((rgba || (len >= 10 && str.StartsWith("rgb(", StringComparison.OrdinalIgnoreCase))) && str[len - 1] == ')')
             {
-                if (IsHexDigit(str[1]) && IsHexDigit(str[2]) && IsHexDigit(str[3]) &&
-                    IsHexDigit(str[4]) && IsHexDigit(str[5]) && IsHexDigit(str[6]))
+                int pos = rgba ? 5 : 4;
+                byte tr = ParseColorComponent(str, ref pos);
+                if (pos < 0 || pos >= len || str[pos++] != ',') return false;
+                byte tg = ParseColorComponent(str, ref pos);
+                if (pos < 0 || pos >= len || str[pos++] != ',') return false;
+                byte tb = ParseColorComponent(str, ref pos);
+                if (rgba)
                 {
-                    r = HexToByte(str[1], str[2]);
-                    g = HexToByte(str[3], str[4]);
-                    b = HexToByte(str[5], str[6]);
+                    if (pos < 0 || pos >= len || str[pos++] != ',') return false;
+                    float alpha = TvgStr.ToFloat(str, ref pos);
+                    pos = SvgUtil.SkipWhiteSpace(str, pos, len);
+                    if (pos != len - 1 || str[pos] != ')' || alpha < 0 || alpha > 1) return false;
+                    a = (byte)MathF.Round(alpha * 255, MidpointRounding.ToEven);
                 }
+                else if (pos < 0 || pos != len - 1 || str[pos] != ')') return false;
+                r = tr; g = tg; b = tb; return true;
+            }
+            if (allowUrl && len >= 3 && str.StartsWith("url", StringComparison.Ordinal)) { paintUrl = IdFromUrl(str.Substring(3)); return true; }
+            if (len >= 10 && str.StartsWith("hsl(", StringComparison.OrdinalIgnoreCase) && str[len - 1] == ')')
+            {
+                int pos = SvgUtil.SkipWhiteSpace(str, 4, len), begin = pos;
+                float hue = TvgStr.ToFloat(str, ref pos); if (pos == begin) return false;
+                pos = SvgUtil.SkipWhiteSpaceAndComma(str, SvgUtil.SkipWhiteSpace(str, pos, len));
+                pos = SvgUtil.SkipWhiteSpace(str, pos, len); begin = pos;
+                float saturation = TvgStr.ToFloat(str, ref pos);
+                if (pos == begin || pos >= len || str[pos++] != '%') return false;
+                pos = SvgUtil.SkipWhiteSpaceAndComma(str, SvgUtil.SkipWhiteSpace(str, pos, len));
+                pos = SvgUtil.SkipWhiteSpace(str, pos, len); begin = pos;
+                float lightness = TvgStr.ToFloat(str, ref pos);
+                if (pos == begin || pos >= len || str[pos++] != '%') return false;
+                pos = SvgUtil.SkipWhiteSpace(str, pos, len);
+                if (pos != len - 1 || str[pos] != ')') return false;
+                SvgUtil.HslToRgb(hue, Math.Clamp(saturation / 100, 0, 1), Math.Clamp(lightness / 100, 0, 1), out r, out g, out b);
                 return true;
             }
-            else if (len >= 10 && str.StartsWith("rgb(", StringComparison.OrdinalIgnoreCase) && str[len - 1] == ')')
+            int low = 0, high = Colors.Length - 1;
+            while (low <= high)
             {
-                int pos = 4;
-                var tr = ParseColorComponent(str, ref pos);
-                if (pos < str.Length && str[pos] == ',')
-                {
-                    pos++;
-                    var tg = ParseColorComponent(str, ref pos);
-                    if (pos < str.Length && str[pos] == ',')
-                    {
-                        pos++;
-                        var tb = ParseColorComponent(str, ref pos);
-                        if (pos < str.Length && str[pos] == ')')
-                        {
-                            r = tr;
-                            g = tg;
-                            b = tb;
-                        }
-                    }
-                }
-                return true;
-            }
-            else if (len >= 3 && str.StartsWith("url", StringComparison.Ordinal))
-            {
-                paintUrl = IdFromUrl(str.Substring(3));
-                return true;
-            }
-            else if (len >= 10 && str.StartsWith("hsl(", StringComparison.OrdinalIgnoreCase) && str[len - 1] == ')')
-            {
-                // Parse HSL
-                int pos = 4;
-                pos = SvgUtil.SkipWhiteSpace(str, pos, -1);
-                float h_val = TvgStr.ToFloat(str, ref pos);
-                pos = SvgUtil.SkipWhiteSpaceAndComma(str, pos);
-                pos = SvgUtil.SkipWhiteSpace(str, pos, -1);
-                float s_val = TvgStr.ToFloat(str, ref pos);
-                if (pos < str.Length && str[pos] == '%')
-                {
-                    s_val /= 100.0f;
-                    pos++;
-                }
-                pos = SvgUtil.SkipWhiteSpaceAndComma(str, pos);
-                pos = SvgUtil.SkipWhiteSpace(str, pos, -1);
-                float l_val = TvgStr.ToFloat(str, ref pos);
-                if (pos < str.Length && str[pos] == '%')
-                {
-                    l_val /= 100.0f;
-                    pos++;
-                }
-                s_val = Math.Clamp(s_val, 0.0f, 1.0f);
-                l_val = Math.Clamp(l_val, 0.0f, 1.0f);
-                SvgUtil.HslToRgb(h_val, s_val, l_val, out r, out g, out b);
-                return true;
-            }
-            else
-            {
-                // Handle named color
-                for (int i = 0; i < Colors.Length; i++)
-                {
-                    if (string.Equals(Colors[i].name, str, StringComparison.OrdinalIgnoreCase))
-                    {
-                        var val = Colors[i].value;
-                        r = (byte)((val >> 16) & 0xFF);
-                        g = (byte)((val >> 8) & 0xFF);
-                        b = (byte)(val & 0xFF);
-                        return true;
-                    }
-                }
+                int mid = (low + high) / 2, cmp = string.Compare(str, Colors[mid].name, StringComparison.OrdinalIgnoreCase);
+                if (cmp == 0) { uint value = Colors[mid].value; r = (byte)(value >> 16); g = (byte)(value >> 8); b = (byte)value; return true; }
+                if (cmp < 0) high = mid - 1; else low = mid + 1;
             }
             return false;
         }
@@ -692,16 +643,17 @@ namespace ThorVG
         private static bool ToColorNoPaint(string str, ref byte r, ref byte g, ref byte b)
         {
             string? dummy = null;
-            return ToColor(str, ref r, ref g, ref b, ref dummy);
+            byte alpha = 255;
+            return ToColor(str, ref r, ref g, ref b, ref alpha, ref dummy, false);
         }
 
         // --- ParseNumbersArray ---
-        private static int ParseNumbersArray(string str, ref int pos, float[] points, int maxLen)
+        private static int ParseNumbersArray(string str, ref int pos, Span<float> points, int maxLen)
         {
             int count = 0;
             pos = SvgUtil.SkipWhiteSpace(str, pos, -1);
             while (count < maxLen && pos < str.Length &&
-                   (char.IsDigit(str[pos]) || str[pos] == '-' || str[pos] == '+' || str[pos] == '.'))
+                   ((str[pos] >= '0' && str[pos] <= '9') || str[pos] == '-' || str[pos] == '+' || str[pos] == '.'))
             {
                 int startPos = pos;
                 points[count] = TvgStr.ToFloat(str, ref pos);
@@ -718,13 +670,13 @@ namespace ThorVG
         {
             var matrix = new Matrix(1, 0, 0, 0, 1, 0, 0, 0, 1); // identity
 
-            float[] points = new float[8];
+            Span<float> points = stackalloc float[8];
             int pos = 0;
             int end = value.Length;
 
             while (pos < end)
             {
-                if (char.IsWhiteSpace(value[pos]) || value[pos] == ',')
+                if (SvgUtil.IsWhiteSpace(value[pos]) || value[pos] == ',')
                 {
                     pos++;
                     continue;
@@ -734,7 +686,7 @@ namespace ThorVG
                 for (int i = 0; i < MatrixTags.Length; i++)
                 {
                     var tag = MatrixTags[i].tag;
-                    if (pos + tag.Length <= end && value.Substring(pos, tag.Length) == tag)
+                    if (pos + tag.Length <= end && value.AsSpan(pos, tag.Length).SequenceEqual(tag))
                     {
                         state = MatrixTags[i].state;
                         pos += tag.Length;
@@ -821,20 +773,7 @@ namespace ThorVG
         }
 
         // --- Matrix multiply helper ---
-        private static Matrix MatrixMultiply(in Matrix a, in Matrix b)
-        {
-            return new Matrix(
-                a.e11 * b.e11 + a.e12 * b.e21 + a.e13 * b.e31,
-                a.e11 * b.e12 + a.e12 * b.e22 + a.e13 * b.e32,
-                a.e11 * b.e13 + a.e12 * b.e23 + a.e13 * b.e33,
-                a.e21 * b.e11 + a.e22 * b.e21 + a.e23 * b.e31,
-                a.e21 * b.e12 + a.e22 * b.e22 + a.e23 * b.e32,
-                a.e21 * b.e13 + a.e22 * b.e23 + a.e23 * b.e33,
-                a.e31 * b.e11 + a.e32 * b.e21 + a.e33 * b.e31,
-                a.e31 * b.e12 + a.e32 * b.e22 + a.e33 * b.e32,
-                a.e31 * b.e13 + a.e32 * b.e23 + a.e33 * b.e33
-            );
-        }
+        private static Matrix MatrixMultiply(in Matrix a, in Matrix b) => TvgMath.Multiply(a, b);
 
         // --- ToXmlSpace ---
         private static SvgXmlSpace ToXmlSpace(string str)
@@ -886,15 +825,13 @@ namespace ThorVG
         private static void ParseGaussianBlurStdDeviation(string content, ref float x, ref float y)
         {
             int pos = 0;
-            float[] deviation = { 0, 0 };
+            Span<float> deviation = stackalloc float[2];
             int n = 0;
 
             while (pos < content.Length && n < 2)
             {
                 pos = SvgUtil.SkipWhiteSpaceAndComma(content, pos);
-                int startPos = pos;
                 var parsedValue = TvgStr.ToFloat(content, ref pos);
-                if (pos == startPos) break;
                 if (parsedValue < 0.0f) break;
                 deviation[n++] = parsedValue;
             }

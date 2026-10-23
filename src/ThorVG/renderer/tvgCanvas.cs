@@ -1,5 +1,6 @@
 // Ported from ThorVG/src/renderer/tvgCanvas.h and ThorVG/inc/thorvg.h
 
+using System;
 using System.Collections.Generic;
 
 namespace ThorVG
@@ -18,13 +19,14 @@ namespace ThorVG
     /// Abstract canvas for drawing graphical elements.
     /// Mirrors C++ tvg::Canvas / Canvas::Impl.
     /// </summary>
-    public abstract class Canvas
+    public abstract class Canvas : IDisposable
     {
         internal Scene scene;
         internal RenderMethod? renderer;
         internal RenderRegion vport = new RenderRegion(0, 0, int.MaxValue, int.MaxValue);
         internal ValueList<object?> clips = new();
         internal CanvasStatus status = CanvasStatus.Synced;
+        private bool disposed;
 
         protected Canvas()
         {
@@ -39,14 +41,24 @@ namespace ThorVG
         /// </summary>
         ~Canvas()
         {
-            // make it sure any deferred jobs
-            renderer?.Sync();
-            scene.Unref();
-            if (renderer != null && renderer.Unref() == 0)
+            try { Dispose(); }
+            catch (Exception exception)
             {
-                // In C++ this would delete the renderer.
-                // In C# the GC handles the actual deallocation.
+                // Exceptions are reported through explicit Sync/Dispose. A
+                // finalizer cannot propagate a task failure to its caller.
+                TvgCommon.TVGERR("RENDERER", "Canvas finalizer: {0}", exception.Message);
             }
+        }
+
+        public virtual void Dispose()
+        {
+            if (disposed) return;
+            renderer?.Sync();
+            disposed = true;
+            scene.Unref();
+            renderer?.Unref();
+            renderer = null;
+            GC.SuppressFinalize(this);
         }
 
         public IReadOnlyList<Paint> GetPaints() => scene.Paints();
@@ -147,6 +159,22 @@ namespace ThorVG
                 return Result.Success;
             }
             return Result.Unknown;
+        }
+
+        /// <summary>Available after Draw and before Sync; returns zero outside that interval.</summary>
+        public uint DirtyRegions() => status == CanvasStatus.Drawing ? renderer?.DirtyRegions() ?? 0 : 0;
+
+        public Result DirtyRegions(System.Span<Region> regions)
+        {
+            if (regions.IsEmpty) return Result.InvalidArguments;
+            return status == CanvasStatus.Drawing && renderer != null
+                ? renderer.DirtyRegions(regions) : Result.InsufficientCondition;
+        }
+
+        public Result DirtyRegions(Region[]? regions, uint count)
+        {
+            if (regions == null || count == 0 || count > regions.Length) return Result.InvalidArguments;
+            return DirtyRegions(regions.AsSpan(0, (int)count));
         }
     }
 }

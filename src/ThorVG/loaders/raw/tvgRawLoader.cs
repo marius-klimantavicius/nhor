@@ -8,7 +8,7 @@ namespace ThorVG
     /// Raw bitmap image loader. Mirrors C++ RawLoader.
     /// Wraps a caller-provided uint32 pixel buffer as an ImageLoader surface.
     /// </summary>
-    public class RawLoader : ImageLoader
+    public class RawLoader : BitmapLoader
     {
         public bool copy;
 
@@ -20,16 +20,24 @@ namespace ThorVG
         /// Open from a raw pixel data buffer.
         /// </summary>
         public bool Open(uint[] data, uint w, uint h, ColorSpace cs, bool copy)
-        {
-            if (!base.Read()) return true;
+            => Open(data, w, h, cs, copy ? Ownership.Copy : Ownership.Borrow);
 
-            if (data == null || data.Length == 0 || w == 0 || h == 0) return false;
+        public bool Open(uint[] data, uint w, uint h, ColorSpace cs, Ownership owner)
+        {
+            // A managed array supplies a length which the native pointer API
+            // cannot check. Reject an undersized first buffer safely without
+            // consuming the loader. Otherwise retain native readied ordering:
+            // failed null/zero opens consume it; subsequent opens are no-ops.
+            if (!readied && data != null && (ulong)w * h > (ulong)data.LongLength) return false;
+            if (!base.Read()) return true;
+            if (data == null || w == 0 || h == 0) return false;
 
             this.w = w;
             this.h = h;
-            this.copy = copy;
+            this.owner = owner;
+            this.copy = owner == Ownership.Copy;
 
-            if (copy)
+            if (this.copy)
             {
                 var len = (int)(w * h);
                 surface.data = new uint[len];
@@ -40,15 +48,7 @@ namespace ThorVG
                 surface.data = data;
             }
 
-            surface.Pin();
-
-            // setup the surface
-            surface.stride = w;
-            surface.w = w;
-            surface.h = h;
-            surface.cs = cs;
-            surface.channelSize = sizeof(uint);
-            surface.premultiplied = (cs == ColorSpace.ABGR8888 || cs == ColorSpace.ARGB8888);
+            surface.Setup(surface.data!, w, w, h, sizeof(uint), cs);
 
             return true;
         }

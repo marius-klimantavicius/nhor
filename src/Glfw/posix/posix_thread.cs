@@ -1,4 +1,4 @@
-// Ported from glfw/src/posix_thread.c (GLFW 3.5)
+// Ported from glfw/src/posix_thread.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2017 Camilla Loewy <elmindreda@glfw.org>

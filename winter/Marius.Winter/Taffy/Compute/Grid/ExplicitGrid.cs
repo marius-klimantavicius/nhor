@@ -33,7 +33,7 @@ namespace Marius.Winter.Taffy
         /// Compute the number of rows and columns in the explicit grid
         /// </summary>
         public static (ushort numRepetitions, ushort gridTemplateTrackCount) ComputeExplicitGridSizeInAxis(
-            Style style,
+            IGridContainerStyle style,
             float? autoFitContainerSize,
             AutoRepeatStrategy autoFitStrategy,
             Func<IntPtr, float, float> resolveCalcValue,
@@ -73,14 +73,14 @@ namespace Marius.Winter.Taffy
             {
                 if (trackDef.Kind != GridTemplateComponent.GridTemplateComponentKind.Repeat)
                 {
-                    nonAutoRepeatingTrackCount += 1;
+                    nonAutoRepeatingTrackCount = (ushort)Math.Min(nonAutoRepeatingTrackCount + 1, 10000);
                 }
                 else
                 {
                     var rc = trackDef.Repetition!.Count;
                     if (!rc.IsAuto)
                     {
-                        nonAutoRepeatingTrackCount += (ushort)(rc.CountValue * trackDef.Repetition.TrackCount);
+                        nonAutoRepeatingTrackCount = (ushort)Math.Min(nonAutoRepeatingTrackCount + (long)rc.CountValue * trackDef.Repetition.TrackCount, 10000);
                     }
                 }
             }
@@ -144,7 +144,7 @@ namespace Marius.Winter.Taffy
             ushort repetitionTrackCount = (ushort)repetitionTracks!.Count;
 
             // Determine the number of repetitions
-            ushort numRepetitions;
+            uint numRepetitions;
             if (!autoFitContainerSize.HasValue)
             {
                 numRepetitions = 1;
@@ -164,7 +164,7 @@ namespace Marius.Winter.Taffy
                     {
                         var result = maxSize.Value;
                         if (minSize.HasValue)
-                            result = MathF.Max(result, minSize.Value);
+                            result = TaffySys.F32Max(result, minSize.Value);
                         return result;
                     }
                     return minSize ?? 0f;
@@ -227,26 +227,43 @@ namespace Marius.Winter.Taffy
                     // In all cases we add the additional repetition that was already accounted for in the special-case computation above
                     numRepetitions = autoFitStrategy switch
                     {
-                        AutoRepeatStrategy.MaxRepetitionsThatDoNotOverflow => (ushort)(Math.Floor(numRepetitionThatFit) + 1),
-                        AutoRepeatStrategy.MinRepetitionsThatDoOverflow => (ushort)(Math.Ceiling(numRepetitionThatFit) + 1),
+                        AutoRepeatStrategy.MaxRepetitionsThatDoNotOverflow => (uint)Math.Clamp(Math.Floor(numRepetitionThatFit), 0, uint.MaxValue - 1d) + 1,
+                        AutoRepeatStrategy.MinRepetitionsThatDoOverflow => (uint)Math.Clamp(Math.Ceiling(numRepetitionThatFit), 0, uint.MaxValue - 1d) + 1,
                         _ => 1,
                     };
                 }
             }
 
-            ushort gridTemplateTrackCount = (ushort)(nonAutoRepeatingTrackCount + (repetitionTrackCount * numRepetitions));
-            return (numRepetitions, gridTemplateTrackCount);
+            long insertion = 0;
+            foreach (var component in template)
+            {
+                if (component.Repetition is { } repeat)
+                {
+                    if (repeat.Count.IsAuto) break;
+                    insertion += (long)repeat.Count.CountValue * repeat.TrackCount;
+                }
+                else insertion++;
+            }
+            long remaining = Math.Max(10000 - insertion, 0);
+            numRepetitions = remaining == 0 ? 0 : (uint)Math.Clamp(numRepetitions, 1, (remaining + repetitionTrackCount - 1) / repetitionTrackCount);
+            ushort gridTemplateTrackCount = (ushort)Math.Min(nonAutoRepeatingTrackCount + (long)repetitionTrackCount * numRepetitions, 10000);
+            return ((ushort)numRepetitions, gridTemplateTrackCount);
         }
 
         /// <summary>
         /// Resolve the track sizing functions of explicit tracks, automatically created tracks, and gutters
         /// given a set of track counts and all of the relevant styles
         /// </summary>
+        public static void InitializeGridTracks(ref ValueList<GridTrack> tracks, TrackCounts counts, IGridContainerStyle style,
+            AbsoluteAxis axis, Func<int, bool> trackHasItems) => InitializeGridTracks(ref tracks, counts, style, axis,
+                ComputeExplicitGridSizeInAxis(style, null, AutoRepeatStrategy.MaxRepetitionsThatDoNotOverflow, (_, _) => 0, axis).numRepetitions, trackHasItems);
+
         public static void InitializeGridTracks(
             ref ValueList<GridTrack> tracks,
             TrackCounts counts,
-            Style style,
+            IGridContainerStyle style,
             AbsoluteAxis axis,
+            ushort autoRepetitionCount,
             Func<int, bool> trackHasItems)
         {
             // Extract styles
@@ -285,13 +302,13 @@ namespace Marius.Winter.Taffy
                 {
                     if (trackDef.Kind != GridTemplateComponent.GridTemplateComponentKind.Repeat)
                     {
-                        nonAutoRepeatingTrackCount += 1;
+                        nonAutoRepeatingTrackCount = (ushort)Math.Min(nonAutoRepeatingTrackCount + 1, 10000);
                     }
                     else
                     {
                         var rc = trackDef.Repetition!.Count;
                         if (!rc.IsAuto)
-                            nonAutoRepeatingTrackCount += (ushort)(rc.CountValue * trackDef.Repetition.TrackCount);
+                            nonAutoRepeatingTrackCount = (ushort)Math.Min(nonAutoRepeatingTrackCount + (long)rc.CountValue * trackDef.Repetition.TrackCount, 10000);
                     }
                 }
             }
@@ -319,6 +336,8 @@ namespace Marius.Winter.Taffy
             {
                 foreach (var trackComponent in trackTemplate)
                 {
+                    int remaining = counts.NegativeImplicit + counts.Explicit - currentTrackIndex;
+                    if (remaining == 0) break;
                     if (trackComponent.Kind != GridTemplateComponent.GridTemplateComponentKind.Repeat)
                     {
                         var sf = trackComponent.Single;
@@ -331,7 +350,7 @@ namespace Marius.Winter.Taffy
                         var rc = trackComponent.Repetition!.Count;
                         if (rc.IsAuto)
                         {
-                            int autoRepeatedTrackCount = counts.Explicit - nonAutoRepeatingTrackCount;
+                            int autoRepeatedTrackCount = Math.Min(trackComponent.Repetition!.TrackCount * autoRepetitionCount, remaining);
                             var repeatTracks = trackComponent.Repetition.Tracks;
                             int repeatTrackCount = repeatTracks.Count;
 
@@ -373,7 +392,7 @@ namespace Marius.Winter.Taffy
                             ushort count = rc.CountValue;
                             var repeatTracks = trackComponent.Repetition.Tracks;
                             int repeatTrackCount = repeatTracks.Count;
-                            int totalTracks = repeatTrackCount * count;
+                            int totalTracks = Math.Min(repeatTrackCount * count, remaining);
 
                             for (int i = 0; i < totalTracks; i++)
                             {

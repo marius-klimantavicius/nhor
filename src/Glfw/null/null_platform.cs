@@ -1,4 +1,4 @@
-// Ported from glfw/src/null_platform.h (GLFW 3.5)
+// Ported from glfw/src/null_platform.h (GLFW 3.6)
 //
 // Copyright (c) 2016 Google Inc.
 // Copyright (c) 2016-2017 Camilla Loewy <elmindreda@glfw.org>

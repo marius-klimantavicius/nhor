@@ -1,0 +1,291 @@
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|x1='.127'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox' x1='.127'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse' x1='12.7'
+gradient	0|0|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|x1='.127'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox' x1='.127'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse' x1='12.7'
+gradient	0|0|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|cx='.473'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox' cx='.473'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse' cx='47.3'
+gradient	0|1|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|cx='.473'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox' cx='.473'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse' cx='47.3'
+gradient	0|1|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|x1='.127'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox' x1='.127'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse' x1='12.7'
+gradient	1|0|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|x1='.127'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox' x1='.127'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox' x1='.127' y1='.083' x2='.913' y2='.647'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse' x1='12.7'
+gradient	1|0|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse' x1='12.7' y1='8.3' x2='91.3' y2='64.7'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|cx='.473'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox' cx='.473'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse' cx='47.3'
+gradient	1|1|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|cx='.473'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox' cx='.473'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='objectBoundingBox' cx='.473' cy='.317' fx='.381' fy='.279' r='.293' fr='.037'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse' cx='47.3'
+gradient	1|1|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'|gradientUnits='userSpaceOnUse' cx='47.3' cy='31.7' fx='38.1' fy='27.9' r='29.3' fr='3.7'
+transform	matrix(1.125 .375 -.625 .875 13.25 -7.75)
+transform	translate(12.5)
+transform	translate(12.5 -8.75)
+transform	scale(1.125)
+transform	scale(1.125 .875)
+transform	rotate(25)
+transform	rotate(-37.5 10.25 -8.5)
+transform	skewX(17.5)
+transform	skewY(-11.25)
+transform	translate(12.25 -8.875) rotate(27.5 3.125 -1.25) scale(.875 1.125)
+transform	matrix(.875 .125 -.375 1.25 12.5 -8.25) matrix(1.125 -.25 .625 .75 17.25 6.5)
+transform	matrix(.87 .13 -.37 1.23 12.7 -8.3) matrix(1.13 -.27 .63 .71 17.3 6.7)
+transform	translate(12.7 -8.3) rotate(27.3 3.1 -1.7) scale(.87 1.13)
+transform	rotate(17.3 13.7 -6.1) skewX(7.3) skewY(-3.7)
+length	0,12.75
+length	0,27.5%
+length	0,2.25em
+length	0,1.5ex
+length	0,3.25cm
+length	0,1.75mm
+length	0,7.125pt
+length	0,2.375pc
+length	0,.625in
+length	1,12.75
+length	1,27.5%
+length	1,2.25em
+length	1,1.5ex
+length	1,3.25cm
+length	1,1.75mm
+length	1,7.125pt
+length	1,2.375pc
+length	1,.625in
+length	2,12.75
+length	2,27.5%
+length	2,2.25em
+length	2,1.5ex
+length	2,3.25cm
+length	2,1.75mm
+length	2,7.125pt
+length	2,2.375pc
+length	2,.625in
+length	3,12.75
+length	3,27.5%
+length	3,2.25em
+length	3,1.5ex
+length	3,3.25cm
+length	3,1.75mm
+length	3,7.125pt
+length	3,2.375pc
+length	3,.625in
+dash	none
+dash	2.5 3.75
+dash	1.25,2.75,3.125
+dash	12.5% 7.75%
+dash	0 3.25 2.5 1.125
+color	aliceblue
+color	antiquewhite
+color	aqua
+color	aquamarine
+color	azure
+color	beige
+color	bisque
+color	black
+color	blanchedalmond
+color	blue
+color	blueviolet
+color	brown
+color	burlywood
+color	cadetblue
+color	chartreuse
+color	chocolate
+color	coral
+color	cornflowerblue
+color	cornsilk
+color	crimson
+color	cyan
+color	darkblue
+color	darkcyan
+color	darkgoldenrod
+color	darkgray
+color	darkgreen
+color	darkgrey
+color	darkkhaki
+color	darkmagenta
+color	darkolivegreen
+color	darkorange
+color	darkorchid
+color	darkred
+color	darksalmon
+color	darkseagreen
+color	darkslateblue
+color	darkslategray
+color	darkslategrey
+color	darkturquoise
+color	darkviolet
+color	deeppink
+color	deepskyblue
+color	dimgray
+color	dimgrey
+color	dodgerblue
+color	firebrick
+color	floralwhite
+color	forestgreen
+color	fuchsia
+color	gainsboro
+color	ghostwhite
+color	gold
+color	goldenrod
+color	gray
+color	green
+color	greenyellow
+color	grey
+color	honeydew
+color	hotpink
+color	indianred
+color	indigo
+color	ivory
+color	khaki
+color	lavender
+color	lavenderblush
+color	lawngreen
+color	lemonchiffon
+color	lightblue
+color	lightcoral
+color	lightcyan
+color	lightgoldenrodyellow
+color	lightgray
+color	lightgreen
+color	lightgrey
+color	lightpink
+color	lightsalmon
+color	lightseagreen
+color	lightskyblue
+color	lightslategray
+color	lightslategrey
+color	lightsteelblue
+color	lightyellow
+color	lime
+color	limegreen
+color	linen
+color	magenta
+color	maroon
+color	mediumaquamarine
+color	mediumblue
+color	mediumorchid
+color	mediumpurple
+color	mediumseagreen
+color	mediumslateblue
+color	mediumspringgreen
+color	mediumturquoise
+color	mediumvioletred
+color	midnightblue
+color	mintcream
+color	mistyrose
+color	moccasin
+color	navajowhite
+color	navy
+color	oldlace
+color	olive
+color	olivedrab
+color	orange
+color	orangered
+color	orchid
+color	palegoldenrod
+color	palegreen
+color	paleturquoise
+color	palevioletred
+color	papayawhip
+color	peachpuff
+color	peru
+color	pink
+color	plum
+color	powderblue
+color	purple
+color	red
+color	rosybrown
+color	royalblue
+color	saddlebrown
+color	salmon
+color	sandybrown
+color	seagreen
+color	seashell
+color	sienna
+color	silver
+color	skyblue
+color	slateblue
+color	slategray
+color	slategrey
+color	snow
+color	springgreen
+color	steelblue
+color	tan
+color	teal
+color	thistle
+color	tomato
+color	turquoise
+color	violet
+color	wheat
+color	white
+color	whitesmoke
+color	yellow
+color	yellowgreen
+color	#123
+color	#aBcD09
+color	rgb(12.5, 127.5, 254.5)
+color	rgba(12.5,127.5,254.5,.375)
+color	rgb(12.5%,37.5%,87.5%)
+color	hsl(37.5,25%,87.5%)
+color	url(#normal-gradient)
+xml	0	<svg width=" 120 " height=80><g id="a&amp;b"/></svg>
+xml	0	<?xml version="1.0"?><svg><!-- ordinary comment --><text> Žąsis &amp; 日本語 </text></svg>
+xml	0	<svg><![CDATA[ a < b & c ]]></svg>
+xml	0	<!DOCTYPE svg><svg><rect width="12"/></svg>
+xml	0	<svg>  <text>A&#10;B&nbsp;C&#035;&#039;&quot;&apos;&lt;&gt;</text>  </svg>
+xml	1	<svg width=" 120 " height=80><g id="a&amp;b"/></svg>
+xml	1	<?xml version="1.0"?><svg><!-- ordinary comment --><text> Žąsis &amp; 日本語 </text></svg>
+xml	1	<svg><![CDATA[ a < b & c ]]></svg>
+xml	1	<!DOCTYPE svg><svg><rect width="12"/></svg>
+xml	1	<svg>  <text>A&#10;B&nbsp;C&#035;&#039;&quot;&apos;&lt;&gt;</text>  </svg>

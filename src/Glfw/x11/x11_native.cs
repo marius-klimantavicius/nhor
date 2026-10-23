@@ -1,4 +1,4 @@
-// Ported from glfw/src/x11_platform.h -- GLFW 3.5 X11 native library loading
+// Ported from glfw/src/x11_platform.h -- GLFW 3.6 X11 native library loading
 //
 // Loads libX11.so.6, libXrandr.so.2, libXinerama.so.1, libXcursor.so.1,
 // libXi.so.6, libXrender.so.1, libXss.so.1, libX11-xcb.so.1,
@@ -378,6 +378,7 @@ namespace Glfw
 
             p = TryLoad(lib, "XrmUniqueQuark");
             x11.xrm.UniqueQuark = (delegate* unmanaged[Cdecl]<int>)p;
+            x11.xrm.Initialize = (delegate* unmanaged[Cdecl]<void>)TryLoad(lib, "XrmInitialize");
 
             // Verify critical functions loaded
             if (x11.xlib.CloseDisplay == null ||
@@ -688,7 +689,7 @@ namespace Glfw
         //  FreeLibraries — unloads all X11-related shared libraries
         // ===============================================================
 
-        public static void FreeLibraries(GlfwLibraryX11 x11, GlfwLibraryGLX? glx)
+        public static void FreeLibraries(GlfwLibraryX11 x11)
         {
             if (x11.xlib.handle != nint.Zero)
             {
@@ -739,11 +740,6 @@ namespace Glfw
             {
                 NativeLibrary.Free(x11.libc.handle);
                 x11.libc.handle = nint.Zero;
-            }
-            if (glx != null && glx.handle != nint.Zero)
-            {
-                NativeLibrary.Free(glx.handle);
-                glx.handle = nint.Zero;
             }
         }
     }

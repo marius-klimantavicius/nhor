@@ -13,21 +13,25 @@ public class BlockInsetFixed
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(2f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(4f), LengthPercentageAuto.AUTO),
         });
         var node1 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(6f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(8f)),
         });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(2f), LengthPercentageAuto.Length(6f), LengthPercentageAuto.Length(4f), LengthPercentageAuto.Length(8f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.Auto()),
         }, new NodeId[] { node0, node1, node2 });
@@ -60,24 +64,28 @@ public class BlockInsetFixed
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(2f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(4f), LengthPercentageAuto.AUTO),
         });
         var node1 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(6f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Length(8f)),
         });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Length(2f), LengthPercentageAuto.Length(6f), LengthPercentageAuto.Length(4f), LengthPercentageAuto.Length(8f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.Auto()),

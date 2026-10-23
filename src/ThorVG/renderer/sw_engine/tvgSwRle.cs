@@ -37,10 +37,7 @@ namespace ThorVG
 
             public SwPoint pos;
 
-            public fixed long bezStackX[32 * 3 + 1]; // Using separate arrays since SwPoint is a struct
-            public fixed long bezStackY[32 * 3 + 1];
-            // We'll use managed arrays instead of fixed buffers for SwPoint arrays
-            // since SwPoint contains two ints
+            // Fixed native-size stacks are allocated once by rleRender.
             public SwPoint* bezStack;
             public SwPoint* lineStack;
             public int* levStack;
@@ -298,10 +295,11 @@ namespace ThorVG
             }
 
             var line = rw.lineStack;
+            var end = line + 33;
             line[0] = to;
             line[1] = rw.pos;
 
-            while (true)
+            while (line < end)
             {
                 if (SAFE_HYPOT(line[0], line[1]) > short.MaxValue)
                 {
@@ -412,11 +410,13 @@ namespace ThorVG
                 if (line == rw.lineStack) return true;
                 --line;
             }
+            return false;
         }
 
         private static bool _cubicTo(ref RleWorker rw, SwPoint ctrl1, SwPoint ctrl2, SwPoint to)
         {
             var arc = rw.bezStack;
+            var end = arc + 32 * 3 + 1;
             arc[0] = to;
             arc[1] = ctrl2;
             arc[2] = ctrl1;
@@ -435,7 +435,7 @@ namespace ThorVG
             // Initial check - if entirely outside band, just draw a line
             bool shouldDraw = (TRUNC(min) >= rw.cellMax.y || TRUNC(max) < rw.cellMin.y);
 
-            while (true)
+            while (arc < end)
             {
                 if (!shouldDraw)
                 {
@@ -491,11 +491,44 @@ namespace ThorVG
                 arc -= 3;
                 shouldDraw = false;
             }
+            return false;
+        }
+
+        private static bool DecomposePath(ref RleWorker worker)
+        {
+            var points = worker.outline->output.data;
+            var start = UPSCALE(*points);
+            bool open = false;
+            ref var commands = ref worker.outline->commands;
+            for (uint i = 0; i < commands.count; ++i)
+            {
+                switch (commands[i])
+                {
+                    case PathCommand.MoveTo:
+                        if (open && !_lineTo(ref worker, start)) return false;
+                        start = UPSCALE(*points++);
+                        if (!_moveTo(ref worker, start)) return false;
+                        open = true; break;
+                    case PathCommand.LineTo:
+                        if (!open && !_moveTo(ref worker, start)) return false;
+                        if (!_lineTo(ref worker, UPSCALE(*points++))) return false;
+                        open = true; break;
+                    case PathCommand.CubicTo:
+                        if (!open && !_moveTo(ref worker, start)) return false;
+                        if (!_cubicTo(ref worker, UPSCALE(points[0]), UPSCALE(points[1]), UPSCALE(points[2]))) return false;
+                        points += 3; open = true; break;
+                    case PathCommand.Close:
+                        if (open && !_lineTo(ref worker, start)) return false;
+                        open = false; break;
+                }
+            }
+            return !open || _lineTo(ref worker, start);
         }
 
         private static bool _decomposeOutline(ref RleWorker rw)
         {
             var outline = rw.outline;
+            if (outline->pathBased) return DecomposePath(ref rw);
             var first = 0u;
 
             for (uint ci = 0; ci < outline->cntrs.count; ci++)
@@ -562,7 +595,7 @@ namespace ThorVG
                 cellPool.buffer = (SwCell*)NativeMemory.Alloc(cellPool.size);
             }
 
-            // Allocate managed arrays for the bezStack/lineStack/levStack
+            // Native fixed-size subdivision stacks live on this call's stack.
             var bezStackMem = stackalloc SwPoint[32 * 3 + 1];
             var lineStackMem = stackalloc SwPoint[32 + 1];
             var levStackMem = stackalloc int[32];
@@ -657,6 +690,10 @@ namespace ThorVG
 
                     if (middle == bottom)
                     {
+                        // Native releases the whole RLE on terminal band failure.
+                        // The local Array header may already own resized storage.
+                        rleFree(ref rw.rle);
+                        rle = default;
                         return false;
                     }
 
@@ -702,6 +739,8 @@ namespace ThorVG
             rle.spans.Clear();
         }
 
+        public static void rleFree(ref SwRle rle) => rle.spans.Dispose();
+
 
 
 
@@ -722,37 +761,33 @@ namespace ThorVG
             }
 
             SwSpan* cend;
-                var cspans = clip.Fetch(spans->y, (end - 1)->y, out cend);
+            var cspans = clip.Fetch(spans->y, (end - 1)->y, out cend);
 
             while (spans < end && cspans < cend)
             {
                 if (cspans->y > spans->y) { ++spans; continue; }
                 if (spans->y > cspans->y) { ++cspans; continue; }
 
-                var temp = cspans;
-                while (temp < cend && temp->y == cspans->y)
-                {
-                    if ((spans->x + spans->len) < spans->x || (temp->x + temp->len) < temp->x)
-                    {
-                        ++temp;
-                        continue;
-                    }
-                    var x = Math.Max(spans->x, temp->x);
-                    var len = Math.Min((spans->x + spans->len), (temp->x + temp->len)) - x;
-                    if (len > 0)
-                    {
-                        ref var ns = ref output.Next();
-                        ns.x = x;
-                        ns.y = temp->y;
-                        ns.len = len;
-                        ns.coverage = (byte)(((int)spans->coverage * temp->coverage + 0xff) >> 8);
-                    }
-                    ++temp;
-                }
-                ++spans;
+                // Both lists are ordered and non-overlapping per scanline.
+                // Advance their endpoints together, as in the target's linear
+                // merge, instead of rescanning every clip span for each span.
+                if (spans->len <= 0) { ++spans; continue; }
+                if (cspans->len <= 0) { ++cspans; continue; }
+                int spanEnd = spans->x + spans->len;
+                int clipEnd = cspans->x + cspans->len;
+                if (spanEnd <= cspans->x) { ++spans; continue; }
+                if (clipEnd <= spans->x) { ++cspans; continue; }
+                int x = Math.Max(spans->x, cspans->x);
+                ref var ns = ref output.Next();
+                ns.x = x;
+                ns.y = spans->y;
+                ns.len = Math.Min(spanEnd, clipEnd) - x;
+                ns.coverage = (byte)(((int)spans->coverage * cspans->coverage + 0xff) >> 8);
+                if (spanEnd <= clipEnd) ++spans;
+                if (clipEnd <= spanEnd) ++cspans;
             }
             output.MoveTo(ref rle.spans);
-            return true;
+            return !rle.spans.Empty();
         }
 
         public static bool rleClip(ref SwRle rle, in RenderRegion clip)
@@ -793,7 +828,7 @@ namespace ThorVG
                 ++p;
             }
             output.MoveTo(ref rle.spans);
-            return true;
+            return !rle.spans.Empty();
         }
 
         public static bool rleIntersect(in SwRle rle, in RenderRegion region)

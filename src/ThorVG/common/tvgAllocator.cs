@@ -1,7 +1,6 @@
 // Ported from ThorVG/src/common/tvgAllocator.h
 // In C++ these are custom allocators wrapping std::malloc/calloc/realloc/free.
-// In C# we use GC-managed arrays, so these are simple pass-through helpers
-// for the rare cases where unmanaged memory is needed (matching the C++ API shape).
+// Managed storage elsewhere remains managed; these methods own native buffers.
 
 using System;
 using System.Runtime.InteropServices;
@@ -18,26 +17,32 @@ namespace ThorVG
     {
         public static IntPtr Malloc(int size)
         {
-            return Marshal.AllocHGlobal(size);
+            ArgumentOutOfRangeException.ThrowIfNegative(size);
+            return Malloc((nuint)size);
         }
+
+        public static IntPtr Malloc(nuint size) => (IntPtr)NativeMemory.Alloc(size);
 
         public static IntPtr Calloc(int nmem, int size)
         {
-            var total = nmem * size;
-            var ptr = Marshal.AllocHGlobal(total);
-            new Span<byte>((void*)ptr, total).Clear();
-            return ptr;
+            ArgumentOutOfRangeException.ThrowIfNegative(nmem);
+            ArgumentOutOfRangeException.ThrowIfNegative(size);
+            return Calloc((nuint)nmem, (nuint)size);
         }
+
+        public static IntPtr Calloc(nuint nmem, nuint size) => (IntPtr)NativeMemory.AllocZeroed(nmem, size);
 
         public static IntPtr Realloc(IntPtr ptr, int size)
         {
-            return Marshal.ReAllocHGlobal(ptr, (IntPtr)size);
+            ArgumentOutOfRangeException.ThrowIfNegative(size);
+            return Realloc(ptr, (nuint)size);
         }
+
+        public static IntPtr Realloc(IntPtr ptr, nuint size) => (IntPtr)NativeMemory.Realloc((void*)ptr, size);
 
         public static void Free(IntPtr ptr)
         {
-            if (ptr != IntPtr.Zero)
-                Marshal.FreeHGlobal(ptr);
+            NativeMemory.Free((void*)ptr);
         }
     }
 }

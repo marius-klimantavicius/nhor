@@ -18,13 +18,15 @@ namespace ThorVG
     {
         private SwCanvas() { }
 
-        ~SwCanvas()
+        public override void Dispose()
         {
+            base.Dispose();
             SwRenderer.Term();
         }
 
-        public static SwCanvas Gen(EngineOption op = EngineOption.Default)
+        public static SwCanvas? Gen(EngineOption op = EngineOption.Default)
         {
+            if (System.Threading.Volatile.Read(ref TvgCommon.engineInit) <= 0) return null;
             var r = new SwRenderer(TaskScheduler.Threads(), op);
             r.Ref();
             var canvas = new SwCanvas();
@@ -103,23 +105,18 @@ namespace ThorVG
         ~GlCanvas()
         {
             (renderer as GlRenderer)?.Abandon();
+            try { base.Dispose(); }
+            catch (System.Exception exception) { TvgCommon.TVGERR("RENDERER", "GL canvas finalizer: {0}", exception.Message); }
             GlRenderer.Term();
         }
 
-        public void Dispose()
+        public override void Dispose()
         {
             if (disposed) return;
+            if (renderer is GlRenderer glRenderer && !glRenderer.CanCleanup())
+                throw new System.InvalidOperationException("Dispose the GL canvas while its rendering context is available on the owning thread.");
+            base.Dispose();
             disposed = true;
-
-            if (renderer is GlRenderer glRenderer)
-            {
-                glRenderer.Sync();
-                scene.Unref();
-                glRenderer.Dispose();
-                glRenderer.Unref();
-                renderer = null;
-            }
-            else scene.Unref();
             GlRenderer.Term();
             System.GC.SuppressFinalize(this);
         }

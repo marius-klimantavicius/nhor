@@ -1,0 +1,10 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "nativeOrigin": "gl-batch-merge-before.json",
+  "correctedEvidence": "gl-batch-merge-corrected.json",
+  "bytes": 22808,
+  "sha256": "e6d9d67cd18922b43f72b0af86384a19f02ac4846999b872b908cbe86703a66e",
+  "rows": 300,
+  "scope": "CPU-only actual batch/task-header algorithm:150 ordinary non-overlapping triangles/covers per horizontal/vertical pass. Original native bytes before managed ownership fix; no actual driver/context result claimed. Native deletes discarded merged owners and resets large cached bounds; managed assertions enforce those contracts. No malformed/corruption/fuzz fixtures.",
+  "parentReview": "pending"
+}

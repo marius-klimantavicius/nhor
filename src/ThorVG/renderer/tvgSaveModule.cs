@@ -4,7 +4,7 @@ namespace ThorVG
 {
     /// <summary>
     /// Abstract save module. Mirrors C++ tvg::SaveModule.
-    /// Concrete implementations (GifSaver) will be ported in later batches.
+    /// GifSaver implements animation encoding and its matching close lifecycle.
     /// </summary>
     public abstract class SaveModule
     {

@@ -13,21 +13,25 @@ public class AlignBaselineChildMarginPercent
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(50f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f)),
         });
         var node10 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f)),
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             FlexDirectionValue = FlexDirection.Column,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(20f)),
         }, new NodeId[] { node10 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             AlignItemsValue = AlignItems.Baseline,
             SizeValue = new Size<Dimension>(Dimension.FromLength(100f), Dimension.FromLength(100f)),
         }, new NodeId[] { node0, node1 });
@@ -51,7 +55,7 @@ public class AlignBaselineChildMarginPercent
         Assert.Equal(50f, layout_node10.Size.Width);
         Assert.Equal(10f, layout_node10.Size.Height);
         Assert.Equal(1f, layout_node10.Location.X);
-        Assert.Equal(1f, layout_node10.Location.Y);
+        Assert.Equal(0f, layout_node10.Location.Y);
     }
 
     [Fact]
@@ -60,24 +64,28 @@ public class AlignBaselineChildMarginPercent
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(50f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f), LengthPercentageAuto.Percent(0.05f)),
         });
         var node10 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
             MarginValue = new Rect<LengthPercentageAuto>(LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f), LengthPercentageAuto.Percent(0.01f)),
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexDirectionValue = FlexDirection.Column,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(20f)),
         }, new NodeId[] { node10 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             AlignItemsValue = AlignItems.Baseline,
             SizeValue = new Size<Dimension>(Dimension.FromLength(100f), Dimension.FromLength(100f)),
@@ -102,6 +110,6 @@ public class AlignBaselineChildMarginPercent
         Assert.Equal(50f, layout_node10.Size.Width);
         Assert.Equal(10f, layout_node10.Size.Height);
         Assert.Equal(1f, layout_node10.Location.X);
-        Assert.Equal(1f, layout_node10.Location.Y);
+        Assert.Equal(0f, layout_node10.Location.Y);
     }
 }

@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "sha256": "d3e9ecd808072df506fb578669567ea6e5b19d74bcff040175867845aca82a1f",
+  "description": "An ignored512-deep array is accepted/skipped by the native iterative parser; an artificial64-level DOM limit must not remove the animation."
+}

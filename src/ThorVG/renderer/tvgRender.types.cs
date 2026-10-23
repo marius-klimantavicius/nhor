@@ -40,6 +40,7 @@ namespace ThorVG
         GradientStroke = 64,
         Blend = 128,
         Clip = 256,
+        Children = 512,
         All = 0xffff
     }
 
@@ -62,6 +63,7 @@ namespace ThorVG
     /// <summary>Render region with min/max corners. Mirrors C++ RenderRegion.</summary>
     public struct RenderRegion
     {
+        public readonly bool Inside(in Point point) => point.x >= min.x && point.x < max.x && point.y >= min.y && point.y < max.y;
         public struct MinPt { public int x, y; }
         public struct MaxPt { public int x, y; }
 
@@ -157,7 +159,8 @@ namespace ThorVG
         public ColorSpace cs = ColorSpace.Unknown;
         public byte channelSize;
         public bool premultiplied;
-        public bool alphaIgnored;
+        public bool opaque;
+        public bool alphaIgnored { get => opaque; set => opaque = value; }
 
         // Raw pointer access (mirrors C++ union { pixel_t* data; uint32_t* buf32; uint8_t* buf8; })
         internal GCHandle _pinHandle;
@@ -168,6 +171,7 @@ namespace ThorVG
         /// <summary>Pin the managed data array so raw pointers can be used. Call after setting data.</summary>
         public void Pin()
         {
+            if (data != null && data.Length > 0) FreeNative();
             Unpin();
             if (data != null && data.Length > 0)
             {
@@ -191,7 +195,7 @@ namespace ThorVG
         {
             FreeNative();
             Unpin();
-            var byteSize = (nuint)(stride * h) * (nuint)sizeof(uint);
+            var byteSize = (nuint)stride * h * (nuint)sizeof(uint);
             buf32 = (uint*)NativeMemory.AllocZeroed(byteSize);
             nativeOwned = true;
             data = null;
@@ -235,6 +239,42 @@ namespace ThorVG
             alphaIgnored = rhs.alphaIgnored;
             buf32 = rhs.buf32;  // share pointer (not owned)
         }
+
+        private void SetupFormat(uint stride, uint w, uint h, byte channelSize, ColorSpace cs, bool opaque)
+        {
+            if (cs == ColorSpace.XBGR8888) { cs = ColorSpace.ABGR8888; opaque = true; }
+            else if (cs == ColorSpace.XRGB8888) { cs = ColorSpace.ARGB8888; opaque = true; }
+            this.stride = stride;
+            this.w = w;
+            this.h = h;
+            this.channelSize = channelSize;
+            this.cs = cs;
+            // Native setup only enables opaque; callers explicitly clear the
+            // flag when they need to discard a previously known opaque state.
+            this.opaque |= opaque;
+            premultiplied = cs == ColorSpace.ABGR8888 || cs == ColorSpace.ARGB8888;
+        }
+
+        public void Setup(uint[] pixels, uint stride, uint w, uint h, byte channelSize, ColorSpace cs, bool alphaIgnored = false)
+        {
+            FreeNative();
+            Unpin();
+            data = pixels;
+            Pin();
+            SetupFormat(stride, w, h, channelSize, cs, alphaIgnored);
+        }
+
+        public void Setup(uint* pixels, uint stride, uint w, uint h, byte channelSize, ColorSpace cs, bool alphaIgnored = false)
+        {
+            if (pixels != buf32)
+            {
+                FreeNative();
+                Unpin();
+                data = null;
+                buf32 = pixels;
+            }
+            SetupFormat(stride, w, h, channelSize, cs, alphaIgnored);
+        }
     }
 
     /// <summary>Mirrors C++ RenderCompositor.</summary>
@@ -247,7 +287,20 @@ namespace ThorVG
     /// <summary>Mirrors C++ RenderPath.</summary>
     public unsafe class RenderPath
     {
-        [ThreadStatic] private static RenderPath[]? s_scratchBuffers;
+        private sealed class ScratchStorage : IDisposable
+        {
+            internal readonly RenderPath[] buffers = [new RenderPath(), new RenderPath(), new RenderPath()];
+            ~ScratchStorage() => Release();
+            public void Dispose() { Release(); GC.SuppressFinalize(this); }
+            private void Release()
+            {
+                if (buffers == null) return;
+                foreach (var path in buffers)
+                    if (path != null) { path.cmds.Dispose(); path.pts.Dispose(); }
+            }
+        }
+
+        [ThreadStatic] private static ScratchStorage? s_scratchBuffers;
         [ThreadStatic] private static int s_scratchIndex;
 
         public Array<PathCommand> cmds;
@@ -255,11 +308,18 @@ namespace ThorVG
 
         public static RenderPath Scratch()
         {
-            s_scratchBuffers ??= [new RenderPath(), new RenderPath(), new RenderPath()];
+            s_scratchBuffers ??= new ScratchStorage();
             if (++s_scratchIndex > 2) s_scratchIndex = 0;
-            var path = s_scratchBuffers[s_scratchIndex];
+            var path = s_scratchBuffers.buffers[s_scratchIndex];
             path.Clear();
             return path;
+        }
+
+        internal static void ReleaseThreadScratch()
+        {
+            s_scratchBuffers?.Dispose();
+            s_scratchBuffers = null;
+            s_scratchIndex = 0;
         }
 
         public void Dismiss()
@@ -421,7 +481,7 @@ namespace ThorVG
                         if (cleng + segLen >= pleng)
                         {
                             var t = (pleng - cleng) / segLen;
-                            return new Point(curr.x + (next.x - curr.x) * t, curr.y + (next.y - curr.y) * t);
+                            return TvgMath.Lerp(curr, next, t);
                         }
                         cleng += segLen;
                         curr = *p++;
@@ -443,7 +503,7 @@ namespace ThorVG
                         if (cleng + segLen >= pleng)
                         {
                             var t = (pleng - cleng) / segLen;
-                            return new Point(curr.x + (start.x - curr.x) * t, curr.y + (start.y - curr.y) * t);
+                            return TvgMath.Lerp(curr, start, t);
                         }
                         cleng += segLen;
                         curr = start;
@@ -633,8 +693,11 @@ namespace ThorVG
 
             if (begin >= end)
             {
+                var count = @out.cmds.count;
                 _TrimPath(inCmds, inCmdsCnt, inPts, inPtsCnt, trimStart, totalLength, @out, false);
-                _TrimPath(inCmds, inCmdsCnt, inPts, inPtsCnt, 0.0f, trimEnd, @out, connect);
+                // A wrapped trim can have an empty first part. Its second
+                // part still needs MoveTo unless this subpath emitted data.
+                _TrimPath(inCmds, inCmdsCnt, inPts, inPtsCnt, 0.0f, trimEnd, @out, connect && @out.cmds.count > count);
             }
             else
             {
@@ -909,6 +972,13 @@ namespace ThorVG
             return stroke?.fill;
         }
 
+        public uint StrokeDash(out float[]? pattern, out float offset)
+        {
+            pattern = stroke?.dashPattern;
+            offset = stroke?.dashOffset ?? 0.0f;
+            return stroke?.dashCount ?? 0;
+        }
+
         public StrokeCap StrokeCap()
         {
             return stroke != null ? stroke.cap : ThorVG.StrokeCap.Square;
@@ -946,13 +1016,43 @@ namespace ThorVG
         {
             return new RenderEffectGaussianBlur
             {
-                sigma = MathF.Max(sigma, 0.0f),
+                sigma = sigma < 0.0f ? 0.0f : sigma,
                 direction = (byte)TvgMath.Clamp(direction, 0, 2),
                 border = (byte)Math.Min(border, 1),
                 quality = (byte)Math.Min(quality, 100),
                 type = SceneEffect.GaussianBlur
             };
         }
+    }
+
+    public class RenderEffectMotionBlur : RenderEffect
+    {
+        public float distance, angle;
+        public byte quality;
+
+        public bool Update(in Matrix transform, out Point offset, out int samples)
+        {
+            valid = false;
+            samples = 0;
+            float radian = TvgMath.Deg2Rad(angle);
+            float vx = distance * MathF.Cos(radian), vy = distance * MathF.Sin(radian);
+            offset = new Point(TvgMath.MultiplyAdd(transform.e11, vx, transform.e12 * vy),
+                               TvgMath.MultiplyAdd(transform.e21, vx, transform.e22 * vy));
+            if (MathF.Abs(offset.x) < .001f) offset.x = 0;
+            if (MathF.Abs(offset.y) < .001f) offset.y = 0;
+            float length = MathF.Max(MathF.Abs(offset.x), MathF.Abs(offset.y));
+            if (TvgMath.Zero(length)) return false;
+            float density = TvgMath.MultiplyAdd(quality, .0075f, .25f);
+            samples = 2 * (int)MathF.Min(128, MathF.Ceiling(length * density * .5f)) + 1;
+            valid = true;
+            return true;
+        }
+
+        public static RenderEffectMotionBlur Gen(float distance, float angle, int quality) => new RenderEffectMotionBlur
+        {
+            distance = distance > 0.0f ? distance : 0.0f, angle = angle % 180,
+            quality = (byte)Math.Min(quality, 100), type = SceneEffect.MotionBlur
+        };
     }
 
     public class RenderEffectDropShadow : RenderEffect
@@ -962,6 +1062,19 @@ namespace ThorVG
         public float distance;
         public float sigma;
         public byte quality;
+
+        public bool Update(in Matrix transform, out Point offset)
+        {
+            offset = default;
+            valid = color[3] != 0;
+            if (!valid) return false;
+            float radian = TvgMath.Deg2Rad(90.0f - angle);
+            float x = distance * MathF.Cos(radian);
+            float y = -distance * MathF.Sin(radian);
+            offset = new Point(TvgMath.MultiplyAdd(transform.e11, x, transform.e12 * y),
+                               TvgMath.MultiplyAdd(transform.e21, x, transform.e22 * y));
+            return true;
+        }
 
         public static RenderEffectDropShadow Gen(int r, int g, int b, int a,
             float angle, float distance, float sigma, int quality)
@@ -973,7 +1086,7 @@ namespace ThorVG
             inst.color[3] = (byte)a;
             inst.angle = angle;
             inst.distance = distance;
-            inst.sigma = MathF.Max(sigma, 0.0f);
+            inst.sigma = sigma < 0.0f ? 0.0f : sigma;
             inst.quality = (byte)Math.Min(quality, 100);
             inst.type = SceneEffect.DropShadow;
             return inst;
@@ -1068,6 +1181,8 @@ namespace ThorVG
                 case ColorSpace.ABGR8888S:
                 case ColorSpace.ARGB8888:
                 case ColorSpace.ARGB8888S:
+                case ColorSpace.XBGR8888:
+                case ColorSpace.XRGB8888:
                     return 4;
                 case ColorSpace.Grayscale8:
                     return 1;

@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><text x="4" y="22" font-family="fixture-font" font-size="16">A&amp;B&lt;C&gt;&quot;D&apos;E</text>
+<text x="4" y="55" font-family="fixture-font" font-size="16"> A&nbsp;B&#035;C&#039;D </text></svg>

@@ -15,29 +15,10 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: ilammy/msvc-dev-cmd@v1
-
-    - name: Install Packages
-      run: |
-        pip install meson ninja
-
-    - name: Build
-      run: |
-        meson setup build -Dlog=true -Dloaders=all -Dsavers=all -Dbindings=capi -Dtools=all
-        where link
-        ninja -C build install
-
-    - uses: actions/upload-artifact@v4
+    - uses: actions/checkout@v7
+    - uses: TheMrMilchmann/setup-msvc-dev@v4
       with:
-        name: result_windows
-        path: build/src/thorvg*
-
-  compact_test:
-    runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ilammy/msvc-dev-cmd@v1
+        arch: x64
 
     - name: Install Packages
       run: |
@@ -45,11 +26,11 @@ jobs:
 
     - name: Build
       run: |
-        meson setup build -Dlog=true -Dloaders=all -Dsavers=all -Dstatic=true -Dthreads=false
+        meson setup build -Dlog=true -Dloaders=all -Dsavers=all -Dstatic=true -Dthreads=false -Dextra="lottie_exp,openmp"
         where link
         ninja -C build install
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: result_windows_static
         path: build/src/thorvg*
@@ -57,8 +38,12 @@ jobs:
   unit_test:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: actions/checkout@v7
+      with:
+        submodules: true
+    - uses: TheMrMilchmann/setup-msvc-dev@v4
+      with:
+        arch: x64
 
     - name: Install Packages
       run: |
@@ -66,12 +51,11 @@ jobs:
 
     - name: Build
       run: |
-        meson setup build -Dloaders=all -Dsavers=all -Dbindings=capi -Dtests=true --errorlogs
+        meson setup build -Dloaders=all -Dsavers=all -Dbindings=capi -Dtests=true -Dextra="lottie_exp,openmp" --errorlogs
         where link
         ninja -C build install test
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: UnitTestReport
         path: build/meson-logs/testlog.txt
-

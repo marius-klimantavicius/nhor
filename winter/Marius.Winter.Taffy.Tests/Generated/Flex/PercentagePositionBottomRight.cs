@@ -13,11 +13,13 @@ public class PercentagePositionBottomRight
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromPercent(0.55f), Dimension.FromPercent(0.15f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.AUTO, LengthPercentageAuto.Percent(0.2f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Percent(0.1f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromLength(500f), Dimension.FromLength(500f)),
         }, new NodeId[] { node0 });
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
@@ -39,12 +41,14 @@ public class PercentagePositionBottomRight
         var taffy = NewTestTree();
         var node0 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromPercent(0.55f), Dimension.FromPercent(0.15f)),
             Inset = new Rect<LengthPercentageAuto>(LengthPercentageAuto.AUTO, LengthPercentageAuto.Percent(0.2f), LengthPercentageAuto.AUTO, LengthPercentageAuto.Percent(0.1f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(500f), Dimension.FromLength(500f)),
         }, new NodeId[] { node0 });

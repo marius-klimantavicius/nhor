@@ -1,0 +1,8 @@
+{
+  "kind": "authored malformed-string regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "basedOn": "lottie-trim-source.lot",
+  "basedOnSha256": "19f51cbb8690c24bf725b6c994eac1e943065158ecbe80507c514497a01b0e1c",
+  "sha256": "6daf7d7f2f1d3323fcd058d77e368d4697bef01c23c417fd3249aad926120f24",
+  "description": "Native quick metadata loading with two workers succeeds, then the real full parser rejects the unpaired high-surrogate escape and emits no paints. Managed decoding must report the same parser state and complete actual empty rendering without a conversion exception."
+}

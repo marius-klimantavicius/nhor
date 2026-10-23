@@ -21,6 +21,11 @@ namespace ThorVG
     public static unsafe partial class SwRaster
     {
         private const float DOWN_SCALE_TOLERANCE = 0.5f;
+#if THORVG_PARALLEL_RENDERING
+        internal const bool ParallelRenderingEnabled = true;
+#else
+        internal const bool ParallelRenderingEnabled = false;
+#endif
 
         // =====================================================================
         //  Alpha helpers
@@ -188,6 +193,10 @@ namespace ThorVG
         // 2n x 2n Mean Kernel (downscaler)
         private static uint _interpDownScaler(uint* img, uint stride, uint w, uint h, float sx, float sy, int miny, int maxy, int n)
         {
+#if ENABLE_SIMD
+            if (Avx2.IsSupported) return avx2RasterDownScaler(img, stride, w, h, sx, sy, miny, maxy, n);
+            if (AdvSimd.IsSupported) return neonRasterDownScaler(img, stride, w, h, sx, sy, miny, maxy, n);
+#endif
             long c0 = 0, c1 = 0, c2 = 0, c3 = 0;
 
             var minx = (int)sx - n;
@@ -637,7 +646,7 @@ namespace ThorVG
             {
                 var span = &rle.spans.data[i];
                 // SCALED_IMAGE_RANGE_Y
-                var sy = span->y * itransform.e22 + itransform.e23 - 0.49f;
+                var sy = TvgMath.MultiplyAdd(span->y, itransform.e22, itransform.e23) - 0.49f;
                 if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
                 if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
@@ -651,7 +660,7 @@ namespace ThorVG
                 var a = (byte)MULTIPLY(span->coverage, opacity);
                 for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst, cmp += csize)
                 {
-                    var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                    var sx = TvgMath.MultiplyAdd(x, itransform.e11, itransform.e13) - 0.49f;
                     if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                     var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                     src = ALPHA_BLEND(src, (a == 255) ? alpha!(cmp) : (byte)MULTIPLY(alpha!(cmp), a));
@@ -672,7 +681,7 @@ namespace ThorVG
             for (uint i = 0; i < rle.spans.count; ++i)
             {
                 var span = &rle.spans.data[i];
-                var sy = span->y * itransform.e22 + itransform.e23 - 0.49f;
+                var sy = TvgMath.MultiplyAdd(span->y, itransform.e22, itransform.e23) - 0.49f;
                 if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
                 if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
@@ -687,7 +696,7 @@ namespace ThorVG
                 {
                     for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, itransform.e11, itransform.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                         *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, A(src));
@@ -697,7 +706,7 @@ namespace ThorVG
                 {
                     for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, itransform.e11, itransform.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                         *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(a, A(src)));
@@ -717,7 +726,7 @@ namespace ThorVG
             for (uint i = 0; i < rle.spans.count; ++i)
             {
                 var span = &rle.spans.data[i];
-                var sy = span->y * itransform.e22 + itransform.e23 - 0.49f;
+                var sy = TvgMath.MultiplyAdd(span->y, itransform.e22, itransform.e23) - 0.49f;
                 if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
                 if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
@@ -732,7 +741,7 @@ namespace ThorVG
                     var dst = &surface.buf32[span->y * surface.stride + span->x];
                     for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, itransform.e11, itransform.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                         if (a < 255) src = ALPHA_BLEND(src, a);
@@ -744,7 +753,7 @@ namespace ThorVG
                     var dst = &surface.buf8[span->y * surface.stride + span->x];
                     for (uint x = (uint)span->x; x < (uint)(span->x + span->len); ++x, ++dst)
                     {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, itransform.e11, itransform.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                         *dst = (byte)MULTIPLY(A(src), a);
@@ -858,56 +867,42 @@ namespace ThorVG
         }
 
         private static bool _rasterScaledMattedImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
-        {
-            if (surface.channelSize == sizeof(byte)) return false;
-
-            var dbuffer = surface.buf32 + (bbox.min.y * surface.stride + bbox.min.x);
-            var csize = surface.compositor!.image.channelSize;
-            var cbuffer = surface.compositor.image.buf8 + (bbox.min.y * surface.compositor.image.stride + bbox.min.x) * csize;
-            var alpha = surface.Alpha(surface.compositor.method);
-
+                {
+            var inverse = itransform;
+            var region = bbox;
             ScaleMethod scaleMethod = _scaleMethod(image);
             var sampleSize = (int)_sampleSize(image.scale);
-            int miny = 0, maxy = 0;
-
-            for (var y = bbox.min.y; y < bbox.max.y; ++y)
+            if (surface.channelSize == sizeof(byte)) return false;
+            var csize = surface.compositor!.image.channelSize;
+            var alpha = surface.Alpha(surface.compositor.method);
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(region.min.y, region.max.y, SwPostEffect.ParallelOptions(), y =>
             {
-                var sy = y * itransform.e22 + itransform.e23 - 0.49f;
-                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) { dbuffer += surface.stride; cbuffer += surface.compositor.image.stride * csize; continue; }
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) return;
                 if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
                     var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
                     miny = my - sampleSize; if (miny < 0) miny = 0;
                     maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
                 }
-                var dst = dbuffer;
-                var cmp = cbuffer;
-                for (var x = bbox.min.x; x < bbox.max.x; ++x, ++dst, cmp += csize)
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                var cmp = surface.compositor!.image.buf8 + (y * surface.compositor.image.stride + region.min.x) * csize;
+                for (var x = region.min.x; x < region.max.x; ++x, ++dst, cmp += csize)
                 {
-                    var sx = x * itransform.e11 + itransform.e13 - 0.49f;
-                    if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
-                    var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                     var tmp = ALPHA_BLEND(src, opacity == 255 ? alpha!(cmp) : (byte)MULTIPLY(opacity, alpha!(cmp)));
                     *dst = tmp + ALPHA_BLEND(*dst, IA(tmp));
                 }
-                dbuffer += surface.stride;
-                cbuffer += surface.compositor.image.stride * csize;
-            }
-            return true;
-        }
-
-        private static bool _rasterScaledBlendingImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
-        {
-            if (surface.channelSize == sizeof(byte)) return false;
-
-            var dbuffer = surface.buf32 + (bbox.min.y * surface.stride + bbox.min.x);
-            ScaleMethod scaleMethod = _scaleMethod(image);
-            var sampleSize = (int)_sampleSize(image.scale);
-            int miny = 0, maxy = 0;
-
-            for (var y = bbox.min.y; y < bbox.max.y; ++y, dbuffer += surface.stride)
+            });
+#else
+            for (var y = region.min.y; y < region.max.y; ++y)
             {
-                var sy = y * itransform.e22 + itransform.e23 - 0.49f;
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
                 if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
                 if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
@@ -915,82 +910,251 @@ namespace ThorVG
                     miny = my - sampleSize; if (miny < 0) miny = 0;
                     maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
                 }
-                var dst = dbuffer;
-                for (var x = bbox.min.x; x < bbox.max.x; ++x, ++dst)
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                var cmp = surface.compositor!.image.buf8 + (y * surface.compositor.image.stride + region.min.x) * csize;
+                for (var x = region.min.x; x < region.max.x; ++x, ++dst, cmp += csize)
                 {
-                    var sx = x * itransform.e11 + itransform.e13 - 0.49f;
-                    if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
-                    var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                    *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(opacity, A(src)));
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                    var tmp = ALPHA_BLEND(src, opacity == 255 ? alpha!(cmp) : (byte)MULTIPLY(opacity, alpha!(cmp)));
+                    *dst = tmp + ALPHA_BLEND(*dst, IA(tmp));
                 }
             }
+#endif
+            return true;
+        }
+
+        private static bool _rasterScaledBlendingImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
+                {
+            var inverse = itransform;
+            var region = bbox;
+            ScaleMethod scaleMethod = _scaleMethod(image);
+            var sampleSize = (int)_sampleSize(image.scale);
+            if (surface.channelSize == sizeof(byte)) return false;
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(region.min.y, region.max.y, SwPostEffect.ParallelOptions(), y =>
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) return;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                {
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
+                }
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(opacity, A(src)));
+                    }
+            });
+#else
+            for (var y = region.min.y; y < region.max.y; ++y)
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                {
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
+                }
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = INTERPOLATE(surface.blender!(surface, rasterUnpremultiply(src), *dst), *dst, (byte)MULTIPLY(opacity, A(src)));
+                    }
+            }
+#endif
             return true;
         }
 
         private static bool _rasterScaledImage(SwSurface surface, SwImage image, in Matrix itransform, in RenderRegion bbox, byte opacity)
-        {
+                {
+            var inverse = itransform;
+            var region = bbox;
             ScaleMethod scaleMethod = _scaleMethod(image);
             var sampleSize = (int)_sampleSize(image.scale);
-            int miny = 0, maxy = 0;
-
-            // 32bit channels
             if (surface.channelSize == sizeof(uint))
             {
-                var buffer = surface.buf32 + (bbox.min.y * surface.stride + bbox.min.x);
-                for (var y = bbox.min.y; y < bbox.max.y; ++y, buffer += surface.stride)
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(region.min.y, region.max.y, SwPostEffect.ParallelOptions(), y =>
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) return;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
-                    var sy = y * itransform.e22 + itransform.e23 - 0.49f;
-                    if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
-                    if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
+                }
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                if (image.alphaIgnored)
+                {
+                    if (opacity == 255)
                     {
-                        var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
-                        miny = my - sampleSize; if (miny < 0) miny = 0;
-                        maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
-                    }
-                    var dst = buffer;
-                    for (var x = bbox.min.x; x < bbox.max.x; ++x, ++dst)
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
                     {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
-                        if (opacity == 255)
-                        {
-                            *dst = image.alphaIgnored ? src : src + ALPHA_BLEND(*dst, IA(src));
-                        }
-                        else if (image.alphaIgnored)
-                        {
-                            *dst = INTERPOLATE(src, *dst, opacity);
-                        }
-                        else
-                        {
-                            src = ALPHA_BLEND(src, opacity);
-                            *dst = src + ALPHA_BLEND(*dst, IA(src));
-                        }
+                        *dst = src;
+                    }
+                    }
+                    else
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = INTERPOLATE(src, *dst, opacity);
+                    }
+                    }
+                }
+                else
+                {
+                    if (opacity == 255)
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    }
+                    }
+                    else
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        src = ALPHA_BLEND(src, opacity);
+                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    }
+                    }
+                }
+            });
+#else
+            for (var y = region.min.y; y < region.max.y; ++y)
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                {
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
+                }
+                var dst = surface.buf32 + y * surface.stride + region.min.x;
+                if (image.alphaIgnored)
+                {
+                    if (opacity == 255)
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = src;
+                    }
+                    }
+                    else
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = INTERPOLATE(src, *dst, opacity);
+                    }
+                    }
+                }
+                else
+                {
+                    if (opacity == 255)
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    }
+                    }
+                    else
+                    {
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        src = ALPHA_BLEND(src, opacity);
+                        *dst = src + ALPHA_BLEND(*dst, IA(src));
+                    }
                     }
                 }
             }
+#endif
+            }
             else if (surface.channelSize == sizeof(byte))
             {
-                var buffer = surface.buf8 + (bbox.min.y * surface.stride + bbox.min.x);
-                for (var y = bbox.min.y; y < bbox.max.y; ++y, buffer += surface.stride)
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(region.min.y, region.max.y, SwPostEffect.ParallelOptions(), y =>
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) return;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
                 {
-                    var sy = y * itransform.e22 + itransform.e23 - 0.49f;
-                    if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
-                    if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
+                }
+                var dst = surface.buf8 + y * surface.stride + region.min.x;
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
                     {
-                        var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
-                        miny = my - sampleSize; if (miny < 0) miny = 0;
-                        maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
-                    }
-                    var dst = buffer;
-                    for (var x = bbox.min.x; x < bbox.max.x; ++x, ++dst)
-                    {
-                        var sx = x * itransform.e11 + itransform.e13 - 0.49f;
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
                         if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
                         var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
                         *dst = (byte)MULTIPLY(A(src), opacity);
                     }
+            });
+#else
+            for (var y = region.min.y; y < region.max.y; ++y)
+            {
+                int miny = 0, maxy = 0;
+                var sy = TvgMath.MultiplyAdd(y, inverse.e22, inverse.e23) - 0.49f;
+                if (sy <= -0.5f || (uint)(sy + 0.5f) >= image.h) continue;
+                if (scaleMethod == (ScaleMethod)_interpDownScaler)
+                {
+                    var my = (int)MathF.Round(sy, MidpointRounding.ToEven);
+                    miny = my - sampleSize; if (miny < 0) miny = 0;
+                    maxy = my + sampleSize; if (maxy >= (int)image.h) maxy = (int)image.h;
                 }
+                var dst = surface.buf8 + y * surface.stride + region.min.x;
+                    for (var x = region.min.x; x < region.max.x; ++x, ++dst)
+                    {
+                        var sx = TvgMath.MultiplyAdd(x, inverse.e11, inverse.e13) - 0.49f;
+                        if (sx <= -0.5f || (uint)(sx + 0.5f) >= image.w) continue;
+                        var src = scaleMethod(image.buf32, image.stride, image.w, image.h, sx, sy, miny, maxy, sampleSize);
+                        *dst = (byte)MULTIPLY(A(src), opacity);
+                    }
+            }
+#endif
             }
             return true;
         }
@@ -1005,8 +1169,42 @@ namespace ThorVG
             return false;
         }
 
+        private static bool _rasterDirectMattedGrayscale(SwSurface surface, SwImage image, SwCompositor compositor, in RenderRegion bbox, int w, int h, byte opacity)
+        {
+            var csize = compositor.image.channelSize;
+            var alpha = surface.Alpha(compositor.method);
+            var sbuffer = image.buf32 + (bbox.min.y + image.oy) * image.stride + (bbox.min.x + image.ox);
+            var cbuffer = compositor.image.buf8 + (bbox.min.y * compositor.image.stride + bbox.min.x) * csize;
+            var dbuffer = surface.buf8 + (bbox.min.y * surface.stride) + bbox.min.x;
+            for (var y = 0; y < h; ++y, dbuffer += surface.stride, sbuffer += image.stride)
+            {
+                var cmp = cbuffer;
+                var src = sbuffer;
+                if (opacity == 255)
+                {
+                    for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
+                    {
+                        var tmp = (byte)MULTIPLY(A(*src), alpha!(cmp));
+                        *dst = (byte)(tmp + MULTIPLY(*dst, 255 - tmp));
+                    }
+                }
+                else
+                {
+                    for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
+                    {
+                        var tmp = (byte)MULTIPLY(A(*src), MULTIPLY(opacity, alpha!(cmp)));
+                        *dst = (byte)(tmp + MULTIPLY(*dst, 255 - tmp));
+                    }
+                }
+                cbuffer += compositor.image.stride * csize;
+            }
+            return true;
+        }
+
         private static bool _rasterDirectMattedImage(SwSurface surface, SwImage image, in RenderRegion bbox, int w, int h, byte opacity)
         {
+            if (surface.channelSize == sizeof(byte)) return _rasterDirectMattedGrayscale(surface, image, surface.compositor!, bbox, w, h, opacity);
+
             var csize = surface.compositor!.image.channelSize;
             var alpha = surface.Alpha(surface.compositor.method);
             var sbuffer = image.buf32 + (bbox.min.y + image.oy) * image.stride + (bbox.min.x + image.ox);
@@ -1039,39 +1237,12 @@ namespace ThorVG
                     cbuffer += surface.compositor.image.stride * csize;
                 }
             }
-            // 8 bits
-            else if (surface.channelSize == sizeof(byte))
-            {
-                var dbuffer = surface.buf8 + (bbox.min.y * surface.stride) + bbox.min.x;
-                for (var y = 0; y < h; ++y, dbuffer += surface.stride, sbuffer += image.stride)
-                {
-                    var cmp = cbuffer;
-                    var src = sbuffer;
-                    if (opacity == 255)
-                    {
-                        for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
-                        {
-                            var tmp = (byte)MULTIPLY(A(*src), alpha!(cmp));
-                            *dst = (byte)(tmp + MULTIPLY(*dst, 255 - tmp));
-                        }
-                    }
-                    else
-                    {
-                        for (var dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize)
-                        {
-                            var tmp = (byte)MULTIPLY(A(*src), MULTIPLY(opacity, alpha!(cmp)));
-                            *dst = (byte)(tmp + MULTIPLY(*dst, 255 - tmp));
-                        }
-                    }
-                    cbuffer += surface.compositor.image.stride * csize;
-                }
-            }
             return true;
         }
 
         private static bool _rasterDirectBlendingImage(SwSurface surface, SwImage image, in RenderRegion bbox, int w, int h, byte opacity)
         {
-            if (surface.channelSize == sizeof(byte)) return false;
+            if (surface.channelSize == sizeof(byte)) return _rasterDirectImage(surface, image, bbox, w, h, opacity);
 
             // fast-track: mix the blending & masking composition
             static bool injecting(SwCompositor? cmp)
@@ -1147,7 +1318,7 @@ namespace ThorVG
 
         private static bool _rasterDirectMattedBlendingImage(SwSurface surface, SwImage image, SwCompositor compositor, in RenderRegion bbox, int w, int h, byte opacity)
         {
-            if (surface.channelSize == sizeof(byte)) return false;
+            if (surface.channelSize == sizeof(byte)) return _rasterDirectMattedGrayscale(surface, image, compositor, bbox, w, h, opacity);
 
             var csize = compositor.image.channelSize;
             var alpha = surface.Alpha(compositor.method);
@@ -1190,7 +1361,7 @@ namespace ThorVG
             for (uint y = 0; y < bbox.H(); ++y)
             {
                 fillFn(fill, cbuffer, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), maskOp, 255);
-                cbuffer += surface.stride;
+                cbuffer += cstride;
             }
             return _compositeMaskImage(surface, surface.compositor.image, surface.compositor.bbox);
         }
@@ -1222,6 +1393,8 @@ namespace ThorVG
 
         private static bool _rasterGradientMattedRect(SwSurface surface, in RenderRegion bbox, SwFill fill, GradientFillMatted fillFn)
         {
+            if (surface.channelSize == sizeof(byte)) return false;
+
             var buffer = surface.buf32 + (bbox.min.y * surface.stride) + bbox.min.x;
             var csize = surface.compositor!.image.channelSize;
             var cbuffer = surface.compositor.image.buf8 + (bbox.min.y * surface.compositor.image.stride + bbox.min.x) * csize;
@@ -1231,7 +1404,7 @@ namespace ThorVG
             {
                 fillFn(fill, buffer, (uint)bbox.min.y + y, (uint)bbox.min.x, bbox.W(), cbuffer, alpha!, csize, 255);
                 buffer += surface.stride;
-                cbuffer += surface.stride * csize;
+                cbuffer += surface.compositor.image.stride * csize;
             }
             return true;
         }
@@ -1316,6 +1489,10 @@ namespace ThorVG
                     (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillLinear(f, d, y, x, l, op, a),
                     (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillLinear(f, d, y, x, l, cmp, op, a));
             }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRect<LinearGrad>(surface, bbox, fill);
+            }
             else if (_blending(surface))
             {
                 return _rasterBlendingGradientRect(surface, bbox, fill, fillLinear);
@@ -1336,6 +1513,10 @@ namespace ThorVG
                     (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillRadial(f, d, y, x, l, op, a),
                     (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillRadial(f, d, y, x, l, cmp, op, a));
             }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRect<RadialGrad>(surface, bbox, fill);
+            }
             else if (_blending(surface))
             {
                 return _rasterBlendingGradientRect(surface, bbox, fill, fillRadial);
@@ -1344,6 +1525,30 @@ namespace ThorVG
             {
                 if (fill.translucent) return _rasterTranslucentGradientRect<RadialGrad>(surface, bbox, fill);
                 else return _rasterSolidGradientRect<RadialGrad>(surface, bbox, fill);
+            }
+        }
+
+        private static bool _rasterConicGradientRect(SwSurface surface, in RenderRegion bbox, SwFill fill)
+        {
+            if (_compositing(surface))
+            {
+                if (_matting(surface)) return _rasterGradientMattedRect(surface, bbox, fill, fillConic);
+                else return _rasterGradientMaskedRect(surface, bbox, fill,
+                    (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillConic(f, d, y, x, l, op, a),
+                    (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillConic(f, d, y, x, l, cmp, op, a));
+            }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRect<ConicGrad>(surface, bbox, fill);
+            }
+            else if (_blending(surface))
+            {
+                return _rasterBlendingGradientRect(surface, bbox, fill, fillConic);
+            }
+            else
+            {
+                if (fill.translucent) return _rasterTranslucentGradientRect<ConicGrad>(surface, bbox, fill);
+                else return _rasterSolidGradientRect<ConicGrad>(surface, bbox, fill);
             }
         }
 
@@ -1393,6 +1598,8 @@ namespace ThorVG
 
         private static bool _rasterGradientMattedRle(SwSurface surface, SwRle rle, SwFill fill, GradientFillMatted fillFn)
         {
+            if (surface.channelSize == sizeof(byte)) return false;
+
             var span = rle.Data();
             var csize = surface.compositor!.image.channelSize;
             var cbuffer = surface.compositor.image.buf8;
@@ -1481,6 +1688,10 @@ namespace ThorVG
                     (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillLinear(f, d, y, x, l, op, a),
                     (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillLinear(f, d, y, x, l, cmp, op, a));
             }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRle<LinearGrad>(surface, rle, fill);
+            }
             else if (_blending(surface))
             {
                 return _rasterBlendingGradientRle(surface, rle, fill, fillLinear);
@@ -1501,6 +1712,10 @@ namespace ThorVG
                     (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillRadial(f, d, y, x, l, op, a),
                     (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillRadial(f, d, y, x, l, cmp, op, a));
             }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRle<RadialGrad>(surface, rle, fill);
+            }
             else if (_blending(surface))
             {
                 return _rasterBlendingGradientRle(surface, rle, fill, fillRadial);
@@ -1512,22 +1727,55 @@ namespace ThorVG
             }
         }
 
+        private static bool _rasterConicGradientRle(SwSurface surface, SwRle rle, SwFill fill)
+        {
+            if (_compositing(surface))
+            {
+                if (_matting(surface)) return _rasterGradientMattedRle(surface, rle, fill, fillConic);
+                else return _rasterGradientMaskedRle(surface, rle, fill,
+                    (SwFill f, byte* d, uint y, uint x, uint l, SwMask op, byte a) => fillConic(f, d, y, x, l, op, a),
+                    (SwFill f, byte* d, uint y, uint x, uint l, byte* cmp, SwMask op, byte a) => fillConic(f, d, y, x, l, cmp, op, a));
+            }
+            else if (surface.channelSize == sizeof(byte))
+            {
+                return _rasterTranslucentGradientRle<ConicGrad>(surface, rle, fill);
+            }
+            else if (_blending(surface))
+            {
+                return _rasterBlendingGradientRle(surface, rle, fill, fillConic);
+            }
+            else
+            {
+                if (fill.translucent) return _rasterTranslucentGradientRle<ConicGrad>(surface, rle, fill);
+                else return _rasterSolidGradientRle<ConicGrad>(surface, rle, fill);
+            }
+        }
+
         // =====================================================================
         //  Public API
         // =====================================================================
 
         public static void rasterTranslucentPixel32(uint* dst, uint* src, uint len, byte opacity)
         {
+#if ENABLE_SIMD
+            if (Avx2.IsSupported) { avx2RasterTranslucentPixels(dst, src, len, opacity); return; }
+            if (AdvSimd.IsSupported) { neonRasterTranslucentPixels(dst, src, len, opacity); return; }
+#endif
             cRasterTranslucentPixels(dst, src, len, opacity);
         }
 
         public static void rasterPixel32(uint* dst, uint* src, uint len, byte opacity)
         {
+#if ENABLE_SIMD
+            if (Avx2.IsSupported) { avx2RasterSolidPixels(dst, src, len, opacity); return; }
+            if (AdvSimd.IsSupported) { neonRasterSolidPixels(dst, src, len, opacity); return; }
+#endif
             cRasterPixels(dst, src, len, opacity);
         }
 
         public static void rasterGrayscale8(byte* dst, byte val, uint offset, int len)
         {
+            if (len <= 0) return;
 #if ENABLE_SIMD
             if (Avx2.IsSupported)
                 avxRasterGrayscale8(dst, val, offset, len);
@@ -1540,6 +1788,7 @@ namespace ThorVG
 
         public static void rasterPixel32(uint* dst, uint val, uint offset, int len)
         {
+            if (len <= 0) return;
 #if ENABLE_SIMD
             if (Avx2.IsSupported)
                 avxRasterPixel32(dst, val, offset, len);
@@ -1629,14 +1878,29 @@ namespace ThorVG
         {
             if (surface.channelSize != sizeof(uint)) return;
 
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(0, (int)surface.h, SwPostEffect.ParallelOptions(), y =>
+            {
+                var buffer = surface.buf32 + surface.stride * (uint)y;
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) avx2RasterUnpremultiply(buffer, surface.w);
+                else if (AdvSimd.IsSupported) neonRasterUnpremultiply(buffer, surface.w);
+                else
+#endif
+                    cRasterUnpremultiply(buffer, surface.w);
+                        });
+#else
             for (uint y = 0; y < surface.h; y++)
             {
                 var buffer = surface.buf32 + surface.stride * y;
-                for (uint x = 0; x < surface.w; ++x)
-                {
-                    buffer[x] = rasterUnpremultiply(buffer[x]);
-                }
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) avx2RasterUnpremultiply(buffer, surface.w);
+                else if (AdvSimd.IsSupported) neonRasterUnpremultiply(buffer, surface.w);
+                else
+#endif
+                    cRasterUnpremultiply(buffer, surface.w);
             }
+#endif
             surface.premultiplied = false;
         }
 
@@ -1646,17 +1910,29 @@ namespace ThorVG
             if (surface.premultiplied || (surface.channelSize != sizeof(uint))) return;
             surface.premultiplied = true;
 
-            var buffer = surface.buf32;
-            for (uint y = 0; y < surface.h; ++y, buffer += surface.stride)
+#if THORVG_PARALLEL_RENDERING
+            System.Threading.Tasks.Parallel.For(0, (int)surface.h, SwPostEffect.ParallelOptions(), y =>
             {
-                var dst = buffer;
-                for (uint x = 0; x < surface.w; ++x, ++dst)
-                {
-                    var c = *dst;
-                    if (A(c) == 255) continue;
-                    *dst = PREMULTIPLY(c, A(c));
-                }
+                var buffer = surface.buf32 + surface.stride * (uint)y;
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) avx2RasterPremultiply(buffer, surface.w);
+                else if (AdvSimd.IsSupported) neonRasterPremultiply(buffer, surface.w);
+                else
+#endif
+                    cRasterPremultiply(buffer, surface.w);
+                        });
+#else
+            for (uint y = 0; y < surface.h; ++y)
+            {
+                var buffer = surface.buf32 + surface.stride * y;
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) avx2RasterPremultiply(buffer, surface.w);
+                else if (AdvSimd.IsSupported) neonRasterPremultiply(buffer, surface.w);
+                else
+#endif
+                    cRasterPremultiply(buffer, surface.w);
             }
+#endif
         }
 
         public static bool rasterScaledImage(SwSurface surface, SwImage image, in Matrix transform, in RenderRegion bbox, byte opacity)
@@ -1757,6 +2033,7 @@ namespace ThorVG
             {
                 if (type == Type.LinearGradient) return _rasterLinearGradientRect(surface, bbox, shape.fill);
                 else if (type == Type.RadialGradient) return _rasterRadialGradientRect(surface, bbox, shape.fill);
+                else if (type == Type.ConicGradient) return _rasterConicGradientRect(surface, bbox, shape.fill);
             }
             else if (shape.hasRle)
             {
@@ -1764,6 +2041,7 @@ namespace ThorVG
                 {
                     if (type == Type.LinearGradient) return _rasterLinearGradientRle(surface, shape.rle, shape.fill);
                     else if (type == Type.RadialGradient) return _rasterRadialGradientRle(surface, shape.rle, shape.fill);
+                    else if (type == Type.ConicGradient) return _rasterConicGradientRle(surface, shape.rle, shape.fill);
                 }
             }
             return false;
@@ -1785,6 +2063,7 @@ namespace ThorVG
             var type = fdata.GetFillType();
             if (type == Type.LinearGradient) return _rasterLinearGradientRle(surface, rle, shape.stroke.fill);
             else if (type == Type.RadialGradient) return _rasterRadialGradientRle(surface, rle, shape.stroke.fill);
+                else if (type == Type.ConicGradient) return _rasterConicGradientRle(surface, rle, shape.stroke.fill);
             return false;
         }
 
@@ -1829,11 +2108,19 @@ namespace ThorVG
             if (((from == ColorSpace.ABGR8888) || (from == ColorSpace.ABGR8888S)) && ((to == ColorSpace.ARGB8888) || (to == ColorSpace.ARGB8888S)))
             {
                 surface.cs = to;
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) return avx2RasterABGRtoARGB(surface);
+                if (AdvSimd.IsSupported) return neonRasterABGRtoARGB(surface);
+#endif
                 return cRasterABGRtoARGB(surface);
             }
             if (((from == ColorSpace.ARGB8888) || (from == ColorSpace.ARGB8888S)) && ((to == ColorSpace.ABGR8888) || (to == ColorSpace.ABGR8888S)))
             {
                 surface.cs = to;
+#if ENABLE_SIMD
+                if (Avx2.IsSupported) return avx2RasterABGRtoARGB(surface);
+                if (AdvSimd.IsSupported) return neonRasterABGRtoARGB(surface);
+#endif
                 return cRasterARGBtoABGR(surface);
             }
             return false;
@@ -1854,6 +2141,45 @@ namespace ThorVG
                 dst += ((bbox.min.x * stride) + bbox.min.y);
             }
 
+            #if THORVG_PARALLEL_EFFECTS
+            System.Threading.Tasks.Parallel.For(0, (w + BLOCK - 1) / BLOCK, SwPostEffect.ParallelOptions(), block =>
+            {
+                int x = block * BLOCK;
+                var bx = Math.Min(w, x + BLOCK) - x;
+                var inPtr = &src[x];
+                var outPtr = &dst[x * stride];
+                for (int y = 0; y < h; y += BLOCK)
+                {
+                    var p = &inPtr[y * stride];
+                    var q = &outPtr[y];
+                    var by = Math.Min(h, y + BLOCK) - y;
+#if ENABLE_SIMD
+                    if (bx == BLOCK && by == BLOCK && Avx2.IsSupported)
+                    {
+                        avx2RasterGaussianXYFlipBlock(p, q, stride);
+                        continue;
+                    }
+                    if (bx == BLOCK && by == BLOCK && AdvSimd.Arm64.IsSupported)
+                    {
+                        neonRasterGaussianXYFlipBlock(p, q, stride);
+                        continue;
+                    }
+#endif
+                    for (int xx = 0; xx < bx; ++xx)
+                    {
+                        for (int yy = 0; yy < by; ++yy)
+                        {
+                            *q = *p;
+                            p += stride;
+                            ++q;
+                        }
+                        p += 1 - by * stride;
+                        q += stride - by;
+                    }
+                }
+
+            });
+#else
             for (int x = 0; x < w; x += BLOCK)
             {
                 var bx = Math.Min(w, x + BLOCK) - x;
@@ -1864,6 +2190,18 @@ namespace ThorVG
                     var p = &inPtr[y * stride];
                     var q = &outPtr[y];
                     var by = Math.Min(h, y + BLOCK) - y;
+#if ENABLE_SIMD
+                    if (bx == BLOCK && by == BLOCK && Avx2.IsSupported)
+                    {
+                        avx2RasterGaussianXYFlipBlock(p, q, stride);
+                        continue;
+                    }
+                    if (bx == BLOCK && by == BLOCK && AdvSimd.Arm64.IsSupported)
+                    {
+                        neonRasterGaussianXYFlipBlock(p, q, stride);
+                        continue;
+                    }
+#endif
                     for (int xx = 0; xx < bx; ++xx)
                     {
                         for (int yy = 0; yy < by; ++yy)
@@ -1877,6 +2215,7 @@ namespace ThorVG
                     }
                 }
             }
+#endif
         }
 
     }

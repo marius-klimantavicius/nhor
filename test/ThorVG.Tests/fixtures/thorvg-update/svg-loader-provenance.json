@@ -1,0 +1,27 @@
+{
+  "kind": "authored native comparison fixtures",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "font": {
+    "path": "cff-curves.otf",
+    "sha256": "e891466fd4457493d53e86e70a868a6bd4ca6d2f5f63b24c54ab9483226832b6",
+    "provenance": "font-provenance.json; synthetic CFF curve outline"
+  },
+  "fixtures": [
+    {
+      "path": "svg-size-missing.svg",
+      "sha256": "41c763ea36785b3b887b5cc768733a3ef8529c778c22a88c5c51c08096102775"
+    },
+    {
+      "path": "svg-size-percent.svg",
+      "sha256": "5ce1eed1f7474c83d0f45df9c239c6f4d9fd2efd4e97323d3520697da8017427"
+    },
+    {
+      "path": "svg-size-zero.svg",
+      "sha256": "2d3ee699b7e167e265d964e57269d67dacab7fc569bb9d5306d2530ab0ef7831"
+    },
+    {
+      "path": "svg-embedded-otf.svg",
+      "sha256": "63eec57cc943524243c2c35c14cb130ff0b10180b30cc5efb65a29db4061b370"
+    }
+  ]
+}

@@ -7,6 +7,9 @@ using System.Text;
 
 namespace ThorVG
 {
+    public enum GlShaderUniform : byte { Depth, ViewMatrix, SourceTexture, BlurTexture, DestinationTexture, MaskTexture, Texture, Count }
+    public enum GlShaderUniformBlock : byte { Gaussian, Viewport, DropShadow, Params, BlendRegion, TransformInfo, GradientInfo, ColorInfo, Count }
+
     public unsafe class GlProgram : IDisposable
     {
         /************************************************************************/
@@ -15,6 +18,10 @@ namespace ThorVG
 
         private static uint mCurrentProgram;
         private uint mProgramObj;
+        private readonly int[] mUniformLocations = new int[(int)GlShaderUniform.Count];
+        private readonly int[] mUniformBlockIndices = new int[(int)GlShaderUniformBlock.Count];
+        private readonly uint[] mUniformBlockBindings = new uint[(int)GlShaderUniformBlock.Count];
+        private readonly int[] mSamplerBindings = new int[(int)GlShaderUniform.Count];
 
         /************************************************************************/
         /* External Class Implementation                                        */
@@ -22,6 +29,10 @@ namespace ThorVG
 
         public GlProgram(string vertSrc, string fragSrc)
         {
+            System.Array.Fill(mUniformLocations, -2);
+            System.Array.Fill(mUniformBlockIndices, -2);
+            System.Array.Fill(mUniformBlockBindings, uint.MaxValue);
+            System.Array.Fill(mSamplerBindings, -1);
             using var shader = new GlShader(vertSrc, fragSrc);
 
             // Create the program object
@@ -92,7 +103,7 @@ namespace ThorVG
         {
             fixed (byte* pName = name)
             {
-                var location = GL.glGetAttribLocation(mCurrentProgram, pName);
+                var location = GL.glGetAttribLocation(mProgramObj, pName);
                 GL.GL_CHECK();
                 return location;
             }
@@ -108,6 +119,20 @@ namespace ThorVG
             }
         }
 
+        public int GetUniformLocation(GlShaderUniform uniform)
+        {
+            ref int location = ref mUniformLocations[(int)uniform];
+            if (location != -2) return location;
+            ReadOnlySpan<byte> name = uniform switch
+            {
+                GlShaderUniform.Depth => "uDepth\0"u8, GlShaderUniform.ViewMatrix => "uViewMatrix\0"u8,
+                GlShaderUniform.SourceTexture => "uSrcTexture\0"u8, GlShaderUniform.BlurTexture => "uBlrTexture\0"u8,
+                GlShaderUniform.DestinationTexture => "uDstTexture\0"u8, GlShaderUniform.MaskTexture => "uMaskTexture\0"u8,
+                GlShaderUniform.Texture => "uTexture\0"u8, _ => throw new ArgumentOutOfRangeException(nameof(uniform))
+            };
+            return location = GetUniformLocation(name);
+        }
+
         public int GetUniformBlockIndex(ReadOnlySpan<byte> name)
         {
             fixed (byte* pName = name)
@@ -118,6 +143,52 @@ namespace ThorVG
             }
         }
 
+        public int GetUniformBlockIndex(GlShaderUniformBlock block)
+        {
+            ref int index = ref mUniformBlockIndices[(int)block];
+            if (index != -2) return index;
+            ReadOnlySpan<byte> name = block switch
+            {
+                GlShaderUniformBlock.Gaussian => "Gaussian\0"u8, GlShaderUniformBlock.Viewport => "Viewport\0"u8,
+                GlShaderUniformBlock.DropShadow => "DropShadow\0"u8, GlShaderUniformBlock.Params => "Params\0"u8,
+                GlShaderUniformBlock.BlendRegion => "BlendRegion\0"u8, GlShaderUniformBlock.TransformInfo => "TransformInfo\0"u8,
+                GlShaderUniformBlock.GradientInfo => "GradientInfo\0"u8, GlShaderUniformBlock.ColorInfo => "ColorInfo\0"u8,
+                _ => throw new ArgumentOutOfRangeException(nameof(block))
+            };
+            return index = GetUniformBlockIndex(name);
+        }
+
+        public bool SetUniformBlockBinding(GlShaderUniformBlock block, uint point)
+            => SetUniformBlockBinding(GetUniformBlockIndex(block), point);
+
+        public bool SetUniformBlockBinding(int blockIndex, uint point)
+        {
+            if (blockIndex < 0) return false;
+            for (int i = 0; i < mUniformBlockIndices.Length; ++i)
+            {
+                if (mUniformBlockIndices[i] != blockIndex) continue;
+                ref uint binding = ref mUniformBlockBindings[i];
+                if (binding != uint.MaxValue) return binding == point;
+                GL.glUniformBlockBinding(mProgramObj, (uint)blockIndex, point); binding = point; return true;
+            }
+            // Compatibility for custom uniform names queried by an existing caller.
+            GL.glUniformBlockBinding(mProgramObj, (uint)blockIndex, point); return true;
+        }
+
+        public void SetSampler(GlShaderUniform uniform, int unit) => SetSampler(GetUniformLocation(uniform), unit);
+
+        public void SetSampler(int location, int unit)
+        {
+            if (location < 0) return;
+            for (int i = 0; i < mUniformLocations.Length; ++i)
+            {
+                if (mUniformLocations[i] != location) continue;
+                if (mSamplerBindings[i] == unit) return;
+                GL.glUniform1iv(location, 1, &unit); mSamplerBindings[i] = unit; return;
+            }
+            GL.glUniform1iv(location, 1, &unit);
+        }
+
         public uint GetProgramId()
         {
             return mProgramObj;
@@ -125,6 +196,8 @@ namespace ThorVG
 
         public void SetUniform1Value(int location, int count, int* values)
         {
+            for (int i = 0; i < mUniformLocations.Length; ++i)
+                if (mUniformLocations[i] == location) mSamplerBindings[i] = -1;
             GL.glUniform1iv(location, count, values);
             GL.GL_CHECK();
         }

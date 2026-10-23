@@ -18,12 +18,14 @@ public class BlockOverflowScrollbarsOverriddenByAvailableSpace
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
             ScrollbarWidthValue = 15f,
         }, new NodeId[] { node00 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(2f), Dimension.FromLength(4f)),
         }, new NodeId[] { node0 });
@@ -59,6 +61,7 @@ public class BlockOverflowScrollbarsOverriddenByAvailableSpace
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
@@ -66,6 +69,7 @@ public class BlockOverflowScrollbarsOverriddenByAvailableSpace
         }, new NodeId[] { node00 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(2f), Dimension.FromLength(4f)),

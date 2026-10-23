@@ -3,6 +3,7 @@
 // https://www.w3.org/TR/css-grid-1/#layout-algorithm
 
 using System;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Taffy
@@ -178,7 +179,7 @@ namespace Marius.Winter.Taffy
 
                 float freeSpace;
                 if (allDefined)
-                    freeSpace = MathF.Max(0f, axisInnerNodeSize.Value - trackSizeSum!.Value);
+                    freeSpace = TaffySys.F32Max(0f, axisInnerNodeSize.Value - trackSizeSum!.Value);
                 else
                     freeSpace = 0f;
 
@@ -264,6 +265,7 @@ namespace Marius.Winter.Taffy
             // Initialize each track's base size and growth limit.
             float? percentageBasis = innerNodeSize.Get(axis) ?? axisMinSize;
             InitializeTrackSizes(tree, ref axisTracks, percentageBasis);
+            for (int i = 0; i < axisTracks.Count; i++) axisTracks[i].ResolveFitContentLimit(innerNodeSize.Get(axis), tree.Calc);
 
             // 11.5.1 Shim item baselines
             if (hasBaselineAlignedItem)
@@ -276,7 +278,7 @@ namespace Marius.Winter.Taffy
             bool allEqual = true;
             for (int i = 0; i < axisTracks.Count; i++)
             {
-                if (axisTracks[i].BaseSize != axisTracks[i].GrowthLimit) { allEqual = false; break; }
+                if (axisTracks[i].BaseSize != axisTracks[i].GrowthLimit || !axisTracks[i].MinTrackSizingFunction.DefiniteValue(percentageBasis, tree.Calc).HasValue) { allEqual = false; break; }
             }
             if (allEqual) return;
 
@@ -328,7 +330,7 @@ namespace Marius.Winter.Taffy
             {
                 axisAvailableSpaceForExpansion = availableGridSpace.Get(axis) switch
                 {
-                    var x when x == Taffy.AvailableSpace.MinContent => AvailableSpace.MinContent,
+                    var x when x == Taffy.AvailableSpace.MinContent && axis == AbstractAxis.Inline => AvailableSpace.MinContent,
                     _ => AvailableSpace.MaxContent,
                 };
             }
@@ -338,11 +340,9 @@ namespace Marius.Winter.Taffy
             ExpandFlexibleTracks(
                 tree,
                 axis,
-                ref axisTracks,
-                ref items,
-                axisMinSize,
-                axisMaxSize,
-                axisAvailableSpaceForExpansion);
+                ref axisTracks, ref otherAxisTracks,
+                ref items, axisMinSize, axisMaxSize, axisAvailableSpaceForExpansion,
+                innerNodeSize, getTrackSizeEstimate);
 
             // 11.8. Stretch auto Tracks
             // This step expands tracks that have an auto max track sizing function by dividing any remaining positive, definite free space equally amongst them.
@@ -433,7 +433,7 @@ namespace Marius.Winter.Taffy
             // Sort items by track in the other axis (row) start position so that we can iterate items in groups which
             // are in the same track in the other axis (row)
             var otherAxis = axis.Other();
-            items.Sort((a, b) => a.Placement(otherAxis).Start.CompareTo(b.Placement(otherAxis).Start));
+            items.StableSort((a, b) => a.Placement(otherAxis).Start.CompareTo(b.Placement(otherAxis).Start));
 
             int remaining = 0;
             while (remaining < items.Count)
@@ -460,7 +460,7 @@ namespace Marius.Winter.Taffy
                 int rowBaselineItemCount = 0;
                 for (int i = rowStart; i < rowEnd; i++)
                 {
-                    if (items[i].AlignSelfStyle == AlignItems.Baseline)
+                    if (items[i].ParticipatesInBaselineAlignment)
                         rowBaselineItemCount++;
                 }
                 if (rowBaselineItemCount <= 1)
@@ -470,6 +470,7 @@ namespace Marius.Winter.Taffy
                 for (int i = rowStart; i < rowEnd; i++)
                 {
                     var item = items[i];
+                    if (!item.ParticipatesInBaselineAlignment) continue;
                     var measuredSizeAndBaselines = tree.ComputeChildLayout(
                         item.Node,
                         new LayoutInput
@@ -479,14 +480,13 @@ namespace Marius.Winter.Taffy
                             AvailableSpace = new Size<AvailableSpace>(AvailableSpace.MinContent, AvailableSpace.MinContent),
                             SizingMode = SizingMode.InherentSize,
                             VerticalMarginsAreCollapsible = LineExtensions.FalseLine,
-                            RunMode = RunMode.PerformLayout,
+                            RunMode = RunMode.PerformLayout, Axis = RequestedAxis.Both,
                         });
 
-                    var baseline = measuredSizeAndBaselines.FirstBaselines.Y;
                     var height = measuredSizeAndBaselines.Size.Height;
+                    var baseline = AlignmentUtils.ChildFirstBaseline(measuredSizeAndBaselines.FirstBaselines.Y, height, item.OverflowStyle.Y);
 
-                    item.Baseline = (baseline ?? height)
-                        + item.MarginStyle.Top.ResolveOrZero(innerNodeSize.Width, (val, basis) => tree.ResolveCalcValue(val, basis));
+                    item.Baseline = baseline ?? height;
                     items[i] = item;
                 }
 
@@ -494,7 +494,8 @@ namespace Marius.Winter.Taffy
                 float rowMaxBaseline = 0f;
                 for (int i = rowStart; i < rowEnd; i++)
                 {
-                    var b = items[i].Baseline ?? 0f;
+                    if (!items[i].ParticipatesInBaselineAlignment) continue;
+                    var b = (items[i].Baseline ?? 0f) + items[i].MarginStyle.Top.ResolveOrZero(innerNodeSize.Width, tree.Calc);
                     if (b > rowMaxBaseline) rowMaxBaseline = b;
                 }
 
@@ -502,10 +503,19 @@ namespace Marius.Winter.Taffy
                 for (int i = rowStart; i < rowEnd; i++)
                 {
                     var item = items[i];
-                    item.BaselineShim = rowMaxBaseline - (item.Baseline ?? 0f);
+                    if (!item.ParticipatesInBaselineAlignment) continue;
+                    item.BaselineShim = rowMaxBaseline - ((item.Baseline ?? 0f) + item.MarginStyle.Top.ResolveOrZero(innerNodeSize.Width, tree.Calc));
+                    item.ClearKnownDimensionsCache();
                     items[i] = item;
                 }
             }
+        }
+
+        private static bool SpansMatching(GridItem item, AbstractAxis axis, ref ValueList<GridTrack> tracks, Func<GridTrack, bool> predicate)
+        {
+            var range = item.TrackRangeExcludingLines(axis);
+            for (int i = range.Start; i < range.End; i++) if (predicate(tracks[i])) return true;
+            return false;
         }
 
         /// <summary>
@@ -526,7 +536,12 @@ namespace Marius.Winter.Taffy
             // Step 2.
             // The track sizing algorithm requires us to iterate through the items in ascending order of the number of
             // tracks they span (first items that span 1 track, then items that span 2 tracks, etc).
-            items.Sort((a, b) => CmpByCrossFlexThenSpanThenStart(a, b, axis));
+            // Partition references from opposite ends without changing document order in the owner.
+            var ordered = new GridItem[items.Count]; int front = 0, back = items.Count; bool needsSort = false;
+            foreach (var item in items)
+                if (item.CrossesFlexibleTrack(axis)) ordered[--back] = item;
+                else { ordered[front++] = item; needsSort |= item.Span(axis) > 1; }
+            if (needsSort) ordered.Take(front).OrderBy(item => item.Span(axis)).ToArray().CopyTo(ordered, 0);
 
             static float MinContentContribution(ref GridItem item, AbstractAxis axis, ref ValueList<GridTrack> axisTracks, ref ValueList<GridTrack> otherAxisTracks, Size<float?> innerNodeSize, Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate, TTree tree)
             {
@@ -572,7 +587,7 @@ namespace Marius.Winter.Taffy
                 flexFactorSum += axisTracks[i].FlexFactor();
 
             // Get span over internal array for ref access without copying
-            var itemArr = items.AsSpan();
+            var itemArr = ordered.AsSpan();
             var batcher = new ItemBatcher(axis);
 
             while (true)
@@ -597,22 +612,13 @@ namespace Marius.Winter.Taffy
                         var tag = track.MinTrackSizingFunction.Inner.Tag;
                         if (tag == CompactLength.MIN_CONTENT_TAG)
                         {
-                            newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
-                        }
-                        else if (tag == CompactLength.PERCENT_TAG || track.MinTrackSizingFunction.Inner.IsCalc())
-                        {
-                            // If the container size is indefinite and has not yet been resolved then percentage sized
-                            // tracks should be treated as min-content
-                            if (!axisInnerNodeSize.HasValue)
-                                newBaseSize = MathF.Max(track.BaseSize, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
-                            else
-                                newBaseSize = track.BaseSize;
+                            newBaseSize = TaffySys.F32Max(track.BaseSize, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
                         else if (tag == CompactLength.MAX_CONTENT_TAG)
                         {
-                            newBaseSize = MathF.Max(track.BaseSize, MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
+                            newBaseSize = TaffySys.F32Max(track.BaseSize, MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
                         }
-                        else if (tag == CompactLength.AUTO_TAG)
+                        else if (tag == CompactLength.AUTO_TAG || (!axisInnerNodeSize.HasValue && (track.MinTrackSizingFunction.UsesPercentage() || track.MinTrackSizingFunction.Inner.IsCalc())))
                         {
                             float space;
                             if ((axisAvailableGridSpace == Taffy.AvailableSpace.MinContent || axisAvailableGridSpace == Taffy.AvailableSpace.MaxContent)
@@ -622,12 +628,13 @@ namespace Marius.Winter.Taffy
                                 var axisMinContentSize = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                                 var limit = track.MaxTrackSizingFunction.DefiniteLimit(axisInnerNodeSize, CalcResolver);
                                 space = axisMinContentSize.MaybeMin(limit).MaybeMax(axisMinimumSize);
+
                             }
                             else
                             {
                                 space = MinimumContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                             }
-                            newBaseSize = MathF.Max(track.BaseSize, space);
+                            newBaseSize = TaffySys.F32Max(track.BaseSize, space);
                         }
                         else if (tag == CompactLength.LENGTH_TAG)
                         {
@@ -639,28 +646,23 @@ namespace Marius.Winter.Taffy
                         }
 
                         track.BaseSize = newBaseSize;
+                        axisTracks[trackIndex] = track;
 
-                        // Handle growth limits
+                        // Resolve min-content before max-content whenever this track is intrinsic,
+                        // preserving the native callback order and cache population.
+                        float? minContribution = track.HasIntrinsicSizingFunction()
+                            ? MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree) : null;
+                        float? planned;
                         if (track.MaxTrackSizingFunction.IsFitContent())
                         {
-                            if (!item.OverflowStyle.Get(axis).IsScrollContainer())
-                            {
-                                float minCC = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
-                                track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, minCC);
-                            }
-                            float fitContentLimit = track.FitContentLimit(axisInnerNodeSize);
-                            float maxCC = MathF.Min(MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree), fitContentLimit);
-                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, maxCC);
+                            float maximum = TaffySys.F32Min(MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree), track.CachedFitContentLimit());
+                            planned = minContribution.HasValue && !item.OverflowStyle.Get(axis).IsScrollContainer()
+                                ? TaffySys.F32Max(minContribution.Value, maximum) : maximum;
                         }
-                        else if (track.MaxTrackSizingFunction.IsMaxContentAlike()
-                            || (track.MaxTrackSizingFunction.UsesPercentage() && !axisInnerNodeSize.HasValue))
-                        {
-                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
-                        }
-                        else if (track.MaxTrackSizingFunction.IsIntrinsic())
-                        {
-                            track.GrowthLimitPlannedIncrease = MathF.Max(track.GrowthLimitPlannedIncrease, MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree));
-                        }
+                        else if (track.MaxTrackSizingFunction.IsMaxContentAlike() || (track.MaxTrackSizingFunction.UsesPercentage() && !axisInnerNodeSize.HasValue))
+                            planned = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
+                        else planned = track.MaxTrackSizingFunction.IsIntrinsic() ? minContribution : null;
+                        if (planned is { } increase) track.GrowthLimitPlannedIncrease = TaffySys.F32Max(track.GrowthLimitPlannedIncrease, increase);
 
                         axisTracks[trackIndex] = track;
                     }
@@ -672,7 +674,7 @@ namespace Marius.Winter.Taffy
                         {
                             track.GrowthLimit = float.IsPositiveInfinity(track.GrowthLimit)
                                 ? track.GrowthLimitPlannedIncrease
-                                : MathF.Max(track.GrowthLimit, track.GrowthLimitPlannedIncrease);
+                                : TaffySys.F32Max(track.GrowthLimit, track.GrowthLimitPlannedIncrease);
                         }
                         track.InfinitelyGrowable = false;
                         track.GrowthLimitPlannedIncrease = 0f;
@@ -680,10 +682,6 @@ namespace Marius.Winter.Taffy
                             track.GrowthLimit = track.BaseSize;
                         axisTracks[i] = track;
                     }
-
-                    // Copy items back for this batch
-                    for (int bi = batchStart; bi < batchStart + batchCount; bi++)
-                        items[bi] = itemArr[bi];
 
                     continue;
                 }
@@ -704,6 +702,13 @@ namespace Marius.Winter.Taffy
                         var axisMinContentSize = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         var limit = item.SpannedTrackLimit(axis, ref axisTracks, axisInnerNodeSize, CalcResolver);
                         space = axisMinContentSize.MaybeMin(limit).MaybeMax(axisMinimumSize);
+                        if (isFlex)
+                        {
+                            var crossed = item.TrackRangeExcludingLines(axis); float factors = 0, inflexible = 0;
+                            for (int ri = crossed.Start; ri < crossed.End; ri++)
+                                if (axisTracks[ri].IsFlexible()) factors += axisTracks[ri].FlexFactor(); else inflexible += axisTracks[ri].BaseSize;
+                            space = TaffySys.F32Max(axisMinimumSize, inflexible + TaffySys.F32Max(space - inflexible, 0) * TaffySys.F32Min(factors, 1));
+                        }
                     }
                     else
                     {
@@ -720,7 +725,7 @@ namespace Marius.Winter.Taffy
                         {
                             DistributeItemSpaceToBaseSize(isFlex, useFlexFactorForDistribution, space,
                                 ref axisTracks, range.Start, range.End, hasIntrinsicMin,
-                                t => t.FitContentLimitedGrowthLimit(axisInnerNodeSize),
+                                t => t.CachedFitContentLimitedGrowthLimit(),
                                 IntrinsicContributionType.Minimum);
                         }
                         else
@@ -738,6 +743,7 @@ namespace Marius.Winter.Taffy
                 for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                 {
                     ref var item = ref itemArr[bi];
+                    if (!SpansMatching(item, axis, ref axisTracks, t => t.MinTrackSizingFunction.IsMinOrMaxContent())) continue;
                     float space = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                     if (space > 0f)
                     {
@@ -748,7 +754,7 @@ namespace Marius.Winter.Taffy
                         {
                             DistributeItemSpaceToBaseSize(isFlex, useFlexFactorForDistribution, space,
                                 ref axisTracks, range.Start, range.End, hasMinOrMaxContentMin,
-                                t => t.FitContentLimitedGrowthLimit(axisInnerNodeSize),
+                                t => t.CachedFitContentLimitedGrowthLimit(),
                                 IntrinsicContributionType.Minimum);
                         }
                         else
@@ -768,9 +774,17 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
+                    if (!SpansMatching(item, axis, ref axisTracks, t => t.MinTrackSizingFunction.IsMaxContent() || (t.MinTrackSizingFunction.IsAuto() && !t.MaxTrackSizingFunction.IsMinContent()))) continue;
                         float axisMaxContentSize = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         var limit = item.SpannedTrackLimit(axis, ref axisTracks, axisInnerNodeSize, CalcResolver);
                         float space = axisMaxContentSize.MaybeMin(limit);
+                        if (isFlex)
+                        {
+                            var crossed = item.TrackRangeExcludingLines(axis); float factors = 0, inflexible = 0;
+                            for (int ri = crossed.Start; ri < crossed.End; ri++)
+                                if (axisTracks[ri].IsFlexible()) factors += axisTracks[ri].FlexFactor(); else inflexible += axisTracks[ri].BaseSize;
+                            space = inflexible + TaffySys.F32Max(space - inflexible, 0) * TaffySys.F32Min(factors, 1);
+                        }
                         if (space > 0f)
                         {
                             var range = item.TrackRangeExcludingLines(axis);
@@ -792,7 +806,7 @@ namespace Marius.Winter.Taffy
                             {
                                 DistributeItemSpaceToBaseSize(isFlex, useFlexFactorForDistribution, space,
                                     ref axisTracks, range.Start, range.End, hasAutoMin,
-                                    t => t.FitContentLimitedGrowthLimit(axisInnerNodeSize),
+                                    t => t.CachedFitContentLimitedGrowthLimit(),
                                     IntrinsicContributionType.Maximum);
                             }
                         }
@@ -804,6 +818,7 @@ namespace Marius.Winter.Taffy
                 for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                 {
                     ref var item = ref itemArr[bi];
+                    if (!SpansMatching(item, axis, ref axisTracks, t => t.MinTrackSizingFunction.IsMaxContent())) continue;
                     float space = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                     if (space > 0f)
                     {
@@ -836,6 +851,7 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
+                    if (!SpansMatching(item, axis, ref axisTracks, t => !t.MaxTrackSizingFunction.HasDefiniteValue(axisInnerNodeSize))) continue;
                         float space = MinContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         if (space > 0f)
                         {
@@ -850,6 +866,7 @@ namespace Marius.Winter.Taffy
                     for (int bi = batchStart; bi < batchStart + batchCount; bi++)
                     {
                         ref var item = ref itemArr[bi];
+                    if (!SpansMatching(item, axis, ref axisTracks, t => t.MaxTrackSizingFunction.IsMaxContentAlike() || (t.MaxTrackSizingFunction.UsesPercentage() && !axisInnerNodeSize.HasValue))) continue;
                         float space = MaxContentContribution(ref item, axis, ref axisTracks, ref otherAxisTracks, innerNodeSize, getTrackSizeEstimate, tree);
                         if (space > 0f)
                         {
@@ -862,10 +879,6 @@ namespace Marius.Winter.Taffy
                     }
                     FlushPlannedGrowthLimitIncreases(ref axisTracks, false);
                 }
-
-                // Copy items back
-                for (int bi = batchStart; bi < batchStart + batchCount; bi++)
-                    items[bi] = itemArr[bi];
             }
 
             // Step 5. If any track still has an infinite growth limit set its growth limit to its base size.
@@ -901,7 +914,9 @@ namespace Marius.Winter.Taffy
             if (isFlex)
             {
                 filter = t => t.IsFlexible() && trackIsAffected(t);
-                proportion = useFlexFactorForDistribution ? (t => t.FlexFactor()) : (_ => 1f);
+                float sum = 0;
+                for (int i = rangeStart; i < rangeEnd; i++) if (filter(tracks[i])) sum += tracks[i].FlexFactor();
+                proportion = sum > 0 ? (t => t.FlexFactor()) : (_ => 1f);
             }
             else
             {
@@ -920,7 +935,7 @@ namespace Marius.Winter.Taffy
             float trackSizes = 0f;
             for (int i = rangeStart; i < rangeEnd; i++)
                 trackSizes += tracks[i].BaseSize;
-            float extraSpace = MathF.Max(0f, space - trackSizes);
+            float extraSpace = TaffySys.F32Max(0f, space - trackSizes);
 
             const float THRESHOLD = 0.000001f;
 
@@ -940,7 +955,7 @@ namespace Marius.Winter.Taffy
                         beyondFilter = t => t.MaxTrackSizingFunction.IsIntrinsic();
                         break;
                     case IntrinsicContributionType.Maximum:
-                        beyondFilter = t => t.MinTrackSizingFunction == MinTrackSizingFunction.MAX_CONTENT || t.MaxTrackSizingFunction.IsMaxOrFitContent();
+                        beyondFilter = t => t.MaxTrackSizingFunction.IsMaxOrFitContent();
                         break;
                     default:
                         beyondFilter = _ => true;
@@ -956,8 +971,8 @@ namespace Marius.Winter.Taffy
 
                 DistributeSpaceUpToLimits(
                     extraSpace, ref tracks, rangeStart, rangeEnd,
-                    beyondFilter, proportion,
-                    t => t.BaseSize, trackLimit);
+                    t => filter(t) && beyondFilter(t), proportion,
+                    t => t.BaseSize, t => t.CachedFitContentLimit());
             }
 
             // 4. For each affected track, if the track's item-incurred increase is larger than the track's planned increase
@@ -998,40 +1013,14 @@ namespace Marius.Winter.Taffy
                 var t = tracks[i];
                 trackSizes += float.IsPositiveInfinity(t.GrowthLimit) ? t.BaseSize : t.GrowthLimit;
             }
-            float extraSpace = MathF.Max(0f, space - trackSizes);
+            float extraSpace = TaffySys.F32Max(0f, space - trackSizes);
 
-            // 2. Distribute space up to limits
-            int numberOfGrowableTracks = 0;
-            for (int i = rangeStart; i < rangeEnd; i += 2)
-            {
-                var t = tracks[i];
-                if (trackIsAffected(t) && (t.InfinitelyGrowable || float.IsPositiveInfinity(t.FitContentLimitedGrowthLimit(axisInnerNodeSize))))
-                    numberOfGrowableTracks++;
-            }
-
-            if (numberOfGrowableTracks > 0)
-            {
-                float itemIncurredIncrease = extraSpace / numberOfGrowableTracks;
-                for (int i = rangeStart; i < rangeEnd; i += 2)
-                {
-                    var t = tracks[i];
-                    if (trackIsAffected(t) && (t.InfinitelyGrowable || float.IsPositiveInfinity(t.FitContentLimitedGrowthLimit(axisInnerNodeSize))))
-                    {
-                        t.ItemIncurredIncrease = itemIncurredIncrease;
-                        tracks[i] = t;
-                    }
-                }
-            }
-            else
-            {
-                // 3. Distribute space beyond limits
-                DistributeSpaceUpToLimits(
-                    extraSpace, ref tracks, rangeStart, rangeEnd,
-                    trackIsAffected,
-                    _ => 1f,
-                    t => float.IsPositiveInfinity(t.GrowthLimit) ? t.BaseSize : t.GrowthLimit,
-                    t => t.FitContentLimit(axisInnerNodeSize));
-            }
+            float AffectedSize(GridTrack t) => float.IsPositiveInfinity(t.GrowthLimit) ? t.BaseSize : t.GrowthLimit;
+            extraSpace = DistributeSpaceUpToLimits(extraSpace, ref tracks, rangeStart, rangeEnd,
+                t => trackIsAffected(t) && (t.InfinitelyGrowable || float.IsPositiveInfinity(t.GrowthLimit)),
+                _ => 1, AffectedSize, t => t.CachedFitContentLimit());
+            if (extraSpace > 0) DistributeSpaceUpToLimits(extraSpace, ref tracks, rangeStart, rangeEnd,
+                trackIsAffected, _ => 1, AffectedSize, t => t.CachedFitContentLimit());
 
             // 4. For each affected track
             for (int i = rangeStart; i < rangeEnd; i += 2)
@@ -1071,7 +1060,7 @@ namespace Marius.Winter.Taffy
                     freeSpace, ref axisTracks, 0, axisTracks.Count,
                     _ => true, _ => 1f,
                     t => t.BaseSize,
-                    t => t.FitContentLimitedGrowthLimit(axisInnerNodeSize));
+                    t => t.CachedFitContentLimitedGrowthLimit());
 
                 for (int i = 0; i < axisTracks.Count; i++)
                 {
@@ -1087,14 +1076,15 @@ namespace Marius.Winter.Taffy
         /// 11.7. Expand Flexible Tracks
         /// This step sizes flexible tracks using the largest value it can assign to an fr without exceeding the available space.
         /// </summary>
-        private static void ExpandFlexibleTracks(
-            ILayoutPartialTree tree,
+        private static void ExpandFlexibleTracks<TTree>(
+            TTree tree,
             AbstractAxis axis,
-            ref ValueList<GridTrack> axisTracks,
+            ref ValueList<GridTrack> axisTracks, ref ValueList<GridTrack> otherAxisTracks,
             ref ValueList<GridItem> items,
             float? axisMinSize,
             float? axisMaxSize,
-            AvailableSpace axisAvailableSpaceForExpansion)
+            AvailableSpace axisAvailableSpaceForExpansion, Size<float?> innerNodeSize,
+            Func<GridTrack, float?, TTree, float?> getTrackSizeEstimate) where TTree : ILayoutPartialTree
         {
             // First, find the grid's used flex fraction
             float flexFraction;
@@ -1138,17 +1128,20 @@ namespace Marius.Winter.Taffy
                         var range = item.TrackRangeExcludingLines(axis);
                         // Create a sub-list of tracks for this item
                         var subTracks = new ValueList<GridTrack>();
-                        for (int j = range.Start; j < range.End; j += 2)
+                        for (int j = range.Start; j < range.End; j++)
                             subTracks.Add(axisTracks[j]);
 
-                        float maxContentContribution = item.MaxContentContributionCached(
-                            axis, tree, SizeExtensions.NoneF32, SizeExtensions.NoneF32);
+                        var area = item.GridAreaSizeCached(axis, ref axisTracks, ref otherAxisTracks, innerNodeSize,
+                            (track, basis) => getTrackSizeEstimate(track, basis, tree), tree.Calc);
+                        var space = area; space.Set(axis, null);
+                        float maxContentContribution = item.MaxContentContributionCached(axis, tree, area, space)
+                            + item.MarginsAxisSumsWithBaselineShims(space.Width, tree).Get(axis);
                         float fr = FindSizeOfFr(ref subTracks, maxContentContribution);
                         if (fr > maxFrItem) maxFrItem = fr;
                     }
                 }
 
-                flexFraction = MathF.Max(maxFrTrack, maxFrItem);
+                flexFraction = TaffySys.F32Max(maxFrTrack, maxFrItem);
 
                 // Check if using this flex fraction would violate min/max constraints
                 float hypotheticalGridSize = 0f;
@@ -1158,7 +1151,7 @@ namespace Marius.Winter.Taffy
                     if (track.MaxTrackSizingFunction.IsFr())
                     {
                         float trackFlexFactor = track.MaxTrackSizingFunction.Inner.Value;
-                        hypotheticalGridSize += MathF.Max(track.BaseSize, trackFlexFactor * flexFraction);
+                        hypotheticalGridSize += TaffySys.F32Max(track.BaseSize, trackFlexFactor * flexFraction);
                     }
                     else
                     {
@@ -1182,7 +1175,7 @@ namespace Marius.Winter.Taffy
                 if (track.MaxTrackSizingFunction.IsFr())
                 {
                     float trackFlexFactor = track.MaxTrackSizingFunction.Inner.Value;
-                    track.BaseSize = MathF.Max(track.BaseSize, trackFlexFactor * flexFraction);
+                    track.BaseSize = TaffySys.F32Max(track.BaseSize, trackFlexFactor * flexFraction);
                     axisTracks[i] = track;
                 }
             }
@@ -1202,7 +1195,7 @@ namespace Marius.Winter.Taffy
             float hypotheticalFrSize = float.PositiveInfinity;
             float previousIterHypotheticalFrSize;
 
-            while (true)
+            for (int iteration = 0; iteration <= tracks.Count; iteration++)
             {
                 // Let leftover space be the space to fill minus the base sizes of the non-flexible grid tracks.
                 // Let flex factor sum be the sum of the flex factors of the flexible tracks.
@@ -1223,7 +1216,7 @@ namespace Marius.Winter.Taffy
                 }
 
                 float leftoverSpace = spaceToFill - usedSpace;
-                float flexFactor = MathF.Max(naiveFlexFactorSum, 1f);
+                float flexFactor = TaffySys.F32Max(naiveFlexFactorSum, 1f);
 
                 previousIterHypotheticalFrSize = hypotheticalFrSize;
                 hypotheticalFrSize = leftoverSpace / flexFactor;
@@ -1314,10 +1307,10 @@ namespace Marius.Winter.Taffy
             const float THRESHOLD = 0.01f;
 
             float remaining = spaceToDistribute;
-            while (remaining > THRESHOLD)
+            for (int iteration = 0; iteration <= rangeEnd - rangeStart && remaining > THRESHOLD; iteration++)
             {
                 float proportionSum = 0f;
-                for (int i = rangeStart; i < rangeEnd; i += (rangeEnd == tracks.Count ? 1 : 2))
+                for (int i = rangeStart; i < rangeEnd; i++)
                 {
                     var track = tracks[i];
                     if (trackAffectedProperty(track) + track.ItemIncurredIncrease < trackLimit(track)
@@ -1331,26 +1324,26 @@ namespace Marius.Winter.Taffy
 
                 // Compute item-incurred increase for this iteration
                 float minIncreaseLimit = float.PositiveInfinity;
-                for (int i = rangeStart; i < rangeEnd; i += (rangeEnd == tracks.Count ? 1 : 2))
+                for (int i = rangeStart; i < rangeEnd; i++)
                 {
                     var track = tracks[i];
                     if (trackAffectedProperty(track) + track.ItemIncurredIncrease < trackLimit(track)
                         && trackIsAffected(track))
                     {
-                        float val = (trackLimit(track) - trackAffectedProperty(track)) / trackDistributionProportion(track);
+                        float val = (trackLimit(track) - trackAffectedProperty(track) - track.ItemIncurredIncrease) / trackDistributionProportion(track);
                         if (val < minIncreaseLimit) minIncreaseLimit = val;
                     }
                 }
 
-                float iterationItemIncurredIncrease = MathF.Min(minIncreaseLimit, remaining / proportionSum);
+                float iterationItemIncurredIncrease = TaffySys.F32Min(minIncreaseLimit, remaining / proportionSum);
 
-                for (int i = rangeStart; i < rangeEnd; i += (rangeEnd == tracks.Count ? 1 : 2))
+                for (int i = rangeStart; i < rangeEnd; i++)
                 {
                     var track = tracks[i];
                     if (trackIsAffected(track))
                     {
                         float increase = iterationItemIncurredIncrease * trackDistributionProportion(track);
-                        if (increase > 0f && trackAffectedProperty(track) + increase <= trackLimit(track) + THRESHOLD)
+                        if (increase > 0f && trackAffectedProperty(track) + track.ItemIncurredIncrease + increase <= trackLimit(track) + THRESHOLD)
                         {
                             track.ItemIncurredIncrease += increase;
                             remaining -= increase;

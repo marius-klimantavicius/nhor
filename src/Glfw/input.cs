@@ -1,4 +1,4 @@
-// Ported from glfw/src/input.c — GLFW 3.5 input event handlers and public API
+// Ported from glfw/src/input.c — GLFW 3.6 input event handlers and public API
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>

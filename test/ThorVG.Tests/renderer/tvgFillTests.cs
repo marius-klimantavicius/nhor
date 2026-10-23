@@ -119,6 +119,56 @@ namespace ThorVG.Tests
         }
 
         [Fact]
+        public void Fill_SameCountUpdatesPreserveOwnedStopBuffer()
+        {
+            var grad = LinearGradient.Gen();
+            var stops = new[] { new Fill.ColorStop(0, 10, 20, 30, 255), new Fill.ColorStop(1, 40, 50, 60, 255) };
+            Assert.Equal(Result.Success, grad.SetColorStops(stops, 2));
+            Assert.Equal(2u, grad.GetColorStops(out var owned));
+            Assert.NotSame(stops, owned);
+            stops[0].r = 70;
+            Assert.Equal(Result.Success, grad.SetColorStops(stops, 2));
+            Assert.Equal(2u, grad.GetColorStops(out var updated));
+            Assert.Same(owned, updated);
+            Assert.Equal(70, owned![0].r);
+            Assert.Equal(Result.Success, grad.SetColorStops(owned, 2));
+            grad.GetColorStops(out updated);
+            Assert.Same(owned, updated);
+            var duplicate = grad.Duplicate();
+            duplicate.GetColorStops(out var copied);
+            Assert.NotSame(owned, copied);
+            owned[0].r = 99;
+            Assert.Equal(70, copied![0].r);
+        }
+
+        [Fact]
+        public void Fill_InvalidManagedCountLeavesOwnedStateUntouched()
+        {
+            var grad = LinearGradient.Gen();
+            var stops = new[] { new Fill.ColorStop(0, 10, 20, 30, 255) };
+            Assert.Equal(Result.Success, grad.SetColorStops(stops, 1));
+            grad.GetColorStops(out var owned);
+            Assert.Equal(Result.InvalidArguments, grad.SetColorStops(stops, 2));
+            Assert.Equal(Result.InvalidArguments, grad.SetColorStops(stops, 0));
+            Assert.Equal(Result.InvalidArguments, grad.SetColorStops(null, 1));
+            Assert.Equal(1u, grad.GetColorStops(out var unchanged));
+            Assert.Same(owned, unchanged);
+            Assert.Equal(10, unchanged![0].r);
+        }
+
+        [Fact]
+        public void Fill_RepeatedSameCountUpdatesAllocateNoStopArrays()
+        {
+            var grad = LinearGradient.Gen();
+            var stops = new[] { new Fill.ColorStop(0, 10, 20, 30, 255), new Fill.ColorStop(1, 40, 50, 60, 255) };
+            Assert.Equal(Result.Success, grad.SetColorStops(stops, 2));
+            for (int i = 0; i < 100; ++i) grad.SetColorStops(stops, 2);
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 1000; ++i) grad.SetColorStops(stops, 2);
+            Assert.Equal(before, System.GC.GetAllocatedBytesForCurrentThread());
+        }
+
+        [Fact]
         public void Fill_Spread_DefaultIsPad()
         {
             var grad = LinearGradient.Gen();

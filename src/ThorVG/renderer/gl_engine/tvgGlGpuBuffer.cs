@@ -48,6 +48,9 @@ namespace ThorVG
             GL.GL_CHECK();
         }
 
+        public void Bind(Target target, GlStateCache state) => state.BindBuffer((uint)target, mGlBufferId);
+        public void Unbind(Target target, GlStateCache state) => state.BindBuffer((uint)target, 0);
+
         public void Bind(Target target)
         {
             GL.glBindBuffer((uint)target, mGlBufferId);
@@ -122,15 +125,22 @@ namespace ThorVG
             mGpuAuxBuffer = null!;
             mGpuIndexBuffer?.Dispose();
             mGpuIndexBuffer = null!;
-            mStageBuffer.Dispose();
-            mAuxBuffer.Dispose();
-            mIndexBuffer.Dispose();
+            ReleaseNativeStorage();
             GC.SuppressFinalize(this);
         }
 
         ~GlStageBuffer()
         {
-            // Note: GL resources should be freed on the GL thread.
+            // GPU objects stay with their context. These arrays own CPU memory
+            // and can be released independently, including after context teardown.
+            ReleaseNativeStorage();
+        }
+
+        private void ReleaseNativeStorage()
+        {
+            mStageBuffer.Dispose();
+            mAuxBuffer.Dispose();
+            mIndexBuffer.Dispose();
         }
 
         public uint Push(void* data, uint size, bool alignGpuOffset = false)
@@ -204,7 +214,11 @@ namespace ThorVG
             return offset;
         }
 
-        public bool FlushToGPU()
+        public bool FlushToGPU() => FlushToGPU(new GlStateCache());
+        public void Bind() => Bind(new GlStateCache());
+        public void Unbind() => Unbind(new GlStateCache());
+
+        public bool FlushToGPU(GlStateCache state)
         {
             if ((mStageBuffer.Empty() && mAuxBuffer.Empty()) || mIndexBuffer.Empty())
             {
@@ -214,23 +228,22 @@ namespace ThorVG
                 return false;
             }
 
+            state.BindVertexArray(mVao);
+
             if (!mStageBuffer.Empty())
             {
-                mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
+                mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER, state);
                 mGpuBuffer.UpdateBufferData(GlGpuBuffer.Target.ARRAY_BUFFER, mStageBuffer.count, mStageBuffer.data);
-                mGpuBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
             }
 
             if (!mAuxBuffer.Empty())
             {
-                mGpuAuxBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
+                mGpuAuxBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER, state);
                 mGpuAuxBuffer.UpdateBufferData(GlGpuBuffer.Target.ARRAY_BUFFER, mAuxBuffer.count, mAuxBuffer.data);
-                mGpuAuxBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
             }
 
-            mGpuIndexBuffer.Bind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
+            mGpuIndexBuffer.Bind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER, state);
             mGpuIndexBuffer.UpdateBufferData(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER, mIndexBuffer.count, mIndexBuffer.data);
-            mGpuIndexBuffer.Unbind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
 
             mStageBuffer.Clear();
             mAuxBuffer.Clear();
@@ -239,20 +252,20 @@ namespace ThorVG
             return true;
         }
 
-        public void Bind()
+        public void Bind(GlStateCache state)
         {
-            GL.glBindVertexArray(mVao);
-            mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER);
-            mGpuBuffer.Bind(GlGpuBuffer.Target.UNIFORM_BUFFER);
-            mGpuIndexBuffer.Bind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
+            state.BindVertexArray(mVao);
+            mGpuBuffer.Bind(GlGpuBuffer.Target.ARRAY_BUFFER, state);
+            mGpuIndexBuffer.Bind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER, state);
         }
 
-        public void Unbind()
+        public void Unbind(GlStateCache state)
         {
-            GL.glBindVertexArray(0);
-            mGpuBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER);
-            mGpuBuffer.Unbind(GlGpuBuffer.Target.UNIFORM_BUFFER);
-            mGpuIndexBuffer.Unbind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER);
+            state.BindVertexArray(mVao);
+            mGpuBuffer.Unbind(GlGpuBuffer.Target.ARRAY_BUFFER, state);
+            GL.glBindBuffer(GL.GL_UNIFORM_BUFFER, 0);
+            mGpuIndexBuffer.Unbind(GlGpuBuffer.Target.ELEMENT_ARRAY_BUFFER, state);
+            state.BindVertexArray(0);
         }
 
         public uint GetBufferId()

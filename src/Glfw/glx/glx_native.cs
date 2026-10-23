@@ -1,4 +1,4 @@
-// GLFW 3.5 GLX - www.glfw.org
+// GLFW 3.6 GLX - www.glfw.org
 // Ported from glfw/src/x11_platform.h (GLX types, constants, native function pointers)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard

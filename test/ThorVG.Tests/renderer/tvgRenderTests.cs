@@ -1,3 +1,4 @@
+using System;
 using Xunit;
 
 namespace ThorVG.Tests
@@ -135,6 +136,42 @@ namespace ThorVG.Tests
             Assert.True(copy.premultiplied);
         }
 
+        [Fact]
+        public void RenderSurface_SetupPreservesItsNativeOpaqueState()
+        {
+            using var surface = new RenderSurface();
+            var pixels = new uint[4];
+            surface.Setup(pixels, 2, 2, 2, 4, ColorSpace.XBGR8888);
+            Assert.True(surface.opaque);
+            Assert.Equal(ColorSpace.ABGR8888, surface.cs);
+            surface.Setup(pixels, 2, 2, 2, 4, ColorSpace.ARGB8888S);
+            Assert.True(surface.opaque);
+            Assert.False(surface.premultiplied);
+            using var copy = new RenderSurface(surface);
+            Assert.True(copy.opaque);
+            surface.opaque = false;
+            surface.Setup(pixels, 2, 2, 2, 4, ColorSpace.ABGR8888);
+            Assert.False(surface.opaque);
+            Assert.True(surface.premultiplied);
+        }
+
+        [Fact]
+        public unsafe void RenderSurface_PinReleasesItsPreviousNativeOwnership()
+        {
+            using var surface = new RenderSurface();
+            surface.AllocNative(2, 2);
+            surface.buf32[0] = 123;
+            var pixels = new uint[] { 10, 20, 30, 40 };
+            surface.data = pixels;
+            surface.Pin();
+            surface.buf32[1] = 99;
+            Assert.Equal(99u, pixels[1]);
+            surface.FreeNative();
+            Assert.Equal(10u, surface.buf32[0]);
+            surface.Unpin();
+            Assert.True(surface.buf32 == null);
+        }
+
         // ---- RenderPath ----------------------------------------------------
 
         [Fact]
@@ -197,6 +234,32 @@ namespace ThorVG.Tests
             Assert.True(trim.Valid());
         }
 
+        [Theory]
+        [InlineData(1.25f, 1f)]
+        [InlineData(2f, .25f)]
+        public unsafe void RenderTrimPath_EmptyWrappedFirstPartStartsANewSubpath(float begin, float end)
+        {
+            var input = new RenderPath();
+            var output = new RenderPath();
+            try
+            {
+                input.AddRect(1, 2, 20, 30, 3, 4, true);
+                var trim = new RenderTrimPath { begin = begin, end = end, simultaneous = true };
+                Assert.True(trim.Trim(input, output));
+                Assert.True(output.pts.count >= 2);
+                Assert.Equal(PathCommand.MoveTo, output.cmds[0]);
+                uint expectedPoints = 0;
+                for (uint i = 0; i < output.cmds.count; ++i)
+                    expectedPoints += output.cmds[i] == PathCommand.CubicTo ? 3u : output.cmds[i] == PathCommand.Close ? 0u : 1u;
+                Assert.Equal(expectedPoints, output.pts.count);
+            }
+            finally
+            {
+                input.cmds.Dispose(); input.pts.Dispose();
+                output.cmds.Dispose(); output.pts.Dispose();
+            }
+        }
+
         // ---- RenderShape ---------------------------------------------------
 
         [Fact]
@@ -232,6 +295,19 @@ namespace ThorVG.Tests
         }
 
         [Fact]
+        public void RenderShape_StrokeDashReturnsTheActualOwnedPattern()
+        {
+            var shape = new RenderShape();
+            Assert.Equal(0u, shape.StrokeDash(out var pattern, out var offset));
+            Assert.Null(pattern);
+            Assert.Equal(0f, offset);
+            shape.stroke = new RenderStroke { dashPattern = new float[] { 3, 5 }, dashCount = 2, dashOffset = -2 };
+            Assert.Equal(2u, shape.StrokeDash(out pattern, out offset));
+            Assert.Same(shape.stroke.dashPattern, pattern);
+            Assert.Equal(-2f, offset);
+        }
+
+        [Fact]
         public void RenderShape_StrokeFirst()
         {
             var rs = new RenderShape();
@@ -255,6 +331,16 @@ namespace ThorVG.Tests
         {
             var fx = RenderEffectGaussianBlur.Gen(-3.0f, 0, 0, 50);
             Assert.Equal(0.0f, fx.sigma);
+        }
+
+        [Fact]
+        public void RenderEffects_PreserveNativeOrderedMaxAtSignedZeroAndNaN()
+        {
+            Assert.Equal(0x80000000u, BitConverter.SingleToUInt32Bits(RenderEffectGaussianBlur.Gen(-0f, 0, 0, 100).sigma));
+            Assert.Equal(0x80000000u, BitConverter.SingleToUInt32Bits(RenderEffectDropShadow.Gen(0, 0, 0, 255, 0, 0, -0f, 100).sigma));
+            Assert.True(float.IsNaN(RenderEffectGaussianBlur.Gen(float.NaN, 0, 0, 100).sigma));
+            Assert.Equal(0u, BitConverter.SingleToUInt32Bits(RenderEffectMotionBlur.Gen(float.NaN, 0, 100).distance));
+            Assert.Equal(0u, BitConverter.SingleToUInt32Bits(RenderEffectMotionBlur.Gen(-0f, 0, 100).distance));
         }
 
         [Fact]

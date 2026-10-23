@@ -6,7 +6,7 @@ namespace ThorVG.Tests
 {
     public class TtfReaderTests
     {
-        private static readonly string FontPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources", "PublicSans-Regular.ttf"));
+        private static readonly string FontPath = Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources", "PublicSans-Regular.ttf");
 
         private TtfReader LoadReader()
         {

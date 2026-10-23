@@ -1,7 +1,5 @@
 // Ported from taffy/src/style/compact_length.rs
-// A simplified representation of Taffy's tagged-pointer CompactLength.
-// In Rust this packs a tag + f32 value into a 64-bit pointer. In C# we use
-// a simple byte tag + float value + IntPtr for calc pointers.
+// Managed fields retain the native tag/value/handle accessors without storing tagged GC pointers.
 
 using System;
 using System.Runtime.CompilerServices;
@@ -17,27 +15,35 @@ namespace Marius.Winter.Taffy
         // --- Tag constants ---
 
         /// <summary>The tag indicating a calc() value</summary>
-        public const byte CALC_TAG = 0b000;
+        public const byte NON_POINTER_BIT = 0b0001;
+        public const byte KEYWORD_BIT = 0b0010;
+        public const byte PERCENTAGE_BIT = 0b0100;
+        public const byte SIZING_KEYWORD_BIT = 0b1000;
+        public const byte CALC_TAG = 0b0000_0100;
+        public const byte FIT_CONTENT_CALC_TAG = 0b0000_0110;
+        public const byte CONTENT_TAG = 0b0010_0011;
+        public const byte FIT_CONTENT_KEYWORD_TAG = 0b0011_1011;
+        public const byte STRETCH_TAG = 0b0100_1011;
         /// <summary>The tag indicating a length value</summary>
         public const byte LENGTH_TAG = 0b0000_0001;
         /// <summary>The tag indicating a percentage value</summary>
-        public const byte PERCENT_TAG = 0b0000_0010;
+        public const byte PERCENT_TAG = 0b0000_0101;
         /// <summary>The tag indicating an auto value</summary>
         public const byte AUTO_TAG = 0b0000_0011;
         /// <summary>The tag indicating an fr value</summary>
-        public const byte FR_TAG = 0b0000_0100;
+        public const byte FR_TAG = 0b0001_0011;
         /// <summary>The tag indicating a min-content value</summary>
-        public const byte MIN_CONTENT_TAG = 0b00000111;
+        public const byte MIN_CONTENT_TAG = 0b0000_1011;
         /// <summary>The tag indicating a max-content value</summary>
-        public const byte MAX_CONTENT_TAG = 0b00001111;
+        public const byte MAX_CONTENT_TAG = 0b0001_1011;
         /// <summary>The tag indicating a fit-content value with px limit</summary>
-        public const byte FIT_CONTENT_PX_TAG = 0b00010111;
+        public const byte FIT_CONTENT_PX_TAG = 0b0010_1011;
         /// <summary>The tag indicating a fit-content value with percent limit</summary>
-        public const byte FIT_CONTENT_PERCENT_TAG = 0b00011111;
+        public const byte FIT_CONTENT_PERCENT_TAG = 0b0000_1111;
 
         // --- Fields ---
 
-        /// <summary>The tag indicating what kind of value this is</summary>
+        /// <summary>The low byte of the native tag; on 64-bit systems calc tags also include handle address bits 3..7.</summary>
         public readonly byte Tag;
 
         /// <summary>The numeric value (e.g. pixels, percentage fraction, fr fraction)</summary>
@@ -54,6 +60,17 @@ namespace Marius.Winter.Taffy
             Value = value;
             CalcValue = IntPtr.Zero;
         }
+        // On 64-bit native targets serde preserves all bits of the tag word, even
+        // those above the low byte inspected by tag(). For non-pointer values the
+        // otherwise unused handle field retains these bits without enlarging the struct.
+        internal static CompactLength FromSerializedNumeric(ulong raw) => new((uint)(raw >> 32), BitConverter.UInt32BitsToSingle((uint)raw));
+        private CompactLength(uint tagWord, float value)
+        {
+            Tag = (byte)tagWord; Value = value; CalcValue = (IntPtr)(long)(tagWord & ~255u);
+        }
+        internal ulong SerializedValue() => HasCalc()
+            ? IntPtr.Size == 8 ? ((ulong)(nuint)CalcValue | Tag) << 32 | ((ulong)(nuint)CalcValue | Tag) >> 32 : (ulong)Tag << 32 | (uint)(nuint)CalcValue
+            : ((ulong)(uint)(nuint)CalcValue | Tag) << 32 | BitConverter.SingleToUInt32Bits(Value);
 
         private CompactLength(byte tag)
         {
@@ -62,10 +79,12 @@ namespace Marius.Winter.Taffy
             CalcValue = IntPtr.Zero;
         }
 
-        private CompactLength(IntPtr calcPtr)
+        private CompactLength(IntPtr calcPtr, byte tag = CALC_TAG)
         {
-            Tag = CALC_TAG;
-            Value = 0f;
+            if (calcPtr == IntPtr.Zero || ((nuint)calcPtr & 7) != 0)
+                throw new ArgumentException("A calc handle must be nonzero and aligned to eight bytes", nameof(calcPtr));
+            Tag = IntPtr.Size == 8 ? (byte)((nuint)calcPtr | tag) : tag;
+            Value = BitConverter.UInt32BitsToSingle(IntPtr.Size == 8 ? (uint)((ulong)(nuint)calcPtr >> 32) : (uint)(nuint)calcPtr);
             CalcValue = calcPtr;
         }
 
@@ -90,6 +109,7 @@ namespace Marius.Winter.Taffy
         /// to in their application (pixels, logical pixels, mm, etc) as they see fit.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength Length(double val) => Length((float)val);
         public static CompactLength Length(float val) => new CompactLength(LENGTH_TAG, val);
 
         /// <summary>
@@ -97,6 +117,7 @@ namespace Marius.Winter.Taffy
         /// NOTE: percentages are represented as a f32 value in the range [0.0, 1.0] NOT [0.0, 100.0].
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength Percent(double val) => Percent((float)val);
         public static CompactLength Percent(float val) => new CompactLength(PERCENT_TAG, val);
 
         /// <summary>
@@ -117,6 +138,7 @@ namespace Marius.Winter.Taffy
         /// fractions specified in that grid dimension.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength Fr(double val) => Fr((float)val);
         public static CompactLength Fr(float val) => new CompactLength(FR_TAG, val);
 
         /// <summary>
@@ -140,6 +162,7 @@ namespace Marius.Winter.Taffy
         /// Computes as: max(min_content, min(max_content, limit))
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength FitContentPx(double limit) => FitContentPx((float)limit);
         public static CompactLength FitContentPx(float limit) => new CompactLength(FIT_CONTENT_PX_TAG, limit);
 
         /// <summary>
@@ -147,7 +170,13 @@ namespace Marius.Winter.Taffy
         /// Computes as: max(min_content, min(max_content, limit))
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength FitContentPercent(double limit) => FitContentPercent((float)limit);
         public static CompactLength FitContentPercent(float limit) => new CompactLength(FIT_CONTENT_PERCENT_TAG, limit);
+
+        public static CompactLength FitContentKeyword() => new CompactLength(FIT_CONTENT_KEYWORD_TAG);
+        public static CompactLength Stretch() => new CompactLength(STRETCH_TAG);
+        public static CompactLength Content() => new CompactLength(CONTENT_TAG);
+        public static CompactLength FitContentCalc(IntPtr ptr) => new CompactLength(ptr, FIT_CONTENT_CALC_TAG);
 
         /// <summary>
         /// Create a fit-content value from a LengthPercentage (dispatches to FitContentPx or FitContentPercent).
@@ -159,6 +188,7 @@ namespace Marius.Winter.Taffy
             {
                 LENGTH_TAG => FitContentPx(lp.IntoRaw().Value),
                 PERCENT_TAG => FitContentPercent(lp.IntoRaw().Value),
+                _ when lp.IntoRaw().IsPlainCalc() => FitContentCalc(lp.IntoRaw().CalcValue),
                 _ => throw new InvalidOperationException("LengthPercentage must be Length or Percent"),
             };
         }
@@ -167,15 +197,24 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns true if the value is a calc() value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsCalc() => Tag == CALC_TAG && CalcValue != IntPtr.Zero;
+        public bool IsCalc() => IsPlainCalc();
+
+        public bool IsPlainCalc() => (Tag & (NON_POINTER_BIT | KEYWORD_BIT)) == 0;
+        public bool IsFitContentCalc() => (Tag & (NON_POINTER_BIT | KEYWORD_BIT)) == KEYWORD_BIT;
+        public bool HasCalc() => (Tag & NON_POINTER_BIT) == 0;
+        public bool IsLengthPercentageOrCalc() => (Tag & KEYWORD_BIT) == 0;
+        public bool IsSizingKeyword() =>
+            (Tag & (NON_POINTER_BIT | KEYWORD_BIT | SIZING_KEYWORD_BIT)) == (NON_POINTER_BIT | KEYWORD_BIT | SIZING_KEYWORD_BIT)
+            || IsFitContentCalc();
+        public bool IsContent() => Tag == CONTENT_TAG;
 
         /// <summary>Returns true if the value is 0px</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsZero() => Tag == LENGTH_TAG && Value == 0.0f;
+        public bool IsZero() => Tag == LENGTH_TAG && BitConverter.SingleToUInt32Bits(Value) == 0 && CalcValue == IntPtr.Zero;
 
         /// <summary>Returns true if the value is a length or percentage value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsLengthOrPercentage() => Tag == LENGTH_TAG || Tag == PERCENT_TAG;
+        public bool IsLengthOrPercentage() => (Tag & (NON_POINTER_BIT | KEYWORD_BIT)) == NON_POINTER_BIT;
 
         /// <summary>Returns true if the value is auto</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -191,12 +230,12 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Returns true if the value is a fit-content(...) value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsFitContent() => Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG;
+        public bool IsFitContent() => Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG || IsFitContentCalc();
 
         /// <summary>Returns true if the value is max-content or a fit-content(...) value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsMaxOrFitContent() =>
-            Tag == MAX_CONTENT_TAG || Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG;
+            Tag == MAX_CONTENT_TAG || Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG || IsFitContentCalc();
 
         /// <summary>
         /// Returns true if the max track sizing function is MaxContent, FitContent or Auto.
@@ -207,7 +246,7 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsMaxContentAlike() =>
             Tag == AUTO_TAG || Tag == MAX_CONTENT_TAG ||
-            Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG;
+            Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG || IsFitContentCalc();
 
         /// <summary>Returns true if the min track sizing function is MinContent or MaxContent</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -217,7 +256,7 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool IsIntrinsic() =>
             Tag == AUTO_TAG || Tag == MIN_CONTENT_TAG || Tag == MAX_CONTENT_TAG ||
-            Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG;
+            Tag == FIT_CONTENT_PX_TAG || Tag == FIT_CONTENT_PERCENT_TAG || IsFitContentCalc();
 
         /// <summary>Returns true if the value is an fr value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -225,8 +264,7 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Whether the track sizing function depends on the size of the parent node</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool UsesPercentage() =>
-            Tag == PERCENT_TAG || Tag == FIT_CONTENT_PERCENT_TAG || IsCalc();
+        public bool UsesPercentage() => (Tag & PERCENTAGE_BIT) != 0;
 
         /// <summary>
         /// Resolve percentage values against the passed parent_size, returning Some(value).
@@ -246,24 +284,27 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Create a Length from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength FromLength(double value) => FromLength((float)value);
         public static CompactLength FromLength(float value) => Length(value);
 
         /// <summary>Create a Percent from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength FromPercent(double value) => FromPercent((float)value);
         public static CompactLength FromPercent(float value) => Percent(value);
 
         /// <summary>Create an Fr from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static CompactLength FromFr(double value) => FromFr((float)value);
         public static CompactLength FromFr(float value) => Fr(value);
 
         // --- Equality ---
 
         public bool Equals(CompactLength other) =>
-            Tag == other.Tag && Value == other.Value && CalcValue == other.CalcValue;
+            Tag == other.Tag && BitConverter.SingleToUInt32Bits(Value) == BitConverter.SingleToUInt32Bits(other.Value) && CalcValue == other.CalcValue;
 
         public override bool Equals(object? obj) => obj is CompactLength other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Tag, Value, CalcValue);
+        public override int GetHashCode() => HashCode.Combine(Tag, BitConverter.SingleToUInt32Bits(Value), CalcValue);
 
         public static bool operator ==(CompactLength left, CompactLength right) => left.Equals(right);
         public static bool operator !=(CompactLength left, CompactLength right) => !left.Equals(right);
@@ -280,7 +321,11 @@ namespace Marius.Winter.Taffy
                 MAX_CONTENT_TAG => "MaxContent",
                 FIT_CONTENT_PX_TAG => $"FitContentPx({Value})",
                 FIT_CONTENT_PERCENT_TAG => $"FitContentPercent({Value})",
-                CALC_TAG => $"Calc({CalcValue})",
+                _ when IsPlainCalc() => $"Calc({CalcValue})",
+                _ when IsFitContentCalc() => $"FitContentCalc({CalcValue})",
+                FIT_CONTENT_KEYWORD_TAG => "FitContent",
+                STRETCH_TAG => "Stretch",
+                CONTENT_TAG => "Content",
                 _ => $"Unknown(tag={Tag}, value={Value})",
             };
         }

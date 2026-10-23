@@ -163,6 +163,29 @@ public struct ValueList<T>
         AsSpan().Sort(comparison);
     }
 
+    /// <summary>Stable ordering matching Rust slice::sort_by_key, including equal keys.</summary>
+    public void StableSort(Comparison<T> comparison)
+    {
+        if (_count < 2) return;
+        var scratch = System.Buffers.ArrayPool<T>.Shared.Rent(_count);
+        try
+        {
+            var source = AsSpan(); var target = scratch.AsSpan(0, _count);
+            for (int width = 1; width < _count; width = width > _count / 2 ? _count : width * 2)
+            {
+                for (int start = 0; start < _count; start += Math.Min(width, _count - start) + Math.Min(width, Math.Max(_count - start - width, 0)))
+                {
+                    int middle = start + Math.Min(width, _count - start), end = middle + Math.Min(width, _count - middle);
+                    int left = start, right = middle;
+                    for (int output = start; output < end; output++)
+                        target[output] = left < middle && (right == end || comparison(source[left], source[right]) <= 0) ? source[left++] : source[right++];
+                }
+                target.CopyTo(source);
+            }
+        }
+        finally { System.Buffers.ArrayPool<T>.Shared.Return(scratch, RuntimeHelpers.IsReferenceOrContainsReferences<T>()); }
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly Enumerator GetEnumerator() => new(AsSpan());
 

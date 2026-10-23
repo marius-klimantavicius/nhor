@@ -26,7 +26,7 @@ namespace ThorVG
     /// Dirty region tracking with spatial partitioning and sweep-line merging.
     /// Mirrors C++ <c>RenderDirtyRegion</c> under THORVG_PARTIAL_RENDER_SUPPORT.
     /// </summary>
-    public unsafe class RenderDirtyRegion
+    public unsafe class RenderDirtyRegion : IDisposable
     {
         public const int PARTITIONING = 16; // must be N*N
 
@@ -43,6 +43,7 @@ namespace ThorVG
         }
 
         private PartitionData[] partitions = new PartitionData[PARTITIONING];
+        private Array<RenderRegion> sortScratch;
 
         /// <summary>
         /// Returns a ref to the specified list (0 or 1) of the given partition.
@@ -130,6 +131,16 @@ namespace ThorVG
             }
         }
 
+        public void Dispose()
+        {
+            for (int idx = 0; idx < PARTITIONING; ++idx)
+            {
+                partitions[idx].list0.Dispose();
+                partitions[idx].list1.Dispose();
+            }
+            sortScratch.Dispose();
+        }
+
         public bool Deactivate(bool on)
         {
             var prev = disabled;
@@ -152,7 +163,14 @@ namespace ThorVG
             return ref CurrentListRef(idx);
         }
 
-        private static void Subdivide(ref Array<RenderRegion> targets, int idx, ref RenderRegion lhs, ref RenderRegion rhs)
+        public uint Count()
+        {
+            uint count = 0;
+            for (int idx = 0; idx < PARTITIONING; ++idx) count += CurrentListRef(idx).count;
+            return count;
+        }
+
+        private void Subdivide(ref Array<RenderRegion> targets, int idx, ref RenderRegion lhs, ref RenderRegion rhs)
         {
             Span<RenderRegion> temp = stackalloc RenderRegion[3];
             int cnt = 0;
@@ -275,20 +293,54 @@ namespace ThorVG
             }
         }
 
-        private static void StableSortByX(ref Array<RenderRegion> arr, int start, int end)
+        private void StableSortByX(ref Array<RenderRegion> arr, int start, int end)
         {
-            // Insertion sort — stable and fast for small N (typical dirty region counts)
-            for (int i = start + 1; i < end; i++)
+            int count = end - start;
+            if (count < 2) return;
+
+            // Keep native stable_sort's O(N log N) bound. Small runs use
+            // insertion sort; larger runs merge through reusable native
+            // scratch storage, preserving equal-x insertion order.
+            if (count <= 16)
             {
-                var tmp = arr[i];
-                int j = i - 1;
-                while (j >= start && arr[j].min.x > tmp.min.x)
+                for (int i = start + 1; i < end; ++i)
                 {
-                    arr[j + 1] = arr[j];
-                    j--;
+                    var value = arr[i];
+                    int j = i - 1;
+                    while (j >= start && arr[j].min.x > value.min.x)
+                    {
+                        arr[j + 1] = arr[j];
+                        --j;
+                    }
+                    arr[j + 1] = value;
                 }
-                arr[j + 1] = tmp;
+                return;
             }
+
+            sortScratch.Reserve((uint)count);
+            var original = arr.data + start;
+            var source = original;
+            var destination = sortScratch.data;
+            for (int width = 1; width < count; width = width > count / 2 ? count : width * 2)
+            {
+                int left = 0;
+                while (left < count)
+                {
+                    int middle = left + Math.Min(width, count - left);
+                    int right = middle + Math.Min(width, count - middle);
+                    int a = left, b = middle, output = left;
+                    while (a < middle && b < right)
+                        destination[output++] = source[a].min.x <= source[b].min.x ? source[a++] : source[b++];
+                    while (a < middle) destination[output++] = source[a++];
+                    while (b < right) destination[output++] = source[b++];
+                    left = right;
+                }
+                var previous = source;
+                source = destination;
+                destination = previous;
+            }
+            if (source != original)
+                new ReadOnlySpan<RenderRegion>(source, count).CopyTo(new Span<RenderRegion>(original, count));
         }
     }
 
@@ -359,6 +411,11 @@ namespace ThorVG
     public unsafe struct SwOutline
     {
         public Array<Point> input;
+        public Array<PathCommand> commands;
+        internal Array<Point> ownedPoints;
+        internal Array<PathCommand> ownedCommands;
+        public bool pathBased;
+        internal bool borrowed;
         public Array<SwPoint> output;
         public Array<uint> cntrs;
         public Array<byte> types;
@@ -506,11 +563,21 @@ namespace ThorVG
 
         public SwLinear linear;
         public SwRadial radial;
+        public struct SwConic
+        {
+            public float a11, a12, a13, a21, a22, a23;
+            public float cx, cy, offset;
+            public Point normal;
+            public float invFwidth, distanceDx, seamProjectionDx;
+        }
+        public SwConic conic;
         public unsafe struct ColorTable
         {
             public fixed uint data[SwConstants.SW_COLOR_TABLE];
         }
         public ColorTable ctable;
+        public float extent;
+        public Type type;
         public FillSpread spread;
         public bool solid;
         public bool translucent;
@@ -520,7 +587,7 @@ namespace ThorVG
     //  SwStrokeBorder
     // =====================================================================
 
-    public unsafe class SwStrokeBorder
+    public unsafe class SwStrokeBorder : IDisposable
     {
         public Array<Point> pts;
         public byte* tags;
@@ -529,11 +596,18 @@ namespace ThorVG
 
         ~SwStrokeBorder()
         {
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            pts.Dispose();
             if (tags != null)
             {
                 NativeMemory.Free(tags);
                 tags = null;
             }
+            GC.SuppressFinalize(this);
         }
     }
 
@@ -575,6 +649,7 @@ namespace ThorVG
     {
         public SwOutline outline;
         public bool hasOutline;
+        public RenderPath path = new();
         public float curLen;
         public int curIdx;
         public Point ptStart;
@@ -593,6 +668,7 @@ namespace ThorVG
     {
         public SwOutline outline;
         public bool hasOutline;
+        public RenderPath path = new();
         public SwStroke? stroke;
         public SwFill? fill;
         public SwRle rle;
@@ -613,6 +689,7 @@ namespace ThorVG
     {
         public SwOutline outline;
         public bool hasOutline;
+        public RenderPath path = new();
         public SwRle rle;
         public bool hasRle;
         // Union: data / buf32 / buf8 all point to the same buffer
@@ -752,6 +829,14 @@ namespace ThorVG
             => SwFillOps.fillRadial<TMask>(fill, dst, y, x, len, a);
     }
 
+    public struct ConicGrad : IGradientFill
+    {
+        public static unsafe void Fill<TOp>(SwFill fill, uint* dst, uint y, uint x, uint len, byte a) where TOp : struct, IBlenderAOp
+            => SwFillOps.fillConic<TOp>(fill, dst, y, x, len, a);
+        public static unsafe void FillMask<TMask>(SwFill fill, byte* dst, uint y, uint x, uint len, byte a) where TMask : struct, IMaskOp
+            => SwFillOps.fillConic<TMask>(fill, dst, y, x, len, a);
+    }
+
     // =====================================================================
     //  SwSurface
     // =====================================================================
@@ -804,7 +889,7 @@ namespace ThorVG
     //  SwCellPool
     // =====================================================================
 
-    public unsafe class SwCellPool
+    public unsafe class SwCellPool : IDisposable
     {
         public uint size;
         public SwCell* buffer;
@@ -812,16 +897,23 @@ namespace ThorVG
         public SwCellPool()
         {
             size = SwConstants.DEFAULT_POOL_SIZE;
-            buffer = (SwCell*)NativeMemory.Alloc(size, (nuint)sizeof(SwCell));
+            // Pool size is a byte count, like tvg::malloc<SwCell>(size).
+            buffer = (SwCell*)NativeMemory.Alloc(size);
         }
 
         ~SwCellPool()
+        {
+            Dispose();
+        }
+
+        public void Dispose()
         {
             if (buffer != null)
             {
                 NativeMemory.Free(buffer);
                 buffer = null;
             }
+            GC.SuppressFinalize(this);
         }
     }
 
@@ -829,8 +921,9 @@ namespace ThorVG
     //  SwMpool
     // =====================================================================
 
-    public class SwMpool
+    public class SwMpool : IDisposable
     {
+        public bool Disposed { get; private set; }
         public SwOutline[] outlines;
         public SwStrokeBorder[] lBorders;
         public SwStrokeBorder[] rBorders;
@@ -839,7 +932,7 @@ namespace ThorVG
         public SwMpool(uint threads)
         {
             var allocSize = threads + 1;
-            outlines = new SwOutline[allocSize];
+            outlines = GC.AllocateArray<SwOutline>((int)allocSize, pinned: true);
             lBorders = new SwStrokeBorder[allocSize];
             rBorders = new SwStrokeBorder[allocSize];
             cellPools = new SwCellPool[allocSize];
@@ -859,7 +952,17 @@ namespace ThorVG
 
         public unsafe SwOutline* Outline(uint idx)
         {
-            outlines[idx].input.Clear();
+            ref var outline = ref outlines[idx];
+            if (!outline.borrowed)
+            {
+                outline.ownedPoints = outline.input;
+                outline.ownedCommands = outline.commands;
+            }
+            outline.ownedPoints.Clear();
+            outline.ownedCommands.Clear();
+            outline.input = outline.ownedPoints;
+            outline.commands = outline.ownedCommands;
+            outline.borrowed = outline.pathBased = false;
             outlines[idx].output.Clear();
             outlines[idx].cntrs.Clear();
             outlines[idx].types.Clear();
@@ -883,6 +986,31 @@ namespace ThorVG
             rBorders[idx].pts.Clear();
             rBorders[idx].start = -1;
             return rBorders[idx];
+        }
+
+        public void Dispose()
+        {
+            if (Disposed) return;
+            Disposed = true;
+            for (int i = 0; i < outlines.Length; ++i)
+            {
+                ref var outline = ref outlines[i];
+                if (outline.borrowed)
+                {
+                    outline.ownedPoints.Dispose();
+                    outline.ownedCommands.Dispose();
+                }
+                else
+                {
+                    outline.input.Dispose();
+                    outline.commands.Dispose();
+                }
+                outline.output.Dispose(); outline.cntrs.Dispose();
+                outline.types.Dispose(); outline.closed.Dispose();
+                outline = default;
+                lBorders[i].Dispose(); rBorders[i].Dispose();
+                cellPools[i].Dispose();
+            }
         }
     }
 
@@ -928,7 +1056,8 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte INTERPOLATE8(byte s, byte d, byte a)
         {
-            return (byte)((((int)s * a + 0xff) >> 8) + (((int)d * (byte)~a + 0xff) >> 8));
+            // Native INTERPOLATE8 promotes ~a to signed int before multiplication.
+            return (byte)((((int)s * a + 0xff) >> 8) + (((int)d * ~a + 0xff) >> 8));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -985,7 +1114,8 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int MULTIPLY(int c, int a)
         {
-            return (c * a + 0xff) >> 8;
+            // Native MULTIPLY accepts uint8_t arguments, including complements.
+            return (unchecked((byte)c) * unchecked((byte)a) + 0xff) >> 8;
         }
 
         /// <summary>

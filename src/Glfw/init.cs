@@ -1,4 +1,4 @@
-// GLFW 3.5 - www.glfw.org
+// GLFW 3.6 - www.glfw.org
 // Ported from glfw/src/init.c
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
@@ -38,6 +38,8 @@ namespace Glfw
 
         [ThreadStatic]
         private static GlfwError? _glfwThreadError;
+        [ThreadStatic]
+        private static int _glfwThreadErrorGeneration;
 
         private static GlfwError _glfwMainThreadError = new();
         private static GLFWerrorfun? _glfwErrorCallback;
@@ -46,6 +48,9 @@ namespace Glfw
             HatButtons = true,
             AngleType = GLFW.GLFW_ANGLE_PLATFORM_TYPE_NONE,
             PlatformID = GLFW.GLFW_ANY_PLATFORM,
+            Ns = new GlfwInitConfig.NsConfig { Chdir = true, Menubar = true },
+            X11 = new GlfwInitConfig.X11Config { XcbVulkanSurface = true },
+            Wl = new GlfwInitConfig.WlConfig { LibdecorMode = GLFW.GLFW_WAYLAND_PREFER_LIBDECOR },
         };
 
         //----------------------------------------------------------------------
@@ -78,9 +83,15 @@ namespace Glfw
                 _glfw.monitorCount = 0;
             }
 
+            if (_glfw.joysticksInitialized)
+                _glfw.platform?.TerminateJoysticks();
+            _glfw.joysticksInitialized = false;
+            _glfw.mappings.Clear();
             _glfw.platform?.Terminate();
 
             _glfw.initialized = false;
+            _glfw.tlsGeneration++;
+            _glfwThreadError = null;
 
             // In C#, GC handles error list cleanup; just clear the reference
             _glfw.errorListHead = null;
@@ -195,6 +206,11 @@ namespace Glfw
 
             if (_glfw.initialized)
             {
+                if (_glfwThreadErrorGeneration != _glfw.tlsGeneration)
+                {
+                    _glfwThreadError = null;
+                    _glfwThreadErrorGeneration = _glfw.tlsGeneration;
+                }
                 // Use [ThreadStatic] for per-thread error storage
                 error = _glfwThreadError ?? new GlfwError();
                 if (_glfwThreadError == null)
@@ -255,12 +271,14 @@ namespace Glfw
                 HatButtons = _glfwInitHints.HatButtons,
                 AngleType = _glfwInitHints.AngleType,
                 PlatformID = _glfwInitHints.PlatformID,
+                Ns = new GlfwInitConfig.NsConfig { Chdir = _glfwInitHints.Ns.Chdir, Menubar = _glfwInitHints.Ns.Menubar },
+                X11 = new GlfwInitConfig.X11Config { XcbVulkanSurface = _glfwInitHints.X11.XcbVulkanSurface },
+                Wl = new GlfwInitConfig.WlConfig { LibdecorMode = _glfwInitHints.Wl.LibdecorMode },
             };
 
             var platform = GlfwPlatformSelector.SelectPlatform(_glfw.hints.Init.PlatformID);
             if (platform == null)
             {
-                _glfwInputError(GLFW.GLFW_PLATFORM_UNAVAILABLE, "Failed to detect any supported platform");
                 return GLFW.GLFW_FALSE;
             }
             _glfw.platform = platform;
@@ -274,9 +292,11 @@ namespace Glfw
             // TLS and mutex not needed in C# ([ThreadStatic] + lock handle these)
 
             // Set up the main thread error slot
+            _glfw.tlsGeneration++;
+            _glfwThreadErrorGeneration = _glfw.tlsGeneration;
             _glfwThreadError = _glfwMainThreadError;
 
-            // Skip gamepad mapping initialization (joystick not needed)
+            _glfwInitGamepadMappings();
 
             // Initialize timer using Stopwatch
             _glfw.timer.Offset = (ulong)Stopwatch.GetTimestamp();
@@ -352,7 +372,7 @@ namespace Glfw
             description = null;
 
             if (_glfw.initialized)
-                error = _glfwThreadError;
+                error = _glfwThreadErrorGeneration == _glfw.tlsGeneration ? _glfwThreadError : null;
             else
                 error = _glfwMainThreadError;
 

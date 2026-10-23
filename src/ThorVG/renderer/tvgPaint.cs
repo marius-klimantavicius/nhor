@@ -28,6 +28,8 @@ namespace ThorVG
     {
         public PaintImpl pImpl;
         public uint id;
+        /// <summary>Caller-owned data associated with this paint; ThorVG does not manage its lifetime.</summary>
+        public object? data;
 
         protected Paint()
         {
@@ -203,8 +205,15 @@ namespace ThorVG
 
         public ushort Unref(bool free = true)
         {
-            parent = null;
+            AttachTo(null);
             return UnrefX(free);
+        }
+
+        public void AttachTo(Paint? parent)
+        {
+            this.parent = parent;
+            clipper?.pImpl.AttachTo(parent);
+            maskData?.target.pImpl.AttachTo(parent);
         }
 
         public ushort UnrefX(bool free)
@@ -226,15 +235,17 @@ namespace ThorVG
         /// </summary>
         internal void Cleanup()
         {
+            // A raster task can still borrow a Picture's pinned source or a
+            // Shape's path while an update is queued. Join before releasing it.
+            (rd as SwTask)?.Done();
+            if (paint is Shape shape) shape.CleanupShape();
+            if (paint is Picture picture) picture.CleanupPicture();
+            else if (paint is Text text) text.CleanupText();
             // Scene-specific: unref children before renderer is disposed.
             // Mirrors C++ ~SceneImpl() destructor which calls clearPaints() + resetEffects(false).
             if (paint is Scene scene)
             {
-                foreach (var p in scene.paints)
-                {
-                    p.pImpl.Unref();
-                }
-                scene.paints.Clear();
+                scene.Remove();
                 scene.ResetEffects(false);
             }
 
@@ -301,7 +312,7 @@ namespace ThorVG
             if (clp != null)
             {
                 clp.Ref();
-                clp.pImpl.parent = parent;
+                clp.pImpl.AttachTo(parent);
             }
             return Result.Success;
         }
@@ -321,7 +332,7 @@ namespace ThorVG
             maskData = new Mask();
             target!.Ref();
             maskData.target = target;
-            target.pImpl.parent = parent;
+            target.pImpl.AttachTo(parent);
             maskData.source = paint;
             maskData.method = method;
             return Result.Success;
@@ -476,6 +487,15 @@ namespace ThorVG
             return paint.GeometricBoundsVirt(pt4, m, obb);
         }
 
+        internal bool GeometricBounds(Span<Point> pt4, Matrix? pm, bool obb)
+        {
+            // Native nullptr means use the paint transform directly. An
+            // identity multiplication is observably different for nonfinite
+            // components (zero * NaN/Infinity contaminates other rows).
+            var m = TvgMath.MultiplyNullable(pm, Transform());
+            return paint.GeometricBoundsVirt(pt4, m, obb);
+        }
+
         // =====================================================================
         //  Bounds (public) — renderer-based region (for internal rendering use)
         // =====================================================================
@@ -568,7 +588,7 @@ namespace ThorVG
             {
                 static float Sign(in Point p1, in Point p2, in Point p3)
                 {
-                    return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+                    return TvgMath.MultiplyAdd(p1.x - p3.x, p2.y - p3.y, -((p2.x - p3.x) * (p1.y - p3.y)));
                 }
                 var b1 = Sign(p, q0, q1) < 0.0f;
                 var b2 = Sign(p, q1, q2) < 0.0f;
@@ -607,7 +627,6 @@ namespace ThorVG
             if ((renderFlag & RenderUpdateFlag.Transform) != 0) tr.Update();
 
             // 1. Composition Pre Processing
-            object? trd = null;
             var viewport = default(RenderRegion);
             var compFastTrack = false;
 
@@ -637,7 +656,7 @@ namespace ThorVG
                 }
                 if (!compFastTrack)
                 {
-                    trd = target.pImpl.Update(renderer, pm, ref clips, 255, flag, false);
+                    target.pImpl.Update(renderer, pm, ref clips, 255, flag, false);
                 }
             }
 
@@ -656,8 +675,8 @@ namespace ThorVG
                 else
                 {
                     Mark(RenderUpdateFlag.Clip);
-                    trd = pclip.Update(renderer, pm, ref clips, 255, flag, true);
-                    clips.Add(trd);
+                    var noClip = new ValueList<object?>();
+                    clips.Add(pclip.Update(renderer, pm, ref noClip, 255, flag, true));
                 }
             }
 

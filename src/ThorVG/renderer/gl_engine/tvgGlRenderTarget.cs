@@ -16,6 +16,7 @@ namespace ThorVG
 
         private uint colorBuffer;
         private uint depthStencilBuffer;
+        private GlStateCache? state;
 
         public GlRenderTarget()
         {
@@ -33,9 +34,13 @@ namespace ThorVG
         }
 
         public void Init(uint width, uint height, int resolveId)
+            => Init(null, width, height, resolveId);
+
+        public void Init(GlStateCache? state, uint width, uint height, int resolveId)
         {
             if (width == 0 || height == 0) return;
 
+            this.state = state;
             this.width = width;
             this.height = height;
 
@@ -45,7 +50,7 @@ namespace ThorVG
             fbo = fboId;
             GL.GL_CHECK();
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo);
+            BindFramebuffer(fbo);
             GL.GL_CHECK();
 
             // Color renderbuffer with multisampling
@@ -84,7 +89,7 @@ namespace ThorVG
             colorTex = tex;
             GL.GL_CHECK();
 
-            GL.glBindTexture(GL.GL_TEXTURE_2D, colorTex);
+            BindTexture(colorTex);
             GL.GL_CHECK();
             GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, (int)GL.GL_RGBA8, (int)width, (int)height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, null);
             GL.GL_CHECK();
@@ -98,7 +103,7 @@ namespace ThorVG
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, (int)GL.GL_LINEAR);
             GL.GL_CHECK();
 
-            GL.glBindTexture(GL.GL_TEXTURE_2D, 0);
+            BindTexture(0);
             GL.GL_CHECK();
 
             // Resolved framebuffer
@@ -106,12 +111,12 @@ namespace ThorVG
             GL.glGenFramebuffers(1, &resolvedFboId);
             resolvedFbo = resolvedFboId;
             GL.GL_CHECK();
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, resolvedFbo);
+            BindFramebuffer(resolvedFbo);
             GL.GL_CHECK();
             GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, colorTex, 0);
             GL.GL_CHECK();
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, (uint)resolveId);
+            BindFramebuffer((uint)resolveId);
             GL.GL_CHECK();
         }
 
@@ -119,7 +124,7 @@ namespace ThorVG
         {
             if (fbo == 0) return;
 
-            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0);
+            BindFramebuffer(0);
             GL.GL_CHECK();
 
             uint fboId = fbo;
@@ -142,20 +147,36 @@ namespace ThorVG
         }
 
         public bool Invalid() => fbo == 0;
+
+        private void BindFramebuffer(uint id)
+        {
+            if (state != null) state.BindFramebuffer(GL.GL_FRAMEBUFFER, id);
+            else GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, id);
+        }
+
+        private void BindTexture(uint id)
+        {
+            if (state != null) state.BindTexture2D(GL.GL_TEXTURE0, id);
+            else GL.glBindTexture(GL.GL_TEXTURE_2D, id);
+        }
     }
 
     public unsafe class GlRenderTargetPool : IDisposable
     {
         private uint maxWidth;
         private uint maxHeight;
+        private readonly GlStateCache? state;
 
         // We use a managed list instead of Array<nint> for simplicity, since these are managed objects
         private readonly System.Collections.Generic.List<GlRenderTarget> _pool = new System.Collections.Generic.List<GlRenderTarget>();
 
-        public GlRenderTargetPool(uint maxWidth, uint maxHeight)
+        public GlRenderTargetPool(uint maxWidth, uint maxHeight) : this(maxWidth, maxHeight, null) { }
+
+        public GlRenderTargetPool(uint maxWidth, uint maxHeight, GlStateCache? state)
         {
             this.maxWidth = maxWidth;
             this.maxHeight = maxHeight;
+            this.state = state;
         }
 
         public void Dispose()
@@ -207,7 +228,7 @@ namespace ThorVG
             }
 
             var newRt = new GlRenderTarget();
-            newRt.Init(w, h, (int)resolveId);
+            newRt.Init(state, w, h, (int)resolveId);
             newRt.viewport = vp;
             _pool.Add(newRt);
             return newRt;

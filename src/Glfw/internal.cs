@@ -1,4 +1,4 @@
-// Ported from glfw/src/internal.h -- GLFW 3.5 internal types
+// Ported from glfw/src/internal.h -- GLFW 3.6 internal types
 // GLFWbool -> bool, function pointers -> delegates, linked lists preserved
 //
 // GlfwContext is defined in context.cs (with unsafe delegate* unmanaged pointers).
@@ -472,6 +472,9 @@ namespace Glfw
         // Joysticks
         bool InitJoysticks();
         void TerminateJoysticks();
+        bool PollJoystick(GlfwJoystick joystick, int mode);
+        string GetMappingName();
+        string UpdateGamepadGUID(string guid);
 
         // Monitor
         void FreeMonitor(GlfwMonitor monitor);
@@ -567,8 +570,14 @@ namespace Glfw
 
         // contextSlot: the thread-local _GLFWwindow* (managed as GlfwWindow?)
         // In C++: _glfwPlatformGetTls(&_glfw.contextSlot) / _glfwPlatformSetTls(...)
-        [ThreadStatic]
-        public static GlfwWindow? contextSlot;
+        internal static int tlsGeneration;
+        [ThreadStatic] private static int contextGeneration;
+        [ThreadStatic] private static GlfwWindow? threadContext;
+        public static GlfwWindow? contextSlot
+        {
+            get => contextGeneration == tlsGeneration ? threadContext : null;
+            set { threadContext = value; contextGeneration = tlsGeneration; }
+        }
 
         // Mutex for error list (C# equivalent of _GLFWmutex)
         public static readonly object errorLock = new();

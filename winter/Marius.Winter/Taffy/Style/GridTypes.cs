@@ -28,12 +28,15 @@ namespace Marius.Winter.Taffy
         public static readonly MaxTrackSizingFunction MAX_CONTENT = new(CompactLength.MAX_CONTENT);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MaxTrackSizingFunction Length(double val) => Length((float)val);
         public static MaxTrackSizingFunction Length(float val) => new(CompactLength.Length(val));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MaxTrackSizingFunction Percent(double val) => Percent((float)val);
         public static MaxTrackSizingFunction Percent(float val) => new(CompactLength.Percent(val));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MaxTrackSizingFunction Fr(double val) => Fr((float)val);
         public static MaxTrackSizingFunction Fr(float val) => new(CompactLength.Fr(val));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -41,12 +44,24 @@ namespace Marius.Winter.Taffy
             new(CompactLength.FitContent(argument));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MaxTrackSizingFunction FitContentPx(double limit) => FitContentPx((float)limit);
         public static MaxTrackSizingFunction FitContentPx(float limit) =>
             new(CompactLength.FitContentPx(limit));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MaxTrackSizingFunction FitContentPercent(double limit) => FitContentPercent((float)limit);
         public static MaxTrackSizingFunction FitContentPercent(float limit) =>
             new(CompactLength.FitContentPercent(limit));
+        public static MaxTrackSizingFunction Calc(IntPtr handle) => new(CompactLength.Calc(handle));
+        public static MaxTrackSizingFunction FitContentCalc(IntPtr handle) => new(CompactLength.FitContentCalc(handle));
+        public ExpandedMaxTrackSizingFunction Expand() => Inner.Tag switch
+        {
+            CompactLength.LENGTH_TAG => ExpandedMaxTrackSizingFunction.Length(Inner.Value), CompactLength.PERCENT_TAG => ExpandedMaxTrackSizingFunction.Percent(Inner.Value),
+            CompactLength.AUTO_TAG => ExpandedMaxTrackSizingFunction.Auto, CompactLength.MIN_CONTENT_TAG => ExpandedMaxTrackSizingFunction.MinContent, CompactLength.MAX_CONTENT_TAG => ExpandedMaxTrackSizingFunction.MaxContent,
+            CompactLength.FIT_CONTENT_PX_TAG => ExpandedMaxTrackSizingFunction.FitContentPx(Inner.Value), CompactLength.FIT_CONTENT_PERCENT_TAG => ExpandedMaxTrackSizingFunction.FitContentPercent(Inner.Value), CompactLength.FR_TAG => ExpandedMaxTrackSizingFunction.Fr(Inner.Value),
+            _ when Inner.IsFitContentCalc() => ExpandedMaxTrackSizingFunction.FitContentCalc(Inner.CalcValue), _ when Inner.IsPlainCalc() => ExpandedMaxTrackSizingFunction.Calc(Inner.CalcValue),
+            _ => throw new InvalidOperationException("Invalid maximum track sizing function"),
+        };
 
         static MaxTrackSizingFunction IFromLength<MaxTrackSizingFunction>.FromLength(float value) => Length(value);
         static MaxTrackSizingFunction IFromPercent<MaxTrackSizingFunction>.FromPercent(float value) => Percent(value);
@@ -55,7 +70,7 @@ namespace Marius.Winter.Taffy
 
         public static implicit operator MaxTrackSizingFunction(LengthPercentage lp) => new(lp.IntoRaw());
         public static implicit operator MaxTrackSizingFunction(LengthPercentageAuto lpa) => new(lpa.IntoRaw());
-        public static implicit operator MaxTrackSizingFunction(Dimension d) => new(d.IntoRaw());
+        public static implicit operator MaxTrackSizingFunction(Dimension d) => d.IsStretch() || d.IsContent() || d.GetTag() == CompactLength.FIT_CONTENT_KEYWORD_TAG ? AUTO : new(d.IntoRaw());
         public static implicit operator MaxTrackSizingFunction(MinTrackSizingFunction min) => new(min.Inner);
 
         /// <summary>Create from a raw CompactLength</summary>
@@ -156,9 +171,17 @@ namespace Marius.Winter.Taffy
             {
                 CompactLength.FIT_CONTENT_PX_TAG => Inner.Value,
                 CompactLength.FIT_CONTENT_PERCENT_TAG => parentSize.HasValue ? Inner.Value * parentSize.Value : null,
+                _ when Inner.IsFitContentCalc() => parentSize.HasValue ? calcResolver(Inner.CalcValue, parentSize.Value) : null,
                 _ => DefiniteValue(parentSize, calcResolver),
             };
         }
+        public float? FitContentLimit(float? parentSize, Func<IntPtr, float, float> calcResolver) => Inner.Tag switch
+        {
+            CompactLength.FIT_CONTENT_PX_TAG => Inner.Value,
+            CompactLength.FIT_CONTENT_PERCENT_TAG => parentSize.HasValue ? Inner.Value * parentSize.Value : null,
+            _ when Inner.IsFitContentCalc() => parentSize.HasValue ? calcResolver(Inner.CalcValue, parentSize.Value) : null,
+            _ => null,
+        };
 
         /// <summary>
         /// Resolve percentage values against the passed parent_size, returning Some(value).
@@ -190,6 +213,14 @@ namespace Marius.Winter.Taffy
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal MinTrackSizingFunction(CompactLength inner) => Inner = inner;
+        public static MinTrackSizingFunction Calc(IntPtr handle) => new(CompactLength.Calc(handle));
+        public bool BehavesAsAuto(float? parentSize) => IsAuto() || !parentSize.HasValue && UsesPercentage();
+        public ExpandedMinTrackSizingFunction Expand() => Inner.Tag switch
+        {
+            CompactLength.LENGTH_TAG => ExpandedMinTrackSizingFunction.Length(Inner.Value), CompactLength.PERCENT_TAG => ExpandedMinTrackSizingFunction.Percent(Inner.Value),
+            CompactLength.AUTO_TAG => ExpandedMinTrackSizingFunction.Auto, CompactLength.MIN_CONTENT_TAG => ExpandedMinTrackSizingFunction.MinContent, CompactLength.MAX_CONTENT_TAG => ExpandedMinTrackSizingFunction.MaxContent,
+            _ when Inner.IsPlainCalc() => ExpandedMinTrackSizingFunction.Calc(Inner.CalcValue), _ => throw new InvalidOperationException("Invalid minimum track sizing function"),
+        };
 
         public static readonly MinTrackSizingFunction ZERO = new(CompactLength.ZERO);
         public static readonly MinTrackSizingFunction AUTO = new(CompactLength.AUTO);
@@ -197,9 +228,11 @@ namespace Marius.Winter.Taffy
         public static readonly MinTrackSizingFunction MAX_CONTENT = new(CompactLength.MAX_CONTENT);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MinTrackSizingFunction Length(double val) => Length((float)val);
         public static MinTrackSizingFunction Length(float val) => new(CompactLength.Length(val));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MinTrackSizingFunction Percent(double val) => Percent((float)val);
         public static MinTrackSizingFunction Percent(float val) => new(CompactLength.Percent(val));
 
         static MinTrackSizingFunction IFromLength<MinTrackSizingFunction>.FromLength(float value) => Length(value);
@@ -207,7 +240,8 @@ namespace Marius.Winter.Taffy
 
         public static implicit operator MinTrackSizingFunction(LengthPercentage lp) => new(lp.IntoRaw());
         public static implicit operator MinTrackSizingFunction(LengthPercentageAuto lpa) => new(lpa.IntoRaw());
-        public static implicit operator MinTrackSizingFunction(Dimension d) => new(d.IntoRaw());
+        public static implicit operator MinTrackSizingFunction(Dimension d) => d.GetTag() is CompactLength.FIT_CONTENT_PX_TAG or CompactLength.FIT_CONTENT_PERCENT_TAG or CompactLength.FIT_CONTENT_KEYWORD_TAG or CompactLength.STRETCH_TAG or CompactLength.CONTENT_TAG || d.IsFitContentCalc() ? AUTO : new(d.IntoRaw());
+        public static implicit operator MinTrackSizingFunction(MaxTrackSizingFunction value) => value.IsFr() || value.IsFitContent() ? AUTO : new(value.IntoRaw());
 
         /// <summary>Create from a raw CompactLength</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -331,16 +365,19 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Create a TrackSizingFunction from a length</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromLength(double value) => FromLength((float)value);
         public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromLength(float value) =>
             new(MinTrackSizingFunction.Length(value), MaxTrackSizingFunction.Length(value));
 
         /// <summary>Create a TrackSizingFunction from a percent</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromPercent(double value) => FromPercent((float)value);
         public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromPercent(float value) =>
             new(MinTrackSizingFunction.Percent(value), MaxTrackSizingFunction.Percent(value));
 
         /// <summary>Create a TrackSizingFunction from an fr value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromFr(double value) => FromFr((float)value);
         public static MinMax<MinTrackSizingFunction, MaxTrackSizingFunction> FromFr(float value) =>
             new(MinTrackSizingFunction.AUTO, MaxTrackSizingFunction.Fr(value));
 
@@ -510,8 +547,10 @@ namespace Marius.Winter.Taffy
     {
         /// <summary>The kind of placement</summary>
         public GridPlacementKind Kind;
-        /// <summary>The line index (for Line) or span count (for Span)</summary>
+        /// <summary>The raw 16-bit payload. Lines are signed; use SpanCount for unsigned spans.</summary>
         public short Value;
+        public readonly ushort SpanCount => Kind is GridPlacementKind.Span or GridPlacementKind.NamedSpan
+            ? (ushort)Value : throw new InvalidOperationException("The placement is not a span");
         /// <summary>Named line (for NamedLine/NamedSpan)</summary>
         public string? Name;
 
@@ -583,8 +622,8 @@ namespace Marius.Winter.Taffy
             GridPlacementKind.Auto => "Auto",
             GridPlacementKind.Line => $"Line({Value})",
             GridPlacementKind.NamedLine => $"NamedLine({Name}, {Value})",
-            GridPlacementKind.Span => $"Span({Value})",
-            GridPlacementKind.NamedSpan => $"NamedSpan({Name}, {Value})",
+            GridPlacementKind.Span => $"Span({SpanCount})",
+            GridPlacementKind.NamedSpan => $"NamedSpan({Name}, {SpanCount})",
             _ => "Unknown",
         };
     }
@@ -698,7 +737,7 @@ namespace Marius.Winter.Taffy
         }
 
         /// <summary>Returns the number of repeated tracks</summary>
-        public ushort TrackCount => (ushort)Tracks.Count;
+        public ushort TrackCount => (ushort)Math.Min(Tracks.Count, ushort.MaxValue);
     }
 
     /// <summary>
@@ -757,14 +796,17 @@ namespace Marius.Winter.Taffy
             FromSingle(TrackSizingFunctionExtensions.FitContent(argument));
 
         /// <summary>Create a single-track component from a length value</summary>
+        public static GridTemplateComponent FromLength(double value) => FromLength((float)value);
         public static GridTemplateComponent FromLength(float value) =>
             FromSingle(TrackSizingFunctionExtensions.FromLength(value));
 
         /// <summary>Create a single-track component from a percent value</summary>
+        public static GridTemplateComponent FromPercent(double value) => FromPercent((float)value);
         public static GridTemplateComponent FromPercent(float value) =>
             FromSingle(TrackSizingFunctionExtensions.FromPercent(value));
 
         /// <summary>Create a single-track component from an fr value</summary>
+        public static GridTemplateComponent FromFr(double value) => FromFr((float)value);
         public static GridTemplateComponent FromFr(float value) =>
             FromSingle(TrackSizingFunctionExtensions.FromFr(value));
     }

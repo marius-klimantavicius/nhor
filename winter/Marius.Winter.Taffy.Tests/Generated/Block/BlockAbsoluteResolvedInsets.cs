@@ -44,6 +44,7 @@ public class BlockAbsoluteResolvedInsets
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
             PaddingValue = new Rect<LengthPercentage>(LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f)),
@@ -82,6 +83,7 @@ public class BlockAbsoluteResolvedInsets
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
             ScrollbarWidthValue = 15f,
@@ -91,6 +93,7 @@ public class BlockAbsoluteResolvedInsets
         }, new NodeId[] { node10, node11, node12, node13, node14, node15 });
         var node20 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
         });
@@ -101,12 +104,13 @@ public class BlockAbsoluteResolvedInsets
         });
         var node2 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
             PaddingValue = new Rect<LengthPercentage>(LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f), LengthPercentage.Length(15f)),
             BorderValue = new Rect<LengthPercentage>(LengthPercentage.Length(20f), LengthPercentage.Length(20f), LengthPercentage.Length(20f), LengthPercentage.Length(20f)),
         }, new NodeId[] { node20, node21 });
-        var node = taffy.NewWithChildren(new Style(), new NodeId[] { node0, node1, node2 });
+        var node = taffy.NewWithChildren(new Style { PositionValue = Position.Relative }, new NodeId[] { node0, node1, node2 });
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);
         var layout_node = taffy.GetLayout(node);
         Assert.Equal(600f, layout_node.Size.Width);
@@ -245,6 +249,7 @@ public class BlockAbsoluteResolvedInsets
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
@@ -290,6 +295,7 @@ public class BlockAbsoluteResolvedInsets
         });
         var node1 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             OverflowValue = new Point<Overflow>(Overflow.Scroll, Overflow.Scroll),
@@ -300,6 +306,7 @@ public class BlockAbsoluteResolvedInsets
         }, new NodeId[] { node10, node11, node12, node13, node14, node15 });
         var node20 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(50f), Dimension.FromLength(10f)),
@@ -312,6 +319,7 @@ public class BlockAbsoluteResolvedInsets
         });
         var node2 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             Display = Display.Block,
             BoxSizingValue = BoxSizing.ContentBox,
             SizeValue = new Size<Dimension>(Dimension.FromLength(200f), Dimension.FromLength(200f)),
@@ -320,6 +328,7 @@ public class BlockAbsoluteResolvedInsets
         }, new NodeId[] { node20, node21 });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
         }, new NodeId[] { node0, node1, node2 });
         taffy.ComputeLayoutWithMeasure(node, MaxContentSize, MeasureFunction);

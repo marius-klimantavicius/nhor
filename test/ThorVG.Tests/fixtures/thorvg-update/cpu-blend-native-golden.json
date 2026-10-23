@@ -1,0 +1,28 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "methods": [
+    "Difference",
+    "Exclusion",
+    "Add",
+    "Screen",
+    "Multiply",
+    "Overlay",
+    "Darken",
+    "Lighten",
+    "ColorDodge",
+    "ColorBurn",
+    "HardLight",
+    "SoftLight",
+    "Hue",
+    "Saturation",
+    "Color",
+    "Luminosity"
+  ],
+  "cases": 49664,
+  "outputSha256": "65e733a97402ca61adb929c02e2311acc9caeb8df52ef6abf7c6602ec5a0453c",
+  "evidence": [
+    "cpu-blend-normal-lookup-corrected.json",
+    "arm-cpu-blend-normal-lookup-corrected.json"
+  ],
+  "qualification": "All16 real target blend methods on16 ordinary opaque color swatches over16 premultiplied backgrounds with six normal alpha values, both native luma orders; plus ordinary gray ramp through soft-light. Native luma callbacks are exact four-line functions from pinned raster.cpp; managed uses actual rasterCompositor setup. No malformed/corrupt/fuzz inputs."
+}

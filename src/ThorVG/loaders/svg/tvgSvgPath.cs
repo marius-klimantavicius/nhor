@@ -14,13 +14,6 @@ namespace ThorVG
             return pos;
         }
 
-        private static bool ParseNumber(string content, ref int pos, out float number)
-        {
-            number = TvgStr.ToFloat(content, ref pos);
-            // The index is updated by ToFloat; if it did not move, no number was parsed
-            return true; // ToFloat returns 0 if no number; we check differently
-        }
-
         private static bool TryParseNumber(string content, ref int pos, out float number)
         {
             int startPos = pos;
@@ -49,8 +42,8 @@ namespace ThorVG
             var sinPhi = MathF.Sin(angle);
             var dx = (start.x - next.x) * 0.5f;
             var dy = (start.y - next.y) * 0.5f;
-            var x1p = cosPhi * dx + sinPhi * dy;
-            var y1p = cosPhi * dy - sinPhi * dx;
+            var x1p = TvgMath.MultiplyAdd(cosPhi, dx, sinPhi * dy);
+            var y1p = TvgMath.MultiplyAdd(cosPhi, dy, -sinPhi * dx);
             var x1p2 = x1p * x1p;
             var y1p2 = y1p * y1p;
             var rx = radius.x;
@@ -86,12 +79,12 @@ namespace ThorVG
                 if (largeArc == sweep) c = -c;
                 cpx = c * (rx * y1p / ry);
                 cpy = c * (-ry * x1p / rx);
-                centerX = cosPhi * cpx - sinPhi * cpy;
-                centerY = sinPhi * cpx + cosPhi * cpy;
+                centerX = TvgMath.MultiplyAdd(cosPhi, cpx, -sinPhi * cpy);
+                centerY = TvgMath.MultiplyAdd(sinPhi, cpx, cosPhi * cpy);
             }
 
-            centerX += (start.x + next.x) * 0.5f;
-            centerY += (start.y + next.y) * 0.5f;
+            centerX = TvgMath.MultiplyAdd(start.x + next.x, 0.5f, centerX);
+            centerY = TvgMath.MultiplyAdd(start.y + next.y, 0.5f, centerY);
 
             var at = TvgMath.Atan2(((y1p - cpy) / ry), ((x1p - cpx) / rx));
             var theta1 = (at < 0.0f) ? 2.0f * MathConstants.MATH_PI + at : at;
@@ -124,16 +117,16 @@ namespace ThorVG
                 var sinTheta2 = MathF.Sin(theta2);
 
                 var c1 = new Point(
-                    start.x + (-bcp * (cosPhiRx * sinTheta1 + sinPhiRy * cosTheta1)),
-                    start.y + (bcp * (cosPhiRy * cosTheta1 - sinPhiRx * sinTheta1)));
+                    TvgMath.MultiplyAdd(-bcp, TvgMath.MultiplyAdd(cosPhiRx, sinTheta1, sinPhiRy * cosTheta1), start.x),
+                    TvgMath.MultiplyAdd(bcp, TvgMath.MultiplyAdd(cosPhiRy, cosTheta1, -sinPhiRx * sinTheta1), start.y));
 
                 var e = new Point(
-                    centerX + cosPhiRx * cosTheta2 - sinPhiRy * sinTheta2,
-                    centerY + sinPhiRx * cosTheta2 + cosPhiRy * sinTheta2);
+                    centerX + TvgMath.MultiplyAdd(cosPhiRx, cosTheta2, -sinPhiRy * sinTheta2),
+                    centerY + TvgMath.MultiplyAdd(sinPhiRx, cosTheta2, cosPhiRy * sinTheta2));
 
                 curCtl = new Point(
-                    e.x + bcp * (cosPhiRx * sinTheta2 + sinPhiRy * cosTheta2),
-                    e.y + bcp * (sinPhiRx * sinTheta2 - cosPhiRy * cosTheta2));
+                    TvgMath.MultiplyAdd(bcp, TvgMath.MultiplyAdd(cosPhiRx, sinTheta2, sinPhiRy * cosTheta2), e.x),
+                    TvgMath.MultiplyAdd(bcp, TvgMath.MultiplyAdd(sinPhiRx, sinTheta2, -cosPhiRy * cosTheta2), e.y));
 
                 cur = e;
                 path.CubicTo(c1, curCtl, cur);
@@ -169,7 +162,7 @@ namespace ThorVG
             }
         }
 
-        private static bool ProcessCommand(RenderPath path, char cmd, float[] arr, int count,
+        private static bool ProcessCommand(RenderPath path, char cmd, Span<float> arr, int count,
             ref Point cur, ref Point curCtl, ref Point start, ref bool quadratic, ref bool closed)
         {
             switch (cmd)
@@ -202,7 +195,7 @@ namespace ThorVG
                 {
                     Point ctrl;
                     if (path.cmds.count > 1 && path.cmds.Last() == PathCommand.CubicTo && !quadratic)
-                        ctrl = new Point(2 * cur.x - curCtl.x, 2 * cur.y - curCtl.y);
+                        ctrl = new Point(TvgMath.MultiplyAdd(2, cur.x, -curCtl.x), TvgMath.MultiplyAdd(2, cur.y, -curCtl.y));
                     else
                         ctrl = cur;
                     curCtl = new Point(arr[0], arr[1]);
@@ -214,8 +207,8 @@ namespace ThorVG
                 case 'q': case 'Q':
                 {
                     var qx = arr[0]; var qy = arr[1];
-                    var ctrl1 = new Point((cur.x + 2 * qx) / 3.0f, (cur.y + 2 * qy) / 3.0f);
-                    var ctrl2 = new Point((arr[2] + 2 * qx) / 3.0f, (arr[3] + 2 * qy) / 3.0f);
+                    var ctrl1 = new Point(TvgMath.MultiplyAdd(2, qx, cur.x) * (1.0f / 3.0f), TvgMath.MultiplyAdd(2, qy, cur.y) * (1.0f / 3.0f));
+                    var ctrl2 = new Point(TvgMath.MultiplyAdd(2, qx, arr[2]) * (1.0f / 3.0f), TvgMath.MultiplyAdd(2, qy, arr[3]) * (1.0f / 3.0f));
                     curCtl = new Point(qx, qy);
                     cur = new Point(arr[2], arr[3]);
                     path.CubicTo(ctrl1, ctrl2, cur);
@@ -226,11 +219,11 @@ namespace ThorVG
                 {
                     Point ctrl;
                     if (path.cmds.count > 1 && path.cmds.Last() == PathCommand.CubicTo && quadratic)
-                        ctrl = new Point(2 * cur.x - curCtl.x, 2 * cur.y - curCtl.y);
+                        ctrl = new Point(TvgMath.MultiplyAdd(2, cur.x, -curCtl.x), TvgMath.MultiplyAdd(2, cur.y, -curCtl.y));
                     else
                         ctrl = cur;
-                    var ctrl1 = new Point((cur.x + 2 * ctrl.x) / 3.0f, (cur.y + 2 * ctrl.y) / 3.0f);
-                    var ctrl2 = new Point((arr[0] + 2 * ctrl.x) / 3.0f, (arr[1] + 2 * ctrl.y) / 3.0f);
+                    var ctrl1 = new Point(TvgMath.MultiplyAdd(2, ctrl.x, cur.x) * (1.0f / 3.0f), TvgMath.MultiplyAdd(2, ctrl.y, cur.y) * (1.0f / 3.0f));
+                    var ctrl2 = new Point(TvgMath.MultiplyAdd(2, ctrl.x, arr[0]) * (1.0f / 3.0f), TvgMath.MultiplyAdd(2, ctrl.y, arr[1]) * (1.0f / 3.0f));
                     curCtl = ctrl;
                     cur = new Point(arr[0], arr[1]);
                     path.CubicTo(ctrl1, ctrl2, cur);
@@ -272,12 +265,12 @@ namespace ThorVG
             return true;
         }
 
-        private static bool NextCommand(string path, ref int pos, ref char cmd, float[] arr, ref int count, ref bool closed)
+        private static bool NextCommand(string path, ref int pos, ref char cmd, Span<float> arr, ref int count, ref bool closed)
         {
             pos = SkipComma(path, pos);
             if (pos >= path.Length) return false;
 
-            if (char.IsLetter(path[pos]))
+            if ((path[pos] >= 'A' && path[pos] <= 'Z') || (path[pos] >= 'a' && path[pos] <= 'z'))
             {
                 cmd = path[pos];
                 pos++;
@@ -323,7 +316,7 @@ namespace ThorVG
 
         public static bool ToShape(string svgPath, RenderPath output)
         {
-            var arr = new float[7];
+            Span<float> arr = stackalloc float[7];
             int count = 0;
             var cur = new Point(0, 0);
             var curCtl = new Point(0, 0);

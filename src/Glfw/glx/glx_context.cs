@@ -1,4 +1,4 @@
-// GLFW 3.5 GLX - www.glfw.org
+// GLFW 3.6 GLX - www.glfw.org
 // Ported from glfw/src/glx_context.c
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
@@ -456,6 +456,9 @@ public static unsafe partial class Glfw
             _glfwPlatformFreeModule(_glfw.glx.handle);
             _glfw.glx.handle = 0;
         }
+        // Native termination clears the full library state. Extension flags and
+        // procedure addresses belong to this load, not to a later init cycle.
+        _glfw.glx = null;
     }
 
     internal static bool _glfwCreateContextGLX(GlfwWindow window,
@@ -652,6 +655,7 @@ public static unsafe partial class Glfw
             return false;
         }
 
+        window.context.destroy = destroyContextGLX;
         window.context.glx.window =
             _glfw.glx.CreateWindow(_glfw.X11!.display, native, window.X11!.handle, null);
         if (window.context.glx.window == 0)
@@ -803,9 +807,9 @@ public static unsafe partial class Glfw
 
 
     //////////////////////////////////////////////////////////////////////////
-    //////              X11 helper stubs for GLX                        //////
+    //////              X11 helpers for GLX                        //////
     //////////////////////////////////////////////////////////////////////////
-    // These stubs will be replaced when x11_init.c / x11_window.c are ported.
+    // Delegate to the shared X11 error and visual implementations.
 
     // Delegates to real implementation in x11_init.cs
     internal static void _glfwGrabErrorHandlerX11()

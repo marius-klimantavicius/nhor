@@ -19,10 +19,14 @@ namespace ThorVG
 
     public static unsafe partial class SwRaster
     {
-        // Shared state for texmap (not thread-safe, matches C++)
-        [ThreadStatic] private static float _dudx, _dvdx;
-        [ThreadStatic] private static float _dxdya, _dxdyb, _dudya, _dvdya;
-        [ThreadStatic] private static float _xa, _xb, _ua, _va;
+        // One scan converter belongs to each rasterTexmapPolygon call. A blend
+        // callback may render another image before the current polygon finishes.
+        private struct TexmapState
+        {
+            public float dudx, dvdx;
+            public float dxdya, dxdyb, dudya, dvdya;
+            public float xa, xb, ua, va;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int _modf(float v)
@@ -52,21 +56,21 @@ namespace ThorVG
             return 255;
         }
 
-        private static bool _rasterMaskedPolygonImageSegment(SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
+        private static bool _rasterMaskedPolygonImageSegment(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
         {
             // Not implemented in C++ either
             return false;
         }
 
-        private static void _rasterBlendingPolygonImageSegment(SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
+        private static void _rasterBlendingPolygonImageSegment(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
         {
             if (surface.channelSize == sizeof(byte)) return;
 
-            var localDudx = _dudx; var localDvdx = _dvdx;
-            var localDxdya = _dxdya; var localDxdyb = _dxdyb;
-            var localDudya = _dudya; var localDvdya = _dvdya;
-            var localXa = _xa; var localXb = _xb;
-            var localUa = _ua; var localVa = _va;
+            var localDudx = state.dudx; var localDvdx = state.dvdx;
+            var localDxdya = state.dxdya; var localDxdyb = state.dxdyb;
+            var localDudya = state.dudya; var localDvdya = state.dvdya;
+            var localXa = state.xa; var localXb = state.xb;
+            var localUa = state.ua; var localVa = state.va;
             var sbuf = image.buf32;
             var dbuf = surface.buf32;
             var sw = (int)image.w;
@@ -84,8 +88,8 @@ namespace ThorVG
                 if ((x2 - x1) >= 1 && (x1 < bbox.max.x) && (x2 > bbox.min.x))
                 {
                     float dx = 1 - (localXa - x1);
-                    float u = localUa + dx * localDudx;
-                    float v = localVa + dx * localDvdx;
+                    float u = TvgMath.MultiplyAdd(dx, localDudx, localUa);
+                    float v = TvgMath.MultiplyAdd(dx, localDvdx, localVa);
                     var buf = dbuf + ((y * surface.stride) + x1);
                     int x = x1;
 
@@ -93,7 +97,7 @@ namespace ThorVG
                     {
                         int uu = (int)u;
                         int vv = (int)v;
-                        if ((uint)uu >= image.w || (uint)vv >= image.h) { u += localDudx; v += localDvdx; ++buf; continue; }
+                        if ((uint)uu >= image.w || (uint)vv >= image.h) continue;
 
                         int ar = _modf(u);
                         int ab = _modf(v);
@@ -122,16 +126,16 @@ namespace ThorVG
                 localVa += localDvdya;
                 ++y;
             }
-            _xa = localXa; _xb = localXb; _ua = localUa; _va = localVa;
+            state.xa = localXa; state.xb = localXb; state.ua = localUa; state.va = localVa;
         }
 
-        private static void _rasterPolygonImageSegment32(SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool matting, bool needAA)
+        private static void _rasterPolygonImageSegment32(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool matting, bool needAA)
         {
-            var localDudx = _dudx; var localDvdx = _dvdx;
-            var localDxdya = _dxdya; var localDxdyb = _dxdyb;
-            var localDudya = _dudya; var localDvdya = _dvdya;
-            var localXa = _xa; var localXb = _xb;
-            var localUa = _ua; var localVa = _va;
+            var localDudx = state.dudx; var localDvdx = state.dvdx;
+            var localDxdya = state.dxdya; var localDxdyb = state.dxdyb;
+            var localDudya = state.dudya; var localDvdya = state.dvdya;
+            var localXa = state.xa; var localXb = state.xb;
+            var localUa = state.ua; var localVa = state.va;
             var sbuf = image.buf32;
             var dbuf = surface.buf32;
             var sw = (int)image.w;
@@ -153,8 +157,8 @@ namespace ThorVG
                 if ((x2 - x1) >= 1 && (x1 < bbox.max.x) && (x2 > bbox.min.x))
                 {
                     float dx = 1 - (localXa - x1);
-                    float u = localUa + dx * localDudx;
-                    float v = localVa + dx * localDvdx;
+                    float u = TvgMath.MultiplyAdd(dx, localDudx, localUa);
+                    float v = TvgMath.MultiplyAdd(dx, localDvdx, localVa);
                     var buf = dbuf + ((y * surface.stride) + x1);
                     int x = x1;
 
@@ -165,7 +169,7 @@ namespace ThorVG
                     {
                         int uu = (int)u;
                         int vv = (int)v;
-                        if ((uint)uu >= image.w || (uint)vv >= image.h) { u += localDudx; v += localDvdx; ++buf; if (matting) cmp += csize; continue; }
+                        if ((uint)uu >= image.w || (uint)vv >= image.h) continue;
 
                         int ar = _modf(u);
                         int ab = _modf(v);
@@ -206,16 +210,16 @@ namespace ThorVG
                 localVa += localDvdya;
                 ++y;
             }
-            _xa = localXa; _xb = localXb; _ua = localUa; _va = localVa;
+            state.xa = localXa; state.xb = localXb; state.ua = localUa; state.va = localVa;
         }
 
-        private static void _rasterPolygonImageSegment8(SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
+        private static void _rasterPolygonImageSegment8(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool needAA)
         {
-            var localDudx = _dudx; var localDvdx = _dvdx;
-            var localDxdya = _dxdya; var localDxdyb = _dxdyb;
-            var localDudya = _dudya; var localDvdya = _dvdya;
-            var localXa = _xa; var localXb = _xb;
-            var localUa = _ua; var localVa = _va;
+            var localDudx = state.dudx; var localDvdx = state.dvdx;
+            var localDxdya = state.dxdya; var localDxdyb = state.dxdyb;
+            var localDudya = state.dudya; var localDvdya = state.dvdya;
+            var localXa = state.xa; var localXb = state.xb;
+            var localUa = state.ua; var localVa = state.va;
             var sbuf = image.buf32;
             var dbuf = surface.buf8;
 
@@ -231,8 +235,8 @@ namespace ThorVG
                 if ((x2 - x1) >= 1 && (x1 < bbox.max.x) && (x2 > bbox.min.x))
                 {
                     float dx = 1 - (localXa - x1);
-                    float u = localUa + dx * localDudx;
-                    float v = localVa + dx * localDvdx;
+                    float u = TvgMath.MultiplyAdd(dx, localDudx, localUa);
+                    float v = TvgMath.MultiplyAdd(dx, localDvdx, localVa);
                     var buf = dbuf + ((y * surface.stride) + x1);
                     int x = x1;
 
@@ -240,7 +244,7 @@ namespace ThorVG
                     {
                         var uu = (int)u;
                         var vv = (int)v;
-                        if ((uint)uu >= image.w || (uint)vv >= image.h) { u += localDudx; v += localDvdx; ++buf; continue; }
+                        if ((uint)uu >= image.w || (uint)vv >= image.h) continue;
 
                         var px = A(*(sbuf + (vv * image.stride) + uu));
                         *buf = (byte)MULTIPLY(px, opacity);
@@ -256,16 +260,16 @@ namespace ThorVG
                 localVa += localDvdya;
                 ++y;
             }
-            _xa = localXa; _xb = localXb; _ua = localUa; _va = localVa;
+            state.xa = localXa; state.xb = localXb; state.ua = localUa; state.va = localVa;
         }
 
-        private static void _rasterPolygonImageSegment(SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool matting, bool needAA)
+        private static void _rasterPolygonImageSegment(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, int yStart, int yEnd, byte opacity, bool matting, bool needAA)
         {
-            if (surface.channelSize == sizeof(uint)) _rasterPolygonImageSegment32(surface, image, bbox, yStart, yEnd, opacity, matting, needAA);
-            else if (surface.channelSize == sizeof(byte)) _rasterPolygonImageSegment8(surface, image, bbox, yStart, yEnd, opacity, needAA);
+            if (surface.channelSize == sizeof(uint)) _rasterPolygonImageSegment32(ref state, surface, image, bbox, yStart, yEnd, opacity, matting, needAA);
+            else if (surface.channelSize == sizeof(byte)) _rasterPolygonImageSegment8(ref state, surface, image, bbox, yStart, yEnd, opacity, needAA);
         }
 
-        private static void _rasterPolygonImage(SwSurface surface, SwImage image, in RenderRegion bbox, ref Polygon polygon, byte opacity, bool needAA)
+        private static void _rasterPolygonImage(ref TexmapState state, SwSurface surface, SwImage image, in RenderRegion bbox, ref Polygon polygon, byte opacity, bool needAA)
         {
             Span<float> xArr = stackalloc float[] { polygon.v0.pt.x, polygon.v1.pt.x, polygon.v2.pt.x };
             Span<float> yArr = stackalloc float[] { polygon.v0.pt.y, polygon.v1.pt.y, polygon.v2.pt.y };
@@ -273,6 +277,7 @@ namespace ThorVG
             Span<float> vArr = stackalloc float[] { polygon.v0.uv.y, polygon.v1.uv.y, polygon.v2.uv.y };
 
             Span<float> dxdy = stackalloc float[3];
+            dxdy.Clear();
             var upper = false;
 
             // Sort the vertices in ascending Y order
@@ -284,14 +289,14 @@ namespace ThorVG
 
             if ((yi[0] == yi[1] && yi[0] == yi[2]) || ((int)xArr[0] == (int)xArr[1] && (int)xArr[0] == (int)xArr[2])) return;
 
-            var denom = ((xArr[2] - xArr[0]) * (yArr[1] - yArr[0]) - (xArr[1] - xArr[0]) * (yArr[2] - yArr[0]));
+            var denom = TvgMath.MultiplyAdd(xArr[2] - xArr[0], yArr[1] - yArr[0], -((xArr[1] - xArr[0]) * (yArr[2] - yArr[0])));
             if (TvgMath.Zero(denom)) return;
 
             denom = 1 / denom;
-            _dudx = ((uArr[2] - uArr[0]) * (yArr[1] - yArr[0]) - (uArr[1] - uArr[0]) * (yArr[2] - yArr[0])) * denom;
-            _dvdx = ((vArr[2] - vArr[0]) * (yArr[1] - yArr[0]) - (vArr[1] - vArr[0]) * (yArr[2] - yArr[0])) * denom;
-            var dudy = ((uArr[1] - uArr[0]) * (xArr[2] - xArr[0]) - (uArr[2] - uArr[0]) * (xArr[1] - xArr[0])) * denom;
-            var dvdy = ((vArr[1] - vArr[0]) * (xArr[2] - xArr[0]) - (vArr[2] - vArr[0]) * (xArr[1] - xArr[0])) * denom;
+            state.dudx = TvgMath.MultiplyAdd(uArr[2] - uArr[0], yArr[1] - yArr[0], -((uArr[1] - uArr[0]) * (yArr[2] - yArr[0]))) * denom;
+            state.dvdx = TvgMath.MultiplyAdd(vArr[2] - vArr[0], yArr[1] - yArr[0], -((vArr[1] - vArr[0]) * (yArr[2] - yArr[0]))) * denom;
+            var dudy = TvgMath.MultiplyAdd(uArr[1] - uArr[0], xArr[2] - xArr[0], -((uArr[2] - uArr[0]) * (xArr[1] - xArr[0]))) * denom;
+            var dvdy = TvgMath.MultiplyAdd(vArr[1] - vArr[0], xArr[2] - xArr[0], -((vArr[2] - vArr[0]) * (xArr[1] - xArr[0]))) * denom;
 
             if (yArr[1] > yArr[0]) dxdy[0] = (xArr[1] - xArr[0]) / (yArr[1] - yArr[0]);
             if (yArr[2] > yArr[0]) dxdy[1] = (xArr[2] - xArr[0]) / (yArr[2] - yArr[0]);
@@ -306,79 +311,79 @@ namespace ThorVG
 
             if (!side)
             {
-                _dxdya = dxdy[1];
-                _dudya = _dxdya * _dudx + dudy;
-                _dvdya = _dxdya * _dvdx + dvdy;
+                state.dxdya = dxdy[1];
+                state.dudya = TvgMath.MultiplyAdd(state.dxdya, state.dudx, dudy);
+                state.dvdya = TvgMath.MultiplyAdd(state.dxdya, state.dvdx, dvdy);
 
                 var dy = 1.0f - (yArr[0] - yi[0]);
-                _xa = xArr[0] + dy * _dxdya;
-                _ua = uArr[0] + dy * _dudya;
-                _va = vArr[0] + dy * _dvdya;
+                state.xa = TvgMath.MultiplyAdd(dy, state.dxdya, xArr[0]);
+                state.ua = TvgMath.MultiplyAdd(dy, state.dudya, uArr[0]);
+                state.va = TvgMath.MultiplyAdd(dy, state.dvdya, vArr[0]);
 
                 if (yi[0] < yi[1])
                 {
                     var off_y = yArr[0] < bbox.min.y ? (bbox.min.y - yArr[0]) : 0;
-                    _xa += off_y * _dxdya; _ua += off_y * _dudya; _va += off_y * _dvdya;
-                    _dxdyb = dxdy[0];
-                    _xb = xArr[0] + dy * _dxdyb + off_y * _dxdyb;
+                    state.xa = TvgMath.MultiplyAdd(off_y, state.dxdya, state.xa); state.ua = TvgMath.MultiplyAdd(off_y, state.dudya, state.ua); state.va = TvgMath.MultiplyAdd(off_y, state.dvdya, state.va);
+                    state.dxdyb = dxdy[0];
+                    state.xb = TvgMath.MultiplyAdd(off_y, state.dxdyb, TvgMath.MultiplyAdd(dy, state.dxdyb, xArr[0]));
 
-                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, needAA); }
-                    else if (blending) _rasterBlendingPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, needAA);
-                    else _rasterPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, false, needAA);
+                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, needAA); }
+                    else if (blending) _rasterBlendingPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, needAA);
+                    else _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, false, needAA);
                     upper = true;
                 }
                 if (yi[1] < yi[2])
                 {
                     var off_y = yArr[1] < bbox.min.y ? (bbox.min.y - yArr[1]) : 0;
-                    if (!upper) { _xa += off_y * _dxdya; _ua += off_y * _dudya; _va += off_y * _dvdya; }
-                    _dxdyb = dxdy[2];
-                    _xb = xArr[1] + (1 - (yArr[1] - yi[1])) * _dxdyb + off_y * _dxdyb;
+                    if (!upper) { state.xa = TvgMath.MultiplyAdd(off_y, state.dxdya, state.xa); state.ua = TvgMath.MultiplyAdd(off_y, state.dudya, state.ua); state.va = TvgMath.MultiplyAdd(off_y, state.dvdya, state.va); }
+                    state.dxdyb = dxdy[2];
+                    state.xb = TvgMath.MultiplyAdd(off_y, state.dxdyb, TvgMath.MultiplyAdd(1 - (yArr[1] - yi[1]), state.dxdyb, xArr[1]));
 
-                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, needAA); }
-                    else if (blending) _rasterBlendingPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, needAA);
-                    else _rasterPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, false, needAA);
+                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, needAA); }
+                    else if (blending) _rasterBlendingPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, needAA);
+                    else _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, false, needAA);
                 }
             }
             else
             {
-                _dxdyb = dxdy[1];
+                state.dxdyb = dxdy[1];
                 var dy = 1.0f - (yArr[0] - yi[0]);
-                _xb = xArr[0] + dy * _dxdyb;
+                state.xb = TvgMath.MultiplyAdd(dy, state.dxdyb, xArr[0]);
 
                 if (yi[0] < yi[1])
                 {
                     var off_y = yArr[0] < bbox.min.y ? (bbox.min.y - yArr[0]) : 0;
-                    _xb += off_y * _dxdyb;
+                    state.xb = TvgMath.MultiplyAdd(off_y, state.dxdyb, state.xb);
 
-                    _dxdya = dxdy[0];
-                    _dudya = _dxdya * _dudx + dudy;
-                    _dvdya = _dxdya * _dvdx + dvdy;
+                    state.dxdya = dxdy[0];
+                    state.dudya = TvgMath.MultiplyAdd(state.dxdya, state.dudx, dudy);
+                    state.dvdya = TvgMath.MultiplyAdd(state.dxdya, state.dvdx, dvdy);
 
-                    _xa = xArr[0] + dy * _dxdya + off_y * _dxdya;
-                    _ua = uArr[0] + dy * _dudya + off_y * _dudya;
-                    _va = vArr[0] + dy * _dvdya + off_y * _dvdya;
+                    state.xa = TvgMath.MultiplyAdd(off_y, state.dxdya, TvgMath.MultiplyAdd(dy, state.dxdya, xArr[0]));
+                    state.ua = TvgMath.MultiplyAdd(off_y, state.dudya, TvgMath.MultiplyAdd(dy, state.dudya, uArr[0]));
+                    state.va = TvgMath.MultiplyAdd(off_y, state.dvdya, TvgMath.MultiplyAdd(dy, state.dvdya, vArr[0]));
 
-                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, needAA); }
-                    else if (blending) _rasterBlendingPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, needAA);
-                    else _rasterPolygonImageSegment(surface, image, bbox, yi[0], yi[1], opacity, false, needAA);
+                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, needAA); }
+                    else if (blending) _rasterBlendingPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, needAA);
+                    else _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[0], yi[1], opacity, false, needAA);
                     upper = true;
                 }
                 if (yi[1] < yi[2])
                 {
                     var off_y = yArr[1] < bbox.min.y ? (bbox.min.y - yArr[1]) : 0;
-                    if (!upper) _xb += off_y * _dxdyb;
+                    if (!upper) state.xb = TvgMath.MultiplyAdd(off_y, state.dxdyb, state.xb);
 
-                    _dxdya = dxdy[2];
-                    _dudya = _dxdya * _dudx + dudy;
-                    _dvdya = _dxdya * _dvdx + dvdy;
+                    state.dxdya = dxdy[2];
+                    state.dudya = TvgMath.MultiplyAdd(state.dxdya, state.dudx, dudy);
+                    state.dvdya = TvgMath.MultiplyAdd(state.dxdya, state.dvdx, dvdy);
                     dy = 1 - (yArr[1] - yi[1]);
-                    _xa = xArr[1] + dy * _dxdya + off_y * _dxdya;
-                    _ua = uArr[1] + dy * _dudya + off_y * _dudya;
-                    _va = vArr[1] + dy * _dvdya + off_y * _dvdya;
+                    state.xa = TvgMath.MultiplyAdd(off_y, state.dxdya, TvgMath.MultiplyAdd(dy, state.dxdya, xArr[1]));
+                    state.ua = TvgMath.MultiplyAdd(off_y, state.dudya, TvgMath.MultiplyAdd(dy, state.dudya, uArr[1]));
+                    state.va = TvgMath.MultiplyAdd(off_y, state.dvdya, TvgMath.MultiplyAdd(dy, state.dvdya, vArr[1]));
 
-                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, needAA); }
-                    else if (blending) _rasterBlendingPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, needAA);
-                    else _rasterPolygonImageSegment(surface, image, bbox, yi[1], yi[2], opacity, false, needAA);
+                    if (compositing) { if (_matting(surface)) _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, true, needAA); else _rasterMaskedPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, needAA); }
+                    else if (blending) _rasterBlendingPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, needAA);
+                    else _rasterPolygonImageSegment(ref state, surface, image, bbox, yi[1], yi[2], opacity, false, needAA);
                 }
             }
         }
@@ -398,19 +403,20 @@ namespace ThorVG
 
             var needAA = TvgMath.RightAngle(transform) ? false : true;
 
+            var state = default(TexmapState);
             Polygon polygon;
 
             // Draw the first polygon
             polygon.v0 = vertices[0];
             polygon.v1 = vertices[1];
             polygon.v2 = vertices[3];
-            _rasterPolygonImage(surface, image, bbox, ref polygon, opacity, needAA);
+            _rasterPolygonImage(ref state, surface, image, bbox, ref polygon, opacity, needAA);
 
             // Draw the second polygon
             polygon.v0 = vertices[1];
             polygon.v1 = vertices[2];
             polygon.v2 = vertices[3];
-            _rasterPolygonImage(surface, image, bbox, ref polygon, opacity, needAA);
+            _rasterPolygonImage(ref state, surface, image, bbox, ref polygon, opacity, needAA);
 
             return true;
         }

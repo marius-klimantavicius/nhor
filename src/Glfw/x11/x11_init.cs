@@ -1,4 +1,4 @@
-// Ported from glfw/src/x11_init.c (GLFW 3.5)
+// Ported from glfw/src/x11_init.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -23,6 +23,7 @@
 //    distribution.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using static Glfw.GLFW;
 using static Glfw.X11Constants;
@@ -35,8 +36,20 @@ namespace Glfw;
 
 public static unsafe class X11PlatformConnector
 {
+    // LC_CTYPE is zero on the Linux platforms registered by this port.
+    [DllImport("libc", CallingConvention = CallingConvention.Cdecl)]
+    private static extern nint setlocale(int category, byte* locale);
+
     public static IGlfwPlatform? Connect(int platformId)
     {
+        // Match _glfwConnectX11 before any Xlib/XIM initialization.  The C
+        // locale is process-global; retain an application's non-C selection.
+        if (Marshal.PtrToStringUTF8(setlocale(0, null)) == "C")
+        {
+            byte empty = 0;
+            setlocale(0, &empty);
+        }
+
         var x11 = new GlfwLibraryX11();
         _glfw.X11 = x11;
 
@@ -46,6 +59,7 @@ public static unsafe class X11PlatformConnector
             if (platformId == GlfwPlatformId.X11)
                 Glfw._glfwInputError(GLFW_PLATFORM_ERROR, "X11: Failed to load Xlib");
 
+            X11Native.FreeLibraries(x11);
             _glfw.X11 = null;
             return null;
         }
@@ -57,12 +71,8 @@ public static unsafe class X11PlatformConnector
         if (x11.xlib.InitThreads != null)
             x11.xlib.InitThreads();
 
-        if (x11.xrm.UniqueQuark != null)
-        {
-            // XrmInitialize is just calling XrmUniqueQuark internally
-            // We call it to ensure the Xrm system is initialized
-            x11.xrm.UniqueQuark();
-        }
+        if (x11.xrm.Initialize != null)
+            x11.xrm.Initialize();
 
         // Open the X display
         nint display = x11.xlib.OpenDisplay(null);
@@ -83,6 +93,7 @@ public static unsafe class X11PlatformConnector
                 }
             }
 
+            X11Native.FreeLibraries(x11);
             _glfw.X11 = null;
             return null;
         }
@@ -132,9 +143,11 @@ public partial class X11Platform : IGlfwPlatform
     public string? GetClipboardString()
         => Glfw._glfwGetClipboardStringX11();
 
-    // Joysticks (null stubs for now)
-    public bool InitJoysticks() => true;
-    public void TerminateJoysticks() { }
+    public bool InitJoysticks() => Glfw._glfwInitJoysticksLinux();
+    public void TerminateJoysticks() => Glfw._glfwTerminateJoysticksLinux();
+    public bool PollJoystick(GlfwJoystick joystick, int mode) => Glfw._glfwPollJoystickLinux(joystick, mode);
+    public string GetMappingName() => "Linux";
+    public string UpdateGamepadGUID(string guid) => guid;
 
     // Monitor
     public void FreeMonitor(GlfwMonitor monitor)
@@ -148,7 +161,7 @@ public partial class X11Platform : IGlfwPlatform
     public GlfwVidMode[]? GetVideoModes(GlfwMonitor monitor, out int count)
         => Glfw._glfwGetVideoModesX11(monitor, out count);
     public bool GetVideoMode(GlfwMonitor monitor, out GlfwVidMode mode)
-        => Glfw._glfwGetVideoModeX11_Platform(monitor, out mode);
+        => Glfw._glfwGetVideoModeX11(monitor, out mode);
     public bool GetGammaRamp(GlfwMonitor monitor, GlfwGammaRamp ramp)
         => Glfw._glfwGetGammaRampX11(monitor, ramp);
     public void SetGammaRamp(GlfwMonitor monitor, GlfwGammaRamp ramp)
@@ -584,7 +597,18 @@ public static unsafe partial class Glfw
         public unsafe fixed byte alias[4];
     }
 
-    // Minimal layout of XkbNamesRec for reading keys and key_aliases
+    // Atom is unsigned long in the client-side X11 ABI. C# fixed buffers
+    // cannot hold nuint, so use inline arrays to retain native width/alignment.
+    [InlineArray(16)]
+    private struct XkbVirtualModAtoms { private nuint element; }
+
+    [InlineArray(32)]
+    private struct XkbIndicatorAtoms { private nuint element; }
+
+    [InlineArray(4)]
+    private struct XkbGroupAtoms { private nuint element; }
+
+    // Complete client-side XkbNamesRec, including the trailing counts.
     [StructLayout(LayoutKind.Sequential)]
     private unsafe struct XkbNamesRec
     {
@@ -593,9 +617,9 @@ public static unsafe partial class Glfw
         public nuint symbols;       // Atom
         public nuint types;         // Atom
         public nuint compat;        // Atom
-        public fixed ulong vmods[16];      // Atom[XkbNumVirtualMods] — inline array, not pointer
-        public fixed ulong indicators[32]; // Atom[XkbNumIndicators] — inline array, not pointer
-        public fixed ulong groups[4];      // Atom[XkbNumKbdGroups] — inline array, not pointer
+        public XkbVirtualModAtoms vmods;   // Atom[XkbNumVirtualMods]
+        public XkbIndicatorAtoms indicators; // Atom[XkbNumIndicators]
+        public XkbGroupAtoms groups;       // Atom[XkbNumKbdGroups]
         public XkbKeyNameRec* keys; // XkbKeyNameRec*
         public XkbKeyAliasRec* key_aliases; // XkbKeyAliasRec*
         public nuint* radio_groups; // Atom*
@@ -605,7 +629,7 @@ public static unsafe partial class Glfw
         public ushort num_rg;
     }
 
-    // Minimal layout of XkbDescRec for reading min_key_code, max_key_code, names
+    // Complete client-side XkbDescRec (opaque pointees retain native width).
     [StructLayout(LayoutKind.Sequential)]
     private struct XkbDescRec
     {
@@ -891,9 +915,14 @@ public static unsafe partial class Glfw
     private static bool hasUsableInputMethodStyle()
     {
         var x11 = _glfw.X11!;
-        // XGetIMValues is varargs -- we skip IM style checking in the C# port
-        // and just return true if im is set, as this is a best-effort XIM integration
-        return x11.im != 0;
+        XIMStyles* styles = null;
+        fixed (byte* name = "queryInputStyle\0"u8)
+            if (((delegate* unmanaged[Cdecl]<nint, byte*, XIMStyles**, nint, nint>)x11.xlib.GetIMValues_ptr)(x11.im, name, &styles, 0) != 0) return false;
+        bool found = false;
+        for (int i = 0; i < styles->Count; i++)
+            if (styles->Styles[i] == 0x408) { found = true; break; }
+        x11.xlib.Free((nint)styles);
+        return found;
     }
 
     // -----------------------------------------------------------------
@@ -1448,39 +1477,15 @@ public static unsafe partial class Glfw
         if (x11 == null || x11.display != display)
             return 0;
 
-        // XErrorEvent: int type, Display* display, XID resourceid,
-        //              unsigned long serial, unsigned char error_code, ...
-        // error_code is at offset: sizeof(int) + sizeof(nint) + sizeof(nuint) + sizeof(nuint)
-        // = 4 + 8 + 8 + 8 = 28 on 64-bit. Actually:
-        // type(4) + padding(4 on 64bit) + serial(8) + error_code(1) -- no,
-        // the layout is: int type; Display *display; XID resourceid; unsigned long serial;
-        //                unsigned char error_code; ...
-        // Actually on 64-bit: type(4)+pad(4)+display(8)+resourceid(8)+serial(8)+error_code(1)
-        // That's offset 28 for error_code
-        // We'll read it carefully:
-        int* ip = (int*)eventPtr;
-        // Offset to error_code: after type(4)+pad(4)+display(8)+resourceid(8)+serial(8) = 32 bytes
-        byte* bp = (byte*)eventPtr;
-        x11.errorCode = (int)bp[32]; // error_code
+        x11.errorCode = ((XErrorEvent*)eventPtr)->error_code;
 
         return 0;
     }
 
     // -----------------------------------------------------------------
     //  _glfwGrabErrorHandlerX11 / _glfwReleaseErrorHandlerX11
-    //  Real implementations (replace stubs in glx_context.cs)
+    //  Shared X11 error-handler implementation used by GLX
     // -----------------------------------------------------------------
-
-    // Note: These are already declared as `internal static` in glx_context.cs as stubs.
-    // Since C# partial classes merge all members, we can't redefine them.
-    // Instead, we need to modify the stubs to call the real implementation here.
-    // But since the stubs ARE the declarations, and this file adds to the same partial class,
-    // we implement them as separate named methods and have the stubs delegate to them.
-    // Actually, the stubs in glx_context.cs are non-partial methods -- we can't override them.
-    // The solution: we update the stubs to call these real implementations.
-    //
-    // For now, we implement the real logic in methods with _Real suffix,
-    // and we'll update the stubs to delegate to them.
 
     internal static void _glfwGrabErrorHandlerX11_Real()
     {
@@ -1523,19 +1528,7 @@ public static unsafe partial class Glfw
         if (format == 0)
             return false;
 
-        // XRenderPictFormat: id(8), type(4), depth(4), direct{...}, colormap(8)
-        // direct.alphaMask is what we need to check.
-        // XRenderPictFormat layout (64-bit):
-        //   PictFormat id (8 bytes)
-        //   int type (4 bytes)
-        //   int depth (4 bytes)
-        //   XRenderDirectFormat direct:
-        //     short red, short redMask, short green, short greenMask,
-        //     short blue, short blueMask, short alpha, short alphaMask
-        //   Colormap colormap (8 bytes)
-        // direct offset = 16, alphaMask offset = 16 + 14 = 30
-        short* sp = (short*)((byte*)format + 30);
-        return *sp != 0;
+        return ((XRenderPictFormat*)format)->direct.alphaMask != 0;
     }
 
     // -----------------------------------------------------------------
@@ -1571,10 +1564,7 @@ public static unsafe partial class Glfw
                 x11.xlib.SetLocaleModifiers(empty);
             }
 
-            // If an IM is already present our callback will be called right away
-            // In the C# port we skip XIM registration for simplicity -- text input
-            // will still work via XLookupString / Xutf8LookupString but without
-            // full IM compose support.
+            RegisterX11InputMethod(true);
         }
 
         _glfwPollMonitorsX11();
@@ -1612,6 +1602,9 @@ public static unsafe partial class Glfw
         x11.primarySelectionString = null;
         x11.clipboardString = null;
 
+        if (x11.display != 0)
+            RegisterX11InputMethod(false);
+
         if (x11.im != 0)
         {
             x11.xlib.CloseIM(x11.im);
@@ -1624,6 +1617,8 @@ public static unsafe partial class Glfw
             x11.display = 0;
         }
 
+        _glfwTerminateOSMesa();
+        _glfwTerminateEGL();
         _glfwTerminateGLX();
 
         if (x11.emptyEventPipeRead != 0 || x11.emptyEventPipeWrite != 0)
@@ -1632,90 +1627,9 @@ public static unsafe partial class Glfw
             x11.libc.close(x11.emptyEventPipeWrite);
         }
 
-        X11Native.FreeLibraries(x11, _glfw.glx);
+        X11Native.FreeLibraries(x11);
 
         _glfw.X11 = null;
     }
 
-    // -----------------------------------------------------------------
-    //  GetVideoMode platform wrapper (public, since the private one
-    //  in x11_monitor.cs is not accessible from X11Platform)
-    // -----------------------------------------------------------------
-
-    internal static bool _glfwGetVideoModeX11_Platform(GlfwMonitor monitor, out GlfwVidMode mode)
-    {
-        // Delegate to the private method via the monitor module's public wrapper
-        // The _glfwGetVideoModeX11 in x11_monitor.cs is private, so we replicate
-        // the essential logic here.
-        var x11 = _glfw.X11!;
-        mode = default;
-
-        if (x11.randr.available && !x11.randr.monitorBroken)
-        {
-            nint srPtr = x11.randr.GetScreenResourcesCurrent(x11.display, x11.root);
-            XRRScreenResources* sr = (XRRScreenResources*)srPtr;
-            nint ciPtr = x11.randr.GetCrtcInfo(x11.display, srPtr, monitor.X11!.crtc);
-            XRRCrtcInfo* ci = (XRRCrtcInfo*)ciPtr;
-
-            if (ci != null)
-            {
-                nint oiPtr = x11.randr.GetOutputInfo(x11.display, srPtr, monitor.X11.output);
-                XRROutputInfo* oi = (XRROutputInfo*)oiPtr;
-
-                // Find the current mode
-                for (int i = 0; i < sr->nmode; i++)
-                {
-                    if (sr->modes[i].id == ci->mode)
-                    {
-                        mode = VidmodeFromModeInfoInit(&sr->modes[i], ci);
-                        break;
-                    }
-                }
-
-                x11.randr.FreeOutputInfo(oiPtr);
-            }
-
-            x11.randr.FreeCrtcInfo(ciPtr);
-            x11.randr.FreeScreenResources(srPtr);
-        }
-        else
-        {
-            // Fallback to screen dimensions
-            mode.Width = 1920; // placeholder
-            mode.Height = 1080;
-            mode.RefreshRate = 60;
-            mode.RedBits = 8;
-            mode.GreenBits = 8;
-            mode.BlueBits = 8;
-        }
-
-        return true;
-    }
-
-    // Helper: build GlfwVidMode from XRRModeInfo + XRRCrtcInfo
-    private static GlfwVidMode VidmodeFromModeInfoInit(XRRModeInfo* mi, XRRCrtcInfo* ci)
-    {
-        GlfwVidMode mode = default;
-        if (ci->rotation == 1 /*RR_Rotate_90*/ || ci->rotation == 4 /*RR_Rotate_270*/)
-        {
-            mode.Width = (int)mi->height;
-            mode.Height = (int)mi->width;
-        }
-        else
-        {
-            mode.Width = (int)mi->width;
-            mode.Height = (int)mi->height;
-        }
-
-        int denom = (int)(mi->hTotal * mi->vTotal);
-        if (denom != 0)
-            mode.RefreshRate = (int)((double)mi->dotClock / denom + 0.5);
-
-        // Assume 8 bits per channel (standard for modern displays)
-        mode.RedBits = 8;
-        mode.GreenBits = 8;
-        mode.BlueBits = 8;
-
-        return mode;
-    }
 }

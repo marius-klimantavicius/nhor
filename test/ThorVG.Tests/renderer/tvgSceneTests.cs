@@ -113,6 +113,32 @@ namespace ThorVG.Tests
             Assert.Equal(2, dup.Paints().Count);
         }
 
+        [Theory]
+        [InlineData(0, float.NaN)]
+        [InlineData(1, float.PositiveInfinity)]
+        [InlineData(2, float.NaN)]
+        public void SceneCornerBoundsBypassTheNullParentMatrixMultiply(int component, float value)
+        {
+            var scene = Scene.Gen();
+            try
+            {
+                var shape = Shape.Gen();
+                shape.AppendRect(2, 3, 12, 7);
+                shape.SetFill(10, 20, 30);
+                var matrix = new Matrix(1.25f, .5f, 4, -.25f, .75f, 5, 0, 0, 1);
+                if (component == 0) matrix.e31 = value;
+                else if (component == 1) matrix.e32 = value;
+                else matrix.e33 = value;
+                Assert.Equal(Result.Success, shape.Transform(matrix));
+                Assert.Equal(Result.Success, scene.Add(shape));
+                var points = new Point[4];
+                Assert.Equal(Result.Success, scene.Bounds(points));
+                Assert.Equal(new[] { new Point(8, 3.75f), new Point(26.5f, 3.75f),
+                                     new Point(26.5f, 12), new Point(8, 12) }, points);
+            }
+            finally { Paint.Rel(scene); }
+        }
+
         [Fact]
         public void Scene_AddEffect_Clear()
         {

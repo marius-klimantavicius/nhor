@@ -2,6 +2,7 @@
 
 using System;
 using System.Threading;
+using System.Runtime.ExceptionServices;
 
 namespace ThorVG
 {
@@ -17,7 +18,8 @@ namespace ThorVG
 
         private readonly object _mtx = new object();
         private bool _ready = true;
-        private bool _pending;
+        private volatile bool _pending;
+        private ExceptionDispatchInfo? _failure;
 
         public void Done()
         {
@@ -28,26 +30,45 @@ namespace ThorVG
                 while (!_ready) Monitor.Wait(_mtx);
             }
             _pending = false;
+            _failure?.Throw();
         }
 
         internal protected abstract void Run(uint tid);
 
         internal void Execute(uint tid)
         {
-            Run(tid);
-
-            lock (_mtx)
+            try
             {
-                _ready = true;
-                Monitor.Pulse(_mtx);
+                Run(tid);
+            }
+            catch (Exception exception)
+            {
+                _failure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                lock (_mtx)
+                {
+                    _ready = true;
+                    Monitor.PulseAll(_mtx);
+                }
             }
         }
 
         internal void Prepare()
         {
             _ready = false;
+            _failure = null;
             _pending = true;
         }
+    }
+
+    /// <summary>Composition adapter for C++ loaders that also inherit Task.</summary>
+    internal sealed class LoaderTask : Task
+    {
+        private readonly Action<uint> _run;
+        public LoaderTask(Action<uint> run) { _run = run; }
+        internal protected override void Run(uint tid) => _run(tid);
     }
 
     /// <summary>
@@ -130,6 +151,8 @@ namespace ThorVG
     /// </summary>
     internal class TaskSchedulerImpl
     {
+        [ThreadStatic] private static TaskSchedulerImpl? currentWorker;
+        [ThreadStatic] private static uint currentWorkerIndex;
         private readonly Thread[] _threads;
         private readonly TaskQueue[] _taskQueues;
         private int _idx;
@@ -170,28 +193,51 @@ namespace ThorVG
 
         private void RunLoop(uint i)
         {
-            // Thread Loop
-            while (true)
+            currentWorker = this;
+            currentWorkerIndex = i + 1;
+            try
             {
-                Task? task = null;
-                var success = false;
-
-                for (uint x = 0; x < (uint)_threads.Length * 2; ++x)
+                // Thread Loop
+                while (true)
                 {
-                    if (_taskQueues[(i + x) % (uint)_threads.Length].TryPop(out task))
-                    {
-                        success = true;
-                        break;
-                    }
-                }
+                    Task? task = null;
+                    var success = false;
 
-                if (!success && !_taskQueues[i].Pop(out task)) break;
-                task!.Execute(i + 1);
+                    for (uint x = 0; x < (uint)_threads.Length * 2; ++x)
+                    {
+                        if (_taskQueues[(i + x) % (uint)_threads.Length].TryPop(out task))
+                        {
+                            success = true;
+                            break;
+                        }
+                    }
+
+                    if (!success && !_taskQueues[i].Pop(out task)) break;
+                    task!.Execute(i + 1);
+                }
+            }
+            finally
+            {
+                // Native thread_local RenderPath arrays destruct at worker
+                // exit. Release their managed owning storage at the same point.
+                RenderPath.ReleaseThreadScratch();
+                currentWorker = null;
+                currentWorkerIndex = 0;
             }
         }
 
         public void Request(Task task)
         {
+            // A saver/loader can request another task and immediately wait for
+            // it from a worker. Queueing it to that same blocked worker can
+            // deadlock (reproduced in the pinned native GIF saver). Execute
+            // nested work on this worker, retaining its pool index. Requests
+            // from caller threads still use the full native worker queue.
+            if (ReferenceEquals(currentWorker, this))
+            {
+                task.Run(currentWorkerIndex);
+                return;
+            }
             // Async
             if (_threads.Length > 0)
             {

@@ -1,0 +1,41 @@
+{
+  "generator": "tmp/thorvg_update_font_fixtures.py",
+  "purpose": "Two-glyph SFNT/CFF1 fonts exercising real Type 2 outlines, local/global subroutines, hint masks and CID FDSelect formats 0/3.",
+  "files": [
+    {
+      "path": "cff-subroutines.otf",
+      "sha256": "6ed72ed5c54b78e49939626f614a7ea2f4116e90f05cc931d38e1509885b48a2",
+      "behavior": "subroutines"
+    },
+    {
+      "path": "cff-curves.otf",
+      "sha256": "e891466fd4457493d53e86e70a868a6bd4ca6d2f5f63b24c54ab9483226832b6",
+      "behavior": "curves"
+    },
+    {
+      "path": "cff-hintmask.otf",
+      "sha256": "b437543ffabec6e321f1e69d4229b55c68c444d36af1c9ca8845331124f4856b",
+      "behavior": "hintmask"
+    },
+    {
+      "path": "cff-cid-format0.otf",
+      "sha256": "4139a8bcc27318af573f94f79e57e54717346bddca4fbd3c2248e1432bf84977",
+      "behavior": "cid-format0"
+    },
+    {
+      "path": "cff-cid-format3.otf",
+      "sha256": "9bcf50af239eafb8ba22332b20ebd117b6013750320fa8432e3158e74d38659e",
+      "behavior": "cid-format3"
+    },
+    {
+      "path": "cmap-windows-nonbmp.otf",
+      "sha256": "cffa9f8e1f604323764dd181deb4349cb3c37c3a7553a4996067a4eafb3ccc48",
+      "behavior": "windows-nonbmp"
+    },
+    {
+      "path": "cmap-unicode-legacy.otf",
+      "sha256": "ddbd7ff7ce2a6d57ad73bfea580d3224906a0959530a7617aa0c5e56007e5e7b",
+      "behavior": "unicode-legacy"
+    }
+  ]
+}

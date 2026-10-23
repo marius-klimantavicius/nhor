@@ -2,6 +2,8 @@
 // Low-level access to the layout algorithms themselves.
 
 using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Taffy
@@ -14,8 +16,24 @@ namespace Marius.Winter.Taffy
         /// <summary>
         /// Compute layout for the root node in the tree
         /// </summary>
-        public static void ComputeRootLayout(ILayoutPartialTree tree, NodeId root, Size<AvailableSpace> availableSpace)
+        public static void ComputeRootLayout<TTree>(TTree tree, NodeId root, Size<AvailableSpace> availableSpace)
+            where TTree : ILayoutContainingBlock, ICacheTree
         {
+            var rootStyle = tree.GetCoreContainerStyle(root);
+            var icb = availableSpace.Map(v => v.IntoOption());
+            if (rootStyle.Position().IsOutOfFlow() && icb.Width is { } vw && icb.Height is { } vh)
+            {
+                float anchor = rootStyle.Direction().IsRtl() ? vw : 0;
+                bool cached = false;
+                var result = OutOfFlow.LayoutOofBox(tree, new OofCandidate { Node = root, Position = rootStyle.Position(),
+                    StaticPosition = new(AxisStaticPosition.FromEdge(anchor, rootStyle.Direction().IsRtl() ? AxisStaticEdge.End : AxisStaticEdge.Start),
+                        AxisStaticPosition.FromEdge(0, AxisStaticEdge.Start)) }, new(vw, vh), default, rootStyle.Direction(),
+                    new(Overflow.Visible, Overflow.Visible), beforeLayout: input => cached = tree.CacheGet(root, input).HasValue);
+                PositionRootCandidates(tree, root, availableSpace, result.Layout, result.Surfaced, cached);
+                return;
+            }
+            var rootMargin = rootStyle.Margin().ResolveOrZero(icb.Width, tree.Calc);
+            var rootAvailable = availableSpace.MaybeSub(rootMargin.SumAxes()).MaybeMax(SizeExtensions.ZeroF32);
             var knownDimensions = SizeExtensions.NoneF32;
 
             // Block layout root sizing
@@ -60,7 +78,7 @@ namespace Marius.Winter.Taffy
                     // Block nodes automatically stretch fit their width to fit available space if available space is definite
                     var availableSpaceBasedSize = new Size<float?>
                     {
-                        Width = availableSpace.Width.IntoOption().MaybeSub(margin.HorizontalAxisSum()),
+                        Width = rootAvailable.Width.IntoOption(),
                         Height = null,
                     };
 
@@ -76,13 +94,11 @@ namespace Marius.Winter.Taffy
 
             // Recursively compute node layout
             var parentSizeForLayout = new Size<float?>(availableSpace.Width.IntoOption(), availableSpace.Height.IntoOption());
-            var output = tree.PerformChildLayout(
-                root,
-                knownDimensions,
-                parentSizeForLayout,
-                availableSpace,
-                SizingMode.InherentSize,
-                LineExtensions.FalseLine);
+            var input = new LayoutInput { KnownDimensions = knownDimensions, KnownDimensionsAreDefinite = new(true, true),
+                ParentSize = parentSizeForLayout, AvailableSpace = rootAvailable, SizingMode = SizingMode.InherentSize,
+                Axis = RequestedAxis.Both, RunMode = RunMode.PerformLayout, VerticalMarginsAreCollapsible = LineExtensions.FalseLine };
+            bool rootCached = tree.CacheGet(root, input).HasValue;
+            var output = tree.ComputeChildLayout(root, input);
 
             var styleForLayout = tree.GetCoreContainerStyle(root);
             var paddingFinal = styleForLayout.Padding().ResolveOrZero(availableSpace.Width.IntoOption(), (val, basis) => tree.Calc(val, basis));
@@ -94,20 +110,39 @@ namespace Marius.Winter.Taffy
                 Height = styleForLayout.Overflow().X == Overflow.Scroll ? styleForLayout.ScrollbarWidth() : 0.0f,
             };
 
-            tree.SetUnroundedLayout(
-                root,
-                new Layout
-                {
-                    Order = 0,
-                    Location = PointExtensions.ZeroF32,
-                    Size = output.Size,
-                    ContentSize = output.ContentSize,
-                    ScrollbarSize = scrollbarSize,
-                    Padding = paddingFinal,
-                    Border = borderFinal,
-                    // TODO: support auto margins for root node?
-                    Margin = marginFinal,
-                });
+            var location = new Point<float>(rootStyle.Direction().IsRtl() && icb.Width is { } width
+                ? width - output.Size.Width - marginFinal.Right : marginFinal.Left, marginFinal.Top);
+            if (rootStyle.Position() == Position.Relative)
+            {
+                var inset = rootStyle.Inset();
+                float? left = inset.Left.MaybeResolve(icb.Width, tree.Calc), right = inset.Right.MaybeResolve(icb.Width, tree.Calc);
+                float? top = inset.Top.MaybeResolve(icb.Height, tree.Calc), bottom = inset.Bottom.MaybeResolve(icb.Height, tree.Calc);
+                location.X += rootStyle.Direction().IsRtl() ? -right ?? left ?? 0 : left ?? -right ?? 0;
+                location.Y += top ?? -bottom ?? 0;
+            }
+            var layout = new Layout { Order = 0, Location = location, Size = output.Size,
+                ScrollableOverflowRect = output.ScrollableOverflowRect, ScrollbarSize = scrollbarSize,
+                Padding = paddingFinal, Border = borderFinal, Margin = marginFinal };
+            tree.SetUnroundedLayout(root, layout);
+            PositionRootCandidates(tree, root, availableSpace, layout, output.OofCandidates.Take(), rootCached);
+        }
+
+        private static void PositionRootCandidates(ILayoutContainingBlock tree, NodeId root, Size<AvailableSpace> available,
+            Layout layout, OofCandidates candidates, bool cached)
+        {
+            if (candidates.IsEmpty) return;
+            var style = tree.GetCoreContainerStyle(root);
+            var inset = layout.Border.Add(new Rect<float>(0, layout.ScrollbarSize.Width, 0, layout.ScrollbarSize.Height));
+            var paddingBox = layout.Size.Sub(inset.SumAxes());
+            float width = available.Width.IntoOption() is { } w ? TaffySys.F32Max(w - layout.ScrollbarSize.Width, 0) : paddingBox.Width;
+            float height = available.Height.IntoOption() is { } h ? TaffySys.F32Max(h - layout.ScrollbarSize.Height, 0) : paddingBox.Height;
+            var offset = new Point<float>(available.Width.IsDefinite() ? -layout.Location.X : inset.Left,
+                available.Height.IsDefinite() ? -layout.Location.Y : inset.Top);
+            var hoisted = new List<NodeId>();
+            var unclaimed = new OofCandidates();
+            OutOfFlow.PerformOofLayout(tree, root, candidates.AsSpan(), new(width, height), offset, style.Direction(),
+                ContainingBlockClaims.All, style.Overflow(), hoisted, ref unclaimed);
+            if (!cached) tree.AddHoistedChildren(root, CollectionsMarshal.AsSpan(hoisted));
         }
 
         /// <summary>
@@ -172,8 +207,8 @@ namespace Marius.Winter.Taffy
             var cumY = cumulativeY + unroundedLayout.Location.Y;
 
             layout.Location = new Point<float>(
-                TaffySys.Round(unroundedLayout.Location.X),
-                TaffySys.Round(unroundedLayout.Location.Y));
+                TaffySys.Round(cumX) - TaffySys.Round(cumulativeX),
+                TaffySys.Round(cumY) - TaffySys.Round(cumulativeY));
             layout.Size = new Size<float>(
                 TaffySys.Round(cumX + unroundedLayout.Size.Width) - TaffySys.Round(cumX),
                 TaffySys.Round(cumY + unroundedLayout.Size.Height) - TaffySys.Round(cumY));
@@ -195,10 +230,11 @@ namespace Marius.Winter.Taffy
                 TaffySys.Round(cumY + unroundedLayout.Size.Height)
                     - TaffySys.Round(cumY + unroundedLayout.Size.Height - unroundedLayout.Padding.Bottom));
 
-            // Round content size
-            layout.ContentSize = new Size<float>(
-                TaffySys.Round(cumX + unroundedLayout.ContentSize.Width) - TaffySys.Round(cumX),
-                TaffySys.Round(cumY + unroundedLayout.ContentSize.Height) - TaffySys.Round(cumY));
+            layout.ScrollableOverflowRect = new(
+                TaffySys.Round(cumX + unroundedLayout.ScrollableOverflowRect.Left) - TaffySys.Round(cumX),
+                TaffySys.Round(cumX + unroundedLayout.ScrollableOverflowRect.Right) - TaffySys.Round(cumX),
+                TaffySys.Round(cumY + unroundedLayout.ScrollableOverflowRect.Top) - TaffySys.Round(cumY),
+                TaffySys.Round(cumY + unroundedLayout.ScrollableOverflowRect.Bottom) - TaffySys.Round(cumY));
 
             tree.SetFinalLayout(nodeId, layout);
 
@@ -206,8 +242,10 @@ namespace Marius.Winter.Taffy
             for (int index = 0; index < childCount; index++)
             {
                 var child = tree.GetChildId(nodeId, index);
-                RoundLayoutInner(tree, child, cumX, cumY);
+                if (!tree.IsOutOfFlow(child)) RoundLayoutInner(tree, child, cumX, cumY);
             }
+            for (int i = 0; i < tree.HoistedChildCount(nodeId); i++)
+                RoundLayoutInner(tree, tree.GetHoistedChildId(nodeId, i), cumX, cumY);
         }
 
         /// <summary>

@@ -5,13 +5,16 @@ namespace ThorVG.Tests
 {
     public class testSwCanvas
     {
-        private static readonly string TEST_DIR = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
-        [Fact(Skip = "C# SwCanvas.Gen() always succeeds without init check")]
+        [Fact]
         public void MissingInitialization()
         {
-            var canvas = SwCanvas.Gen();
-            Assert.Null(canvas);
+            int previous = TvgCommon.engineInit;
+            uint threads = TaskScheduler.Threads();
+            for (int i = 0; i < previous; ++i) Assert.Equal(Result.Success, Initializer.Term());
+            try { Assert.Null(SwCanvas.Gen()); }
+            finally { for (int i = 0; i < previous; ++i) Initializer.Init(threads); }
         }
 
         [Fact]
@@ -19,15 +22,18 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
-            var canvas2 = SwCanvas.Gen();
+            using var canvas2 = SwCanvas.Gen();
             Assert.NotNull(canvas2);
 
-            var canvas3 = SwCanvas.Gen();
+            using var canvas3 = SwCanvas.Gen();
             Assert.NotNull(canvas3);
 
+            canvas?.Dispose();
+            canvas2?.Dispose();
+            canvas3?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -36,7 +42,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -49,6 +55,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.InvalidArguments, canvas.Target(buffer, 100, 200, 100, ColorSpace.ARGB8888));
             Assert.Equal(Result.InvalidArguments, canvas.Target(buffer, 100, 100, 0, ColorSpace.ARGB8888));
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -57,7 +64,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -94,6 +101,7 @@ namespace ThorVG.Tests
             Assert.Same(paints[0], list[0]);
             Assert.Same(paints[1], list[1]);
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -102,7 +110,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -124,6 +132,7 @@ namespace ThorVG.Tests
 
             Assert.Equal(Result.Success, canvas.Update());
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -132,7 +141,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             Assert.Equal(Result.Success, canvas.Sync());
@@ -161,6 +170,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.Success, canvas.Draw());
             Assert.Equal(Result.Success, canvas.Sync());
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -170,7 +180,7 @@ namespace ThorVG.Tests
             // Use multi-threading
             Assert.Equal(Result.Success, Initializer.Init(2));
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -188,6 +198,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.Success, canvas.Draw());
             Assert.Equal(Result.Success, canvas.Sync());
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -196,7 +207,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             Assert.Equal(Result.Success, canvas.Viewport(25, 25, 100, 100));
@@ -223,6 +234,7 @@ namespace ThorVG.Tests
 
             Assert.Equal(Result.Success, canvas.Sync());
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
     }

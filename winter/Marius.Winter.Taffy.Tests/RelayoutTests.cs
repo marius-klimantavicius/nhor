@@ -254,6 +254,7 @@ public class RelayoutTests
         }, new[] { inner });
         var outer = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             SizeValue = new Size<Dimension>(Dimension.FromPercent(1f), Dimension.Auto()),
             Inset = new Rect<LengthPercentageAuto>(
                 LengthPercentageAuto.Length(1.5f), LengthPercentageAuto.AUTO,
@@ -286,7 +287,7 @@ public class RelayoutTests
 
             Assert.Equal(-150f, taffy.GetLayout(inner).Location.X);
             Assert.Equal(0f, taffy.GetLayout(inner).Location.Y);
-            Assert.Equal(301f, taffy.GetLayout(inner).Size.Width);
+            Assert.Equal(300f, taffy.GetLayout(inner).Size.Width);
             Assert.Equal(1080f, taffy.GetLayout(inner).Size.Height);
         }
     }

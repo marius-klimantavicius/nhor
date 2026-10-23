@@ -1,0 +1,6 @@
+{
+  "kind": "authored deterministic regression",
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "256f0b11d49ef00e0c6bae690781719917b23a1d964d5045165b734685d175bc",
+  "description": "Actual pinned raw captureType/captureSlots profile: preserve scan position, brace depth, undecoded later type spelling, array token matching and raw slot extent. Control shapes retain visible output. No source tolerance or input normalization."
+}

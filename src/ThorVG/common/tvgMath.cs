@@ -1,7 +1,11 @@
 // Ported from ThorVG/src/common/tvgMath.h and tvgMath.cpp
 
 using System;
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.Arm;
 
 namespace ThorVG
 {
@@ -27,6 +31,20 @@ namespace ThorVG
         CounterClockwise,
     }
 
+    public struct Point3
+    {
+        public float x, y, z;
+
+        public Point3(float x, float y, float z)
+        {
+            this.x = x; this.y = y; this.z = z;
+        }
+
+        public static Point3 operator +(Point3 a, Point3 b) => new Point3(a.x + b.x, a.y + b.y, a.z + b.z);
+        public static Point3 operator -(Point3 a, Point3 b) => new Point3(a.x - b.x, a.y - b.y, a.z - b.z);
+        public static Point3 operator *(Point3 a, float t) => new Point3(a.x * t, a.y * t, a.z * t);
+    }
+
     // =====================================================================
     //  Line struct
     // =====================================================================
@@ -43,11 +61,11 @@ namespace ThorVG
         public void Split(float at, out Line left, out Line right)
         {
             var len = Length();
-            var dx = ((pt2.x - pt1.x) / len) * at;
-            var dy = ((pt2.y - pt1.y) / len) * at;
+            var dx = (pt2.x - pt1.x) / len;
+            var dy = (pt2.y - pt1.y) / len;
             left.pt1 = pt1;
-            left.pt2.x = left.pt1.x + dx;
-            left.pt2.y = left.pt1.y + dy;
+            left.pt2.x = TvgMath.MultiplyAdd(dx, at, left.pt1.x);
+            left.pt2.y = TvgMath.MultiplyAdd(dy, at, left.pt1.y);
             right.pt1 = left.pt2;
             right.pt2 = pt2;
         }
@@ -60,6 +78,8 @@ namespace ThorVG
     {
         public Point min;
         public Point max;
+
+        public readonly bool Inside(Point pt) => pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y;
 
         public void Init()
         {
@@ -98,11 +118,11 @@ namespace ThorVG
         /// </summary>
         public Bezier(Point st, Point ed, float radius)
         {
-            var angle = TvgMath.Atan2(ed.y - st.y, ed.x - st.x);
+            var angle = TvgMath.Atan(TvgMath.PointSub(ed, st));
             var c = radius * MathConstants.PATH_KAPPA;
             start = new Point(st.x, st.y);
-            ctrl1 = new Point(st.x + radius * MathF.Cos(angle), st.y + radius * MathF.Sin(angle));
-            ctrl2 = new Point(ed.x - c * MathF.Cos(angle), ed.y - c * MathF.Sin(angle));
+            ctrl1 = new Point(TvgMath.MultiplyAdd(radius, MathF.Cos(angle), st.x), TvgMath.MultiplyAdd(radius, MathF.Sin(angle), st.y));
+            ctrl2 = new Point(TvgMath.MultiplyAdd(-c, MathF.Cos(angle), ed.x), TvgMath.MultiplyAdd(-c, MathF.Sin(angle), ed.y));
             end = new Point(ed.x, ed.y);
         }
 
@@ -111,23 +131,23 @@ namespace ThorVG
         {
             left.start = start;
 
-            left.ctrl1.x = start.x + t * (ctrl1.x - start.x);
-            left.ctrl1.y = start.y + t * (ctrl1.y - start.y);
+            left.ctrl1.x = TvgMath.MultiplyAdd(t, ctrl1.x - start.x, start.x);
+            left.ctrl1.y = TvgMath.MultiplyAdd(t, ctrl1.y - start.y, start.y);
 
-            left.ctrl2.x = ctrl1.x + t * (ctrl2.x - ctrl1.x);   // temporary
-            left.ctrl2.y = ctrl1.y + t * (ctrl2.y - ctrl1.y);
+            left.ctrl2.x = TvgMath.MultiplyAdd(t, ctrl2.x - ctrl1.x, ctrl1.x);   // temporary
+            left.ctrl2.y = TvgMath.MultiplyAdd(t, ctrl2.y - ctrl1.y, ctrl1.y);
 
-            ctrl2.x = ctrl2.x + t * (end.x - ctrl2.x);
-            ctrl2.y = ctrl2.y + t * (end.y - ctrl2.y);
+            ctrl2.x = TvgMath.MultiplyAdd(t, end.x - ctrl2.x, ctrl2.x);
+            ctrl2.y = TvgMath.MultiplyAdd(t, end.y - ctrl2.y, ctrl2.y);
 
-            ctrl1.x = left.ctrl2.x + t * (ctrl2.x - left.ctrl2.x);
-            ctrl1.y = left.ctrl2.y + t * (ctrl2.y - left.ctrl2.y);
+            ctrl1.x = TvgMath.MultiplyAdd(t, ctrl2.x - left.ctrl2.x, left.ctrl2.x);
+            ctrl1.y = TvgMath.MultiplyAdd(t, ctrl2.y - left.ctrl2.y, left.ctrl2.y);
 
-            left.ctrl2.x = left.ctrl1.x + t * (left.ctrl2.x - left.ctrl1.x);
-            left.ctrl2.y = left.ctrl1.y + t * (left.ctrl2.y - left.ctrl1.y);
+            left.ctrl2.x = TvgMath.MultiplyAdd(t, left.ctrl2.x - left.ctrl1.x, left.ctrl1.x);
+            left.ctrl2.y = TvgMath.MultiplyAdd(t, left.ctrl2.y - left.ctrl1.y, left.ctrl1.y);
 
-            left.end.x = start.x = left.ctrl2.x + t * (ctrl1.x - left.ctrl2.x);
-            left.end.y = start.y = left.ctrl2.y + t * (ctrl1.y - left.ctrl2.y);
+            left.end.x = start.x = TvgMath.MultiplyAdd(t, ctrl1.x - left.ctrl2.x, left.ctrl2.x);
+            left.end.y = start.y = TvgMath.MultiplyAdd(t, ctrl1.y - left.ctrl2.y, left.ctrl2.y);
         }
 
         // ---- Split (half, const) ----------------------------------------
@@ -173,7 +193,7 @@ namespace ThorVG
             {
                 var dx = b.x - a.x;
                 var dy = b.y - a.y;
-                return MathF.Sqrt(dx * dx + dy * dy);
+                return MathF.Sqrt(TvgMath.MultiplyAdd(dx, dx, dy * dy));
             }
         }
 
@@ -186,7 +206,7 @@ namespace ThorVG
                 var dy = b.y - a.y;
                 if (dx < 0) dx = -dx;
                 if (dy < 0) dy = -dy;
-                return (dx > dy) ? (dx + dy * 0.375f) : (dy + dx * 0.375f);
+                return (dx > dy) ? TvgMath.MultiplyAdd(dy, 0.375f, dx) : TvgMath.MultiplyAdd(dx, 0.375f, dy);
             }
         }
 
@@ -217,21 +237,47 @@ namespace ThorVG
         {
             var it = 1.0f - t;
 
-            var ax = start.x * it + ctrl1.x * t;
-            var bx = ctrl1.x * it + ctrl2.x * t;
-            var cx = ctrl2.x * it + end.x * t;
-            ax = ax * it + bx * t;
-            bx = bx * it + cx * t;
-            var px = ax * it + bx * t;
+            var ax = TvgMath.MultiplyAdd(start.x, it, ctrl1.x * t);
+            var bx = TvgMath.MultiplyAdd(ctrl1.x, it, ctrl2.x * t);
+            var cx = TvgMath.MultiplyAdd(ctrl2.x, it, end.x * t);
+            ax = TvgMath.MultiplyAdd(ax, it, bx * t);
+            bx = TvgMath.MultiplyAdd(bx, it, cx * t);
+            var px = TvgMath.MultiplyAdd(ax, it, bx * t);
 
-            var ay = start.y * it + ctrl1.y * t;
-            var by = ctrl1.y * it + ctrl2.y * t;
-            var cy = ctrl2.y * it + end.y * t;
-            ay = ay * it + by * t;
-            by = by * it + cy * t;
-            var py = ay * it + by * t;
+            var ay = TvgMath.MultiplyAdd(start.y, it, ctrl1.y * t);
+            var by = TvgMath.MultiplyAdd(ctrl1.y, it, ctrl2.y * t);
+            var cy = TvgMath.MultiplyAdd(ctrl2.y, it, end.y * t);
+            ay = TvgMath.MultiplyAdd(ay, it, by * t);
+            by = TvgMath.MultiplyAdd(by, it, cy * t);
+            var py = TvgMath.MultiplyAdd(ay, it, by * t);
 
             return new Point(px, py);
+        }
+
+        // The pinned ARM Lottie vector property instance evaluates both lanes
+        // together: its FMLA contracts the second product at each De Casteljau step.
+        // Keep the scalar Bezier entry point's separately verified grouping above.
+        internal readonly Point AtLottieVector(float t)
+        {
+            var it = 1.0f - t;
+            if (AdvSimd.Arm64.IsSupported)
+            {
+                var vt = Vector64.Create(t);
+                var vit = Vector64.Create(it);
+                var a2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(Vector64.Create(start.x, start.y), vit), Vector64.Create(ctrl1.x, ctrl1.y), vt);
+                var b2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(Vector64.Create(ctrl1.x, ctrl1.y), vit), Vector64.Create(ctrl2.x, ctrl2.y), vt);
+                var c2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(Vector64.Create(ctrl2.x, ctrl2.y), vit), Vector64.Create(end.x, end.y), vt);
+                a2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(a2, vit), b2, vt);
+                b2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(b2, vit), c2, vt);
+                a2 = AdvSimd.FusedMultiplyAdd(AdvSimd.Multiply(a2, vit), b2, vt);
+                return new Point(a2.GetElement(0), a2.GetElement(1));
+            }
+            var a = new Point(TvgMath.MultiplyAdd(ctrl1.x, t, start.x * it), TvgMath.MultiplyAdd(ctrl1.y, t, start.y * it));
+            var b = new Point(TvgMath.MultiplyAdd(ctrl2.x, t, ctrl1.x * it), TvgMath.MultiplyAdd(ctrl2.y, t, ctrl1.y * it));
+            var c = new Point(TvgMath.MultiplyAdd(end.x, t, ctrl2.x * it), TvgMath.MultiplyAdd(end.y, t, ctrl2.y * it));
+            a = new Point(TvgMath.MultiplyAdd(b.x, t, a.x * it), TvgMath.MultiplyAdd(b.y, t, a.y * it));
+            b = new Point(TvgMath.MultiplyAdd(c.x, t, b.x * it), TvgMath.MultiplyAdd(c.y, t, b.y * it));
+            return new Point(TvgMath.MultiplyAdd(b.x, t, a.x * it), TvgMath.MultiplyAdd(b.y, t, a.y * it));
         }
 
         // ---- Angle ------------------------------------------------------
@@ -240,11 +286,11 @@ namespace ThorVG
             float mt = 1.0f - t;
             float d = t * t;
             float a = -mt * mt;
-            float b = 1 - 4 * t + 3 * d;
-            float c = 2 * t - 3 * d;
+            float b = TvgMath.MultiplyAdd(3, d, TvgMath.MultiplyAdd(-4, t, 1));
+            float c = TvgMath.MultiplyAdd(-3, d, 2 * t);
 
-            var ptx = a * start.x + b * ctrl1.x + c * ctrl2.x + d * end.x;
-            var pty = a * start.y + b * ctrl1.y + c * ctrl2.y + d * end.y;
+            var ptx = TvgMath.MultiplyAdd(d, end.x, TvgMath.MultiplyAdd(c, ctrl2.x, TvgMath.MultiplyAdd(a, start.x, b * ctrl1.x)));
+            var pty = TvgMath.MultiplyAdd(d, end.y, TvgMath.MultiplyAdd(c, ctrl2.y, TvgMath.MultiplyAdd(a, start.y, b * ctrl1.y)));
             ptx *= 3;
             pty *= 3;
 
@@ -255,16 +301,32 @@ namespace ThorVG
         {
             if (t < 0 || t > 1) return 0;
             var tangent = Tangent(t);
-            return TvgMath.Rad2Deg(TvgMath.Atan2(tangent.y, tangent.x));
+            return TvgMath.Rad2Deg(TvgMath.Atan(tangent));
+        }
+
+        // Native Lottie passes literal endpoint tolerances to the inline angle
+        // function. GNU folds their coefficients with float rounding before
+        // contracting the point products. Runtime Tangent keeps its FMA path.
+        internal readonly float AngleAtConstant(float t)
+        {
+            float mt = 1.0f - t;
+            float d = t * t;
+            float a = -mt * mt;
+            float b = 1.0f - 4.0f * t + 3.0f * d;
+            float c = 2.0f * t - 3.0f * d;
+            var tangent = new Point(
+                TvgMath.MultiplyAdd(d, end.x, TvgMath.MultiplyAdd(c, ctrl2.x, TvgMath.MultiplyAdd(a, start.x, b * ctrl1.x))) * 3.0f,
+                TvgMath.MultiplyAdd(d, end.y, TvgMath.MultiplyAdd(c, ctrl2.y, TvgMath.MultiplyAdd(a, start.y, b * ctrl1.y))) * 3.0f);
+            return TvgMath.Rad2Deg(TvgMath.Atan(tangent));
         }
 
         // ---- Flatten ----------------------------------------------------
         public readonly bool Flatten(float tolerance)
         {
-            float diff1_x = MathF.Abs((ctrl1.x * 3.0f) - (start.x * 2.0f) - end.x);
-            float diff1_y = MathF.Abs((ctrl1.y * 3.0f) - (start.y * 2.0f) - end.y);
-            float diff2_x = MathF.Abs((ctrl2.x * 3.0f) - (end.x * 2.0f) - start.x);
-            float diff2_y = MathF.Abs((ctrl2.y * 3.0f) - (end.y * 2.0f) - start.y);
+            float diff1_x = MathF.Abs(TvgMath.MultiplyAdd(ctrl1.x, 3.0f, -start.x * 2.0f) - end.x);
+            float diff1_y = MathF.Abs(TvgMath.MultiplyAdd(ctrl1.y, 3.0f, -start.y * 2.0f) - end.y);
+            float diff2_x = MathF.Abs(TvgMath.MultiplyAdd(ctrl2.x, 3.0f, -end.x * 2.0f) - start.x);
+            float diff2_y = MathF.Abs(TvgMath.MultiplyAdd(ctrl2.y, 3.0f, -end.y * 2.0f) - start.y);
             if (diff1_x < diff2_x) diff1_x = diff2_x;
             if (diff1_y < diff2_y) diff1_y = diff2_y;
             return (diff1_x + diff1_y <= tolerance);
@@ -290,6 +352,7 @@ namespace ThorVG
                     }
                     if (segCount + stack.count + 2 >= MaxSegments)
                     {
+                        TvgCommon.TVGERR("Common", "Bezier segments count exceeded the maximum limit.");
                         return MaxSegments;
                     }
                     current.Split(out Bezier leftSeg, out Bezier rightSeg);
@@ -336,8 +399,8 @@ namespace ThorVG
         private static void FindMinMax(float start, float ctrl1, float ctrl2, float end,
                                        ref float min, ref float max)
         {
-            var a = -1.0f * start + 3.0f * ctrl1 - 3.0f * ctrl2 + end;
-            var b = start - 2.0f * ctrl1 + ctrl2;
+            var a = TvgMath.MultiplyAdd(-3.0f, ctrl2, TvgMath.MultiplyAdd(3.0f, ctrl1, -start)) + end;
+            var b = TvgMath.MultiplyAdd(-2.0f, ctrl1, start) + ctrl2;
             var c = -1.0f * start + ctrl1;
             if (TvgMath.Zero(a))
             {
@@ -346,14 +409,13 @@ namespace ThorVG
                 if (extremum > 0.0f && extremum < 1.0f)
                 {
                     var s = 1.0f - extremum;
-                    var q = s * s * s * start + 3.0f * s * s * extremum * ctrl1 +
-                            3.0f * s * extremum * extremum * ctrl2 + extremum * extremum * extremum * end;
+                    var q = BoundsPoint(s, extremum, start, ctrl1, ctrl2, end);
                     if (q < min) min = q;
                     if (q > max) max = q;
                 }
                 return;
             }
-            var h = b * b - a * c;
+            var h = TvgMath.MultiplyAdd(b, b, -a * c);
             if (h <= 0.0f) return;
             h = MathF.Sqrt(h);
             Span<float> t = stackalloc float[] { (-b - h) / a, (-b + h) / a };
@@ -361,11 +423,17 @@ namespace ThorVG
             {
                 if (t[i] <= 0.0f || t[i] >= 1.0f) continue;
                 var s = 1.0f - t[i];
-                var q = s * s * s * start + 3.0f * s * s * t[i] * ctrl1 +
-                        3.0f * s * t[i] * t[i] * ctrl2 + t[i] * t[i] * t[i] * end;
+                var q = BoundsPoint(s, t[i], start, ctrl1, ctrl2, end);
                 if (q < min) min = q;
                 if (q > max) max = q;
             }
+        }
+
+        private static float BoundsPoint(float s, float t, float start, float ctrl1, float ctrl2, float end)
+        {
+            var q = TvgMath.MultiplyAdd(s * s * s, start, 3.0f * s * s * t * ctrl1);
+            q = TvgMath.MultiplyAdd(3.0f * s * t * t, ctrl2, q);
+            return TvgMath.MultiplyAdd(t * t * t, end, q);
         }
 
         private static float BezLength<T>(in Bezier cur) where T : ILineLength
@@ -447,6 +515,20 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static T Clamp<T>(T v, T min, T max) where T : IComparable<T>
         {
+            // CompareTo orders NaNs; native floating comparisons are unordered.
+            // Retain the compatible generic constraint and avoid boxing.
+            if (typeof(T) == typeof(float))
+            {
+                if (Unsafe.As<T, float>(ref v) < Unsafe.As<T, float>(ref min)) return min;
+                if (Unsafe.As<T, float>(ref v) > Unsafe.As<T, float>(ref max)) return max;
+                return v;
+            }
+            if (typeof(T) == typeof(double))
+            {
+                if (Unsafe.As<T, double>(ref v) < Unsafe.As<T, double>(ref min)) return min;
+                if (Unsafe.As<T, double>(ref v) > Unsafe.As<T, double>(ref max)) return max;
+                return v;
+            }
             if (v.CompareTo(min) < 0) return min;
             if (v.CompareTo(max) > 0) return max;
             return v;
@@ -468,13 +550,27 @@ namespace ThorVG
             return v;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte Remap255(float value) => Remap255<byte>(value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static T Remap255<T>(float value) where T : INumberBase<T>
+        {
+            return T.CreateTruncating(MathF.Round(value * 255.0f, MidpointRounding.ToEven));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float Atan(Point pt) => Atan2(pt.y, pt.x);
+
         // Remez-approximated atan2 (from tvgMath.cpp)
         public static float Atan2(float y, float x)
         {
             if (y == 0.0f && x == 0.0f) return 0.0f;
-            var a = MathF.Min(MathF.Abs(x), MathF.Abs(y)) / MathF.Max(MathF.Abs(x), MathF.Abs(y));
+            var ax = MathF.Abs(x);
+            var ay = MathF.Abs(y);
+            var a = (ay < ax ? ay : ax) / (ax < ay ? ay : ax);
             var s = a * a;
-            var r = ((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a;
+            var r = MultiplyAdd(MultiplyAdd(MultiplyAdd(-0.0464964749f, s, 0.15931422f), s, -0.327622764f) * s, a, a);
             if (MathF.Abs(y) > MathF.Abs(x)) r = 1.57079637f - r;
             if (x < 0) r = 3.14159274f - r;
             if (y < 0) return -r;
@@ -530,6 +626,7 @@ namespace ThorVG
 
         public static bool Inverse(in Matrix m, out Matrix o)
         {
+            if (NativeFusedArithmetic) return InverseFused(m, out o);
             var det = m.e11 * (m.e22 * m.e33 - m.e32 * m.e23) -
                       m.e12 * (m.e21 * m.e33 - m.e23 * m.e31) +
                       m.e13 * (m.e21 * m.e32 - m.e22 * m.e31);
@@ -550,6 +647,30 @@ namespace ThorVG
             o.e31 = (m.e21 * m.e32 - m.e31 * m.e22) * invDet;
             o.e32 = (m.e31 * m.e12 - m.e11 * m.e32) * invDet;
             o.e33 = (m.e11 * m.e22 - m.e21 * m.e12) * invDet;
+            return true;
+        }
+
+        private static bool InverseFused(in Matrix m, out Matrix o)
+        {
+            // Match the default target AArch64 contraction and the shared pair
+            // of rounded products reused by the determinant and e21 cofactor.
+            var a = MultiplyAdd(m.e22, m.e33, -m.e32 * m.e23);
+            var b1 = m.e21 * m.e33;
+            var b2 = m.e23 * m.e31;
+            var b = b1 - b2;
+            var c = MultiplyAdd(m.e21, m.e32, -m.e22 * m.e31);
+            var det = MultiplyAdd(m.e13, c, MultiplyAdd(m.e11, a, -m.e12 * b));
+            var invDet = 1.0f / det;
+            if (float.IsInfinity(invDet)) { o = default; return false; }
+            o.e11 = a * invDet;
+            o.e12 = MultiplyAdd(m.e13, m.e32, -m.e12 * m.e33) * invDet;
+            o.e13 = MultiplyAdd(m.e12, m.e23, -m.e13 * m.e22) * invDet;
+            o.e21 = (b2 - b1) * invDet;
+            o.e22 = MultiplyAdd(m.e11, m.e33, -m.e13 * m.e31) * invDet;
+            o.e23 = MultiplyAdd(m.e21, m.e13, -m.e11 * m.e23) * invDet;
+            o.e31 = MultiplyAdd(m.e21, m.e32, -m.e31 * m.e22) * invDet;
+            o.e32 = MultiplyAdd(m.e31, m.e12, -m.e11 * m.e32) * invDet;
+            o.e33 = MultiplyAdd(m.e11, m.e22, -m.e21 * m.e12) * invDet;
             return true;
         }
 
@@ -575,15 +696,15 @@ namespace ThorVG
         public static Matrix Multiply(in Matrix lhs, in Matrix rhs)
         {
             Matrix m;
-            m.e11 = lhs.e11 * rhs.e11 + lhs.e12 * rhs.e21 + lhs.e13 * rhs.e31;
-            m.e12 = lhs.e11 * rhs.e12 + lhs.e12 * rhs.e22 + lhs.e13 * rhs.e32;
-            m.e13 = lhs.e11 * rhs.e13 + lhs.e12 * rhs.e23 + lhs.e13 * rhs.e33;
-            m.e21 = lhs.e21 * rhs.e11 + lhs.e22 * rhs.e21 + lhs.e23 * rhs.e31;
-            m.e22 = lhs.e21 * rhs.e12 + lhs.e22 * rhs.e22 + lhs.e23 * rhs.e32;
-            m.e23 = lhs.e21 * rhs.e13 + lhs.e22 * rhs.e23 + lhs.e23 * rhs.e33;
-            m.e31 = lhs.e31 * rhs.e11 + lhs.e32 * rhs.e21 + lhs.e33 * rhs.e31;
-            m.e32 = lhs.e31 * rhs.e12 + lhs.e32 * rhs.e22 + lhs.e33 * rhs.e32;
-            m.e33 = lhs.e31 * rhs.e13 + lhs.e32 * rhs.e23 + lhs.e33 * rhs.e33;
+            m.e11 = MultiplyAdd(lhs.e13, rhs.e31, MultiplyAdd(lhs.e11, rhs.e11, lhs.e12 * rhs.e21));
+            m.e12 = MultiplyAdd(lhs.e13, rhs.e32, MultiplyAdd(lhs.e11, rhs.e12, lhs.e12 * rhs.e22));
+            m.e13 = MultiplyAdd(lhs.e13, rhs.e33, MultiplyAdd(lhs.e11, rhs.e13, lhs.e12 * rhs.e23));
+            m.e21 = MultiplyAdd(lhs.e23, rhs.e31, MultiplyAdd(lhs.e21, rhs.e11, lhs.e22 * rhs.e21));
+            m.e22 = MultiplyAdd(lhs.e23, rhs.e32, MultiplyAdd(lhs.e21, rhs.e12, lhs.e22 * rhs.e22));
+            m.e23 = MultiplyAdd(lhs.e23, rhs.e33, MultiplyAdd(lhs.e21, rhs.e13, lhs.e22 * rhs.e23));
+            m.e31 = MultiplyAdd(lhs.e33, rhs.e31, MultiplyAdd(lhs.e31, rhs.e11, lhs.e32 * rhs.e21));
+            m.e32 = MultiplyAdd(lhs.e33, rhs.e32, MultiplyAdd(lhs.e31, rhs.e12, lhs.e32 * rhs.e22));
+            m.e33 = MultiplyAdd(lhs.e33, rhs.e33, MultiplyAdd(lhs.e31, rhs.e13, lhs.e32 * rhs.e23));
             return m;
         }
 
@@ -637,8 +758,8 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Scaling(in Matrix m)
         {
-            var sx = m.e11 * m.e11 + m.e21 * m.e21;
-            var sy = m.e12 * m.e12 + m.e22 * m.e22;
+            var sx = MultiplyAdd(m.e11, m.e11, m.e21 * m.e21);
+            var sy = MultiplyAdd(m.e12, m.e12, m.e22 * m.e22);
             return MathF.Sqrt(sx > sy ? sx : sy);
         }
 
@@ -663,8 +784,8 @@ namespace ThorVG
         public static void TranslateR(ref Matrix m, Point p)
         {
             if (p.x == 0.0f && p.y == 0.0f) return;
-            m.e13 += (p.x * m.e11 + p.y * m.e12);
-            m.e23 += (p.x * m.e21 + p.y * m.e22);
+            m.e13 += MultiplyAdd(p.x, m.e11, p.y * m.e12);
+            m.e23 += MultiplyAdd(p.x, m.e21, p.y * m.e22);
         }
 
         // ---- Point functions -------------------------------------------
@@ -672,8 +793,8 @@ namespace ThorVG
         /// <summary>Transform a point by a matrix.  Mirrors C++ operator*=(Point, Matrix).</summary>
         public static void TransformInPlace(ref Point pt, in Matrix m)
         {
-            var tx = pt.x * m.e11 + pt.y * m.e12 + m.e13;
-            var ty = pt.x * m.e21 + pt.y * m.e22 + m.e23;
+            var tx = MultiplyAdd(pt.x, m.e11, pt.y * m.e12) + m.e13;
+            var ty = MultiplyAdd(pt.x, m.e21, pt.y * m.e22) + m.e23;
             pt.x = tx;
             pt.y = ty;
         }
@@ -681,8 +802,8 @@ namespace ThorVG
         /// <summary>Transform a point by a matrix.  Mirrors C++ operator*(Point, Matrix).</summary>
         public static Point Transform(Point pt, in Matrix m)
         {
-            var tx = pt.x * m.e11 + pt.y * m.e12 + m.e13;
-            var ty = pt.x * m.e21 + pt.y * m.e22 + m.e23;
+            var tx = MultiplyAdd(pt.x, m.e11, pt.y * m.e12) + m.e13;
+            var ty = MultiplyAdd(pt.x, m.e21, pt.y * m.e22) + m.e23;
             return new Point(tx, ty);
         }
 
@@ -712,7 +833,7 @@ namespace ThorVG
         public static void Normalize(ref Point pt)
         {
             if (Zero(pt)) return;
-            var ilength = 1.0f / MathF.Sqrt(pt.x * pt.x + pt.y * pt.y);
+            var ilength = 1.0f / MathF.Sqrt(MultiplyAdd(pt.x, pt.x, pt.y * pt.y));
             pt.x *= ilength;
             pt.y *= ilength;
         }
@@ -720,25 +841,25 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Point PointMin(Point lhs, Point rhs)
         {
-            return new Point(MathF.Min(lhs.x, rhs.x), MathF.Min(lhs.y, rhs.y));
+            return new Point(rhs.x < lhs.x ? rhs.x : lhs.x, rhs.y < lhs.y ? rhs.y : lhs.y);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Point PointMax(Point lhs, Point rhs)
         {
-            return new Point(MathF.Max(lhs.x, rhs.x), MathF.Max(lhs.y, rhs.y));
+            return new Point(lhs.x < rhs.x ? rhs.x : lhs.x, lhs.y < rhs.y ? rhs.y : lhs.y);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Dot(Point lhs, Point rhs)
         {
-            return lhs.x * rhs.x + lhs.y * rhs.y;
+            return MultiplyAdd(lhs.x, rhs.x, lhs.y * rhs.y);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Cross(Point lhs, Point rhs)
         {
-            return lhs.x * rhs.y - rhs.x * lhs.y;
+            return MultiplyAdd(lhs.x, rhs.y, -rhs.x * lhs.y);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -755,20 +876,20 @@ namespace ThorVG
             var dy = b.y - a.y;
             if (dx < 0) dx = -dx;
             if (dy < 0) dy = -dy;
-            return (dx > dy) ? (dx + 0.375f * dy) : (dy + 0.375f * dx);
+            return (dx > dy) ? MultiplyAdd(0.375f, dy, dx) : MultiplyAdd(0.375f, dx, dy);
         }
 
         /// <summary>Euclidean length of vector.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float PointLength(Point a)
         {
-            return MathF.Sqrt(a.x * a.x + a.y * a.y);
+            return MathF.Sqrt(MultiplyAdd(a.x, a.x, a.y * a.y));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float PointLength2(Point a)
         {
-            return a.x * a.x + a.y * a.y;
+            return MultiplyAdd(a.x, a.x, a.y * a.y);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -864,7 +985,7 @@ namespace ThorVG
         {
             float dx = lhs.x - rhs.x;
             float dy = lhs.y - rhs.y;
-            return (dx * dx + dy * dy) < (tolerance * tolerance);
+            return MultiplyAdd(dx, dx, dy * dy) < (tolerance * tolerance);
         }
 
         // ---- Arc segments count -----------------------------------------
@@ -878,30 +999,51 @@ namespace ThorVG
 
         // ---- Interpolation (lerp) --------------------------------------
 
+        // The target's default AArch64 compiler contracts multiply/adds. Keep
+        // its single rounding even when SIMD is disabled for scalar validation.
+        private static readonly bool NativeFusedArithmetic = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static float MultiplyAdd(float x, float y, float addend) =>
+            NativeFusedArithmetic ? MathF.FusedMultiplyAdd(x, y, addend) : x * y + addend;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Lerp(float start, float end, float t)
         {
-            return start + (end - start) * t;
+            return MultiplyAdd(end - start, t, start);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte Lerp(byte start, byte end, float t)
         {
-            return (byte)Clamp((int)(start + (end - start) * t), 0, 255);
+            return (byte)Clamp((int)MultiplyAdd(end - start, t, start), 0, 255);
         }
 
         /// <summary>Integer lerp. Covers the C++ generic template for int types.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Lerp(int start, int end, float t)
         {
-            return (int)(start + (end - start) * t);
+            return (int)MultiplyAdd(end - start, t, start);
         }
 
         /// <summary>Point lerp. Covers the C++ generic template for Point type.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Point Lerp(Point start, Point end, float t)
         {
-            return new Point(start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t);
+            return new Point(MultiplyAdd(end.x - start.x, t, start.x), MultiplyAdd(end.y - start.y, t, start.y));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Point3 Lerp(Point3 start, Point3 end, float t)
+        {
+            return new Point3(Lerp(start.x, end.x, t), Lerp(start.y, end.y, t), Lerp(start.z, end.z, t));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Fill.ColorStop Lerp(Fill.ColorStop start, Fill.ColorStop end, float t)
+        {
+            return new Fill.ColorStop(Lerp(start.offset, end.offset, t),
+                Lerp(start.r, end.r, t), Lerp(start.g, end.g, t), Lerp(start.b, end.b, t), Lerp(start.a, end.a, t));
         }
 
         // ---- Debug logging (mirrors C++ log(Matrix) and log(Point)) ----
@@ -925,7 +1067,7 @@ namespace ThorVG
         {
             var dx = pt2.x - pt1.x;
             var dy = pt2.y - pt1.y;
-            return MathF.Sqrt(dx * dx + dy * dy);
+            return MathF.Sqrt(MultiplyAdd(dx, dx, dy * dy));
         }
 
         internal static float LineLengthApprox(Point pt1, Point pt2)
@@ -934,7 +1076,7 @@ namespace ThorVG
             var dy = pt2.y - pt1.y;
             if (dx < 0) dx = -dx;
             if (dy < 0) dy = -dy;
-            return (dx > dy) ? (dx + dy * 0.375f) : (dy + dx * 0.375f);
+            return (dx > dy) ? MultiplyAdd(dy, 0.375f, dx) : MultiplyAdd(dx, 0.375f, dy);
         }
     }
 }

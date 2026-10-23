@@ -17,7 +17,7 @@ namespace ThorVG
     /// A doubly-linked intrusive list.  The nodes themselves store the
     /// prev/next pointers (via <see cref="IInlistNode{T}"/>).
     /// </summary>
-    public class Inlist<T> where T : class, IInlistNode<T>
+    public class Inlist<T> : System.IDisposable where T : class, IInlistNode<T>
     {
         public T? Head;
         public T? Tail;
@@ -30,10 +30,9 @@ namespace ThorVG
             {
                 var t = Head;
                 Head = t.Next;
-                // In C++ the nodes are deleted; here we just unlink.
-                // If T : IDisposable, callers can add their own cleanup.
                 t.Prev = null;
                 t.Next = null;
+                if (t is System.IDisposable disposable) disposable.Dispose();
             }
             Count = 0;
             Head = Tail = null;
@@ -114,5 +113,7 @@ namespace ThorVG
         }
 
         public bool Empty() => Head == null;
+
+        public void Dispose() => Free();
     }
 }

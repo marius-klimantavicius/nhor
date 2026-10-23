@@ -10,10 +10,8 @@ namespace ThorVG
         {
             var outline = mpool.Outline(tid);
 
-            outline->input.Reserve(5);
-            outline->types.Reserve(5);
-            outline->cntrs.Reserve(1);
-            outline->closed.Reserve(1);
+            outline->input.Reserve(4);
+            outline->commands.Reserve(5);
 
             var w = (float)image.w;
             var h = (float)image.h;
@@ -21,10 +19,12 @@ namespace ThorVG
             outline->input.Push(new Point(w, 0));
             outline->input.Push(new Point(w, h));
             outline->input.Push(new Point(0, h));
-            outline->input.Push(new Point(0, 0));
-            for (var i = 0; i < 5; ++i) outline->types.Push(SwConstants.SW_CURVE_TYPE_POINT);
-            outline->cntrs.Push(outline->input.count - 1);
-            outline->closed.Push(true);
+            outline->commands.Push(PathCommand.MoveTo);
+            outline->commands.Push(PathCommand.LineTo);
+            outline->commands.Push(PathCommand.LineTo);
+            outline->commands.Push(PathCommand.LineTo);
+            outline->commands.Push(PathCommand.Close);
+            outline->pathBased = true;
             outline->fillRule = FillRule.NonZero;
 
             return outline;
@@ -75,6 +75,7 @@ namespace ThorVG
 
         public static void imageFree(SwImage image)
         {
+            SwRleOps.rleFree(ref image.rle);
             image.hasRle = false;
         }
     }

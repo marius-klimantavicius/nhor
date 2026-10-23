@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace ThorVG
 {
@@ -12,13 +13,14 @@ namespace ThorVG
     {
         internal Shape shape;           // text shape
         internal FontLoader? loader;
-        internal FontMetrics fm = new FontMetrics();
+        internal FontMetrics fm = new FontMetrics { hinting = true };
         internal string? utf8;
         internal uint utf8len;
         internal float outlineWidth;
         internal float italicShear;
         internal bool updated;
         internal bool lcdSubpixel;     // [LCD Subpixel] per-text opt-in
+        private bool preparedLcdSubpixel;
 
         protected Text()
         {
@@ -30,12 +32,35 @@ namespace ThorVG
         public static Text Gen() => new Text();
         public override Type PaintType() => Type.Text;
 
+        internal void CleanupText()
+        {
+            if (loader != null)
+            {
+                loader.Release(fm);
+                LoaderMgr.Retrieve(loader);
+                loader = null;
+            }
+            Paint.Rel(shape);
+            utf8 = null;
+        }
+
         // --- Public API (mirrors thorvg.h Text) ---
 
         public Result SetText(string? text)
         {
-            this.utf8 = text;
-            this.utf8len = text != null ? (uint)text.Length : 0;
+            this.utf8 = TvgStr.Duplicate(text);
+            this.utf8len = utf8 != null ? (uint)TvgUtf8.ByteCount(utf8) : 0;
+            updated = true;
+            pImpl.Mark(RenderUpdateFlag.Path);
+            return Result.Success;
+        }
+
+        /// <summary>Select the local TrueType bytecode hinter. Enabled by default;
+        /// disabling it uses the unhinted outlines supplied by upstream ThorVG.</summary>
+        public Result SetHinting(bool enabled)
+        {
+            if (fm.hinting == enabled) return Result.Success;
+            fm.hinting = enabled;
             updated = true;
             pImpl.Mark(RenderUpdateFlag.Path);
             return Result.Success;
@@ -49,7 +74,7 @@ namespace ThorVG
             // Same resource has been loaded.
             if (this.loader == loader)
             {
-                this.loader.sharing--; // make it sure the reference counting.
+                this.loader.DecrementSharing();
                 return Result.Success;
             }
             else if (this.loader != null)
@@ -118,7 +143,7 @@ namespace ThorVG
             return shape.SetFill(f);
         }
 
-        public Result SetItalic(float shear)
+        public Result SetItalic(float shear = 0.18f)
         {
             if (shear < 0.0f) shear = 0.0f;
             else if (shear > 0.5f) shear = 0.5f;
@@ -201,22 +226,15 @@ namespace ThorVG
         {
             if (filename == null) return Result.InvalidArguments;
 
-            bool invalid;
-            var loader = LoaderMgr.Loader(filename, out invalid);
-            if (loader != null)
-            {
-                if (loader.sharing > 0) --loader.sharing; // font loading doesn't mean sharing.
-                return Result.Success;
-            }
-            else
-            {
-                if (invalid) return Result.InvalidArguments;
-                else return Result.NonSupport;
-            }
+            var ops = new LoaderOps(Type.Text, Ownership.Transfer);
+            return LoaderMgr.Loader(filename, ops, out Result result) != null ? Result.Success : result;
         }
 
         /// <summary>Static font loading from memory. Mirrors C++ Text::load(name, data, size, mimeType, copy).</summary>
-        public static Result LoadFont(string name, byte[]? data, uint size, string? mimeType = null, bool copy = false)
+        public static Result LoadFont(string name, byte[]? data, uint size, string? mimeType = "ttf", bool copy = false)
+            => LoadFont(name, data, size, mimeType, copy ? Ownership.Copy : Ownership.Borrow);
+
+        internal static Result LoadFont(string name, byte[]? data, uint size, string? mimeType, Ownership owner)
         {
             if (name == null || (size == 0 && data != null)) return Result.InvalidArguments;
 
@@ -227,7 +245,7 @@ namespace ThorVG
                 return Result.InsufficientCondition;
             }
 
-            if (LoaderMgr.Loader(name, data, size, mimeType, copy) == null) return Result.NonSupport;
+            if (LoaderMgr.Loader(name, data, size, mimeType, new LoaderOps(Type.Text, owner)) == null) return Result.NonSupport;
             return Result.Success;
         }
 
@@ -243,8 +261,7 @@ namespace ThorVG
 
         internal bool PaintSkip(RenderUpdateFlag flag)
         {
-            if (flag == RenderUpdateFlag.None) return true;
-            return false;
+            return flag == RenderUpdateFlag.None && preparedLcdSubpixel == (SwLcdSubpixel.Enabled || lcdSubpixel);
         }
 
         internal bool PaintUpdate(RenderMethod renderer, in Matrix transform, ref ValueList<object?> clips, byte opacity, RenderUpdateFlag flag, bool clipper)
@@ -263,13 +280,18 @@ namespace ThorVG
                     lg.p1 = new Point(lg.p1.x * scale, lg.p1.y * scale);
                     lg.p2 = new Point(lg.p2.x * scale, lg.p2.y * scale);
                 }
-                else
+                else if (fill.GetFillType() == Type.RadialGradient)
                 {
                     var rg = (RadialGradient)fill;
                     rg.center = new Point(rg.center.x * scale, rg.center.y * scale);
                     rg.r *= scale;
                     rg.focal = new Point(rg.focal.x * scale, rg.focal.y * scale);
                     rg.fr *= scale;
+                }
+                else if (fill.GetFillType() == Type.ConicGradient)
+                {
+                    var conic = (ConicGradient)fill;
+                    conic.center = new Point(conic.center.x * scale, conic.center.y * scale);
                 }
             }
 
@@ -278,10 +300,17 @@ namespace ThorVG
                 shape.StrokeWidth(outlineWidth * scale);
             }
 
-            // [LCD Subpixel] Signal to the SW rasterizer that this is a text shape
-            SwLcdSubpixel._textContext = SwLcdSubpixel.Enabled || lcdSubpixel;
-            shape.pImpl.Update(renderer, transform, ref clips, opacity, flag, false);
-            SwLcdSubpixel._textContext = false;
+            // Capture eligibility on the caller; SwRenderer stores it per task.
+            var lcd = SwLcdSubpixel.Enabled || lcdSubpixel;
+            if (preparedLcdSubpixel != lcd) flag |= RenderUpdateFlag.Path;
+            var previousContext = SwLcdSubpixel._textContext;
+            try
+            {
+                SwLcdSubpixel._textContext = lcd;
+                shape.pImpl.Update(renderer, transform, ref clips, opacity, flag, false);
+                preparedLcdSubpixel = lcd;
+            }
+            finally { SwLcdSubpixel._textContext = previousContext; }
             return true;
         }
 
@@ -330,7 +359,7 @@ namespace ThorVG
             if (loader != null)
             {
                 text.loader = loader;
-                ++text.loader.sharing;
+                text.loader.IncrementSharing();
                 loader.Copy(fm, text.fm);
             }
 
@@ -366,10 +395,6 @@ namespace ThorVG
             if (loader == null) return false;
             if (updated)
             {
-                // [Hinting] Enable TrueType hinting for TTF fonts.
-                if (loader is TtfLoader ttf)
-                    ttf._hintingEnabled = true;
-
                 if (loader.Get(fm, utf8, utf8len, shape.rs.path))
                 {
                     loader.Transform(shape, fm, italicShear);

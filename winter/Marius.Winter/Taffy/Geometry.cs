@@ -2,10 +2,33 @@
 // Geometric primitives useful for layout
 
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace Marius.Winter.Taffy
 {
+    // Rust derive(PartialEq) uses IEEE comparison for float fields, including NaN != NaN.
+    internal static class GeometryEquality
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool Equal<T>(T left, T right)
+        {
+            if (typeof(T) == typeof(float)) return Unsafe.As<T, float>(ref left) == Unsafe.As<T, float>(ref right);
+            if (typeof(T) == typeof(double)) return Unsafe.As<T, double>(ref left) == Unsafe.As<T, double>(ref right);
+            if (typeof(T) == typeof(float?))
+            {
+                var a = Unsafe.As<T, float?>(ref left); var b = Unsafe.As<T, float?>(ref right);
+                return a.HasValue ? b.HasValue && a.Value == b.Value : !b.HasValue;
+            }
+            if (typeof(T) == typeof(double?))
+            {
+                var a = Unsafe.As<T, double?>(ref left); var b = Unsafe.As<T, double?>(ref right);
+                return a.HasValue ? b.HasValue && a.Value == b.Value : !b.HasValue;
+            }
+            return EqualityComparer<T>.Default.Equals(left, right);
+        }
+    }
+
     /// <summary>
     /// The simple absolute horizontal and vertical axis
     /// </summary>
@@ -112,8 +135,11 @@ namespace Marius.Winter.Taffy
     /// <summary>
     /// An axis-aligned UI rectangle
     /// </summary>
-    public struct Rect<T>
+    public struct Rect<T> : IEquatable<Rect<T>>
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Rect<T> Transpose() => new Rect<T>(Top, Bottom, Left, Right);
+
         /// The left (or start) edge
         public T Left;
         /// The right (or end) edge
@@ -174,6 +200,12 @@ namespace Marius.Winter.Taffy
             return new Line<T>(Top, Bottom);
         }
 
+        public readonly bool Equals(Rect<T> other) => GeometryEquality.Equal(Left, other.Left) && GeometryEquality.Equal(Right, other.Right) && GeometryEquality.Equal(Top, other.Top) && GeometryEquality.Equal(Bottom, other.Bottom);
+        public override readonly bool Equals(object? value) => value is Rect<T> other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(Left, Right, Top, Bottom);
+        public static bool operator ==(Rect<T> left, Rect<T> right) => left.Equals(right);
+        public static bool operator !=(Rect<T> left, Rect<T> right) => !left.Equals(right);
+
         public override string ToString() => $"Rect {{ Left = {Left}, Right = {Right}, Top = {Top}, Bottom = {Bottom} }}";
     }
 
@@ -182,6 +214,14 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public static class RectExtensions
     {
+        public static readonly Rect<float?> NoneF32 = new Rect<float?>(null, null, null, null);
+
+        /// <summary>The smallest rectangle containing both edge-coordinate rectangles.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Rect<float> Union(this Rect<float> self, Rect<float> other) => new Rect<float>(
+            TaffySys.F32Min(self.Left, other.Left), TaffySys.F32Max(self.Right, other.Right),
+            TaffySys.F32Min(self.Top, other.Top), TaffySys.F32Max(self.Bottom, other.Bottom));
+
         /// <summary>
         /// Creates a new Rect with 0.0 as all parameters
         /// </summary>
@@ -406,7 +446,7 @@ namespace Marius.Winter.Taffy
     /// <summary>
     /// An abstract "line". Represents any type that has a start and an end
     /// </summary>
-    public struct Line<T>
+    public struct Line<T> : IEquatable<Line<T>>
     {
         /// The start position of a line
         public T Start;
@@ -427,6 +467,12 @@ namespace Marius.Winter.Taffy
         {
             return new Line<R>(f(Start), f(End));
         }
+
+        public readonly bool Equals(Line<T> other) => GeometryEquality.Equal(Start, other.Start) && GeometryEquality.Equal(End, other.End);
+        public override readonly bool Equals(object? value) => value is Line<T> other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(Start, End);
+        public static bool operator ==(Line<T> left, Line<T> right) => left.Equals(right);
+        public static bool operator !=(Line<T> left, Line<T> right) => !left.Equals(right);
 
         public override string ToString() => $"Line {{ Start = {Start}, End = {End} }}";
     }
@@ -456,8 +502,11 @@ namespace Marius.Winter.Taffy
     /// <summary>
     /// The width and height of a Rect
     /// </summary>
-    public struct Size<T>
+    public struct Size<T> : IEquatable<Size<T>>
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Size<T> Transpose() => new Size<T>(Height, Width);
+
         /// The x extent of the rectangle
         public T Width;
         /// The y extent of the rectangle
@@ -509,6 +558,12 @@ namespace Marius.Winter.Taffy
         /// Get either the width or height depending on the AbsoluteAxis passed in
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SetAbs(AbsoluteAxis axis, T value)
+        {
+            if (axis == AbsoluteAxis.Horizontal) Width = value;
+            else Height = value;
+        }
+
         public T GetAbs(AbsoluteAxis axis)
         {
             return axis switch
@@ -656,11 +711,19 @@ namespace Marius.Winter.Taffy
             return result;
         }
 
+        public readonly bool Equals(Size<T> other) => GeometryEquality.Equal(Width, other.Width) && GeometryEquality.Equal(Height, other.Height);
+        public override readonly bool Equals(object? value) => value is Size<T> other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(Width, Height);
+        public static bool operator ==(Size<T> left, Size<T> right) => left.Equals(right);
+        public static bool operator !=(Size<T> left, Size<T> right) => !left.Equals(right);
+
         public override string ToString() => $"Size {{ Width = {Width}, Height = {Height} }}";
     }
 
     public static class SizeExtensions
     {
+        public static Size<Dimension> FromLengths(float width, float height) => new(Dimension.Length(width), Dimension.Length(height));
+        public static Size<Dimension> FromPercent(float width, float height) => new(Dimension.Percent(width), Dimension.Percent(height));
         /// <summary>
         /// A Size with zero width and height
         /// </summary>
@@ -678,8 +741,8 @@ namespace Marius.Winter.Taffy
         public static Size<float> F32Max(this Size<float> self, Size<float> rhs)
         {
             return new Size<float>(
-                MathF.Max(self.Width, rhs.Width),
-                MathF.Max(self.Height, rhs.Height)
+                TaffySys.F32Max(self.Width, rhs.Width),
+                TaffySys.F32Max(self.Height, rhs.Height)
             );
         }
 
@@ -690,8 +753,8 @@ namespace Marius.Winter.Taffy
         public static Size<float> F32Min(this Size<float> self, Size<float> rhs)
         {
             return new Size<float>(
-                MathF.Min(self.Width, rhs.Width),
-                MathF.Min(self.Height, rhs.Height)
+                TaffySys.F32Min(self.Width, rhs.Width),
+                TaffySys.F32Min(self.Height, rhs.Height)
             );
         }
 
@@ -804,7 +867,7 @@ namespace Marius.Winter.Taffy
     /// A 2-dimensional coordinate.
     /// When used in association with a Rect, represents the top-left corner.
     /// </summary>
-    public struct Point<T>
+    public struct Point<T> : IEquatable<Point<T>>
     {
         /// The x-coordinate
         public T X;
@@ -890,6 +953,12 @@ namespace Marius.Winter.Taffy
             return new Size<T>(X, Y);
         }
 
+        public readonly bool Equals(Point<T> other) => GeometryEquality.Equal(X, other.X) && GeometryEquality.Equal(Y, other.Y);
+        public override readonly bool Equals(object? value) => value is Point<T> other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(X, Y);
+        public static bool operator ==(Point<T> left, Point<T> right) => left.Equals(right);
+        public static bool operator !=(Point<T> left, Point<T> right) => !left.Equals(right);
+
         public override string ToString() => $"Point {{ X = {X}, Y = {Y} }}";
     }
 
@@ -918,7 +987,7 @@ namespace Marius.Winter.Taffy
     /// <summary>
     /// Generic struct which holds a "min" value and a "max" value
     /// </summary>
-    public struct MinMax<TMin, TMax>
+    public struct MinMax<TMin, TMax> : IEquatable<MinMax<TMin, TMax>>
     {
         /// The value representing the minimum
         public TMin Min;
@@ -930,6 +999,12 @@ namespace Marius.Winter.Taffy
             Min = min;
             Max = max;
         }
+
+        public readonly bool Equals(MinMax<TMin, TMax> other) => GeometryEquality.Equal(Min, other.Min) && GeometryEquality.Equal(Max, other.Max);
+        public override readonly bool Equals(object? value) => value is MinMax<TMin, TMax> other && Equals(other);
+        public override readonly int GetHashCode() => HashCode.Combine(Min, Max);
+        public static bool operator ==(MinMax<TMin, TMax> left, MinMax<TMin, TMax> right) => left.Equals(right);
+        public static bool operator !=(MinMax<TMin, TMax> left, MinMax<TMin, TMax> right) => !left.Equals(right);
 
         public override string ToString() => $"MinMax {{ Min = {Min}, Max = {Max} }}";
     }

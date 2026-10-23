@@ -24,7 +24,7 @@ namespace Marius.Winter.Taffy
         {
             return (self, rhs) switch
             {
-                (float l, float r) => MathF.Min(l, r),
+                (float l, float r) => TaffySys.F32Min(l, r),
                 (float _, null) => self,
                 (null, _) => null,
             };
@@ -36,7 +36,7 @@ namespace Marius.Winter.Taffy
         {
             return (self, rhs) switch
             {
-                (float l, float r) => MathF.Max(l, r),
+                (float l, float r) => TaffySys.F32Max(l, r),
                 (float _, null) => self,
                 (null, _) => null,
             };
@@ -48,9 +48,9 @@ namespace Marius.Winter.Taffy
         {
             return (self, min, max) switch
             {
-                (float b, float mn, float mx) => MathF.Max(MathF.Min(b, mx), mn),
-                (float b, null, float mx) => MathF.Min(b, mx),
-                (float b, float mn, null) => MathF.Max(b, mn),
+                (float b, float mn, float mx) => TaffySys.F32Max(TaffySys.F32Min(b, mx), mn),
+                (float b, null, float mx) => TaffySys.F32Min(b, mx),
+                (float b, float mn, null) => TaffySys.F32Max(b, mn),
                 (float _, null, null) => self,
                 (null, _, _) => null,
             };
@@ -88,21 +88,21 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float? MaybeMin(this float? self, float rhs)
         {
-            return self.HasValue ? MathF.Min(self.Value, rhs) : null;
+            return self.HasValue ? TaffySys.F32Min(self.Value, rhs) : null;
         }
 
         /// <summary>Returns the maximum of self and rhs. None if self is None.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float? MaybeMax(this float? self, float rhs)
         {
-            return self.HasValue ? MathF.Max(self.Value, rhs) : null;
+            return self.HasValue ? TaffySys.F32Max(self.Value, rhs) : null;
         }
 
         /// <summary>Returns self clamped between min and max. None if self is None.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float? MaybeClamp(this float? self, float min, float max)
         {
-            return self.HasValue ? MathF.Max(MathF.Min(self.Value, max), min) : null;
+            return self.HasValue ? TaffySys.F32Max(TaffySys.F32Min(self.Value, max), min) : null;
         }
 
         /// <summary>Adds self and rhs. None if self is None.</summary>
@@ -127,14 +127,14 @@ namespace Marius.Winter.Taffy
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float MaybeMin(this float self, float? rhs)
         {
-            return rhs.HasValue ? MathF.Min(self, rhs.Value) : self;
+            return rhs.HasValue ? TaffySys.F32Min(self, rhs.Value) : self;
         }
 
         /// <summary>Returns the maximum of self and rhs. rhs null = no constraint (returns self).</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float MaybeMax(this float self, float? rhs)
         {
-            return rhs.HasValue ? MathF.Max(self, rhs.Value) : self;
+            return rhs.HasValue ? TaffySys.F32Max(self, rhs.Value) : self;
         }
 
         /// <summary>Returns self clamped between min and max. Null min/max = no constraint.</summary>
@@ -143,9 +143,9 @@ namespace Marius.Winter.Taffy
         {
             return (min, max) switch
             {
-                (float mn, float mx) => MathF.Max(MathF.Min(self, mx), mn),
-                (null, float mx) => MathF.Min(self, mx),
-                (float mn, null) => MathF.Max(self, mn),
+                (float mn, float mx) => TaffySys.F32Max(TaffySys.F32Min(self, mx), mn),
+                (null, float mx) => TaffySys.F32Min(self, mx),
+                (float mn, null) => TaffySys.F32Max(self, mn),
                 (null, null) => self,
             };
         }
@@ -173,7 +173,7 @@ namespace Marius.Winter.Taffy
         public static AvailableSpace MaybeMin(this AvailableSpace self, float rhs)
         {
             if (self.IsDefinite())
-                return AvailableSpace.Definite(MathF.Min(self.Unwrap(), rhs));
+                return AvailableSpace.Definite(TaffySys.F32Min(self.Unwrap(), rhs));
             // MinContent and MaxContent both become Definite(rhs)
             return AvailableSpace.Definite(rhs);
         }
@@ -183,7 +183,7 @@ namespace Marius.Winter.Taffy
         public static AvailableSpace MaybeMax(this AvailableSpace self, float rhs)
         {
             if (self.IsDefinite())
-                return AvailableSpace.Definite(MathF.Max(self.Unwrap(), rhs));
+                return AvailableSpace.Definite(TaffySys.F32Max(self.Unwrap(), rhs));
             // MinContent and MaxContent stay as-is
             return self;
         }
@@ -193,7 +193,7 @@ namespace Marius.Winter.Taffy
         public static AvailableSpace MaybeClamp(this AvailableSpace self, float min, float max)
         {
             if (self.IsDefinite())
-                return AvailableSpace.Definite(MathF.Max(MathF.Min(self.Unwrap(), max), min));
+                return AvailableSpace.Definite(TaffySys.F32Max(TaffySys.F32Min(self.Unwrap(), max), min));
             // MinContent and MaxContent stay as-is
             return self;
         }
@@ -232,7 +232,7 @@ namespace Marius.Winter.Taffy
 
             float r = rhs.Value;
             if (self.IsDefinite())
-                return AvailableSpace.Definite(MathF.Min(self.Unwrap(), r));
+                return AvailableSpace.Definite(TaffySys.F32Min(self.Unwrap(), r));
             // MinContent/MaxContent with Some(rhs) => Definite(rhs) for MinContent, Definite(rhs) for MaxContent
             // But wait: looking at the Rust source more carefully:
             // MinContent + Some(rhs) => Definite(rhs)
@@ -250,7 +250,7 @@ namespace Marius.Winter.Taffy
             if (self.IsDefinite())
             {
                 if (rhs.HasValue)
-                    return AvailableSpace.Definite(MathF.Max(self.Unwrap(), rhs.Value));
+                    return AvailableSpace.Definite(TaffySys.F32Max(self.Unwrap(), rhs.Value));
                 return self;
             }
             // MinContent and MaxContent stay as-is regardless of rhs
@@ -266,9 +266,9 @@ namespace Marius.Winter.Taffy
                 float val = self.Unwrap();
                 return (min, max) switch
                 {
-                    (float mn, float mx) => AvailableSpace.Definite(MathF.Max(MathF.Min(val, mx), mn)),
-                    (null, float mx) => AvailableSpace.Definite(MathF.Min(val, mx)),
-                    (float mn, null) => AvailableSpace.Definite(MathF.Max(val, mn)),
+                    (float mn, float mx) => AvailableSpace.Definite(TaffySys.F32Max(TaffySys.F32Min(val, mx), mn)),
+                    (null, float mx) => AvailableSpace.Definite(TaffySys.F32Min(val, mx)),
+                    (float mn, null) => AvailableSpace.Definite(TaffySys.F32Max(val, mn)),
                     (null, null) => self,
                 };
             }

@@ -15,7 +15,6 @@ namespace ThorVG
     {
         private TtfHinter? _hinter;
         private bool _hintingInitialized;
-        internal bool _hintingEnabled;
 
         // Cache keyed on (codepoint, pixelSize) so multiple sizes coexist.
         private readonly record struct HintCacheKey(uint Code, float PixelSize);
@@ -52,7 +51,7 @@ namespace ThorVG
             if (code == 0) return null;
 
             if (!EnsureHinting())
-                return Request(code); // fall back to unhinted
+                return RequestUnhinted(code); // no recursive hint retry for fonts without bytecode
 
             var key = new HintCacheKey(code, pixelSize);
             if (_hintedGlyphs.TryGetValue(key, out var cached))

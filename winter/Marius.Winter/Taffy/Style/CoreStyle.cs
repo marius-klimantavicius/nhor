@@ -11,9 +11,12 @@ namespace Marius.Winter.Taffy
     public enum Position
     {
         /// The offset is computed relative to the final position given by the layout algorithm.
+        Static,
         Relative,
         /// The offset is computed relative to this item's closest positioned ancestor, if any.
         Absolute,
+        Fixed,
+        Sticky,
     }
 
     /// <summary>
@@ -72,6 +75,7 @@ namespace Marius.Winter.Taffy
     {
         /// The children will follow the block layout algorithm
         Block,
+        FlowRoot,
         /// The children will follow the flexbox layout algorithm
         Flex,
         /// The children will follow the CSS Grid layout algorithm
@@ -122,6 +126,9 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Is it a compressible replaced element?</summary>
         bool IsCompressibleReplaced() => false;
+        bool IsReplaced() => false;
+        Contain Contain() => Taffy.Contain.None;
+        ContainingBlockClaims IsContainingBlock() => new(Position().IsPositioned(), false);
 
         /// <summary>Which box do size styles apply to</summary>
         BoxSizing BoxSizing() => Taffy.BoxSizing.BorderBox;
@@ -136,7 +143,7 @@ namespace Marius.Winter.Taffy
         Direction Direction() => Taffy.Direction.Ltr;
 
         /// <summary>What should the position value of this struct use as a base offset?</summary>
-        Position Position() => Taffy.Position.Relative;
+        Position Position() => Taffy.Position.Static;
 
         /// <summary>How should the position of this element be tweaked relative to the layout defined?</summary>
         Rect<LengthPercentageAuto> Inset() => new Rect<LengthPercentageAuto>(
@@ -157,8 +164,8 @@ namespace Marius.Winter.Taffy
 
         /// <summary>How large should the margin be on each side?</summary>
         Rect<LengthPercentageAuto> Margin() => new Rect<LengthPercentageAuto>(
-            LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO,
-            LengthPercentageAuto.AUTO, LengthPercentageAuto.AUTO);
+            LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO,
+            LengthPercentageAuto.ZERO, LengthPercentageAuto.ZERO);
 
         /// <summary>How large should the padding be on each side?</summary>
         Rect<LengthPercentage> Padding() => new Rect<LengthPercentage>(

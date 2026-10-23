@@ -1,0 +1,14 @@
+{
+  "origin": "Authored regression fixture for the pinned ThorVG update, 2026-10-22",
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-expressions.lot",
+  "sha256": "68ef139066c6ae2d38e0dbc2a9ff4111ab56683314107aa830b4e7f7fefc2de8",
+  "behavior": [
+    "float32 expression arithmetic/decimal parsing",
+    "normalized color values",
+    "content lookup",
+    "text value",
+    "Perlin wiggle",
+    "platform CRT random/Math.random shared stream"
+  ],
+  "configuration": "Pinned DMSans.otf loaded as fixture-font, unhinted, seed 1 unless row records another seed, matched worker count."
+}

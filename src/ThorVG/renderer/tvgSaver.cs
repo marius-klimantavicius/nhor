@@ -6,7 +6,7 @@ namespace ThorVG
     /// Saves paint data or animations to files.
     /// Mirrors C++ tvg::Saver.
     /// </summary>
-    public class Saver
+    public class Saver : System.IDisposable
     {
         private SaveModule? _saveModule;
         private Paint? _bg;
@@ -15,7 +15,16 @@ namespace ThorVG
 
         ~Saver()
         {
-            if (_bg != null) _bg.Unref();
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            _saveModule?.Close();
+            _saveModule = null;
+            _bg?.Unref();
+            _bg = null;
+            System.GC.SuppressFinalize(this);
         }
 
         public static Saver Gen() => new Saver();
@@ -42,7 +51,7 @@ namespace ThorVG
         {
             if (filename == null) return null;
             var ext = TvgStr.Fileext(filename);
-            if (!string.IsNullOrEmpty(ext) && ext.ToLowerInvariant() == "gif")
+            if (ext == "gif")
                 return FindByType(FileType.Gif);
             return null;
         }
@@ -80,6 +89,7 @@ namespace ThorVG
                 else
                 {
                     Paint.Rel(paint);
+                    saveModule.Close();
                     return Result.Unknown;
                 }
             }
@@ -90,15 +100,18 @@ namespace ThorVG
         public Result Save(Animation? animation, string? filename, uint quality = 100, uint fps = 0)
         {
             if (animation == null) return Result.InvalidArguments;
+            bool remove = animation.GetPicture().RefCnt() <= 1;
 
             if (TvgMath.Zero(animation.TotalFrame()))
             {
+                if (remove) animation.Dispose();
                 return Result.InsufficientCondition;
             }
 
             // Already on saving another resource.
             if (_saveModule != null)
             {
+                if (remove) animation.Dispose();
                 return Result.InsufficientCondition;
             }
 
@@ -112,9 +125,12 @@ namespace ThorVG
                 }
                 else
                 {
+                    if (remove) animation.Dispose();
+                    saveModule.Close();
                     return Result.Unknown;
                 }
             }
+            if (remove) animation.Dispose();
             return Result.NonSupport;
         }
 

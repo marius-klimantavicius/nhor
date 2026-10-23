@@ -1,0 +1,6 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "Solid color #rrggbbaa ignores color-string alpha as native; actual opacity comes from the transform. No random API or external resources.",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "5007652bd065cecb35896380434dd6ebbd212e3ef254bcc96b03b7b456e3ab24"
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" viewBox="0 0 96 64">
+<defs><clipPath id="stroke"><ellipse cx="14" cy="28" rx="3" ry="8"/></clipPath>
+<clipPath id="fill"><ellipse cx="74" cy="28" rx="3" ry="5"/></clipPath></defs>
+<g clip-path="url(#stroke)"><rect x="20" y="10" width="24" height="36" fill="#d02040" stroke="#2040d0" stroke-width="20" clip-path="url(#stroke)"/></g>
+<g clip-path="url(#fill)"><rect x="60" y="10" width="30" height="36" fill="#20b050" stroke="#c040d0" stroke-width="10" clip-path="url(#fill)"/></g>
+</svg>

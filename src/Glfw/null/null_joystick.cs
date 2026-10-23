@@ -1,4 +1,4 @@
-// Ported from glfw/src/null_joystick.c (GLFW 3.5)
+// Ported from glfw/src/null_joystick.c (GLFW 3.6)
 //
 // Copyright (c) 2016-2017 Camilla Loewy <elmindreda@glfw.org>
 //
@@ -23,9 +23,12 @@
 
 namespace Glfw
 {
-    // Partial class -- joystick stub operations for the null platform.
+    // Partial class -- upstream joystick operations for the null platform.
     public partial class NullPlatform
     {
+        public bool PollJoystick(GlfwJoystick joystick, int mode) => false;
+        public string GetMappingName() => "";
+        public string UpdateGamepadGUID(string guid) => guid;
         /// <summary>
         /// Initializes joysticks. Always succeeds (no joysticks on null platform).
         /// Corresponds to C++ <c>_glfwInitJoysticksNull</c>.

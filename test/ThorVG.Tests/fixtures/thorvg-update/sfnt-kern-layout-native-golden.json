@@ -1,0 +1,29 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual pinned native210 complete ordinary font-layout/path/metric/transform/copy-release records on seven valid Microsoft/Apple format0 feature fonts. Native additive/override/cross-stream/reset semantics, allfive wrapping modes/three finite configurations and explicit/convenience APIs; ordinary ASCII sentence contains every selected pair. No malformed/corruption/fuzz/UTF8-byte inputs. Font input provenance sfnt-kern-font-provenance.json.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "sfnt-kern-normal-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26.json",
+        "sha256": "e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26",
+        "archive": "docs/thorvg-update/source-snapshots/e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26.tar.gz"
+      },
+      "bytes": 1116640,
+      "sha256": "b1d79d515020e30749d00d18627819459e16862c718c840ff3158a2a4d2fe10d",
+      "records": 210
+    },
+    "arm64": {
+      "nativeOrigin": "sfnt-kern-normal-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26.json",
+        "sha256": "e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26",
+        "archive": "docs/thorvg-update/source-snapshots/e04024ca132b3f9f2e342ad8ae4fcfb0997305134ff0fc8e0cfbd5290bfbef26.tar.gz"
+      },
+      "bytes": 1116640,
+      "sha256": "1e29d0d96510f078eee544d84b2f4f027edd400e2a307a54f0ada9f04e791c5e",
+      "records": 210
+    }
+  },
+  "parentReview": "pending"
+}

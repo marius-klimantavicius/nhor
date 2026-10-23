@@ -1,0 +1,6 @@
+{
+  "origin": "Authored inherited double RLE clip regression, 2026-10-22",
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-fill-stroke-clip-chain.svg",
+  "sha256": "79a7787c2da9a3ec29a0deb614da72df39130101dab3b014e9c8d0567a73e1be",
+  "behavior": "Repeats a nonrectangular clip in ancestor and child. Once one coverage becomes empty, the next clip must retain the other visible coverage; target dismisses only when both fail."
+}

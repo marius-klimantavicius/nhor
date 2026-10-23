@@ -1,4 +1,4 @@
-// Ported from glfw/src/x11_platform.h -- GLFW 3.5 X11 platform types
+// Ported from glfw/src/x11_platform.h -- GLFW 3.6 X11 platform types
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -26,6 +26,7 @@
 //       in glx/glx_native.cs -- not duplicated here.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Glfw
@@ -34,11 +35,12 @@ namespace Glfw
     //  X11 interop structs (matching C ABI layouts for p/invoke)
     // =======================================================================
 
-    // XEvent is a 192-byte union.  We overlay the type discriminant and
+    // XEvent is a union padded to 24 native longs (192 bytes on LP64).
     // the event subtypes we actually read at FieldOffset(0).
-    [StructLayout(LayoutKind.Explicit, Size = 192)]
+    [StructLayout(LayoutKind.Explicit)]
     public struct XEvent
     {
+        [FieldOffset(0)] private XEventPadding padding;
         [FieldOffset(0)] public int type;
 
         // Overlay the subtypes we access at offset 0 (they all start with type)
@@ -64,6 +66,52 @@ namespace Glfw
         [FieldOffset(0)] public XClientMessageEvent xclient;
         [FieldOffset(0)] public XMappingEvent xmapping;
         [FieldOffset(0)] public XGenericEventCookie xcookie;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct XEventPadding
+    {
+        internal nint A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XErrorEvent
+    {
+        public int type;
+        public nint display;
+        public nuint resourceid, serial;
+        public byte error_code, request_code, minor_code;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XRenderDirectFormat
+    {
+        public short red, redMask, green, greenMask, blue, blueMask, alpha, alphaMask;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XRenderPictFormat
+    {
+        public nuint id;
+        public int type, depth;
+        public XRenderDirectFormat direct;
+        public nuint colormap;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XkbStateNotifyEvent
+    {
+        public int type;
+        public nuint serial;
+        public int send_event;
+        public nint display;
+        public nuint time;
+        public int xkb_type, device;
+        public uint changed;
+        public int group, base_group, latched_group, locked_group;
+        public uint mods, base_mods, latched_mods, locked_mods;
+        public int compat_state;
+        public byte grab_mods, compat_grab_mods, lookup_mods, compat_lookup_mods;
+        public int ptr_buttons;
+        public byte keycode, event_type, req_major, req_minor;
     }
 
     // -------------------------------------------------------------------
@@ -356,8 +404,11 @@ namespace Glfw
         public int format;
         // data: union { char b[20]; short s[10]; long l[5]; }
         // On 64-bit Linux, long = 8 bytes, so l[5] = 40 bytes (largest member)
-        public fixed long l[5];
+        public XClientMessageData l;
     }
+
+    [InlineArray(5)]
+    public struct XClientMessageData { private nint element; }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct XMappingEvent
@@ -590,6 +641,7 @@ namespace Glfw
         public nuint handle;                 // Window
         public nuint parent;                 // Window
         public nint ic;                      // XIC
+        internal nint icHandle;              // Managed window retained by XIM callback.
 
         public bool overrideRedirect;
         public bool iconified;
@@ -838,6 +890,7 @@ namespace Glfw
 
         public unsafe class XrmFunctions
         {
+            public delegate* unmanaged[Cdecl]<void> Initialize;
             public delegate* unmanaged[Cdecl]<nint, void> DestroyDatabase;                     // XrmDatabase
             public delegate* unmanaged[Cdecl]<nint, byte*, byte*, byte**, XrmValue*, int> GetResource; // Bool
             public delegate* unmanaged[Cdecl]<byte*, nint> GetStringDatabase;                  // XrmDatabase
@@ -1130,14 +1183,14 @@ namespace Glfw
         public nuint time;
         public int deviceid;
         public int sourceid;
+        public int detail;
+        public int flags;
         // XIValuatorState valuators
         public int valuators_mask_len;
         public byte* valuators_mask;
         public double* valuators_values;
         // raw values
         public double* raw_values;
-        // flags
-        public int flags;
     }
 
     // -------------------------------------------------------------------

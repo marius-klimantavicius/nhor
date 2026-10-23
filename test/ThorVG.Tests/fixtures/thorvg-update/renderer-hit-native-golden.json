@@ -1,0 +1,20 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "records": [
+    {
+      "architecture": "x64",
+      "file": "renderer-hit-x64-native-golden.bin",
+      "sha256": "bfe6b37c68af320b04eccd622d6ac2b7888b12e2485da4fe41def07e3c943b95",
+      "bytes": 156860,
+      "evidence": "renderer-hit-normal-before-correct-harness.json"
+    },
+    {
+      "architecture": "arm64",
+      "file": "renderer-hit-arm64-native-golden.bin",
+      "sha256": "bfe6b37c68af320b04eccd622d6ac2b7888b12e2485da4fe41def07e3c943b95",
+      "bytes": 156860,
+      "evidence": "arm-renderer-hit-normal-before.json"
+    }
+  ],
+  "provenance": "Actual unmodified native public API return values,2304 normal hit rectangles and9 rendered frames. Existing managed failures are retained separately; expected native outputs are not regenerated from managed code."
+}

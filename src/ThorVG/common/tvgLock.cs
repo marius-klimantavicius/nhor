@@ -12,10 +12,16 @@ namespace ThorVG
     /// <summary>
     /// Mutual-exclusion key.  Mirrors C++ <c>tvg::Key</c>.
     /// </summary>
-    public sealed class Key
+    public class Key
     {
         internal readonly object SyncRoot = new object();
+
+        public void Lock() => Monitor.Enter(SyncRoot);
+        public void Unlock() => Monitor.Exit(SyncRoot);
     }
+
+    /// <summary>A lock that also guards global state without worker threads.</summary>
+    public sealed class StrictKey : Key { }
 
     /// <summary>
     /// Scoped (RAII-style) lock.  Mirrors C++ <c>tvg::ScopedLock</c>.
@@ -31,11 +37,13 @@ namespace ThorVG
         /// no-op, matching the C++ single-threaded (no THORVG_THREAD_SUPPORT)
         /// behaviour.
         /// </summary>
-        public static bool ThreadingEnabled;
+        public static volatile bool ThreadingEnabled;
 
         public ScopedLock(Key key)
         {
-            if (ThreadingEnabled)
+            // Decide once, before acquiring, so a scheduler transition cannot
+            // cause the acquired monitor to be forgotten during disposal.
+            if (ThreadingEnabled || key is StrictKey)
             {
                 Monitor.Enter(key.SyncRoot);
                 _syncRoot = key.SyncRoot;

@@ -5,6 +5,7 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace ThorVG
 {
@@ -38,9 +39,10 @@ namespace ThorVG
 
     #region Stream classes
 
-    internal abstract class jpeg_decoder_stream
+    internal abstract class jpeg_decoder_stream : IDisposable
     {
         public abstract int read(byte[] pBuf, int offset, int max_bytes_to_read, out bool pEOF_flag);
+        public virtual void Dispose() { }
     }
 
     internal class jpeg_decoder_file_stream : jpeg_decoder_stream
@@ -56,7 +58,7 @@ namespace ThorVG
             m_error_flag = false;
             try
             {
-                m_pFile = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+                m_pFile = TvgUtf8.OpenRead(filename);
                 return true;
             }
             catch
@@ -73,6 +75,8 @@ namespace ThorVG
             m_error_flag = false;
         }
 
+        public override void Dispose() => close();
+
         public override int read(byte[] pBuf, int offset, int max_bytes_to_read, out bool pEOF_flag)
         {
             pEOF_flag = false;
@@ -82,7 +86,7 @@ namespace ThorVG
 
             try
             {
-                int bytes_read = m_pFile.Read(pBuf, offset, max_bytes_to_read);
+                int bytes_read = m_pFile.ReadAtLeast(pBuf.AsSpan(offset, max_bytes_to_read), max_bytes_to_read, throwOnEndOfStream: false);
                 if (bytes_read < max_bytes_to_read)
                 {
                     m_eof_flag = true;
@@ -113,6 +117,17 @@ namespace ThorVG
             m_size = size;
         }
 
+        public bool open(byte[] pSrc_data, int size)
+        {
+            close();
+            m_pSrc_data = pSrc_data;
+            m_size = size;
+            return true;
+        }
+
+        public void close() { m_pSrc_data = null; m_ofs = m_size = 0; }
+        public override void Dispose() => close();
+
         public override int read(byte[] pBuf, int offset, int max_bytes_to_read, out bool pEOF_flag)
         {
             pEOF_flag = false;
@@ -134,7 +149,7 @@ namespace ThorVG
 
     #region IDCT helpers
 
-    internal static class JpgdIdct
+    internal static unsafe class JpgdIdct
     {
         private const int CONST_BITS = 13;
         private const int PASS1_BITS = 2;
@@ -162,9 +177,9 @@ namespace ThorVG
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte CLAMP(int i) => (byte)(((uint)i > 255) ? ((~i >> 31) & 0xFF) : i);
 
-        // Row IDCT - generic version for nonzero_cols columns
+        // Literal row counts fold the native Row<N> zero coefficients at JIT/AOT time.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void RowIdctGeneric(Span<int> pTemp, ReadOnlySpan<short> pSrc, int nonzero_cols)
+        private static void RowIdctGeneric(int* pTemp, short* pSrc, int nonzero_cols)
         {
             int z2 = (2 < nonzero_cols) ? pSrc[2] : 0;
             int z3 = (6 < nonzero_cols) ? pSrc[6] : 0;
@@ -208,22 +223,22 @@ namespace ThorVG
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void RowIdct0(Span<int> pTemp, ReadOnlySpan<short> pSrc)
+        private static void RowIdct0(int* pTemp, short* pSrc)
         {
             // Row<0>::idct - do nothing
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void RowIdct1(Span<int> pTemp, ReadOnlySpan<short> pSrc)
+        private static void RowIdct1(int* pTemp, short* pSrc)
         {
             int dcval = pSrc[0] * PASS1_BITS * 2;
             pTemp[0] = dcval; pTemp[1] = dcval; pTemp[2] = dcval; pTemp[3] = dcval;
             pTemp[4] = dcval; pTemp[5] = dcval; pTemp[6] = dcval; pTemp[7] = dcval;
         }
 
-        // Col IDCT - generic version for nonzero_rows rows
+        // Value-type column counts fold the native Col<N> zero coefficients at JIT/AOT time.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ColIdctGeneric(Span<byte> pDst_ptr, ReadOnlySpan<int> pTemp, int nonzero_rows)
+        private static void ColIdctGeneric(byte* pDst_ptr, int* pTemp, int nonzero_rows)
         {
             int z2 = (2 < nonzero_rows) ? pTemp[2 * 8] : 0;
             int z3 = (6 < nonzero_rows) ? pTemp[6 * 8] : 0;
@@ -268,7 +283,7 @@ namespace ThorVG
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ColIdct1(Span<byte> pDst_ptr, ReadOnlySpan<int> pTemp)
+        private static void ColIdct1(byte* pDst_ptr, int* pTemp)
         {
             int dcval = DESCALE_ZEROSHIFT(pTemp[0], PASS1_BITS + 3);
             byte dcval_clamped = CLAMP(dcval);
@@ -297,51 +312,79 @@ namespace ThorVG
         };
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void DispatchRowIdct(Span<int> pTemp, ReadOnlySpan<short> pSrc, int ncols)
+        private static void DispatchRowIdct(int* pTemp, short* pSrc, int ncols)
         {
             switch (ncols)
             {
                 case 0: RowIdct0(pTemp, pSrc); break;
                 case 1: RowIdct1(pTemp, pSrc); break;
-                default: RowIdctGeneric(pTemp, pSrc, ncols); break;
+                case 2: RowIdctGeneric(pTemp, pSrc, 2); break;
+                case 3: RowIdctGeneric(pTemp, pSrc, 3); break;
+                case 4: RowIdctGeneric(pTemp, pSrc, 4); break;
+                case 5: RowIdctGeneric(pTemp, pSrc, 5); break;
+                case 6: RowIdctGeneric(pTemp, pSrc, 6); break;
+                case 7: RowIdctGeneric(pTemp, pSrc, 7); break;
+                case 8: RowIdctGeneric(pTemp, pSrc, 8); break;
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void DispatchColIdct(Span<byte> pDst, ReadOnlySpan<int> pTemp, int nrows)
+        public static void idct(ReadOnlySpan<short> source, Span<byte> destination, int block_max_zag)
         {
-            switch (nrows)
+            if (source.Length < 64 || destination.Length < 64) throw new ArgumentException("IDCT requires one complete block.");
+            if (block_max_zag > 64) throw new ArgumentOutOfRangeException(nameof(block_max_zag));
+            fixed (short* src = source)
+            fixed (byte* dst = destination) IdctCore(src, dst, block_max_zag);
+        }
+
+        // A separate compilation scope preserves column specialization within the JIT inline budget.
+        private interface INonzero { static abstract int Count { get; } }
+        private readonly struct Nonzero1 : INonzero { public static int Count => 1; }
+        private readonly struct Nonzero2 : INonzero { public static int Count => 2; }
+        private readonly struct Nonzero3 : INonzero { public static int Count => 3; }
+        private readonly struct Nonzero4 : INonzero { public static int Count => 4; }
+        private readonly struct Nonzero5 : INonzero { public static int Count => 5; }
+        private readonly struct Nonzero6 : INonzero { public static int Count => 6; }
+        private readonly struct Nonzero7 : INonzero { public static int Count => 7; }
+        private readonly struct Nonzero8 : INonzero { public static int Count => 8; }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void TransformColumns<TCount>(byte* dst, int* temp) where TCount : struct, INonzero
+        {
+            for (int i = 0; i < 8; ++i)
             {
-                case 1: ColIdct1(pDst, pTemp); break;
-                default: ColIdctGeneric(pDst, pTemp, nrows); break;
+                if (TCount.Count == 1) ColIdct1(dst + i, temp + i);
+                else ColIdctGeneric(dst + i, temp + i, TCount.Count);
             }
         }
 
-        public static void idct(ReadOnlySpan<short> pSrc_ptr, Span<byte> pDst_ptr, int block_max_zag)
+        private static void IdctCore(short* pSrc_ptr, byte* pDst_ptr, int block_max_zag)
         {
             if (block_max_zag <= 1)
             {
                 int k = ((pSrc_ptr[0] + 4) >> 3) + 128;
                 k = (int)(((uint)k > 255) ? ((~k >> 31) & 0xFF) : k);
-                byte kb = (byte)k;
-                for (int i = 0; i < 64; i++) pDst_ptr[i] = kb;
+                Unsafe.InitBlockUnaligned(pDst_ptr, (byte)k, 64);
                 return;
             }
 
-            Span<int> temp = stackalloc int[64];
+            int* temp = stackalloc int[64];
             int rowTabOfs = (block_max_zag - 1) * 8;
 
             for (int i = 0; i < 8; i++)
             {
-                DispatchRowIdct(temp.Slice(i * 8), pSrc_ptr.Slice(i * 8), s_idct_row_table[rowTabOfs + i]);
+                DispatchRowIdct(temp + i * 8, pSrc_ptr + i * 8, s_idct_row_table[rowTabOfs + i]);
             }
 
-            int nonzero_rows = s_idct_col_table[block_max_zag - 1];
-            for (int i = 0; i < 8; i++)
+            switch (s_idct_col_table[block_max_zag - 1])
             {
-                // Build a column view: pTemp[0], pTemp[8], pTemp[16], ...
-                // We pass the temp slice starting at column i and col dispatch reads pTemp[x*8]
-                DispatchColIdct(pDst_ptr.Slice(i), temp.Slice(i), nonzero_rows);
+                case 1: TransformColumns<Nonzero1>(pDst_ptr, temp); break;
+                case 2: TransformColumns<Nonzero2>(pDst_ptr, temp); break;
+                case 3: TransformColumns<Nonzero3>(pDst_ptr, temp); break;
+                case 4: TransformColumns<Nonzero4>(pDst_ptr, temp); break;
+                case 5: TransformColumns<Nonzero5>(pDst_ptr, temp); break;
+                case 6: TransformColumns<Nonzero6>(pDst_ptr, temp); break;
+                case 7: TransformColumns<Nonzero7>(pDst_ptr, temp); break;
+                case 8: TransformColumns<Nonzero8>(pDst_ptr, temp); break;
             }
         }
     }
@@ -369,7 +412,7 @@ namespace ThorVG
         public int block_size; // in shorts
     }
 
-    internal class jpeg_decoder
+    internal class jpeg_decoder : IDisposable
     {
         private const int JPGD_IN_BUF_SIZE = 8192;
         private const int JPGD_MAX_BLOCKS_PER_MCU = 10;
@@ -445,7 +488,11 @@ namespace ThorVG
         private int m_in_buf_left;
         private int m_tem_flag;
         private bool m_eof_flag;
-        private byte[] m_in_buf = new byte[JPGD_IN_BUF_SIZE + 256]; // extra padding
+        // Native has128 bytes before the input buffer,128 tail bytes within
+        // it, and128 after it. fix_in_buffer can push bit-buffer bytes into
+        // the prefix after an EOF refill, even for ordinary progressive JPEG.
+        private const int JPGD_IN_BUF_START = 128;
+        private byte[] m_in_buf = new byte[JPGD_IN_BUF_SIZE + 384];
         private int m_bits_left;
         private uint m_bit_buf;
         private int m_restart_interval;
@@ -547,6 +594,13 @@ namespace ThorVG
         public int get_bytes_per_pixel() => m_dest_bytes_per_pixel;
         public int get_bytes_per_scan_line() => m_image_x_size * get_bytes_per_pixel();
         public int get_total_bytes_read() => m_total_bytes_read;
+
+        public void Dispose()
+        {
+            m_pStream?.Dispose();
+            m_pStream = null;
+            m_error_code = jpgd_status.JPGD_FAILED;
+        }
 
         // --- inline helpers ---
 
@@ -729,6 +783,7 @@ namespace ThorVG
         private bool stop_decoding(jpgd_status status)
         {
             m_error_code = jpgd_status.JPGD_FAILED;
+            m_pStream?.Dispose();
             m_pStream = null;
             return false;
         }
@@ -743,12 +798,12 @@ namespace ThorVG
         private bool prep_in_buffer()
         {
             m_in_buf_left = 0;
-            m_in_buf_ofs = 0;
+            m_in_buf_ofs = JPGD_IN_BUF_START;
             if (m_eof_flag) return true;
 
             do
             {
-                var bytes_read = m_pStream!.read(m_in_buf, m_in_buf_left, JPGD_IN_BUF_SIZE - m_in_buf_left, out m_eof_flag);
+                var bytes_read = m_pStream!.read(m_in_buf, m_in_buf_ofs + m_in_buf_left, JPGD_IN_BUF_SIZE - m_in_buf_left, out m_eof_flag);
                 if (bytes_read == -1) return stop_decoding(jpgd_status.JPGD_STREAM_READ);
                 m_in_buf_left += bytes_read;
             } while ((m_in_buf_left < JPGD_IN_BUF_SIZE) && !m_eof_flag);
@@ -763,8 +818,8 @@ namespace ThorVG
         private bool read_dht_marker()
         {
             int i, index, count;
-            byte[] huff_num = new byte[17];
-            byte[] huff_val = new byte[256];
+            Span<byte> huff_num = stackalloc byte[17];
+            Span<byte> huff_val = stackalloc byte[256];
             uint num_left = get_bits(16);
 
             if (num_left < 2) return stop_decoding(jpgd_status.JPGD_BAD_DHT_MARKER);
@@ -799,8 +854,8 @@ namespace ThorVG
                 if (m_huff_val[index] == null) m_huff_val[index] = new byte[256];
 
                 m_huff_ac[index] = (byte)(((index & 0x10) != 0) ? 1 : 0);
-                Array.Copy(huff_num, m_huff_num[index]!, 17);
-                Array.Copy(huff_val, m_huff_val[index]!, 256);
+                huff_num.CopyTo(m_huff_num[index]);
+                huff_val.CopyTo(m_huff_val[index]);
             }
             return true;
         }
@@ -898,6 +953,11 @@ namespace ThorVG
                     if (cc == m_comp_ident[ci]) break;
 
                 if (ci >= m_comps_in_frame) return stop_decoding(jpgd_status.JPGD_BAD_SOS_COMP_ID);
+
+                for (int j = 0; j < i; ++j)
+                {
+                    if (m_comp_list[j] == ci) return stop_decoding(jpgd_status.JPGD_BAD_SOS_COMP_ID);
+                }
 
                 m_comp_list[i] = ci;
                 m_comp_dc_tab[ci] = (c >> 4) & 15;
@@ -1083,7 +1143,7 @@ namespace ThorVG
 
             m_eob_run = 0;
 
-            m_in_buf_ofs = 0;
+            m_in_buf_ofs = JPGD_IN_BUF_START;
             m_in_buf_left = 0;
             m_eof_flag = false;
             m_tem_flag = 0;
@@ -1179,7 +1239,8 @@ namespace ThorVG
 
         private void load_next_row()
         {
-            int[] block_x_mcu = new int[JPGD_MAX_COMPONENTS];
+            Span<int> block_x_mcu = stackalloc int[JPGD_MAX_COMPONENTS];
+            block_x_mcu.Clear();
 
             for (int mcu_row = 0; mcu_row < m_mcus_per_row; mcu_row++)
             {
@@ -1555,8 +1616,8 @@ namespace ThorVG
         private void make_huff_table(int index, huff_tables pH)
         {
             int p, i, l, si;
-            byte[] huffsize = new byte[257];
-            uint[] huffcode = new uint[257];
+            Span<byte> huffsize = stackalloc byte[257];
+            Span<uint> huffcode = stackalloc uint[257];
             uint code;
             uint subtree;
             int code_size;
@@ -1978,12 +2039,13 @@ namespace ThorVG
 
         private bool decode_scan(pDecode_block_func decode_block_func)
         {
-            int[] block_x_mcu = new int[JPGD_MAX_COMPONENTS];
-            int[] local_block_y_mcu = new int[JPGD_MAX_COMPONENTS];
+            Span<int> block_x_mcu = stackalloc int[JPGD_MAX_COMPONENTS];
+            Span<int> local_block_y_mcu = stackalloc int[JPGD_MAX_COMPONENTS];
+            local_block_y_mcu.Clear();
 
             for (int mcu_col = 0; mcu_col < m_mcus_per_col; mcu_col++)
             {
-                Array.Clear(block_x_mcu);
+                block_x_mcu.Clear();
 
                 for (int mcu_row = 0; mcu_row < m_mcus_per_row; mcu_row++)
                 {
@@ -2106,9 +2168,9 @@ namespace ThorVG
     /// JPEG decoder state. Mirrors C++ jpeg_decoder public API.
     /// Wraps the internal jpeg_decoder with a managed-friendly interface.
     /// </summary>
-    public class JpegDecoder
+    public class JpegDecoder : IDisposable
     {
-        private jpeg_decoder _decoder;
+        private jpeg_decoder? _decoder;
         internal int width;
         internal int height;
         internal bool valid;
@@ -2129,13 +2191,23 @@ namespace ThorVG
         {
             width = 0;
             height = 0;
+            var stream = new jpeg_decoder_file_stream();
             try
             {
-                var fileData = File.ReadAllBytes(path);
-                return FromData(fileData, fileData.Length, out width, out height);
+                if (!stream.open(path)) return null;
+                var decoder = new jpeg_decoder(stream);
+                if (decoder.get_error_code() != jpgd_status.JPGD_SUCCESS)
+                {
+                    decoder.Dispose();
+                    return null;
+                }
+                width = decoder.get_width();
+                height = decoder.get_height();
+                return new JpegDecoder(decoder, width, height);
             }
             catch
             {
+                stream.Dispose();
                 return null;
             }
         }
@@ -2154,7 +2226,7 @@ namespace ThorVG
             {
                 var stream = new jpeg_decoder_mem_stream(data, size);
                 var decoder = new jpeg_decoder(stream);
-                if (decoder.get_error_code() != jpgd_status.JPGD_SUCCESS) return null;
+                if (decoder.get_error_code() != jpgd_status.JPGD_SUCCESS) { decoder.Dispose(); return null; }
 
                 width = decoder.get_width();
                 height = decoder.get_height();
@@ -2173,7 +2245,7 @@ namespace ThorVG
         /// </summary>
         public uint[]? Decompress()
         {
-            if (!valid) return null;
+            if (!valid || _decoder == null) return null;
 
             try
             {
@@ -2183,7 +2255,8 @@ namespace ThorVG
                 int w = _decoder.get_width();
                 int h = _decoder.get_height();
                 int stride = w * channel;
-                var ret = new byte[stride * h];
+                var pixels = new uint[w * h];
+                Span<byte> ret = MemoryMarshal.AsBytes(pixels.AsSpan());
                 int dstOfs = 0;
 
                 for (int y = 0; y < h; y++)
@@ -2195,7 +2268,7 @@ namespace ThorVG
 
                     if (_decoder.get_num_components() == 3)
                     {
-                        Array.Copy(src, 0, ret, dstOfs, stride);
+                        src.AsSpan(srcOffset, stride).CopyTo(ret.Slice(dstOfs, stride));
                         dstOfs += stride;
                     }
                     else if (_decoder.get_num_components() == 1)
@@ -2211,15 +2284,22 @@ namespace ThorVG
                     }
                 }
 
-                // Convert byte[] to uint[]
-                var pixels = new uint[w * h];
-                Buffer.BlockCopy(ret, 0, pixels, 0, ret.Length);
                 return pixels;
             }
             catch
             {
                 return null;
             }
+        }
+
+        ~JpegDecoder() { Dispose(); }
+
+        public void Dispose()
+        {
+            _decoder?.Dispose();
+            _decoder = null;
+            valid = false;
+            GC.SuppressFinalize(this);
         }
     }
 

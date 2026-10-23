@@ -1,0 +1,8 @@
+{
+  "kind": "authored deterministic regression",
+  "description": "A fulfilled Promise queues a reaction which would mutate the returned position after evaluation. ThorVG never calls jerry_run_jobs, so its geometry must remain at the synchronous position. No random API or external glyph is used.",
+  "basedOn": "lottie-expression-language.lot",
+  "basedOnSha256": "c18a010b8583a2cddb436daf888297c79f65d17cc231428e7d3f894748970182",
+  "upstream": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "sha256": "6df827a019d752a067779a1ca95825c2e93f04eee281d0836e296fdb3e35f360"
+}

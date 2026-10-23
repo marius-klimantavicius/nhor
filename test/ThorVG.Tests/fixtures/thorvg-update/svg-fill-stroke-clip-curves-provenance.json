@@ -1,0 +1,6 @@
+{
+  "origin": "Authored nonrectangular RLE clip regression, 2026-10-22",
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/svg-fill-stroke-clip-curves.svg",
+  "sha256": "95a6510cb9898ebf10f96efacb551d1df326ff49179ba88a6e571956eb062a9a",
+  "behavior": "Curved clips force RLE clipping rather than rectangular clip-box optimization. First retains only stroke, second only fill. The rectangular control fixture is retained separately."
+}

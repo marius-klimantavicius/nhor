@@ -144,16 +144,17 @@ namespace ThorVG.Tests
         {
             var jpg = CreateTestJpeg(16, 12);
             var tmpFile = Path.GetTempFileName() + ".jpg";
+            var loader = new JpgLoader();
             try
             {
                 File.WriteAllBytes(tmpFile, jpg);
-                var loader = new JpgLoader();
                 Assert.True(loader.Open(tmpFile));
                 Assert.Equal(16.0f, loader.w);
                 Assert.Equal(12.0f, loader.h);
             }
             finally
             {
+                LoaderMgr.Retrieve(loader);
                 if (File.Exists(tmpFile)) File.Delete(tmpFile);
             }
         }

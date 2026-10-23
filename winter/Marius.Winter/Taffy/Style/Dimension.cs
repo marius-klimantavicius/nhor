@@ -11,6 +11,15 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public readonly struct LengthPercentage : IEquatable<LengthPercentage>
     {
+        public ExpandedLengthPercentage Expand() => Inner.Tag switch
+        {
+            CompactLength.LENGTH_TAG => ExpandedLengthPercentage.Length(Inner.Value),
+            CompactLength.PERCENT_TAG => ExpandedLengthPercentage.Percent(Inner.Value),
+            _ when Inner.IsPlainCalc() => ExpandedLengthPercentage.Calc(Inner.CalcValue),
+            _ => throw new InvalidOperationException("Invalid LengthPercentage tag"),
+        };
+
+        public static implicit operator LengthPercentage(ExpandedLengthPercentage value) => value.IntoLengthPercentage();
         internal readonly CompactLength Inner;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -28,6 +37,7 @@ namespace Marius.Winter.Taffy
         /// to in their application (pixels, logical pixels, mm, etc) as they see fit.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage Length(double val) => Length((float)val);
         public static LengthPercentage Length(float val) => new LengthPercentage(CompactLength.Length(val));
 
         /// <summary>
@@ -35,6 +45,7 @@ namespace Marius.Winter.Taffy
         /// NOTE: percentages are represented as a f32 value in the range [0.0, 1.0] NOT [0.0, 100.0].
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage Percent(double val) => Percent((float)val);
         public static LengthPercentage Percent(float val) => new LengthPercentage(CompactLength.Percent(val));
 
         /// <summary>
@@ -55,10 +66,12 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Create a Length from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage FromLength(double value) => FromLength((float)value);
         public static LengthPercentage FromLength(float value) => Length(value);
 
         /// <summary>Create a Percent from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentage FromPercent(double value) => FromPercent((float)value);
         public static LengthPercentage FromPercent(float value) => Percent(value);
 
         // --- Conversions ---
@@ -86,6 +99,16 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public readonly struct LengthPercentageAuto : IEquatable<LengthPercentageAuto>
     {
+        public ExpandedLengthPercentageAuto Expand() => Inner.Tag switch
+        {
+            CompactLength.LENGTH_TAG => ExpandedLengthPercentageAuto.Length(Inner.Value),
+            CompactLength.PERCENT_TAG => ExpandedLengthPercentageAuto.Percent(Inner.Value),
+            CompactLength.AUTO_TAG => ExpandedLengthPercentageAuto.Auto,
+            _ when Inner.IsPlainCalc() => ExpandedLengthPercentageAuto.Calc(Inner.CalcValue),
+            _ => throw new InvalidOperationException("Invalid LengthPercentageAuto tag"),
+        };
+
+        public static implicit operator LengthPercentageAuto(ExpandedLengthPercentageAuto value) => value.IntoLengthPercentageAuto();
         internal readonly CompactLength Inner;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -105,6 +128,7 @@ namespace Marius.Winter.Taffy
         /// An absolute length in some abstract units.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto Length(double val) => Length((float)val);
         public static LengthPercentageAuto Length(float val) => new LengthPercentageAuto(CompactLength.Length(val));
 
         /// <summary>
@@ -112,6 +136,7 @@ namespace Marius.Winter.Taffy
         /// NOTE: percentages are represented as a f32 value in the range [0.0, 1.0] NOT [0.0, 100.0].
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto Percent(double val) => Percent((float)val);
         public static LengthPercentageAuto Percent(float val) => new LengthPercentageAuto(CompactLength.Percent(val));
 
         /// <summary>
@@ -138,10 +163,12 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Create a Length from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto FromLength(double value) => FromLength((float)value);
         public static LengthPercentageAuto FromLength(float value) => Length(value);
 
         /// <summary>Create a Percent from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static LengthPercentageAuto FromPercent(double value) => FromPercent((float)value);
         public static LengthPercentageAuto FromPercent(float value) => Percent(value);
 
         // --- Resolution methods ---
@@ -191,6 +218,24 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public readonly struct Dimension : IEquatable<Dimension>
     {
+        public ExpandedDimension Expand() => Inner.Tag switch
+        {
+            CompactLength.LENGTH_TAG => ExpandedDimension.Length(Inner.Value),
+            CompactLength.PERCENT_TAG => ExpandedDimension.Percent(Inner.Value),
+            CompactLength.AUTO_TAG => ExpandedDimension.Auto,
+            CompactLength.MIN_CONTENT_TAG => ExpandedDimension.MinContent,
+            CompactLength.MAX_CONTENT_TAG => ExpandedDimension.MaxContent,
+            CompactLength.FIT_CONTENT_PX_TAG => ExpandedDimension.FitContentPx(Inner.Value),
+            CompactLength.FIT_CONTENT_PERCENT_TAG => ExpandedDimension.FitContentPercent(Inner.Value),
+            CompactLength.FIT_CONTENT_KEYWORD_TAG => ExpandedDimension.FitContent,
+            CompactLength.STRETCH_TAG => ExpandedDimension.Stretch,
+            CompactLength.CONTENT_TAG => ExpandedDimension.Content,
+            _ when Inner.IsFitContentCalc() => ExpandedDimension.FitContentCalc(Inner.CalcValue),
+            _ when Inner.IsPlainCalc() => ExpandedDimension.Calc(Inner.CalcValue),
+            _ => throw new InvalidOperationException("Invalid Dimension tag"),
+        };
+
+        public static implicit operator Dimension(ExpandedDimension value) => value.IntoDimension();
         internal readonly CompactLength Inner;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -203,6 +248,23 @@ namespace Marius.Winter.Taffy
 
         /// <summary>An auto value</summary>
         public static readonly Dimension AUTO = new Dimension(CompactLength.AUTO);
+        public static readonly Dimension MIN_CONTENT = new Dimension(CompactLength.MIN_CONTENT);
+        public static readonly Dimension MAX_CONTENT = new Dimension(CompactLength.MAX_CONTENT);
+        public static Dimension MinContent() => MIN_CONTENT;
+        public static Dimension MaxContent() => MAX_CONTENT;
+        public static Dimension FitContent() => new Dimension(CompactLength.FitContentKeyword());
+        public static Dimension FitContentPx(double limit) => FitContentPx((float)limit);
+        public static Dimension FitContentPx(float limit) => new Dimension(CompactLength.FitContentPx(limit));
+        public static Dimension FitContentPercent(double limit) => FitContentPercent((float)limit);
+        public static Dimension FitContentPercent(float limit) => new Dimension(CompactLength.FitContentPercent(limit));
+        public static Dimension FitContentCalc(IntPtr ptr) => new Dimension(CompactLength.FitContentCalc(ptr));
+        public static Dimension Stretch() => new Dimension(CompactLength.Stretch());
+        public static Dimension Content() => new Dimension(CompactLength.Content());
+        public bool IsSizingKeyword() => Inner.IsSizingKeyword();
+        public bool IsStretch() => Inner.Tag == CompactLength.STRETCH_TAG;
+        public bool IsContent() => Inner.IsContent();
+        public bool IsFitContentCalc() => Inner.IsFitContentCalc();
+        public IntPtr CalcValue() => Inner.CalcValue;
 
         // --- Static factory methods ---
 
@@ -210,6 +272,7 @@ namespace Marius.Winter.Taffy
         /// An absolute length in some abstract units.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension Length(double val) => Length((float)val);
         public static Dimension Length(float val) => new Dimension(CompactLength.Length(val));
 
         /// <summary>
@@ -217,6 +280,7 @@ namespace Marius.Winter.Taffy
         /// NOTE: percentages are represented as a f32 value in the range [0.0, 1.0] NOT [0.0, 100.0].
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension Percent(double val) => Percent((float)val);
         public static Dimension Percent(float val) => new Dimension(CompactLength.Percent(val));
 
         /// <summary>
@@ -243,10 +307,12 @@ namespace Marius.Winter.Taffy
 
         /// <summary>Create a Length from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension FromLength(double value) => FromLength((float)value);
         public static Dimension FromLength(float value) => Length(value);
 
         /// <summary>Create a Percent from any numeric value</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Dimension FromPercent(double value) => FromPercent((float)value);
         public static Dimension FromPercent(float value) => Percent(value);
 
         // --- Query methods ---

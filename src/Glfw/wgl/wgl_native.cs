@@ -1,4 +1,4 @@
-// GLFW 3.5 WGL - www.glfw.org
+// GLFW 3.6 WGL - www.glfw.org
 // Ported from glfw/src/win32_platform.h (WGL types, constants, native function pointers)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard

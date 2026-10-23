@@ -1,0 +1,149 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "baseFont": {
+    "path": "ref/ThorVG/test/res/PublicSans-Regular.ttf",
+    "sha256": "b577e9bc9887284e90aae5ad0699689ce36b5cd96207efbec68f77f8aed88379"
+  },
+  "fixtures": [
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-ms-add.ttf",
+      "sha256": "8aa7bc5baa4c2e7957516b67896b5426143b122fa869754d52b6475824df8f2c",
+      "apple": false,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          1,
+          -37
+        ],
+        [
+          1,
+          -13
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-ms-override.ttf",
+      "sha256": "cffd350c3b93bfdd367a687aa24754d758b030dd7687e9498259e663a4df0a5c",
+      "apple": false,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          1,
+          -37
+        ],
+        [
+          9,
+          7
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-ms-cross.ttf",
+      "sha256": "06614bed1966e429bd9cad3f96202fc9b60ea99c876b5abfff31fc20e405a417",
+      "apple": false,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          5,
+          7
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-ms-cross-reset.ttf",
+      "sha256": "3123345d4af9eaacab5dd6f3334edafe4b78bcafe2ac627fcc84bd178c0a04a3",
+      "apple": false,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          5,
+          7
+        ],
+        [
+          5,
+          -32768
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-apple-add.ttf",
+      "sha256": "ac4a056841320c0a763b2d8c3a9066a27d2080b255119cdecf912680df88b217",
+      "apple": true,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          0,
+          -37
+        ],
+        [
+          0,
+          -13
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-apple-cross.ttf",
+      "sha256": "86b48207eb003496bc6f690f78e8a4488edfea96f10f4b82891e52b415c34e42",
+      "apple": true,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          64,
+          7
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    },
+    {
+      "path": "test/ThorVG.Tests/fixtures/thorvg-update/sfnt-kern-apple-cross-reset.ttf",
+      "sha256": "dbb552b7d19d2864155296193a7068c5a28bf5cc11e00567011470aed8fe70b2",
+      "apple": true,
+      "format": 0,
+      "coverageAndValues": [
+        [
+          64,
+          7
+        ],
+        [
+          64,
+          -32768
+        ]
+      ],
+      "pairs": [
+        "A/V",
+        "T/o",
+        "V/A"
+      ]
+    }
+  ],
+  "provenance": "Ordinary valid font feature fixtures: installed fontTools standard kern format0 writer adds sorted pairs/subtables to unchanged pinned PublicSans outlines/repertoire, preserving font licensing and deterministic timestamps. Microsoft additive/override/cross-stream/reset and Apple additive/cross-stream/reset. No font corruption, malformed/invalid glyph, fuzz or UTF8-byte fixture. No production fontTools dependency; test tooling only."
+}

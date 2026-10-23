@@ -19,7 +19,13 @@ namespace ThorVG
         //  Required GL version
         // ============================================================
         public const int TVG_REQUIRE_GL_MAJOR_VER = 3;
+#if THORVG_GL_TARGET_GLES
+        public const int TVG_REQUIRE_GL_MINOR_VER = 0;
+        public const bool IsGles = true;
+#else
         public const int TVG_REQUIRE_GL_MINOR_VER = 3;
+        public const bool IsGles = false;
+#endif
 
         // ============================================================
         //  GL Constants (from tvgGl.h)
@@ -70,6 +76,8 @@ namespace ThorVG
         public const uint GL_DEPTH_TEST                     = 0x0B71;
         public const uint GL_STENCIL_TEST                   = 0x0B90;
         public const uint GL_DITHER                         = 0x0BD0;
+        public const uint GL_COLOR_LOGIC_OP                 = 0x0BF2;
+        public const uint GL_RASTERIZER_DISCARD             = 0x8C89;
         public const uint GL_BLEND                          = 0x0BE2;
         public const uint GL_SCISSOR_TEST                   = 0x0C11;
         public const uint GL_UNPACK_ALIGNMENT               = 0x0CF5;
@@ -225,6 +233,7 @@ namespace ThorVG
         public static delegate* unmanaged[Cdecl]<float, float, float, float, void> glClearColor;
         public static delegate* unmanaged[Cdecl]<int, void> glClearStencil;
         public static delegate* unmanaged[Cdecl]<double, void> glClearDepth;
+        public static delegate* unmanaged[Cdecl]<float, void> glClearDepthf;
         public static delegate* unmanaged[Cdecl]<byte, byte, byte, byte, void> glColorMask;
         public static delegate* unmanaged[Cdecl]<byte, void> glDepthMask;
         public static delegate* unmanaged[Cdecl]<uint, void> glDisable;
@@ -327,8 +336,9 @@ namespace ThorVG
         //  Library handle
         // ============================================================
         private static nint _libGL;
+        private static nint _libEGL;
         private static bool _loaded;
-        private enum ContextApi : byte { Unknown, Wgl, Glx, Cgl }
+        private enum ContextApi : byte { Unknown, Wgl, Glx, Cgl, Egl }
         private static ContextApi _contextApi;
 
         // ============================================================
@@ -342,6 +352,10 @@ namespace ThorVG
                 return ptr;
             }
 
+#if THORVG_GL_TARGET_GLES
+            // Native GLES resolves core entrypoints from libGLESv2 itself.
+            return nint.Zero;
+#else
             // On Linux/GL, try glXGetProcAddress via the lib itself
             if (NativeLibrary.TryGetExport(_libGL, "glXGetProcAddress", out var glxGetProc))
             {
@@ -376,6 +390,7 @@ namespace ThorVG
             }
 
             return nint.Zero;
+#endif
         }
 
         /// <summary>
@@ -420,10 +435,32 @@ namespace ThorVG
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate nint CglGetCurrentContextDelegate();
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint EglGetCurrentContextDelegate();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint EglGetCurrentDisplayDelegate();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate nint EglGetCurrentSurfaceDelegate(int selector);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint EglMakeCurrentDelegate(nint display, nint draw, nint read, nint context);
+
+        private static EglGetCurrentContextDelegate? _eglGetCurrentContext;
+        private static EglGetCurrentDisplayDelegate? _eglGetCurrentDisplay;
+        private static EglGetCurrentSurfaceDelegate? _eglGetCurrentSurface;
+        private static EglMakeCurrentDelegate? _eglMakeCurrent;
+
         internal static bool TryGetCurrentTarget(out nint display, out nint surface, out nint context)
         {
             display = surface = context = 0;
             if (!_loaded) return false;
+
+            if (_contextApi == ContextApi.Egl)
+            {
+                context = _eglGetCurrentContext!();
+                display = _eglGetCurrentDisplay!();
+                surface = _eglGetCurrentSurface!(0x3059); // EGL_DRAW
+                return context != 0 && display != 0;
+            }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
                 NativeLibrary.TryGetExport(_libGL, "wglGetCurrentContext", out var getPtr) &&
@@ -465,6 +502,12 @@ namespace ThorVG
         internal static bool MakeCurrent(nint display, nint surface, nint context)
         {
             if (!_loaded || context == 0) return false;
+
+            if (_contextApi == ContextApi.Egl)
+            {
+                if (_eglGetCurrentContext!() == context) return true;
+                return display != 0 && surface != 0 && _eglMakeCurrent!(display, surface, surface, context) != 0;
+            }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -515,7 +558,12 @@ namespace ThorVG
             // Platform-specific library loading
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
+#if THORVG_GL_TARGET_GLES
+                if (!NativeLibrary.TryLoad("GLESv2.dll", out _libGL) &&
+                    !NativeLibrary.TryLoad("libGLESv2.dll", out _libGL))
+#else
                 if (!NativeLibrary.TryLoad("opengl32.dll", out _libGL))
+#endif
                 {
                     TvgCommon.TVGERR("GL_ENGINE", "Cannot find the gl library.");
                     return false;
@@ -532,10 +580,16 @@ namespace ThorVG
             }
             else // Linux
             {
+#if THORVG_GL_TARGET_GLES
+                if (!NativeLibrary.TryLoad("libGLESv2.so", out _libGL) &&
+                    !NativeLibrary.TryLoad("libGLESv2.so.2.0", out _libGL) &&
+                    !NativeLibrary.TryLoad("libGLESv2.so.2", out _libGL))
+#else
                 if (!NativeLibrary.TryLoad("libGL.so", out _libGL) &&
                     !NativeLibrary.TryLoad("libGL.so.4", out _libGL) &&
                     !NativeLibrary.TryLoad("libGL.so.3", out _libGL) &&
                     !NativeLibrary.TryLoad("libGL.so.1", out _libGL))
+#endif
                 {
                     TvgCommon.TVGERR("GL_ENGINE", "Cannot find the gl library.");
                     return false;
@@ -555,17 +609,23 @@ namespace ThorVG
             glTexParameteri = (delegate* unmanaged[Cdecl]<uint, uint, int, void>)p;
             if (!RequireFunction("glTexImage2D", out p)) return false;
             glTexImage2D = (delegate* unmanaged[Cdecl]<uint, int, int, int, int, int, uint, uint, void*, void>)p;
-            // glDrawBuffer may not exist on GLES; load optionally
-            p = LoadFunction("glDrawBuffer");
+#if !THORVG_GL_TARGET_GLES
+            if (!RequireFunction("glDrawBuffer", out p)) return false;
             glDrawBuffer = (delegate* unmanaged[Cdecl]<uint, void>)p;
+#endif
             if (!RequireFunction("glClear", out p)) return false;
             glClear = (delegate* unmanaged[Cdecl]<uint, void>)p;
             if (!RequireFunction("glClearColor", out p)) return false;
             glClearColor = (delegate* unmanaged[Cdecl]<float, float, float, float, void>)p;
             if (!RequireFunction("glClearStencil", out p)) return false;
             glClearStencil = (delegate* unmanaged[Cdecl]<int, void>)p;
+#if THORVG_GL_TARGET_GLES
+            if (!RequireFunction("glClearDepthf", out p)) return false;
+            glClearDepthf = (delegate* unmanaged[Cdecl]<float, void>)p;
+#else
             if (!RequireFunction("glClearDepth", out p)) return false;
             glClearDepth = (delegate* unmanaged[Cdecl]<double, void>)p;
+#endif
             if (!RequireFunction("glColorMask", out p)) return false;
             glColorMask = (delegate* unmanaged[Cdecl]<byte, byte, byte, byte, void>)p;
             if (!RequireFunction("glDepthMask", out p)) return false;
@@ -622,7 +682,11 @@ namespace ThorVG
             glBufferData = (delegate* unmanaged[Cdecl]<uint, nint, void*, uint, void>)p;
 
             // GL_VERSION_2_0
-            p = LoadFunction("glDrawBuffers"); // optional
+#if THORVG_GL_TARGET_GLES
+            if (!RequireFunction("glDrawBuffers", out p)) return false;
+#else
+            p = LoadFunction("glDrawBuffers");
+#endif
             glDrawBuffers = (delegate* unmanaged[Cdecl]<int, uint*, void>)p;
             if (!RequireFunction("glStencilOpSeparate", out p)) return false;
             glStencilOpSeparate = (delegate* unmanaged[Cdecl]<uint, uint, uint, uint, void>)p;
@@ -696,7 +760,11 @@ namespace ThorVG
             glDeleteRenderbuffers = (delegate* unmanaged[Cdecl]<int, uint*, void>)p;
             if (!RequireFunction("glGenRenderbuffers", out p)) return false;
             glGenRenderbuffers = (delegate* unmanaged[Cdecl]<int, uint*, void>)p;
-            p = LoadFunction("glInvalidateFramebuffer"); // optional on desktop GL
+#if THORVG_GL_TARGET_GLES
+            if (!RequireFunction("glInvalidateFramebuffer", out p)) return false;
+#else
+            p = LoadFunction("glInvalidateFramebuffer");
+#endif
             glInvalidateFramebuffer = (delegate* unmanaged[Cdecl]<uint, int, uint*, void>)p;
             if (!RequireFunction("glBindFramebuffer", out p)) return false;
             glBindFramebuffer = (delegate* unmanaged[Cdecl]<uint, uint, void>)p;
@@ -724,6 +792,26 @@ namespace ThorVG
             glGetUniformBlockIndex = (delegate* unmanaged[Cdecl]<uint, byte*, uint>)p;
             if (!RequireFunction("glUniformBlockBinding", out p)) return false;
             glUniformBlockBinding = (delegate* unmanaged[Cdecl]<uint, uint, uint, void>)p;
+
+#if THORVG_GL_TARGET_GLES
+            bool eglLoaded = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? NativeLibrary.TryLoad("libEGL.dll", out _libEGL) || NativeLibrary.TryLoad("EGL.dll", out _libEGL)
+                : NativeLibrary.TryLoad("libEGL.so.1", out _libEGL) || NativeLibrary.TryLoad("libEGL.so", out _libEGL);
+            if (!eglLoaded ||
+                !NativeLibrary.TryGetExport(_libEGL, "eglGetCurrentContext", out var eglContext) ||
+                !NativeLibrary.TryGetExport(_libEGL, "eglGetCurrentDisplay", out var eglDisplay) ||
+                !NativeLibrary.TryGetExport(_libEGL, "eglGetCurrentSurface", out var eglSurface) ||
+                !NativeLibrary.TryGetExport(_libEGL, "eglMakeCurrent", out var eglMakeCurrent))
+            {
+                TvgCommon.TVGERR("GL_ENGINE", "Failed to load EGL context management functions.");
+                return false;
+            }
+            _eglGetCurrentContext = Marshal.GetDelegateForFunctionPointer<EglGetCurrentContextDelegate>(eglContext);
+            _eglGetCurrentDisplay = Marshal.GetDelegateForFunctionPointer<EglGetCurrentDisplayDelegate>(eglDisplay);
+            _eglGetCurrentSurface = Marshal.GetDelegateForFunctionPointer<EglGetCurrentSurfaceDelegate>(eglSurface);
+            _eglMakeCurrent = Marshal.GetDelegateForFunctionPointer<EglMakeCurrentDelegate>(eglMakeCurrent);
+            _contextApi = ContextApi.Egl;
+#endif
 
             // Verify version
             int vMajor, vMinor;
@@ -753,8 +841,18 @@ namespace ThorVG
                 NativeLibrary.Free(_libGL);
                 _libGL = nint.Zero;
             }
+            if (_libEGL != nint.Zero)
+            {
+                NativeLibrary.Free(_libEGL);
+                _libEGL = nint.Zero;
+            }
+            _eglGetCurrentContext = null;
+            _eglGetCurrentDisplay = null;
+            _eglGetCurrentSurface = null;
+            _eglMakeCurrent = null;
             _loaded = false;
             _contextApi = ContextApi.Unknown;
+            glClearDepthf = null;
             glDrawArrays = null;
             glClear = null;
             glEnable = null;

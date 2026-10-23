@@ -28,8 +28,18 @@ namespace ThorVG
     //  SwPostEffect - post-processing effects
     // =====================================================================
 
-    public static unsafe class SwPostEffect
+    public static unsafe partial class SwPostEffect
     {
+#if THORVG_PARALLEL_EFFECTS
+        internal const bool ParallelEffectsEnabled = true;
+        internal static System.Threading.Tasks.ParallelOptions ParallelOptions() => new()
+        {
+            MaxDegreeOfParallelism = Math.Max(1, (int)TaskScheduler.Threads())
+        };
+#else
+        internal const bool ParallelEffectsEnabled = false;
+#endif
+
         // =====================================================================
         //  Gaussian Blur
         // =====================================================================
@@ -58,52 +68,23 @@ namespace ThorVG
 
         private static void _gaussianFilter(byte* dst, byte* src, int stride, int w, int h, in RenderRegion bbox, int dimension, bool flipped, int border = 0)
         {
-            if (flipped)
+            // The pinned API retains border as an unused compatibility parameter.
+            int offset = flipped ? bbox.min.x * stride + bbox.min.y : bbox.min.y * stride + bbox.min.x;
+            src += offset * 4;
+            dst += offset * 4;
+            float inverse = 1.0f / (dimension + dimension + 1);
+            #if THORVG_PARALLEL_EFFECTS
+            System.Threading.Tasks.Parallel.For(0, h, SwPostEffect.ParallelOptions(), y =>
             {
-                src += (bbox.min.x * stride + bbox.min.y) << 2;
-                dst += (bbox.min.x * stride + bbox.min.y) << 2;
-            }
-            else
-            {
-                src += (bbox.min.y * stride + bbox.min.x) << 2;
-                dst += (bbox.min.y * stride + bbox.min.x) << 2;
-            }
+                rasterGaussianFilterRow(dst + y * stride * 4, src + y * stride * 4, w, dimension, inverse);
 
-            var iarr = 1.0f / (dimension + dimension + 1);
-            var end = w - 1;
-
+            });
+#else
             for (int y = 0; y < h; ++y)
             {
-                var p = y * stride;
-                var i = p * 4;
-                var l = -(dimension + 1);
-                var r = dimension;
-                int acc0 = 0, acc1 = 0, acc2 = 0, acc3 = 0;
-
-                // initial accumulation
-                for (int x = l; x < r; ++x)
-                {
-                    var id = (_gaussianRemap(border, end, x) + p) * 4;
-                    acc0 += src[id++];
-                    acc1 += src[id++];
-                    acc2 += src[id++];
-                    acc3 += src[id];
-                }
-                // perform filtering
-                for (int x = 0; x < w; ++x, ++r, ++l)
-                {
-                    var rid = (_gaussianRemap(border, end, r) + p) * 4;
-                    var lid = (_gaussianRemap(border, end, l) + p) * 4;
-                    acc0 += src[rid++] - src[lid++];
-                    acc1 += src[rid++] - src[lid++];
-                    acc2 += src[rid++] - src[lid++];
-                    acc3 += src[rid] - src[lid];
-                    dst[i++] = (byte)(acc0 * iarr);
-                    dst[i++] = (byte)(acc1 * iarr);
-                    dst[i++] = (byte)(acc2 * iarr);
-                    dst[i++] = (byte)(acc3 * iarr);
-                }
+                rasterGaussianFilterRow(dst + y * stride * 4, src + y * stride * 4, w, dimension, inverse);
             }
+#endif
         }
 
         // Fast Almost-Gaussian Filtering Method by Peter Kovesi
@@ -117,7 +98,7 @@ namespace ThorVG
             var wl = (int)Math.Sqrt((12 * sigma / SwGaussianBlur.MAX_LEVEL) + 1);
             if (wl % 2 == 0) --wl;
             var wu = wl + 2;
-            var mi = (12 * sigma - SwGaussianBlur.MAX_LEVEL * wl * wl - 4 * SwGaussianBlur.MAX_LEVEL * wl - 3 * SwGaussianBlur.MAX_LEVEL) / (-4 * wl - 4);
+            var mi = (TvgMath.MultiplyAdd(12.0f, sigma, -(SwGaussianBlur.MAX_LEVEL * wl * wl)) - 4 * SwGaussianBlur.MAX_LEVEL * wl - 3 * SwGaussianBlur.MAX_LEVEL) / (-4 * wl - 4);
             var m = (int)(mi + 0.5f);
             var extends_ = 0;
 
@@ -155,8 +136,8 @@ namespace ThorVG
             if (p.rd == null) p.rd = new SwGaussianBlur();
             var rd = (SwGaussianBlur)p.rd;
 
-            var scale = (float)Math.Sqrt(transform.e11 * transform.e11 + transform.e12 * transform.e12);
-            rd.extends = _gaussianInit(rd, (float)Math.Pow(p.sigma * scale, 2), p.quality);
+            var scaleSquared = TvgMath.MultiplyAdd(transform.e11, transform.e11, transform.e12 * transform.e12);
+            rd.extends = _gaussianInit(rd, p.sigma * p.sigma * scaleSquared, p.quality);
 
             if (rd.extends == 0)
             {
@@ -237,6 +218,30 @@ namespace ThorVG
             var iarr = 1.0f / (dimension + dimension + 1);
             var end = w - 1;
 
+            #if THORVG_PARALLEL_EFFECTS
+            System.Threading.Tasks.Parallel.For(0, h, SwPostEffect.ParallelOptions(), y =>
+            {
+                var p = y * stride;
+                var i = p;
+                var l = -(dimension + 1);
+                var r = dimension;
+                int acc = 0;
+
+                for (int x = l; x < r; ++x)
+                {
+                    var id = _gaussianEdgeExtend(end, x) + p;
+                    acc += (int)A(src[id]);
+                }
+                for (int x = 0; x < w; ++x, ++r, ++l)
+                {
+                    var rid = _gaussianEdgeExtend(end, r) + p;
+                    var lid = _gaussianEdgeExtend(end, l) + p;
+                    acc += (int)A(src[rid]) - (int)A(src[lid]);
+                    dst[i++] = ALPHA_BLEND(color, (byte)(acc * iarr));
+                }
+
+            });
+#else
             for (int y = 0; y < h; ++y)
             {
                 var p = y * stride;
@@ -258,6 +263,7 @@ namespace ThorVG
                     dst[i++] = ALPHA_BLEND(color, (byte)(acc * iarr));
                 }
             }
+#endif
         }
 
         private static void _shift(ref uint* dst, ref uint* src, int dstride, int sstride, int wmax, int hmax, in RenderRegion bbox, SwPoint offset, ref SwSize size)
@@ -323,12 +329,8 @@ namespace ThorVG
 
             for (var y = 0; y < (bbox.max.y - bbox.min.y); ++y)
             {
-                var s = src;
-                var d = dst;
-                for (int x = 0; x < (bbox.max.x - bbox.min.x); ++x, ++d, ++s)
-                {
-                    *d = *s + ALPHA_BLEND(*d, IA(*s));
-                }
+                // Keep the target's optimized row dispatch for the body pass.
+                rasterTranslucentPixel32(dst, src, (uint)(bbox.max.x - bbox.min.x), 255);
                 src += sstride;
                 dst += dstride;
             }
@@ -374,22 +376,12 @@ namespace ThorVG
 
         public static void effectDropShadowUpdate(RenderEffectDropShadow p, in Matrix transform)
         {
+            if (!p.Update(transform, out var offset)) return;
             if (p.rd == null) p.rd = new SwDropShadow();
             var rd = (SwDropShadow)p.rd;
-
-            var scale = (float)Math.Sqrt(transform.e11 * transform.e11 + transform.e12 * transform.e12);
-            rd.extends = _gaussianInit(rd, (float)Math.Pow(p.sigma * scale, 2), p.quality);
-
-            if (p.color[3] == 0)
-            {
-                p.valid = false;
-                return;
-            }
-
-            var radian = TvgMath.Deg2Rad(90.0f - p.angle) - TvgMath.Radian(transform);
-            rd.offset = new SwPoint((int)((p.distance * scale) * MathF.Cos(radian)), (int)(-1.0f * (p.distance * scale) * MathF.Sin(radian)));
-
-            p.valid = true;
+            var scaleSquared = TvgMath.MultiplyAdd(transform.e11, transform.e11, transform.e12 * transform.e12);
+            rd.extends = _gaussianInit(rd, p.sigma * p.sigma * scaleSquared, p.quality);
+            rd.offset = new SwPoint((int)offset.x, (int)offset.y);
         }
 
         public static bool effectDropShadow(SwCompositor cmp, SwSurface[] surfaces, RenderEffectDropShadow p, bool direct)

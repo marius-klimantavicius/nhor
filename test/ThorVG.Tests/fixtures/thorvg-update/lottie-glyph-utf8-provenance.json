@@ -1,0 +1,6 @@
+{
+  "origin": "Authored embedded UTF8 glyph/range regression, 2026-10-22",
+  "path": "test/ThorVG.Tests/fixtures/thorvg-update/lottie-glyph-utf8.lot",
+  "sha256": "7bae966f248535278f76c85e2c274c4ea413a47fc706f2e53ddda41a3413b149",
+  "behavior": "Three 2-/4-/1-byte glyphs and ramp text animator expose target UTF8 byte indices/length rather than managed UTF16 units."
+}

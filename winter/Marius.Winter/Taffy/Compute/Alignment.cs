@@ -10,6 +10,13 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public static class AlignmentUtils
     {
+        /// <summary>Clamp a scroll-container baseline to its border box, synthesizing its bottom edge if absent.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float? ChildFirstBaseline(float? firstBaseline, float height, Overflow overflowY) =>
+            overflowY.IsScrollContainer()
+                ? TaffySys.F32Max(TaffySys.F32Min(firstBaseline ?? height, height), 0f)
+                : firstBaseline;
+
         /// <summary>
         /// Resolves the safe/unsafe overflow-position fallback for a self-level alignment value.
         /// </summary>

@@ -73,7 +73,7 @@ namespace ThorVG.Tests
         public void Fileext_HasExtension() => Assert.Equal("txt", TvgStr.Fileext("file.txt"));
 
         [Fact]
-        public void Fileext_NoExtension() => Assert.Equal("", TvgStr.Fileext("file"));
+        public void Fileext_NoExtension() => Assert.Equal("file", TvgStr.Fileext("file"));
 
         [Fact]
         public void Fileext_DoubleExtension() => Assert.Equal("gz", TvgStr.Fileext("file.tar.gz"));

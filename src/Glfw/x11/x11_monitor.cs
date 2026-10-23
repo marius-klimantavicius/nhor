@@ -1,4 +1,4 @@
-// Ported from glfw/src/x11_monitor.c (GLFW 3.5)
+// Ported from glfw/src/x11_monitor.c (GLFW 3.6)
 //
 // Copyright (c) 2002-2006 Marcus Geelnard
 // Copyright (c) 2006-2019 Camilla Loewy <elmindreda@glfw.org>
@@ -56,7 +56,7 @@ public static partial class Glfw
         public uint vTotal;
         public nint name;          // char*
         public uint nameLength;
-        public uint modeFlags;     // XRRModeFlags
+        public nuint modeFlags;    // XRRModeFlags (unsigned long)
     }
 
     // XRRScreenResources
@@ -161,7 +161,7 @@ public static partial class Glfw
     private static int CalculateRefreshRate(in XRRModeInfo mi)
     {
         if (mi.hTotal != 0 && mi.vTotal != 0)
-            return (int)Math.Round((double)mi.dotClock / ((double)mi.hTotal * (double)mi.vTotal));
+            return (int)Math.Round((double)mi.dotClock / ((double)mi.hTotal * (double)mi.vTotal), MidpointRounding.AwayFromZero);
         else
             return 0;
     }
@@ -471,9 +471,9 @@ public static partial class Glfw
         }
     }
 
-    // Private helper for GetVideoMode (also used by SetVideoMode)
+    // Shared current-mode implementation for platform dispatch and SetVideoMode
     //
-    private static unsafe bool _glfwGetVideoModeX11(GlfwMonitor monitor, out GlfwVidMode mode)
+    internal static unsafe bool _glfwGetVideoModeX11(GlfwMonitor monitor, out GlfwVidMode mode)
     {
         var x11 = _glfw.X11!;
         mode = default;

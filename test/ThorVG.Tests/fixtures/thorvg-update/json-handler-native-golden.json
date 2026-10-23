@@ -1,0 +1,272 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "evidence": [
+    "json-handler-profile-owned-before.json",
+    "json-handler-incremental-current.json",
+    "arm-json-handler-incremental-current.json",
+    "json-handler-surrogate-errors-corrected.json",
+    "arm-json-handler-surrogate-errors-corrected.json"
+  ],
+  "cases": [
+    {
+      "name": "string-basic",
+      "mode": "copy",
+      "input": "{\"value\":\"hello\"}",
+      "expectedX86": "parse=1,value=68656c6c6f,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=68656c6c6f,invalid=0\n"
+    },
+    {
+      "name": "string-null-prefix",
+      "mode": "copy",
+      "input": "{\"value\":\"A\\u0000B\"}",
+      "expectedX86": "parse=1,value=41,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=41,invalid=0\n"
+    },
+    {
+      "name": "string-null-first",
+      "mode": "copy",
+      "input": "{\"value\":\"\\u0000B\"}",
+      "expectedX86": "parse=1,value=,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=,invalid=0\n"
+    },
+    {
+      "name": "string-unicode-null",
+      "mode": "copy",
+      "input": "{\"value\":\"\u00e9\ud83d\ude00\\u0000B\"}",
+      "expectedX86": "parse=1,value=c3a9f09f9880,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=c3a9f09f9880,invalid=0\n"
+    },
+    {
+      "name": "bool-true",
+      "mode": "bool",
+      "input": "{\"value\":true}",
+      "expectedX86": "parse=1,value=1,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=1,invalid=0\n"
+    },
+    {
+      "name": "bool-false",
+      "mode": "bool",
+      "input": "{\"value\":false}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "bool-integer-one",
+      "mode": "bool",
+      "input": "{\"value\":1}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "bool-integer-zero",
+      "mode": "bool",
+      "input": "{\"value\":0}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "bool-string",
+      "mode": "bool",
+      "input": "{\"value\":\"true\"}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "int-true",
+      "mode": "int",
+      "input": "{\"value\":true}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "int-false",
+      "mode": "int",
+      "input": "{\"value\":false}",
+      "expectedX86": "parse=1,value=0,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=0,invalid=0\n"
+    },
+    {
+      "name": "int-ordinary",
+      "mode": "int",
+      "input": "{\"value\":12345}",
+      "expectedX86": "parse=1,value=12345,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=12345,invalid=0\n"
+    },
+    {
+      "name": "int-negative",
+      "mode": "int",
+      "input": "{\"value\":-12345}",
+      "expectedX86": "parse=1,value=-12345,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=-12345,invalid=0\n"
+    },
+    {
+      "name": "float-ordinary",
+      "mode": "float",
+      "input": "{\"value\":0.1}",
+      "expectedX86": "parse=1,value=3dcccccd,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=3dcccccd,invalid=0\n"
+    },
+    {
+      "name": "float-int64",
+      "mode": "float",
+      "input": "{\"value\":9223372036854775807}",
+      "expectedX86": "parse=1,value=5f000000,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=5f000000,invalid=0\n"
+    },
+    {
+      "name": "float-uint64",
+      "mode": "float",
+      "input": "{\"value\":18446744073709551615}",
+      "expectedX86": "parse=1,value=5f800000,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=5f800000,invalid=0\n"
+    },
+    {
+      "name": "float-double-round",
+      "mode": "float",
+      "input": "{\"value\":1.0000000596046447753906250000000000000001}",
+      "expectedX86": "parse=1,value=3f800000,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=3f800000,invalid=0\n"
+    },
+    {
+      "name": "float-double-round-below",
+      "mode": "float",
+      "input": "{\"value\":1.0000001788139343261718749999999999999999}",
+      "expectedX86": "parse=1,value=3f800002,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=3f800002,invalid=0\n"
+    },
+    {
+      "name": "float-underflow",
+      "mode": "float",
+      "input": "{\"value\":1e-100}",
+      "expectedX86": "parse=1,value=00000000,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=00000000,invalid=0\n"
+    },
+    {
+      "name": "float-overflow",
+      "mode": "float",
+      "input": "{\"value\":1e100}",
+      "expectedX86": "parse=1,value=7f800000,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=7f800000,invalid=0\n"
+    },
+    {
+      "name": "float-double-overflow",
+      "mode": "float",
+      "input": "{\"value\":1e1000}",
+      "expectedX86": "parse=1,value=00000000,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=00000000,invalid=1\n"
+    },
+    {
+      "name": "trailing-comma",
+      "mode": "walk",
+      "input": "{\"value\":1,}",
+      "expectedX86": "parse=1,value=skipped,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=skipped,invalid=1\n"
+    },
+    {
+      "name": "line-comment",
+      "mode": "walk",
+      "input": "{\"value\":1//comment\n}",
+      "expectedX86": "parse=1,value=skipped,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=skipped,invalid=1\n"
+    },
+    {
+      "name": "block-comment",
+      "mode": "walk",
+      "input": "{/*comment*/\"value\":1}",
+      "expectedX86": "parse=1,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,invalid=1\n"
+    },
+    {
+      "name": "root-comment",
+      "mode": "walk",
+      "input": "{}/*comment*/",
+      "expectedX86": "parse=1,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,invalid=1\n"
+    },
+    {
+      "name": "two-roots",
+      "mode": "walk",
+      "input": "{}{}",
+      "expectedX86": "parse=1,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,invalid=1\n"
+    },
+    {
+      "name": "empty",
+      "mode": "walk",
+      "input": "",
+      "expectedX86": "parse=0,invalid=1\n",
+      "expectedLinuxArm64": "parse=0,invalid=1\n"
+    },
+    {
+      "name": "bad-key",
+      "mode": "walk",
+      "input": "{nope:1}",
+      "expectedX86": "parse=1,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,invalid=1\n"
+    },
+    {
+      "name": "nested64",
+      "mode": "walk",
+      "input": "{\"unknown\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"value\":1}",
+      "expectedX86": "parse=1,value=skipped,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=skipped,invalid=0\n"
+    },
+    {
+      "name": "nested512",
+      "mode": "walk",
+      "input": "{\"unknown\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"value\":1}",
+      "expectedX86": "parse=1,value=skipped,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=skipped,invalid=0\n"
+    },
+    {
+      "name": "key-null",
+      "mode": "int",
+      "input": "{\"value\\u0000suffix\":7}",
+      "expectedX86": "parse=1,value=7,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=7,invalid=0\n"
+    },
+    {
+      "name": "duplicate-key",
+      "mode": "int",
+      "input": "{\"value\":3,\"value\":7}",
+      "expectedX86": "parse=1,value=3,value=7,invalid=0\n",
+      "expectedLinuxArm64": "parse=1,value=3,value=7,invalid=0\n"
+    },
+    {
+      "name": "string-lone-high",
+      "mode": "copy",
+      "input": "{\"value\":\"\\ud800\"}",
+      "expectedX86": "parse=1,value=null,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=null,invalid=1\n"
+    },
+    {
+      "name": "string-lone-low",
+      "mode": "copy",
+      "input": "{\"value\":\"\\udc00\"}",
+      "expectedX86": "parse=1,value=null,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=null,invalid=1\n"
+    },
+    {
+      "name": "string-low-low",
+      "mode": "copy",
+      "input": "{\"value\":\"\\udc00\\udc01\"}",
+      "expectedX86": "parse=1,value=null,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=null,invalid=1\n"
+    },
+    {
+      "name": "string-bad-pair",
+      "mode": "copy",
+      "input": "{\"value\":\"\\ud800\\u0041\"}",
+      "expectedX86": "parse=1,value=null,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,value=null,invalid=1\n"
+    },
+    {
+      "name": "key-lone-low",
+      "mode": "copy",
+      "input": "{\"\\udc00\":\"text\"}",
+      "expectedX86": "parse=1,invalid=1\n",
+      "expectedLinuxArm64": "parse=1,invalid=1\n"
+    }
+  ],
+  "scope": "Defined wrapper operations only. Non-Int32 numeric tags passed to native GetInt violate its assertion contract and are not presented as defined comparisons. Five ASCII escaped-surrogate cases retain native parser-error states rather than throwing managed conversion exceptions."
+}

@@ -137,12 +137,13 @@ public static class TestHelpers
         if (lines.Length == 0)
             return new Size<float>(0f, 0f);
 
-        int minLineLength = 0;
-        int maxLineLength = 0;
+        nuint minLineLength = 0;
+        nuint maxLineLength = 0;
         foreach (var line in lines)
         {
-            if (line.Length > minLineLength) minLineLength = line.Length;
-            maxLineLength += line.Length;
+            nuint length = CountUtf8Bytes(line);
+            if (length > minLineLength) minLineLength = length;
+            maxLineLength += length;
         }
 
         float? knownInline = GetAbs(knownDimensions, inlineAxis);
@@ -158,14 +159,15 @@ public static class TestHelpers
         {
             float computed;
             if (availInline == AvailableSpace.MinContent)
-                computed = minLineLength * H_WIDTH;
+                computed = (float)minLineLength * H_WIDTH;
             else if (availInline == AvailableSpace.MaxContent)
-                computed = maxLineLength * H_WIDTH;
+                computed = (float)maxLineLength * H_WIDTH;
             else
-                computed = MathF.Min(availInline.Unwrap(), maxLineLength * H_WIDTH);
+                computed = TaffySys.F32Min(availInline.Unwrap(), (float)maxLineLength * H_WIDTH);
 
-            inlineSize = MathF.Max(computed, minLineLength * H_WIDTH);
+            inlineSize = computed;
         }
+        inlineSize = TaffySys.F32Max(inlineSize, (float)minLineLength * H_WIDTH);
 
         float blockSize;
         if (knownBlock.HasValue)
@@ -174,27 +176,47 @@ public static class TestHelpers
         }
         else
         {
-            int inlineLineLength = (int)MathF.Floor(inlineSize / H_WIDTH);
-            int lineCount = 1;
-            int currentLineLength = 0;
+            // Rust's float-to-usize cast saturates (including infinity and NaN).
+            nuint inlineLineLength = nuint.CreateSaturating(MathF.Floor(inlineSize / H_WIDTH));
+            nuint lineCount = 1;
+            nuint currentLineLength = 0;
             foreach (var line in lines)
             {
-                if (currentLineLength + line.Length > inlineLineLength)
+                nuint length = CountUtf8Bytes(line);
+                if (currentLineLength + length > inlineLineLength)
                 {
                     if (currentLineLength > 0) lineCount++;
-                    currentLineLength = line.Length;
+                    currentLineLength = length;
                 }
                 else
                 {
-                    currentLineLength += line.Length;
+                    currentLineLength += length;
                 }
             }
-            blockSize = lineCount * H_HEIGHT;
+            blockSize = (float)lineCount * H_HEIGHT;
         }
 
         return writingMode == WritingMode.Horizontal
             ? new Size<float>(inlineSize, blockSize)
             : new Size<float>(blockSize, inlineSize);
+    }
+
+    // Bound each Encoding call's int result, then accumulate native usize counts.
+    // A pair straddling a chunk must be encoded together, including normal UTF-8
+    // replacement behavior for genuinely unpaired UTF-16 surrogates.
+    internal const int Utf8CountChunkLength = 4096;
+    internal static nuint CountUtf8Bytes(ReadOnlySpan<char> text)
+    {
+        nuint count = 0;
+        while (!text.IsEmpty)
+        {
+            int length = Math.Min(text.Length, Utf8CountChunkLength);
+            if (length < text.Length && char.IsHighSurrogate(text[length - 1]) && char.IsLowSurrogate(text[length]))
+                length--;
+            count += (nuint)System.Text.Encoding.UTF8.GetByteCount(text[..length]);
+            text = text[length..];
+        }
+        return count;
     }
 
     private static float? GetAbs(Size<float?> size, AbsoluteAxis axis) =>

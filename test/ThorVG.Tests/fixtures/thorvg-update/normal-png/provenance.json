@@ -1,0 +1,1639 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "generator": "tooling/png-normal-adam7-corrected-thorvg_update_png_normal_oracle.py.txt",
+  "generatorLibrary": "Python zlib 1.3",
+  "cases": [
+    {
+      "file": "c0-b1-1x1-adam0-fixed.png",
+      "inputSha256": "3a87c68fd229970e966d2e715d61db0f3dc687143d0599c9b6e30cd0fb54e3fa",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-1x1-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b1-1x1-adam1-fixed.png",
+      "inputSha256": "4d220f13b666d9caf22d016c9ff69767151f2dca739ee7b2f3861f837eb32f49",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-1x1-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b1-8x8-adam0-dynamic.png",
+      "inputSha256": "cfa12c3234794f41adeedc59e9b7e41274864f3d226a7d56c99a5000b2d631e6",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "175dd740fe511d838673292bdeaf37241b2bfa821ef517248ac35a40eb994ad1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-8x8-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b1-8x8-adam1-dynamic.png",
+      "inputSha256": "a819ee8e14f0216dcf418915539a3c5eaf47dfd678ad073d2df79e7ff4ee3239",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "nativeRgbaSha256": "175dd740fe511d838673292bdeaf37241b2bfa821ef517248ac35a40eb994ad1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-8x8-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b1-17x19-adam0-dynamic.png",
+      "inputSha256": "a32f4b759f5d9970762f69e6edd9da93b63da4d0aeb743639fa3682dfe46b270",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "693222b07d1f1c7c157e7d2914ece8da16119ccb8def37548b30f22bb83ac732",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-17x19-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b1-17x19-adam1-dynamic.png",
+      "inputSha256": "9000cd71fc147e2a9e8a4877ede2233711fa5c8a526bb84e0d754b4c638d85df",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "693222b07d1f1c7c157e7d2914ece8da16119ccb8def37548b30f22bb83ac732",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b1-17x19-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-1x1-adam0-dynamic.png",
+      "inputSha256": "e737d9b70e6916d4b6eb0cc8b0664fc7ee416b1ba01dfcf1776a9165d8e1bcd9",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "6fc6f4524161c3ae0d316812d7088e3fcd372023edaea2d7821093be40ae1060",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-1x1-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-1x1-adam1-dynamic.png",
+      "inputSha256": "2594edc2c17168decb11ff31ed65dc5026b3c01e2f9584a9caf1d50f086d73fd",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "6fc6f4524161c3ae0d316812d7088e3fcd372023edaea2d7821093be40ae1060",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-1x1-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-8x8-adam0-stored.png",
+      "inputSha256": "c6d44bb66664de06f48123b3d4158d50a621ed9e10ac1cf485f144101db65b7e",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "aaca51b8ca7e694934ea514bc66a00d0f356b6411818e25f2e42ea9ccecaf97b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-8x8-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-8x8-adam1-stored.png",
+      "inputSha256": "386c19ea73709f0e77fd5ab0b4b6ba1979e4e1373a13b9a4388ca42dfd0029df",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "aaca51b8ca7e694934ea514bc66a00d0f356b6411818e25f2e42ea9ccecaf97b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-8x8-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-17x19-adam0-stored.png",
+      "inputSha256": "8bf50aa62d5e3102950da14ac4eafe4679ed16acbffd4ea3ed3bf5826d170bd7",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "1d19d534205ebecb69a733d2f9de2810e6b0d4b341f2aae289e26789dca3934b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-17x19-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b2-17x19-adam1-stored.png",
+      "inputSha256": "eb25483da7adcbcc8a5843ebb157e857dd2bb625a4465659bafc0f9ef83ee0c6",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "1d19d534205ebecb69a733d2f9de2810e6b0d4b341f2aae289e26789dca3934b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b2-17x19-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-1x1-adam0-stored.png",
+      "inputSha256": "14e815a191c975fcb6cd2a48f5d60f407381342cd9a33e57b8b75bbb4dc86632",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "7b2415212e80a944ac9159e8b98c2c4db1cbbf9e4d24098fe00c3876e8ceb9c4",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-1x1-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-1x1-adam1-stored.png",
+      "inputSha256": "0592286c4db7925f2029f3be8e10058f262d74548a051e34e6c75c7ae70879f4",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "7b2415212e80a944ac9159e8b98c2c4db1cbbf9e4d24098fe00c3876e8ceb9c4",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-1x1-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-8x8-adam0-fixed.png",
+      "inputSha256": "95719de9d5cb95826ea556a7250bd9c67a7d9444be5c7feff765e9e9b5d9fc43",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "9e370849a8f9fe0d98c5cc7e9746eaaeb3045edaee35829c38034aebe05c1588",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-8x8-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-8x8-adam1-fixed.png",
+      "inputSha256": "5c95086708aa26ddd1cafa9b0bf1fa44ab65b6562a92879d6995615dbf74519c",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "9e370849a8f9fe0d98c5cc7e9746eaaeb3045edaee35829c38034aebe05c1588",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-8x8-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-17x19-adam0-fixed.png",
+      "inputSha256": "e7b56ed7d4d35064433fe7bb83d47b5e0c6b7c12346a58c909b38c23eb2be8ed",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "4db7245669ca377258c4cabf98615d1bcd1f04957fb9d88dea6664be6fd8dbe2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-17x19-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b4-17x19-adam1-fixed.png",
+      "inputSha256": "78a1e3ca39c00fe7a7fc5c5e614eb5d8f41249f72c6eb72589127cc649c38a11",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "4db7245669ca377258c4cabf98615d1bcd1f04957fb9d88dea6664be6fd8dbe2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b4-17x19-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-1x1-adam0-fixed.png",
+      "inputSha256": "58427307c404805a5de079bd0186fe8552f48077479c9dd980bbb0540ef67326",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "df82916e60d9056b3c0d0fa02a96ed5d923b27396e85ef09b708ed8b72e65265",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-1x1-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-1x1-adam1-fixed.png",
+      "inputSha256": "0500103e86942f0df1938fb04664317793ddecec9514a8858052c65353a15d8e",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "df82916e60d9056b3c0d0fa02a96ed5d923b27396e85ef09b708ed8b72e65265",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-1x1-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-8x8-adam0-dynamic.png",
+      "inputSha256": "8b2fc77f2a19fa6c08d8f8077db6bb295e43270c9330ba079a5f460705d3a7f1",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "6a4e661dcf07d8e8d3f5529b7cbf0cf000d6d97f2fb28f3942ea0fee1dbf4871",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-8x8-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-8x8-adam1-dynamic.png",
+      "inputSha256": "08a132193c6d17d3d073b5e64f210a7402dd032c2b77fc3689aa73db38c9dec1",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "6a4e661dcf07d8e8d3f5529b7cbf0cf000d6d97f2fb28f3942ea0fee1dbf4871",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-8x8-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-17x19-adam0-dynamic.png",
+      "inputSha256": "293806bf2a6d7e5c1a00e0d64f6c0d379d3825b5e6a485948cd3e8f1574d0420",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "6f64e348be064b4d4dffa6ad1e0951daeabafee10d7f8db164857a0010e8f4f0",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-17x19-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b8-17x19-adam1-dynamic.png",
+      "inputSha256": "4ad04d1c361737c605142e80da3b9bc219daaab47af508c6c3eaf9dda2235569",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "6f64e348be064b4d4dffa6ad1e0951daeabafee10d7f8db164857a0010e8f4f0",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b8-17x19-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-1x1-adam0-dynamic.png",
+      "inputSha256": "38fe399cba4691c2892a51af913dc269ea69ee823385659cf4ac660a8ea694ab",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "c7e505bb19c370cb975f460a0aac0cd48f24eea72953cea755490e506857b3c8",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-1x1-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-1x1-adam1-dynamic.png",
+      "inputSha256": "39ca4823436fe5dedd067f3da2afff2a01668d36c8e2d17711a54a81bddce955",
+      "width": 1,
+      "height": 1,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "c7e505bb19c370cb975f460a0aac0cd48f24eea72953cea755490e506857b3c8",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-1x1-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-8x8-adam0-stored.png",
+      "inputSha256": "ca5094deed8de41d2e4d6925a598ed0850e0901a16c3b99ccb811543f0b7be6f",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "40149c5e4983702d0ca24d70647b3cdc0a61892746e3a00a630e333682a33573",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-8x8-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-8x8-adam1-stored.png",
+      "inputSha256": "defcf1eb28d3a6f4f22ffa7f46b5f104aa0eec49583dc32392e7a3fb464571ac",
+      "width": 8,
+      "height": 8,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "nativeRgbaSha256": "40149c5e4983702d0ca24d70647b3cdc0a61892746e3a00a630e333682a33573",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-8x8-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-17x19-adam0-stored.png",
+      "inputSha256": "962ba5b2968f14475104338aad113ef47732e24c3c6e3500b1fa3baefa7dbc97",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "31a388e23a79f3b4fafc8d864e9e1e1afd1111fd157c9d658650c96ffc51c3b1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-17x19-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c0-b16-17x19-adam1-stored.png",
+      "inputSha256": "e4a7f1d1862c89c56626ce0b8d43b76e393e4786930b395652fe20b5999423dc",
+      "width": 17,
+      "height": 19,
+      "color": 0,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "31a388e23a79f3b4fafc8d864e9e1e1afd1111fd157c9d658650c96ffc51c3b1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c0-b16-17x19-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-1x1-adam0-stored.png",
+      "inputSha256": "ceef09ec18ff750308f8f48a5aa52233e9b450c76159c18a873314bdb64b9f4c",
+      "width": 1,
+      "height": 1,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "9efe85547e9cac9d2718cbbd231ea76b697683ce6e2343d2c1735b82769ac9c1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-1x1-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-1x1-adam1-stored.png",
+      "inputSha256": "015a859151aa24ef0d0fae3997e92b7ec2c4880b05ac0ef56040238dbd40603e",
+      "width": 1,
+      "height": 1,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "9efe85547e9cac9d2718cbbd231ea76b697683ce6e2343d2c1735b82769ac9c1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-1x1-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-8x8-adam0-fixed.png",
+      "inputSha256": "1a4b1e77ab50ea1201756e5ab30d21e0adcefd6680f6bf196be86fd4c544b05e",
+      "width": 8,
+      "height": 8,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "4a588664594f5c6613a94b5b44e28afec9ff1ccd6be8352a5bf5fcde60415d2f",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-8x8-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-8x8-adam1-fixed.png",
+      "inputSha256": "7432dc04dcb509dec6e37ccd0d42425c14de2fcce420f20c186079da501971a4",
+      "width": 8,
+      "height": 8,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "nativeRgbaSha256": "4a588664594f5c6613a94b5b44e28afec9ff1ccd6be8352a5bf5fcde60415d2f",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-8x8-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-17x19-adam0-fixed.png",
+      "inputSha256": "1b74af8c3e6c7a78cc92ba3b328320bfd1dbd6c0bcdf03597fc52cd24c8be419",
+      "width": 17,
+      "height": 19,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "c3fcbe43d86bb3a68800bd2f2ea1ef520221d1e3ac6dad375a42cfee669e48bb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-17x19-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b8-17x19-adam1-fixed.png",
+      "inputSha256": "e1ad1f4630b3c9cf11f204989a52dc42608747ffca8a27f7b81a5c0cd987a3c5",
+      "width": 17,
+      "height": 19,
+      "color": 2,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "c3fcbe43d86bb3a68800bd2f2ea1ef520221d1e3ac6dad375a42cfee669e48bb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b8-17x19-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-1x1-adam0-fixed.png",
+      "inputSha256": "224e7806c9f0a9b4455ffaaa8d45e04df7b9f02c62c4467c9f98484a329181b3",
+      "width": 1,
+      "height": 1,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "033b5fad60040e21a049251c2818f8ca199145735a9c3caa1857bf0e8060d1c2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-1x1-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-1x1-adam1-fixed.png",
+      "inputSha256": "0bb3b2c61ec423640b9c1e13db926a3d9317b4675f764aa16fddc961dccda582",
+      "width": 1,
+      "height": 1,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "033b5fad60040e21a049251c2818f8ca199145735a9c3caa1857bf0e8060d1c2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-1x1-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-8x8-adam0-dynamic.png",
+      "inputSha256": "96d6ac5fca21cb0627c27773ab49d793f714a96c6bc910bd7874448ac071ecc2",
+      "width": 8,
+      "height": 8,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "7c71e492c482e2fcf339512da75050bb1bfb59672f5e998f5c631d4830e33b95",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-8x8-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-8x8-adam1-dynamic.png",
+      "inputSha256": "fc7424dd741f70122d0d113f30282f2685d7ca3a2e15136801fed052dfb27ea5",
+      "width": 8,
+      "height": 8,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "7c71e492c482e2fcf339512da75050bb1bfb59672f5e998f5c631d4830e33b95",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-8x8-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-17x19-adam0-dynamic.png",
+      "inputSha256": "9c7c8ce03ba742e99b4abcc5096bc36c1489cd1c9a2939b5b6884b9db9f37eed",
+      "width": 17,
+      "height": 19,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "1b7cbf8f266ae191c7e10f77ed19b346cf5b812f7532e8a10cc6a7a280769be2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-17x19-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c2-b16-17x19-adam1-dynamic.png",
+      "inputSha256": "8569fc879ce61cdb785ef06f53f08a66801148ad8a7a8e9c65e79d012cc81d87",
+      "width": 17,
+      "height": 19,
+      "color": 2,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "1b7cbf8f266ae191c7e10f77ed19b346cf5b812f7532e8a10cc6a7a280769be2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c2-b16-17x19-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-1x1-adam0-dynamic.png",
+      "inputSha256": "5baca13778e6bd272f54bfccc453d6e88e6bb3ade00b36aec08182725f3e08d0",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "cbf80afd6ecf11fda433290017d009b387bb8b55c662eebe670643a7d4cef477",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-1x1-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-1x1-adam1-dynamic.png",
+      "inputSha256": "3da4d7a46a1e272b6321f78181ecd0e31cda8267a6d4360e72959680bc3e5515",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "cbf80afd6ecf11fda433290017d009b387bb8b55c662eebe670643a7d4cef477",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-1x1-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-8x8-adam0-stored.png",
+      "inputSha256": "cecb74491f23949ecfd0e8d70642ba97802b8560cba605f38dae941577bbfdf3",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "322d90bbae1df5f1a9f0d8dbb2bb7940b1f3adbde5348ce852e89732d16d470e",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-8x8-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-8x8-adam1-stored.png",
+      "inputSha256": "09f995c8dac2aacba30e0894b826f9a1ecb2199b9221a3d130669975ac32f1d3",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "322d90bbae1df5f1a9f0d8dbb2bb7940b1f3adbde5348ce852e89732d16d470e",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-8x8-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-17x19-adam0-stored.png",
+      "inputSha256": "dba73eb55afff6ca197db723ab31fdc06cb0d56098ad0ad36064be163c45879f",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "a1120e3c0c7be1c6be40df62ed027510d014aa6ed7eaec4f9063081e29f06733",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-17x19-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b1-17x19-adam1-stored.png",
+      "inputSha256": "61c813e9536e8f3cd58fa613cefef57d9253bf2b1f7e59a14eed9e977d941ad9",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 1,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "a1120e3c0c7be1c6be40df62ed027510d014aa6ed7eaec4f9063081e29f06733",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b1-17x19-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-1x1-adam0-stored.png",
+      "inputSha256": "e83007f2718c177770267ed4167f2f30625a8d5b5c2e48c4973acfc4af69324e",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "0be81260a1f13d22ae608ea2d4df996760b4531973f74c051c43768bcf9338d1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-1x1-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-1x1-adam1-stored.png",
+      "inputSha256": "d717b09d6885fe261669a17bb023cd089fb51d2b8c8c80d9c994e3aaf07e09ca",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "0be81260a1f13d22ae608ea2d4df996760b4531973f74c051c43768bcf9338d1",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-1x1-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-8x8-adam0-fixed.png",
+      "inputSha256": "d99a6a4b9e68e666199ea1c6c9c46f09e608b56bca16bd0c0f03d83b1fc8adb5",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "3bae037a60ff2cf89baa31e7b7fac899939c275b9e01dc1235091d56084e194f",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-8x8-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-8x8-adam1-fixed.png",
+      "inputSha256": "18f6cf9982233a87c524e000db7ff58960f5456d08ea719cb7c7e48dbb6e7485",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "3bae037a60ff2cf89baa31e7b7fac899939c275b9e01dc1235091d56084e194f",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-8x8-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-17x19-adam0-fixed.png",
+      "inputSha256": "219a5940c04b40bb498c5e4d73d154eb613bb19f2a317fe3227fde02498558aa",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "794a686942037473cf547696b3bf4e52a9afd4244a37845df49def7e1c132775",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-17x19-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b2-17x19-adam1-fixed.png",
+      "inputSha256": "b2d7df23f54ffd572db7c5888732b2078ba55a219e693a512e1fe964c45cb11d",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 2,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "794a686942037473cf547696b3bf4e52a9afd4244a37845df49def7e1c132775",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b2-17x19-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-1x1-adam0-fixed.png",
+      "inputSha256": "fdac5dceb81f794542013d9765e7f9f6baef6e01edfb9074de658b9e1ed2b32e",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "322b6a4f8cba35f557e7594060a30e46e3aa3540c56bc279703683c22f90ad8c",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-1x1-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-1x1-adam1-fixed.png",
+      "inputSha256": "203be1e57120091a4622a5879747120ea51d7e17283334e619772b342340975f",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "322b6a4f8cba35f557e7594060a30e46e3aa3540c56bc279703683c22f90ad8c",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-1x1-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-8x8-adam0-dynamic.png",
+      "inputSha256": "18972dafac5246f81643ce820b8c83da2a06fb60597e8adbe52b60c7324907f9",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "1bb37b890d53ad75a7d3960d16749fea640c3f72a74057df5007080c55f37f61",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-8x8-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-8x8-adam1-dynamic.png",
+      "inputSha256": "3af2bfe396f85612db2d42ffece09442380752c3ed96e06ebd92c095a6d4f40a",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "nativeRgbaSha256": "1bb37b890d53ad75a7d3960d16749fea640c3f72a74057df5007080c55f37f61",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-8x8-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-17x19-adam0-dynamic.png",
+      "inputSha256": "dbc5a644dbcd53de7ac5132cc9f206ed5cb60ac81ea3b0356bfbf5b81424bbe3",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "e7df8de651b8bac0a8675453c5bc03c5b1cfafcee2388ebcea175fd8b5ada5eb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-17x19-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b4-17x19-adam1-dynamic.png",
+      "inputSha256": "f8324ab5af0c7e06b7b87c315a529615f284ee3751e5d494953b79f3b44baa36",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 4,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "e7df8de651b8bac0a8675453c5bc03c5b1cfafcee2388ebcea175fd8b5ada5eb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b4-17x19-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-1x1-adam0-dynamic.png",
+      "inputSha256": "8165c276fe74fdbfa95e798085f436ec739c8a6deaaf2ca23b53262b962210dc",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "59ead54aa074fe936b01c65b8090b6d137bc32fce3485caffe1ee98b2251867a",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-1x1-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-1x1-adam1-dynamic.png",
+      "inputSha256": "246167128e60f75663ccefef6f4d831714b0d33ec2fec9fa5823adf33b4bbf8c",
+      "width": 1,
+      "height": 1,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0
+      ],
+      "nativeRgbaSha256": "59ead54aa074fe936b01c65b8090b6d137bc32fce3485caffe1ee98b2251867a",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-1x1-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-8x8-adam0-stored.png",
+      "inputSha256": "ffa33e001d72090f3a3f378e2861368666c9df4add5b234cfdaa6baf090b1868",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "bc4c4c7656a899de0c988ab7da2f6e8326a80963d4e94bd5c03b555deac44061",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-8x8-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-8x8-adam1-stored.png",
+      "inputSha256": "8328a5adf9c87711d3fc8c9cefb95eb9a3a77a77efdf1cc702c5e22298601c01",
+      "width": 8,
+      "height": 8,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "nativeRgbaSha256": "bc4c4c7656a899de0c988ab7da2f6e8326a80963d4e94bd5c03b555deac44061",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-8x8-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-17x19-adam0-stored.png",
+      "inputSha256": "168ea90dff33c746cf47386b59b481136309ff9977cf1af2bb5831d98c6b2c40",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "0d60365e7cb6d39227f72905269766698a2d58c8e891e7040f6f84c90e346b5c",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-17x19-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c3-b8-17x19-adam1-stored.png",
+      "inputSha256": "47a9f818b06aa02de30537a75a3bbaac084461231a796f2d3fa575b744a1858d",
+      "width": 17,
+      "height": 19,
+      "color": 3,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "0d60365e7cb6d39227f72905269766698a2d58c8e891e7040f6f84c90e346b5c",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c3-b8-17x19-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-1x1-adam0-stored.png",
+      "inputSha256": "ff600c9941c9dca276f1e6ebd4f9c2882a21d6726a5d4cb4a10dd03093858f56",
+      "width": 1,
+      "height": 1,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "c144460efad4c1a77629f55c971df5a65c3d0cc03218d6bcd118b471834403e2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-1x1-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-1x1-adam1-stored.png",
+      "inputSha256": "6efc09722a988567edd7654fcdfb5c06580d3f566168e93b754e9699e98e0927",
+      "width": 1,
+      "height": 1,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        1
+      ],
+      "nativeRgbaSha256": "c144460efad4c1a77629f55c971df5a65c3d0cc03218d6bcd118b471834403e2",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-1x1-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-8x8-adam0-fixed.png",
+      "inputSha256": "297ea3c28cecd47e865ca7a7e142c28938b8c23e25bc0ef7b48681126c898332",
+      "width": 8,
+      "height": 8,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "052b998fd0188069ae830fdba6c688a62e72f8912dec35a7bfc6782ed6f62ea0",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-8x8-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-8x8-adam1-fixed.png",
+      "inputSha256": "a7c3d8a0a41a68692120f9b5527463a168febf6b4a5aaa981cfc16e5b76cc52b",
+      "width": 8,
+      "height": 8,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "052b998fd0188069ae830fdba6c688a62e72f8912dec35a7bfc6782ed6f62ea0",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-8x8-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-17x19-adam0-fixed.png",
+      "inputSha256": "37d98bd7645aea576762cc5c2009dfbe32d4bd0c353866cbfb912e4bf08139b0",
+      "width": 17,
+      "height": 19,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "7fa116f99247bb7c0d3b944c161ce1b10f8feb39fe280d9cf6d439d038dbf5cb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-17x19-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b8-17x19-adam1-fixed.png",
+      "inputSha256": "e9e41321963f460ad619f5e03d6a2fa433128a735c54d9ef9508fbc0c480b53b",
+      "width": 17,
+      "height": 19,
+      "color": 4,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "7fa116f99247bb7c0d3b944c161ce1b10f8feb39fe280d9cf6d439d038dbf5cb",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b8-17x19-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-1x1-adam0-fixed.png",
+      "inputSha256": "ccf1411cc970facdcb35d7d02e8cf09b0f50a648a4f2760b94b53e0165adbb93",
+      "width": 1,
+      "height": 1,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "1172f40428fed1478122dcda8f7ad73c160d30572fe8bd4522528a9a0415edf6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-1x1-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-1x1-adam1-fixed.png",
+      "inputSha256": "9f5fa9e62595db5fa7fa6f2f9c2800e150b3b41e481751e9230c693cd6bb3961",
+      "width": 1,
+      "height": 1,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        2
+      ],
+      "nativeRgbaSha256": "1172f40428fed1478122dcda8f7ad73c160d30572fe8bd4522528a9a0415edf6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-1x1-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-8x8-adam0-dynamic.png",
+      "inputSha256": "c9aa6200bbed9483a1a51d2564da835af8281d7fc4a4535fea38ee468b2db753",
+      "width": 8,
+      "height": 8,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "ad1354248772a3217a8122d36c65d64320c651ba24bd7f2df84a9d73adc18328",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-8x8-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-8x8-adam1-dynamic.png",
+      "inputSha256": "dfa5fd5a280e905fadc60bda6a9e80197df7b37c704d5dcd1ca3e5a5ee6cafbf",
+      "width": 8,
+      "height": 8,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "ad1354248772a3217a8122d36c65d64320c651ba24bd7f2df84a9d73adc18328",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-8x8-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-17x19-adam0-dynamic.png",
+      "inputSha256": "523a3184b88afe15e789fb190721569489bbe035f3c085b2bf7edb299eedb33d",
+      "width": 17,
+      "height": 19,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "e24c1e621b8d5408c0072c2096d8fb47a440d048187ed19ed007e9314bad32d4",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-17x19-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c4-b16-17x19-adam1-dynamic.png",
+      "inputSha256": "cdb5f999a16bbed7c6503d75657221be251df06b9df73151836b64edd0ec220f",
+      "width": 17,
+      "height": 19,
+      "color": 4,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "e24c1e621b8d5408c0072c2096d8fb47a440d048187ed19ed007e9314bad32d4",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c4-b16-17x19-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-1x1-adam0-dynamic.png",
+      "inputSha256": "0797597df1cce9c700139ea5307146329bc2b5bef97a2d5c898126d30807d27f",
+      "width": 1,
+      "height": 1,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "dynamic",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "1e479a9ceca927f62457a543e6bdc28707a78bcf065f318ebbdfb747cba250de",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-1x1-adam0-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-1x1-adam1-dynamic.png",
+      "inputSha256": "a776bc3fcfd597b4c79299bb20410cc7fe2bf0c1b94433e671053064e6ac975e",
+      "width": 1,
+      "height": 1,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "dynamic",
+      "filters": [
+        3
+      ],
+      "nativeRgbaSha256": "1e479a9ceca927f62457a543e6bdc28707a78bcf065f318ebbdfb747cba250de",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-1x1-adam1-dynamic.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-8x8-adam0-stored.png",
+      "inputSha256": "7e68fa856b79cee6fba5670f2b874ecc56b1bc22e55ba6fdb7876488a4762e03",
+      "width": 8,
+      "height": 8,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "bd6a2ad1c6ffd5715c7c80f2ee5805dce85402c79bcbfa9cb36e8976af763ad6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-8x8-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-8x8-adam1-stored.png",
+      "inputSha256": "95bb27736195e34be3887cde5c814b1dec53c8a2c435e3fd99439018d9075634",
+      "width": 8,
+      "height": 8,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "bd6a2ad1c6ffd5715c7c80f2ee5805dce85402c79bcbfa9cb36e8976af763ad6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-8x8-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-17x19-adam0-stored.png",
+      "inputSha256": "c68e880f19f57762a64f8ee3de9cfecf62219cfabc268d489eb9083d0c05bd24",
+      "width": 17,
+      "height": 19,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "c02b00d4544d2fbbcf4b4a24eb0f088fb24885130d419506eb90272a67478ba9",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-17x19-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b8-17x19-adam1-stored.png",
+      "inputSha256": "26a873c19d9730758d1d8271e2af15491aad0d9d03cea76ed01a00915d0cf831",
+      "width": 17,
+      "height": 19,
+      "color": 6,
+      "bitdepth": 8,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "c02b00d4544d2fbbcf4b4a24eb0f088fb24885130d419506eb90272a67478ba9",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b8-17x19-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-1x1-adam0-stored.png",
+      "inputSha256": "ed2cafdfe4733b0aec68d5da72cd6653ebfa5342df02e5bd4c974f51aacdee1f",
+      "width": 1,
+      "height": 1,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "stored",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "dfd91efc9fdd1a07acf62b875fee02c2057652d19ee891254edc1c3880ce94a6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-1x1-adam0-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-1x1-adam1-stored.png",
+      "inputSha256": "c4ad48c374320a9cae3734ba4a2125d62ffcfb4499d3b6c6bd47451fbab4635a",
+      "width": 1,
+      "height": 1,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "stored",
+      "filters": [
+        4
+      ],
+      "nativeRgbaSha256": "dfd91efc9fdd1a07acf62b875fee02c2057652d19ee891254edc1c3880ce94a6",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-1x1-adam1-stored.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-8x8-adam0-fixed.png",
+      "inputSha256": "d4267042a1f020e151a43a3e26139d1583a346faa0275cd377ff264a8daac898",
+      "width": 8,
+      "height": 8,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "38d666ba360b2678e60c53bf220705be536082941d54ae4078ca8c556a93173b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-8x8-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-8x8-adam1-fixed.png",
+      "inputSha256": "4ece7704915e6015da7f872c1ac7a3061c701d24450715c33499011b6b11a68f",
+      "width": 8,
+      "height": 8,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "nativeRgbaSha256": "38d666ba360b2678e60c53bf220705be536082941d54ae4078ca8c556a93173b",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-8x8-adam1-fixed.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-17x19-adam0-fixed.png",
+      "inputSha256": "31adcf4f9d15b408035b1b8c47b2bca0234bf089db802f1252af73f1bd4a7d9e",
+      "width": 17,
+      "height": 19,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 0,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "de376d734c9e207e4a2f68b198a8e49e2f7f70a4676ca6bfaaac8b388d443083",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-17x19-adam0-fixed.png-native.rgba"
+    },
+    {
+      "file": "c6-b16-17x19-adam1-fixed.png",
+      "inputSha256": "4e7a30c2e10f68d27f476e80c97b1bbcc237194a18bd7363957b6f93c25c6132",
+      "width": 17,
+      "height": 19,
+      "color": 6,
+      "bitdepth": 16,
+      "interlace": 1,
+      "compression": "fixed",
+      "filters": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "nativeRgbaSha256": "de376d734c9e207e4a2f68b198a8e49e2f7f70a4676ca6bfaaac8b388d443083",
+      "nativeOutput": "tmp/thorvg-png-normal/png-normal-adam7-corrected/c6-b16-17x19-adam1-fixed.png-native.rgba"
+    }
+  ],
+  "bitReaderExpected": [
+    1,
+    2,
+    96,
+    113,
+    449,
+    46226,
+    97387,
+    2877347,
+    41703992,
+    959490087,
+    3,
+    0
+  ],
+  "iccCube": {
+    "x86": [
+      {
+        "file": "icc-linear.png",
+        "inputSha256": "316ba8ac6da48fe38510b27f76d6c2a00e8050480c9ac7a9a9e10ef5a69f4993",
+        "nativeRgbaSha256": "3f53f07be7db39e3e9da21ae9af59a099f9a9e3200fa5a63014117b0d62e3e90",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/png-icc-normal-corrected-icc-linear.png-native.rgba"
+      },
+      {
+        "file": "icc-gamma.png",
+        "inputSha256": "04cbee969c89a3bea4e293ab7c29f3eba3360bf4a3842f0b288b9ae1aa032801",
+        "nativeRgbaSha256": "2a96d64854246eda1e9a6057155b658b59851d29e0c3e6b4b1669525e6a5a023",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/png-icc-normal-corrected-icc-gamma.png-native.rgba"
+      },
+      {
+        "file": "icc-lut.png",
+        "inputSha256": "e5e59a06503a426b4e7e6b0fe6ebd2394f6c9903ac0c1a4bdcbb3b3d5bc0c36e",
+        "nativeRgbaSha256": "83f911ece921b3a4d7fefc517b8637f5c11e1de0be31fa76da294e728bc8ab0e",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/png-icc-normal-corrected-icc-lut.png-native.rgba"
+      }
+    ],
+    "arm64": [
+      {
+        "file": "icc-linear.png",
+        "inputSha256": "316ba8ac6da48fe38510b27f76d6c2a00e8050480c9ac7a9a9e10ef5a69f4993",
+        "nativeRgbaSha256": "3f53f07be7db39e3e9da21ae9af59a099f9a9e3200fa5a63014117b0d62e3e90",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/arm-png-icc-normal-corrected-icc-linear.png-native.rgba"
+      },
+      {
+        "file": "icc-gamma.png",
+        "inputSha256": "04cbee969c89a3bea4e293ab7c29f3eba3360bf4a3842f0b288b9ae1aa032801",
+        "nativeRgbaSha256": "2a96d64854246eda1e9a6057155b658b59851d29e0c3e6b4b1669525e6a5a023",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/arm-png-icc-normal-corrected-icc-gamma.png-native.rgba"
+      },
+      {
+        "file": "icc-lut.png",
+        "inputSha256": "e5e59a06503a426b4e7e6b0fe6ebd2394f6c9903ac0c1a4bdcbb3b3d5bc0c36e",
+        "nativeRgbaSha256": "0fa4e9fb8cabac2a8eb9804c9ff517e9f48140e3acbe9ca758defb71a77a45b9",
+        "nativeOutput": "tmp/thorvg-png-icc-normal/arm-png-icc-normal-corrected-icc-lut.png-native.rgba"
+      }
+    ]
+  },
+  "qualification": "All90 inputs are ordinary valid PNGs. Native complete pixels independently match generated unfiltered pixels and ARM. Native raw expected bytes are retained at the paths listed. Three existing valid ICC profile cubes have actual architecture-specific native outputs; no x86/ARM equivalence is assumed. No corruption or malformed-byte fixture is added."
+}

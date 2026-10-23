@@ -1,0 +1,138 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "nativeEvidence": "lottie-raw-capture-expanded-corrected.json",
+  "cases": [
+    {
+      "name": "type-first",
+      "mode": "object",
+      "input": "{\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=0,invalid=0\n"
+    },
+    {
+      "name": "type-later",
+      "mode": "object",
+      "input": "{\"nm\":\"named\",\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=210721609066,invalid=0\n"
+    },
+    {
+      "name": "name-closing-brace",
+      "mode": "object",
+      "input": "{\"nm\":\"before}\",\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=0,invalid=0\n"
+    },
+    {
+      "name": "name-opening-brace",
+      "mode": "object",
+      "input": "{\"nm\":\"before{\",\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=0,invalid=0\n"
+    },
+    {
+      "name": "name-balanced-braces",
+      "mode": "object",
+      "input": "{\"nm\":\"before{}\",\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=7572195948089744,invalid=0\n"
+    },
+    {
+      "name": "escaped-type-key",
+      "mode": "object",
+      "input": "{\"nm\":\"named\",\"t\\u0079\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=0,invalid=0\n"
+    },
+    {
+      "name": "escaped-type-later",
+      "mode": "object",
+      "input": "{\"nm\":\"named\",\"ty\":\"r\\u0063\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=0,invalid=0\n"
+    },
+    {
+      "name": "escaped-type-first",
+      "mode": "object",
+      "input": "{\"ty\":\"r\\u0063\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=0,invalid=0\n"
+    },
+    {
+      "name": "nested-object-type",
+      "mode": "object",
+      "input": "{\"unknown\":[{\"ty\":\"el\"}],\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=0,invalid=0\n"
+    },
+    {
+      "name": "array-false-key",
+      "mode": "object",
+      "input": "{\"unknown\":[\"ty\",\"el\"],\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=0,invalid=0\n"
+    },
+    {
+      "name": "duplicate-type",
+      "mode": "object",
+      "input": "{\"nm\":\"named\",\"ty\":\"el\",\"ty\":\"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=9,id=210721609066,invalid=0\n"
+    },
+    {
+      "name": "type-whitespace",
+      "mode": "object",
+      "input": "{\"nm\":\"named\",\"ty\" \t\r\n : \t\r\n \"rc\",\"p\":{\"k\":[32,32]},\"s\":{\"k\":[20,24]},\"r\":{\"k\":0}}",
+      "expected": "count=1,type=8,id=210721609066,invalid=0\n"
+    },
+    {
+      "name": "slots-ordinary",
+      "mode": "slots",
+      "input": "{\"slots\":{\"id\":{\"p\":{\"k\":12}}},\"tail\":0}",
+      "expected": "slots=7b226964223a7b2270223a7b226b223a31327d7d7d,invalid=0\n"
+    },
+    {
+      "name": "slots-space",
+      "mode": "slots",
+      "input": "{\"slots\":{ \"id\" : {\"p\":{\"k\":12}} },\"tail\":0}",
+      "expected": "slots=7b2022696422203a207b2270223a7b226b223a31327d7d207d,invalid=0\n"
+    },
+    {
+      "name": "slots-string-close",
+      "mode": "slots",
+      "input": "{\"slots\":{\"id\":{\"p\":{\"k\":\"}\"}}},\"tail\":0}",
+      "expected": "slots=7b226964223a7b2270223a7b226b223a227d227d7d,invalid=0\n"
+    },
+    {
+      "name": "slots-string-open",
+      "mode": "slots",
+      "input": "{\"slots\":{\"id\":{\"p\":{\"k\":\"{\"}}},\"tail\":0}",
+      "expected": "slots=7b226964223a7b2270223a7b226b223a227b227d7d7d2c227461696c223a307d,invalid=0\n"
+    },
+    {
+      "name": "slots-string-balanced",
+      "mode": "slots",
+      "input": "{\"slots\":{\"id\":{\"p\":{\"k\":\"{}\"}}}},\"tail\":0}",
+      "expected": "slots=7b226964223a7b2270223a7b226b223a227b7d227d7d7d,invalid=1\n"
+    },
+    {
+      "name": "slots-escaped-close",
+      "mode": "slots",
+      "input": "{\"slots\":{\"id\":{\"p\":{\"k\":\"\\u007d\"}}},\"tail\":0}",
+      "expected": "slots=7b226964223a7b2270223a7b226b223a225c7530303764227d7d7d,invalid=0\n"
+    },
+    {
+      "name": "slots-empty",
+      "mode": "slots",
+      "input": "{\"slots\":{},\"tail\":0}",
+      "expected": "slots=7b7d2c227461696c223a307d,invalid=0\n"
+    },
+    {
+      "name": "slots-empty-last",
+      "mode": "slots",
+      "input": "{\"slots\":{}}",
+      "expected": "slots=7b7d7d,invalid=0\n"
+    },
+    {
+      "name": "slots-null",
+      "mode": "slots",
+      "input": "{\"slots\":null}",
+      "expected": "slots=null,invalid=0\n"
+    },
+    {
+      "name": "slots-empty-array",
+      "mode": "slots",
+      "input": "{\"slots\":[],\"tail\":0}",
+      "expected": "slots=7b5d2c227461696c223a307d,invalid=0\n"
+    }
+  ]
+}

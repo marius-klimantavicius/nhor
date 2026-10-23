@@ -74,6 +74,9 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public interface IRoundTree : ITraverseTree
     {
+        bool IsOutOfFlow(NodeId nodeId);
+        int HoistedChildCount(NodeId nodeId);
+        NodeId GetHoistedChildId(NodeId nodeId, int index);
         /// <summary>Get the node's unrounded layout</summary>
         Layout GetUnroundedLayout(NodeId nodeId);
 
@@ -110,6 +113,7 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public interface ILayoutGridContainer : ILayoutPartialTree
     {
+        void SetDetailedGridInfo(NodeId nodeId, DetailedGridInfo info);
         /// <summary>Get the container's grid styles</summary>
         IGridContainerStyle GetGridContainerStyle(NodeId nodeId);
 
@@ -238,6 +242,14 @@ namespace Marius.Winter.Taffy
     /// </summary>
     public static class RequestedAxisExtensions
     {
+        public static RequestedAxis Transpose(this RequestedAxis axis) => axis switch
+        {
+            RequestedAxis.Horizontal => RequestedAxis.Vertical,
+            RequestedAxis.Vertical => RequestedAxis.Horizontal,
+            RequestedAxis.Both => RequestedAxis.Both,
+            _ => throw new ArgumentOutOfRangeException(nameof(axis)),
+        };
+
         /// <summary>Convert from AbsoluteAxis to RequestedAxis</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static RequestedAxis ToRequestedAxis(this AbsoluteAxis axis)

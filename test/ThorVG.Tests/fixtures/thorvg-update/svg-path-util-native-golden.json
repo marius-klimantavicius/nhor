@@ -1,0 +1,31 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "provenance": "Actual original pinned native84valid SVG path/7valid Unicode URL/90finite HSL records captured before managed fixes; complete native command/point words, decoded bytes and RGB. No corrupted/malformed/fuzz/authoredUTF8 input probes.",
+  "architectures": {
+    "x64": {
+      "nativeOrigin": "svg-path-util-before.json",
+      "correctedEvidence": "svg-path-util-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/9af8feae6e581edf47408bdbded95d8f3a6ce047603341af7274ecb89b8d6550.json",
+        "sha256": "9af8feae6e581edf47408bdbded95d8f3a6ce047603341af7274ecb89b8d6550",
+        "archive": "docs/thorvg-update/source-snapshots/9af8feae6e581edf47408bdbded95d8f3a6ce047603341af7274ecb89b8d6550.tar.gz"
+      },
+      "bytes": 10117,
+      "sha256": "f6e92b05a7ed25a56b730c50cd1375683192fd4678b1dc4cb203d16e4269cf7d",
+      "records": 181
+    },
+    "arm64": {
+      "nativeOrigin": "arm-svg-path-util-before.json",
+      "correctedEvidence": "arm-svg-path-util-corrected.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/81174d56660ba7ec10585e334bd29a899ab11e570ab42c4e635ef8cba68149d8.json",
+        "sha256": "81174d56660ba7ec10585e334bd29a899ab11e570ab42c4e635ef8cba68149d8",
+        "archive": "docs/thorvg-update/source-snapshots/81174d56660ba7ec10585e334bd29a899ab11e570ab42c4e635ef8cba68149d8.tar.gz"
+      },
+      "bytes": 10117,
+      "sha256": "30fd61a45d717aef8e02cc23522a48f7154224352ec6bf389a28fe2173b4a6c6",
+      "records": 181
+    }
+  },
+  "parentReview": "pending"
+}

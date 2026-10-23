@@ -5,29 +5,28 @@ namespace ThorVG
 {
     public static class GlShaderSrc
     {
-        public static readonly string COLOR_VERT_SHADER = @"
-    uniform float uDepth;
-    uniform mat3 uViewMatrix;
-    layout(location = 0) in vec2 aLocation;
-    layout(location = 1) in vec4 aColor;
-    out vec4 vColor;
+        public static readonly string COLOR_VERT_SHADER = @"uniform float uDepth;
+ uniform mat3 uViewMatrix;
+ layout(location = 0) in vec2 aLocation;
+ layout(location = 1) in vec4 aColor;
+ out vec4 vColor;
 
-    void main()
-    {
-        vColor = aColor;
-        vec3 pos = uViewMatrix * vec3(aLocation, 1.0);
-        gl_Position = vec4(pos.xy, uDepth, 1.0);
-    }
+ void main()
+ {
+ vec3 pos = uViewMatrix * vec3(aLocation, 1.0);
+ gl_Position = vec4(pos.xy, uDepth, 1.0);
+ vColor = aColor;
+ }
 ";
 
-        public static readonly string COLOR_FRAG_SHADER = @"
-    in vec4 vColor;
-    out vec4 FragColor;
+        public static readonly string COLOR_FRAG_SHADER = @"in vec4 vColor;
+ out vec4 FragColor;
 
-    void main()
-    {
-       FragColor = vec4(vColor.rgb * vColor.a, vColor.a);
-    }
+ void main()
+ {
+ vec4 uColor = vColor;
+ FragColor = vec4(uColor.rgb * uColor.a, uColor.a);
+ }
 ";
 
         public static readonly string GRADIENT_VERT_SHADER = @"
@@ -279,6 +278,46 @@ namespace ThorVG
     }
 ";
 
+        public static readonly string STR_CONIC_GRADIENT_MAIN = @"
+    out vec4 FragColor;
+
+    void main()
+    {
+        FragColor = conicGradientColor(vPos);
+    }
+";
+
+
+        public static readonly string STR_CONIC_GRADIENT_VARIABLES = @"
+    layout(std140) uniform GradientInfo {
+        vec4  nStops;
+        vec4  stopPoints[MAX_STOP_COUNT / 4];
+        vec4  stopColors[MAX_STOP_COUNT];
+    } uGradientInfo;
+";
+
+
+        public static readonly string STR_CONIC_GRADIENT_FUNCTIONS = @"
+    vec4 conicGradientColor(vec2 pos)
+    {
+        float width = fwidth(pos.y);
+        vec4 color;
+        if (pos.x >= 0.0 && abs(pos.y) < 0.5 * width) {
+            int count = int(uGradientInfo.nStops[0]);
+            float coverage = pos.y / width + 0.5;
+            // Seam coverage averages premultiplied colors, unlike gradient interpolation.
+            vec4 first = uGradientInfo.stopColors[0];
+            vec4 last = uGradientInfo.stopColors[count - 1];
+            return mix(vec4(last.rgb * last.a, last.a), vec4(first.rgb * first.a, first.a), coverage);
+        } else {
+            const float INV_TWO_PI = 0.15915494309189535;
+            float t = fract(atan(pos.y, pos.x) * INV_TWO_PI);
+            color = gradient(t, 0.0, 1.0);
+        }
+        return vec4(color.rgb * color.a, color.a);
+    }
+";
+
         public static readonly string IMAGE_VERT_SHADER = @"
     uniform float uDepth;
     uniform mat3 uViewMatrix;
@@ -295,33 +334,11 @@ namespace ThorVG
 ";
 
         public static readonly string IMAGE_FRAG_SHADER = @"
-    layout(std140) uniform ColorInfo {
-        int format;
-        int flipY;
-        int opacity;
-        int dummy;
-    } uColorInfo;
+    layout(std140) uniform ColorInfo { ivec4 params; } uColorInfo;
     uniform sampler2D uTexture;
     in vec2 vUV;
     out vec4 FragColor;
-
-    void main()
-    {
-        vec2 uv = vUV;
-        if (uColorInfo.flipY == 1) { uv.y = 1.0 - uv.y; }
-        vec4 color = texture(uTexture, uv);
-        vec4 result;
-        if (uColorInfo.format == 0) {
-            result = color;
-        } else if (uColorInfo.format == 1) {
-            result = color.bgra;
-        } else if (uColorInfo.format == 2) {
-            result = vec4(color.rgb * color.a, color.a);
-        } else if (uColorInfo.format == 3) {
-            result = vec4(color.bgr * color.a, color.a);
-        }
-        FragColor = result * float(uColorInfo.opacity) / 255.0;
-   }
+    void main() { FragColor = texture(uTexture, vUV) * float(uColorInfo.params.x) / 255.0; }
 ";
 
         public static readonly string MASK_VERT_SHADER = @"
@@ -544,14 +561,13 @@ namespace ThorVG
     }";
 
         public static readonly string BLEND_SHAPE_SOLID_FRAG_HEADER = @"
-in vec4 vColor;
-
 layout(std140) uniform BlendRegion {
     vec4 region;
 } uBlendRegion;
 
 uniform sampler2D uDstTexture;
 
+in vec4 vColor;
 out vec4 FragColor;
 
 vec3 One = vec3(1.0, 1.0, 1.0);
@@ -595,9 +611,9 @@ void getFragData() {
     d.So = 1.0;
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
-    if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    // RGB is premultiplied.
     float srcOpacity = d.Sa * d.So;
-    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sc = d.Dc * (1.0 - srcOpacity) + d.Sc * d.So;
     d.Sa = mix(d.Da, 1.0, srcOpacity);
 }
 
@@ -627,15 +643,80 @@ void getFragData() {
     d.So = 1.0;
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
-    if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+    // RGB is premultiplied.
     float srcOpacity = d.Sa * d.So;
-    d.Sc = mix(d.Dc, d.Sc, srcOpacity);
+    d.Sc = d.Dc * (1.0 - srcOpacity) + d.Sc * d.So;
     d.Sa = mix(d.Da, 1.0, srcOpacity);
 }
 
 vec4 postProcess(vec4 R) { return R; }
 ";
 
+        public static readonly string BLEND_SHAPE_CONIC_FRAG_HEADER = @"
+layout(std140) uniform BlendRegion {
+    vec4 region;
+} uBlendRegion;
+
+uniform sampler2D uDstTexture;
+
+out vec4 FragColor;
+
+vec3 One = vec3(1.0, 1.0, 1.0);
+struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
+FragData d;
+
+void getFragData() {
+    vec4 colorSrc = conicGradientColor(vPos);
+    vec2 uv = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
+    vec4 colorDst = texture(uDstTexture, uv);
+
+    d.Sc = colorSrc.rgb;
+    d.Sa = colorSrc.a;
+    d.So = 1.0;
+    d.Dc = colorDst.rgb;
+    d.Da = colorDst.a;
+    // RGB is premultiplied.
+    float srcOpacity = d.Sa * d.So;
+    d.Sc = d.Dc * (1.0 - srcOpacity) + d.Sc * d.So;
+    d.Sa = mix(d.Da, 1.0, srcOpacity);
+}
+
+vec4 postProcess(vec4 R) { return R; }
+";
+
+#if THORVG_GL_TARGET_GLES
+        public static readonly string BLEND_IMAGE_FRAG_HEADER = @"
+layout(std140) uniform BlendRegion {
+    vec4 region;
+} uBlendRegion;
+
+uniform sampler2D uSrcTexture;
+uniform sampler2D uDstTexture;
+
+in vec2 vUV;
+out vec4 FragColor;
+
+vec3 One = vec3(1.0, 1.0, 1.0);
+struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
+FragData d;
+
+void getFragData() {
+    // get source data
+    vec4 colorSrc = texture(uSrcTexture, vUV);
+    vec2 uvDst = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
+    vec4 colorDst = texture(uDstTexture, uvDst);
+    // fill fragment data
+    d.Sc = colorSrc.rgb;
+    d.Sa = colorSrc.a;
+    d.So = 1.0;
+    d.Dc = colorDst.rgb;
+    d.Da = colorDst.a;
+    if (d.Sa > 0.0) { d.Sc = d.Sc / d.Sa; }
+}
+
+vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+";
+#else
         public static readonly string BLEND_IMAGE_FRAG_HEADER = @"
 uniform sampler2D uSrcTexture;
 uniform sampler2D uDstTexture;
@@ -660,14 +741,17 @@ void getFragData() {
 
 vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
 ";
+#endif
 
+#if THORVG_GL_TARGET_GLES
         public static readonly string BLEND_SCENE_FRAG_HEADER = @"
 layout(std140) uniform ColorInfo {
-    int format;
-    int flipY;
-    int opacity;
-    int dummy;
+    ivec4 params;
 } uColorInfo;
+
+layout(std140) uniform BlendRegion {
+    vec4 region;
+} uBlendRegion;
 
 uniform sampler2D uSrcTexture;
 uniform sampler2D uDstTexture;
@@ -680,11 +764,14 @@ struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
 FragData d;
 
 void getFragData() {
+    // get source data
     vec4 colorSrc = texture(uSrcTexture, vUV);
-    vec4 colorDst = texture(uDstTexture, vUV);
+    vec2 uvDst = (gl_FragCoord.xy - uBlendRegion.region.xy) / uBlendRegion.region.zw;
+    vec4 colorDst = texture(uDstTexture, uvDst);
+    // fill fragment data
     d.Sc = colorSrc.rgb;
     d.Sa = colorSrc.a;
-    d.So = float(uColorInfo.opacity) / 255.0;
+    d.So = float(uColorInfo.params.x) / 255.0;
     d.Dc = colorDst.rgb;
     d.Da = colorDst.a;
     if (d.Sa > 0.0) {d.Sc = d.Sc / d.Sa; }
@@ -692,6 +779,37 @@ void getFragData() {
 
 vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
 ";
+#else
+        public static readonly string BLEND_SCENE_FRAG_HEADER = @"
+layout(std140) uniform ColorInfo {
+    ivec4 params;
+} uColorInfo;
+uniform sampler2D uSrcTexture;
+uniform sampler2D uDstTexture;
+
+in vec2 vUV;
+out vec4 FragColor;
+
+vec3 One = vec3(1.0, 1.0, 1.0);
+struct FragData { vec3 Sc; float Sa; float So; vec3 Dc; float Da; };
+FragData d;
+
+void getFragData() {
+    // get source data
+    vec4 colorSrc = texture(uSrcTexture, vUV);
+    vec4 colorDst = texture(uDstTexture, vUV);
+    // fill fragment data
+    d.Sc = colorSrc.rgb;
+    d.Sa = colorSrc.a;
+    d.So = float(uColorInfo.params.x) / 255.0;
+    d.Dc = colorDst.rgb;
+    d.Da = colorDst.a;
+    if (d.Sa > 0.0) {d.Sc = d.Sc / d.Sa; }
+}
+
+vec4 postProcess(vec4 R) { return mix(vec4(d.Dc, d.Da), R, d.Sa * d.So); }
+";
+#endif
 
         public static readonly string BLEND_FRAG_LUM_HELPER = @"
 const vec3 LUM_W = vec3(0.3, 0.59, 0.11);
@@ -950,7 +1068,7 @@ layout(std140) uniform Gaussian {
     float sigma;
     float scale;
     float extend;
-    float dummy0;
+    float quality;
 } uGaussian;
 
 layout(std140) uniform Viewport {
@@ -972,18 +1090,23 @@ void main()
     float sigma = uGaussian.sigma * uGaussian.scale;
     float weightSum = 0.0;
     int radius = int(uGaussian.extend);
-
+    int quality = int(uGaussian.quality);
     vec2 texelStep = vec2(0.0, texelSize.y);
+
+    // Clamp the kernel range once so edge pixels skip taps outside the valid viewport.
     int first = max(-radius, int(ceil(uViewport.vp.y - gl_FragCoord.y)));
     int last = min(radius, int(ceil(uViewport.vp.w - gl_FragCoord.y)) - 1);
+    int remainder = first % quality;
+    if (remainder < 0) remainder += quality;
+    if (remainder > 0) first += quality - remainder;
     vec2 coord = vUV + texelStep * float(first);
-    for (int y = first; y <= last; ++y) {
+    vec2 sampleStep = texelStep * float(quality);
+    for (int y = first; y <= last; y += quality) {
         float weight = gaussian(float(y), sigma);
         colorSum += texture(uSrcTexture, coord) * weight;
         weightSum += weight;
-        coord += texelStep;
+        coord += sampleStep;
     }
-
     FragColor = weightSum > 0.0 ? colorSum / weightSum : texture(uSrcTexture, vUV);
 }
 ";
@@ -994,7 +1117,7 @@ layout(std140) uniform Gaussian {
     float sigma;
     float scale;
     float extend;
-    float dummy0;
+    float quality;
 } uGaussian;
 
 layout(std140) uniform Viewport {
@@ -1016,18 +1139,23 @@ void main()
     float sigma = uGaussian.sigma * uGaussian.scale;
     float weightSum = 0.0;
     int radius = int(uGaussian.extend);
-
+    int quality = int(uGaussian.quality);
     vec2 texelStep = vec2(texelSize.x, 0.0);
+
+    // Clamp the kernel range once so edge pixels skip taps outside the valid viewport.
     int first = max(-radius, int(ceil(uViewport.vp.x - gl_FragCoord.x)));
     int last = min(radius, int(ceil(uViewport.vp.z - gl_FragCoord.x)) - 1);
+    int remainder = first % quality;
+    if (remainder < 0) remainder += quality;
+    if (remainder > 0) first += quality - remainder;
     vec2 coord = vUV + texelStep * float(first);
-    for (int x = first; x <= last; ++x) {
+    vec2 sampleStep = texelStep * float(quality);
+    for (int x = first; x <= last; x += quality) {
         float weight = gaussian(float(x), sigma);
         colorSum += texture(uSrcTexture, coord) * weight;
         weightSum += weight;
-        coord += texelStep;
+        coord += sampleStep;
     }
-
     FragColor = weightSum > 0.0 ? colorSum / weightSum : texture(uSrcTexture, vUV);
 }
 ";

@@ -157,10 +157,10 @@ namespace ThorVG
                     if (span->coverage < 255) src = (byte)MULTIPLY(span->coverage, c.a);
                     else src = c.a;
                     var ialpha = (byte)~c.a;
-                    for (int xi = 0; xi < len; ++xi, ++dst)
-                    {
-                        *dst = (byte)(src + MULTIPLY(*dst, ialpha));
-                    }
+                    int i = 0;
+                    for (; i <= len - 16; i += 16)
+                        AdvSimd.Store(dst + i, neonBlendGrayscale(AdvSimd.LoadVector128(dst + i), src, ialpha));
+                    for (; i < len; ++i) dst[i] = (byte)(src + MULTIPLY(dst[i], ialpha));
                 }
             }
             return true;
@@ -222,10 +222,10 @@ namespace ThorVG
                 for (uint y = 0; y < h; ++y)
                 {
                     var dst = &buffer[y * surface.stride];
-                    for (uint xi = 0; xi < w; ++xi, ++dst)
-                    {
-                        *dst = (byte)(c.a + MULTIPLY(*dst, ialpha));
-                    }
+                    uint x = 0;
+                    for (; w - x >= 16; x += 16)
+                        AdvSimd.Store(dst + x, neonBlendGrayscale(AdvSimd.LoadVector128(dst + x), c.a, ialpha));
+                    for (; x < w; ++x) dst[x] = (byte)(c.a + MULTIPLY(dst[x], ialpha));
                 }
             }
             return true;

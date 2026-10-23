@@ -29,7 +29,7 @@ namespace Marius.Winter.Taffy
             var runMode = inputs.RunMode;
 
             var gridStyle = tree.GetGridContainerStyle(node);
-            var style = (Style)gridStyle;
+            var style = gridStyle;
             var direction = gridStyle.Direction();
 
             // 1. Compute "available grid space"
@@ -81,8 +81,10 @@ namespace Marius.Winter.Taffy
             else
                 contentBoxInset.Right += scrollbarGutter.Width;
 
-            var alignContent = gridStyle.AlignContent() ?? AlignContent.Stretch;
-            var justifyContent = gridStyle.JustifyContent() ?? AlignContent.Stretch;
+            var alignContent = gridStyle.AlignContent() ?? AlignContent.Normal;
+            if (alignContent.Keyword == AlignContentKeyword.Normal) alignContent = AlignContent.Stretch;
+            var justifyContent = gridStyle.JustifyContent() ?? AlignContent.Normal;
+            if (justifyContent.Keyword == AlignContentKeyword.Normal) justifyContent = AlignContent.Stretch;
             var alignItems = gridStyle.AlignItems();
             var justifyItems = gridStyle.JustifyItems();
 
@@ -106,6 +108,9 @@ namespace Marius.Winter.Taffy
                 Width = outerNodeSize.Width.HasValue ? outerNodeSize.Width.Value - contentBoxInset.HorizontalAxisSum() : null,
                 Height = outerNodeSize.Height.HasValue ? outerNodeSize.Height.Value - contentBoxInset.VerticalAxisSum() : null,
             };
+
+            var innerMinSize = minSize.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
+            var innerMaxSize = maxSize.MaybeSub(contentBoxInset.SumAxes().Map<float?>(v => v));
 
             // Short-circuit layout if the container's size is fully determined by the container's size and the run mode
             // is ComputeSize (and thus the container's size is all that we're interested in)
@@ -151,48 +156,39 @@ namespace Marius.Winter.Taffy
 
             var nameResolver = new NamedLineResolver(style, colAutoRepetitionCount, rowAutoRepetitionCount);
 
-            var explicitColCount = Math.Max(gridTemplateColCount, nameResolver.AreaColumnCount);
-            var explicitRowCount = Math.Max(gridTemplateRowCount, nameResolver.AreaRowCount);
+            var explicitColCount = (ushort)Math.Min(Math.Max(gridTemplateColCount, nameResolver.AreaColumnCount), (ushort)10000);
+            var explicitRowCount = (ushort)Math.Min(Math.Max(gridTemplateRowCount, nameResolver.AreaRowCount), (ushort)10000);
 
             nameResolver.SetExplicitColumnCount(explicitColCount);
             nameResolver.SetExplicitRowCount(explicitRowCount);
 
-            // 3. Implicit Grid: Estimate Track Counts
-            IEnumerable<Style> ChildStylesIter()
-            {
-                foreach (var childNode in tree.ChildIds(node))
-                    yield return (Style)tree.GetGridChildStyle(childNode);
-            }
-            var (estColCounts, estRowCounts) = ImplicitGridUtils.ComputeGridSizeEstimate(explicitColCount, explicitRowCount, direction, ChildStylesIter());
-
-            // 4. Grid Item Placement
+            // Resolve the styles once, before estimating the implicit bounds and placing items.
             var items = new ValueList<GridItem>();
-            var cellOccupancyMatrix = CellOccupancyMatrix.WithTrackCounts(estColCounts, estRowCounts);
-
-            IEnumerable<(int index, NodeId node, Style style)> InFlowChildrenIter()
+            var placements = new List<InBothAbsAxis<Line<GenericGridPlacement<OriginZeroLine>>>>();
+            int sourceOrder = 0;
+            foreach (var childNode in tree.ChildIds(node))
             {
-                int idx = 0;
-                foreach (var childNode in tree.ChildIds(node))
+                var child = tree.GetGridChildStyle(childNode);
+                if (((ICoreStyle)child).BoxGenerationMode() != BoxGenerationMode.None && !child.Position().IsOutOfFlow())
                 {
-                    var childStyleI = tree.GetGridChildStyle(childNode);
-                    var childStyle = (Style)childStyleI;
-                    if (childStyleI.BoxGenerationMode() != BoxGenerationMode.None && ((ICoreStyle)childStyle).Position() != Position.Absolute)
-                    {
-                        yield return (idx, childNode, childStyle);
-                    }
-                    idx++;
+                    placements.Add(new() { Horizontal = nameResolver.ResolveColumnNames(child.GetGridColumn()).IntoOriginZero(explicitColCount),
+                        Vertical = nameResolver.ResolveRowNames(child.GetGridRow()).IntoOriginZero(explicitRowCount) });
+                    items.Add(GridItem.NewWithPlacementStyleAndOrder(childNode, default, default, child,
+                        alignItems ?? AlignItems.Normal, justifyItems ?? AlignItems.Normal, unchecked((ushort)sourceOrder)));
                 }
+                sourceOrder++;
             }
+            var placementSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(placements);
+            var (estColCounts, estRowCounts) = ImplicitGridUtils.ComputeGridSizeEstimate(explicitColCount, explicitRowCount, placementSpan);
+            var cellOccupancyMatrix = CellOccupancyMatrix.WithTrackCounts(estColCounts, estRowCounts);
+            PlacementUtils.PlaceGridItems(cellOccupancyMatrix, ref items, placementSpan, gridStyle.GridAutoFlow());
 
-            PlacementUtils.PlaceGridItems(
-                cellOccupancyMatrix,
-                ref items,
-                () => InFlowChildrenIter(),
-                direction,
-                gridStyle.GridAutoFlow(),
-                alignItems ?? AlignItems.Stretch,
-                justifyItems ?? AlignItems.Stretch,
-                nameResolver);
+            for (int i = 0; i < items.Count; i++)
+            {
+                var itemStyle = tree.GetGridChildStyle(items[i].Node);
+                items[i].AlignSelfStyle = (itemStyle.AlignSelf() ?? alignItems ?? AlignItems.Normal).ResolveSelfRelative(itemStyle.Direction(), direction, false);
+                items[i].JustifySelfStyle = (itemStyle.JustifySelf() ?? justifyItems ?? AlignItems.Normal).ResolveSelfRelative(itemStyle.Direction(), direction, true);
+            }
 
             // Extract track counts from previous step (auto-placement can expand the number of tracks)
             var finalColCounts = cellOccupancyMatrix.GetTrackCounts(AbsoluteAxis.Horizontal);
@@ -201,24 +197,10 @@ namespace Marius.Winter.Taffy
             // 5. Initialize Tracks
             var columns = new ValueList<GridTrack>();
             var rows = new ValueList<GridTrack>();
-            var columnTrackCountsForInit = finalColCounts;
-            if (direction.IsRtl() && finalColCounts.Explicit <= 1)
-            {
-                columnTrackCountsForInit.NegativeImplicit = finalColCounts.PositiveImplicit;
-                columnTrackCountsForInit.PositiveImplicit = finalColCounts.NegativeImplicit;
-            }
-            ExplicitGridUtils.InitializeGridTracks(ref columns, columnTrackCountsForInit, style, AbsoluteAxis.Horizontal,
-                columnIndex =>
-                {
-                    var occupancyIndex = direction.IsRtl()
-                        ? RtlColumnOccupancyIndexForInitialization(columnIndex, finalColCounts)
-                        : columnIndex;
-                    return cellOccupancyMatrix.ColumnIsOccupied(occupancyIndex);
-                });
-            ExplicitGridUtils.InitializeGridTracks(ref rows, finalRowCounts, style, AbsoluteAxis.Vertical,
+            ExplicitGridUtils.InitializeGridTracks(ref columns, finalColCounts, style, AbsoluteAxis.Horizontal, colAutoRepetitionCount,
+                columnIndex => cellOccupancyMatrix.ColumnIsOccupied(columnIndex));
+            ExplicitGridUtils.InitializeGridTracks(ref rows, finalRowCounts, style, AbsoluteAxis.Vertical, rowAutoRepetitionCount,
                 rowIndex => cellOccupancyMatrix.RowIsOccupied(rowIndex));
-            if (direction.IsRtl())
-                ReverseNonGutterTracks(ref columns, finalColCounts);
 
             // 6. Track Sizing
 
@@ -232,15 +214,15 @@ namespace Marius.Winter.Taffy
             bool hasBaselineAlignedItem = false;
             for (int i = 0; i < items.Count; i++)
             {
-                if (items[i].AlignSelfStyle == AlignItems.Baseline) { hasBaselineAlignedItem = true; break; }
+                if (items[i].ParticipatesInBaselineAlignment) { hasBaselineAlignedItem = true; break; }
             }
 
             // Run track sizing algorithm for Inline axis
             TrackSizingUtils.TrackSizingAlgorithm(
                 tree,
                 AbstractAxis.Inline,
-                minSize.Get(AbstractAxis.Inline),
-                maxSize.Get(AbstractAxis.Inline),
+                innerMinSize.Get(AbstractAxis.Inline),
+                innerMaxSize.Get(AbstractAxis.Inline),
                 justifyContent,
                 alignContent,
                 availableGridSpace,
@@ -257,6 +239,10 @@ namespace Marius.Winter.Taffy
                 initialColumnSum += columns[i].BaseSize;
             innerNodeSize.Width ??= initialColumnSum;
 
+            if (runMode == RunMode.ComputeSize && inputs.Axis == RequestedAxis.Horizontal)
+                return LayoutOutput.FromOuterSize(new(TaffySys.F32Max(
+                    (initialColumnSum + contentBoxInset.HorizontalAxisSum()).MaybeClamp(minSize.Width, maxSize.Width), paddingBorderSize.Width), 0));
+
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
@@ -268,8 +254,8 @@ namespace Marius.Winter.Taffy
             TrackSizingUtils.TrackSizingAlgorithm(
                 tree,
                 AbstractAxis.Block,
-                minSize.Get(AbstractAxis.Block),
-                maxSize.Get(AbstractAxis.Block),
+                innerMinSize.Get(AbstractAxis.Block),
+                innerMaxSize.Get(AbstractAxis.Block),
                 alignContent,
                 justifyContent,
                 availableGridSpace,
@@ -289,19 +275,19 @@ namespace Marius.Winter.Taffy
             var resolvedStyleSize = knownDimensions.Or(preferredSize);
             var containerBorderBox = new Size<float>
             {
-                Width = MathF.Max(
+                Width = TaffySys.F32Max(
                     (resolvedStyleSize.Get(AbstractAxis.Inline) ?? (initialColumnSum + contentBoxInset.HorizontalAxisSum()))
                         .MaybeClamp(minSize.Width, maxSize.Width),
                     paddingBorderSize.Width),
-                Height = MathF.Max(
+                Height = TaffySys.F32Max(
                     (resolvedStyleSize.Get(AbstractAxis.Block) ?? (initialRowSum + contentBoxInset.VerticalAxisSum()))
                         .MaybeClamp(minSize.Height, maxSize.Height),
                     paddingBorderSize.Height),
             };
             var containerContentBox = new Size<float>
             {
-                Width = MathF.Max(0f, containerBorderBox.Width - contentBoxInset.HorizontalAxisSum()),
-                Height = MathF.Max(0f, containerBorderBox.Height - contentBoxInset.VerticalAxisSum()),
+                Width = TaffySys.F32Max(0f, containerBorderBox.Width - contentBoxInset.HorizontalAxisSum()),
+                Height = TaffySys.F32Max(0f, containerBorderBox.Height - contentBoxInset.VerticalAxisSum()),
             };
 
             // If only the container's size has been requested
@@ -309,28 +295,7 @@ namespace Marius.Winter.Taffy
                 return LayoutOutput.FromOuterSize(containerBorderBox);
 
             // 7. Resolve percentage track base sizes
-            if (!availableGridSpace.Width.IsDefinite())
-            {
-                for (int i = 0; i < columns.Count; i++)
-                {
-                    var column = columns[i];
-                    var min = column.MinTrackSizingFunction.ResolvedPercentageSize(containerContentBox.Width, (val, basis) => tree.Calc(val, basis));
-                    var max = column.MaxTrackSizingFunction.ResolvedPercentageSize(containerContentBox.Width, (val, basis) => tree.Calc(val, basis));
-                    column.BaseSize = column.BaseSize.MaybeClamp(min, max);
-                    columns[i] = column;
-                }
-            }
-            if (!availableGridSpace.Height.IsDefinite())
-            {
-                for (int i = 0; i < rows.Count; i++)
-                {
-                    var row = rows[i];
-                    var min = row.MinTrackSizingFunction.ResolvedPercentageSize(containerContentBox.Height, (val, basis) => tree.Calc(val, basis));
-                    var max = row.MaxTrackSizingFunction.ResolvedPercentageSize(containerContentBox.Height, (val, basis) => tree.Calc(val, basis));
-                    row.BaseSize = row.BaseSize.MaybeClamp(min, max);
-                    rows[i] = row;
-                }
-            }
+            innerNodeSize = containerContentBox.Map<float?>(v => v);
 
             // Column sizing must be re-run (once) if needed
             bool rerunColumnSizing;
@@ -339,7 +304,7 @@ namespace Marius.Winter.Taffy
             for (int i = 0; i < columns.Count; i++) { if (columns[i].UsesPercentage()) { hasPercentageColumn = true; break; } }
             bool hasPercentageRow = false;
             for (int i = 0; i < rows.Count; i++) { if (rows[i].UsesPercentage()) { hasPercentageRow = true; break; } }
-            bool parentWidthIndefinite = !availableSpace.Width.IsDefinite();
+            bool parentWidthIndefinite = !outerNodeSize.Width.HasValue;
             rerunColumnSizing = parentWidthIndefinite && hasPercentageColumn;
 
             if (!rerunColumnSizing)
@@ -369,7 +334,6 @@ namespace Marius.Winter.Taffy
                     if (hasChanged)
                     {
                         intrinsicColumnContributionChanged = true;
-                        break;
                     }
                 }
                 rerunColumnSizing = intrinsicColumnContributionChanged;
@@ -389,94 +353,38 @@ namespace Marius.Winter.Taffy
             }
 
             bool intrinsicRowContributionChanged = false;
-
+            bool rerunRowSizing = !outerNodeSize.Height.HasValue && hasPercentageRow;
+            if (rerunRowSizing)
+                foreach (var item in items)
+                {
+                    item.GridAreaSizeCache = null;
+                    item.MinContentContributionCache.Height = null; item.MaxContentContributionCache.Height = null; item.MinimumContributionCache.Height = null;
+                }
             if (rerunColumnSizing)
             {
-                // Re-run track sizing algorithm for Inline axis
-                TrackSizingUtils.TrackSizingAlgorithm(
-                    tree,
-                    AbstractAxis.Inline,
-                    minSize.Get(AbstractAxis.Inline),
-                    maxSize.Get(AbstractAxis.Inline),
-                    justifyContent,
-                    alignContent,
-                    availableGridSpace,
-                    innerNodeSize,
-                    ref columns,
-                    ref rows,
-                    ref items,
-                    (GridTrack track, float? _, TTree _2) => (float?)track.BaseSize,
-                    hasBaselineAlignedItem);
-
-                // Row sizing re-run check
-                bool rerunRowSizing;
-                bool parentHeightIndefinite = !availableSpace.Height.IsDefinite();
-                rerunRowSizing = parentHeightIndefinite && hasPercentageRow;
-
+                TrackSizingUtils.TrackSizingAlgorithm(tree, AbstractAxis.Inline, innerMinSize.Width, innerMaxSize.Width,
+                    justifyContent, alignContent, availableGridSpace, innerNodeSize, ref columns, ref rows, ref items,
+                    (GridTrack track, float? _, TTree _2) => track.BaseSize, hasBaselineAlignedItem);
                 if (!rerunRowSizing)
                 {
-                    for (int i = 0; i < items.Count; i++)
+                    foreach (var item in items)
                     {
-                        var item = items[i];
-                        if (!item.CrossesIntrinsicColumn) continue;
-
-                        var gridAreaSize = item.GridAreaSize(
-                            AbstractAxis.Block, ref rows, ref columns, innerNodeSize,
-                            (GridTrack t, float? _) => (float?)t.BaseSize,
-                            (val, basis) => tree.Calc(val, basis));
-                        var intrinsicAvailableSpace = gridAreaSize;
-                        intrinsicAvailableSpace.Set(AbstractAxis.Block, null);
-                        var newMinContentContribution = item.MinContentContribution(
-                            AbstractAxis.Block, tree, gridAreaSize, intrinsicAvailableSpace);
-
-                        bool hasChanged = item.MinContentContributionCache.Height != newMinContentContribution;
-
-                        item.GridAreaSizeCache = gridAreaSize;
-                        item.MinContentContributionCache = new Size<float?> { Width = item.MinContentContributionCache.Width, Height = newMinContentContribution };
-                        item.MaxContentContributionCache = new Size<float?> { Width = item.MaxContentContributionCache.Width, Height = null };
-                        item.MinimumContributionCache = new Size<float?> { Width = item.MinimumContributionCache.Width, Height = null };
-                        items[i] = item;
-
-                        if (hasChanged)
-                        {
-                            intrinsicRowContributionChanged = true;
-                            break;
-                        }
+                        if (!item.CrossesIntrinsicRow) continue;
+                        var area = item.GridAreaSize(AbstractAxis.Block, ref rows, ref columns, innerNodeSize,
+                            (GridTrack track, float? _) => track.BaseSize, tree.Calc);
+                        var available = area; available.Height = null;
+                        float contribution = item.MinContentContribution(AbstractAxis.Block, tree, area, available);
+                        intrinsicRowContributionChanged |= item.MinContentContributionCache.Height != contribution;
+                        item.GridAreaSizeCache = area;
+                        item.MinContentContributionCache.Height = contribution; item.MaxContentContributionCache.Height = null; item.MinimumContributionCache.Height = null;
                     }
                     rerunRowSizing = intrinsicRowContributionChanged;
                 }
-                else
-                {
-                    for (int i = 0; i < items.Count; i++)
-                    {
-                        var item = items[i];
-                        item.GridAreaSizeCache = null;
-                        item.MinContentContributionCache = new Size<float?> { Width = item.MinContentContributionCache.Width, Height = null };
-                        item.MaxContentContributionCache = new Size<float?> { Width = item.MaxContentContributionCache.Width, Height = null };
-                        item.MinimumContributionCache = new Size<float?> { Width = item.MinimumContributionCache.Width, Height = null };
-                        items[i] = item;
-                    }
-                }
-
-                if (rerunRowSizing)
-                {
-                    // Re-run track sizing algorithm for Block axis
-                    TrackSizingUtils.TrackSizingAlgorithm(
-                        tree,
-                        AbstractAxis.Block,
-                        minSize.Get(AbstractAxis.Block),
-                        maxSize.Get(AbstractAxis.Block),
-                        alignContent,
-                        justifyContent,
-                        availableGridSpace,
-                        innerNodeSize,
-                        ref rows,
-                        ref columns,
-                        ref items,
-                        (GridTrack track, float? _, TTree _2) => (float?)track.BaseSize,
-                        false);
-                }
             }
+            if (rerunRowSizing)
+                TrackSizingUtils.TrackSizingAlgorithm(tree, AbstractAxis.Block, innerMinSize.Height, innerMaxSize.Height,
+                    alignContent, justifyContent, availableGridSpace, innerNodeSize, ref rows, ref columns, ref items,
+                    (GridTrack track, float? _, TTree _2) => track.BaseSize, false);
 
             if ((intrinsicColumnContributionChanged && !hasPercentageColumn)
                 || (intrinsicRowContributionChanged && !hasPercentageRow))
@@ -490,21 +398,21 @@ namespace Marius.Winter.Taffy
 
                 if (intrinsicColumnContributionChanged && !hasPercentageColumn)
                 {
-                    containerBorderBox.Width = MathF.Max(
+                    containerBorderBox.Width = TaffySys.F32Max(
                         (resolvedStyleSize.Get(AbstractAxis.Inline) ?? (finalColumnSum + contentBoxInset.HorizontalAxisSum()))
                             .MaybeClamp(minSize.Width, maxSize.Width),
                         paddingBorderSize.Width);
-                    containerContentBox.Width = MathF.Max(
+                    containerContentBox.Width = TaffySys.F32Max(
                         0f, containerBorderBox.Width - contentBoxInset.HorizontalAxisSum());
                 }
 
                 if (intrinsicRowContributionChanged && !hasPercentageRow)
                 {
-                    containerBorderBox.Height = MathF.Max(
+                    containerBorderBox.Height = TaffySys.F32Max(
                         (resolvedStyleSize.Get(AbstractAxis.Block) ?? (finalRowSum + contentBoxInset.VerticalAxisSum()))
                             .MaybeClamp(minSize.Height, maxSize.Height),
                         paddingBorderSize.Height);
-                    containerContentBox.Height = MathF.Max(
+                    containerContentBox.Height = TaffySys.F32Max(
                         0f, containerBorderBox.Height - contentBoxInset.VerticalAxisSum());
                 }
             }
@@ -516,8 +424,8 @@ namespace Marius.Winter.Taffy
             // 8. Track Alignment
 
             // Align columns
-            var inlineSizeWithoutScrollbar = MathF.Max(containerBorderBox.Width - (padding.Left + padding.Right + border.Left + border.Right), 0f);
-            var inlineScrollbarGutterForAlignment = MathF.Min(scrollbarGutter.Width, inlineSizeWithoutScrollbar);
+            var inlineSizeWithoutScrollbar = TaffySys.F32Max(containerBorderBox.Width - (padding.Left + padding.Right + border.Left + border.Right), 0f);
+            var inlineScrollbarGutterForAlignment = TaffySys.F32Min(scrollbarGutter.Width, inlineSizeWithoutScrollbar);
             GridAlignmentUtils.AlignTracks(
                 containerContentBox.Get(AbstractAxis.Inline),
                 new Line<float>
@@ -539,10 +447,12 @@ namespace Marius.Winter.Taffy
                 false);
 
             // 9. Size, Align, and Position Grid Items
-            var itemContentSizeContribution = SizeExtensions.ZeroF32;
+            Rect<float> itemContentSizeContribution = default;
+            var candidates = new OofCandidates();
+            bool parentIsScroll = style.Overflow().X.IsScrollContainer() || style.Overflow().Y.IsScrollContainer();
 
             // Sort items back into original order to allow them to be matched up with styles
-            items.Sort((a, b) => a.SourceOrder.CompareTo(b.SourceOrder));
+            items.StableSort((a, b) => a.SourceOrder.CompareTo(b.SourceOrder));
 
             var containerAlignmentStyles = new InBothAbsAxis<AlignItems?>
             {
@@ -558,34 +468,43 @@ namespace Marius.Winter.Taffy
                 {
                     Top = rows[item.RowIndexes.Start + 1].Offset,
                     Bottom = rows[item.RowIndexes.End].Offset,
-                    Left = columns[item.ColumnIndexes.Start + 1].Offset,
-                    Right = columns[item.ColumnIndexes.End].Offset,
+                    Left = direction.IsRtl() ? columns[item.ColumnIndexes.End - 1].Offset : columns[item.ColumnIndexes.Start + 1].Offset,
+                    Right = direction.IsRtl() ? columns[item.ColumnIndexes.Start].Offset : columns[item.ColumnIndexes.End].Offset,
                 };
 
-                var (contentSizeContrib, yPosition, height) = GridAlignmentUtils.AlignAndPositionItem(
+                var itemAlignmentStyles = containerAlignmentStyles;
+                if (item.HasCyclicBlockSizeDependency && item.AlignSelfStyle.Keyword == AlignItemsKeyword.Baseline)
+                    itemAlignmentStyles.Vertical = AlignItems.Start;
+
+                var (contentSizeContrib, yPosition, height, baseline) = GridAlignmentUtils.AlignAndPositionItem(
                     tree,
                     item.Node,
                     (uint)index,
                     gridAreaRect,
-                    containerAlignmentStyles,
-                    item.BaselineShim,
-                    direction);
+                    itemAlignmentStyles,
+                    item.HasCyclicBlockSizeDependency ? 0 : item.BaselineShim,
+                    direction, containerBorderBox.Width, border, parentIsScroll, ref item.OofCandidates);
 
                 item.YPosition = yPosition;
                 item.Height = height;
+                item.Baseline = baseline;
                 items[index] = item;
 
-                itemContentSizeContribution = itemContentSizeContribution.F32Max(contentSizeContrib);
+                itemContentSizeContribution = itemContentSizeContribution.Union(contentSizeContrib);
             }
+
+            DetailedGridInfo MakeDetailedInfo() => new(new(finalRowCounts, rows, nameResolver.DetailedLineNames(false)),
+                new(finalColCounts, columns, nameResolver.DetailedLineNames(true)), items, nameResolver);
+            var detailed = MakeDetailedInfo();
 
             // Position hidden and absolutely positioned children
             uint orderVal = (uint)items.Count;
-            int childCount = tree.ChildCount(node);
+            int childCount = tree.ChildCount(node), inflowCursor = 0;
             for (int idx = 0; idx < childCount; idx++)
             {
                 var child = tree.GetChildId(node, idx);
                 var childStyleInterface = tree.GetGridChildStyle(child);
-                var childStyle = (Style)childStyleInterface;
+                var childStyle = childStyleInterface;
 
                 // Position hidden child
                 if (childStyleInterface.BoxGenerationMode() == BoxGenerationMode.None)
@@ -602,183 +521,84 @@ namespace Marius.Winter.Taffy
                     continue;
                 }
 
-                // Position absolutely positioned child
-                if (childStyleInterface.Position() == Position.Absolute)
+                if (!childStyleInterface.Position().IsOutOfFlow())
                 {
-                    // Convert grid-col-{start/end} into Option's of indexes into the columns vector
-                    var maybeColIndexes = nameResolver
-                        .ResolveColumnNames(childStyle.GetGridColumn())
-                        .IntoOriginZero(finalColCounts.Explicit)
-                        .ResolveAbsolutelyPositionedGridTracks()
-                        .Map(maybeGridLine =>
-                        {
-                            if (maybeGridLine.HasValue)
-                            {
-                                var line = maybeGridLine.Value;
-                                if (direction.IsRtl())
-                                    line = new OriginZeroLine((short)(finalColCounts.Explicit - line.Value));
-                                var idx2 = line.TryIntoTrackVecIndex(finalColCounts);
-                                return idx2 >= 0 ? (int?)idx2 : null;
-                            }
-                            return null;
-                        });
-
-                    // RTL: swap start/end for absolute column indexes
-                    if (direction.IsRtl())
-                        maybeColIndexes = new Line<int?> { Start = maybeColIndexes.End, End = maybeColIndexes.Start };
-
-                    var maybeRowIndexes = nameResolver
-                        .ResolveRowNames(childStyle.GetGridRow())
-                        .IntoOriginZero(finalRowCounts.Explicit)
-                        .ResolveAbsolutelyPositionedGridTracks()
-                        .Map(maybeGridLine =>
-                        {
-                            if (maybeGridLine.HasValue)
-                            {
-                                var idx2 = maybeGridLine.Value.TryIntoTrackVecIndex(finalRowCounts);
-                                return idx2 >= 0 ? (int?)idx2 : null;
-                            }
-                            return null;
-                        });
-
-                    var gridAreaRect = new Rect<float>
-                    {
-                        Top = maybeRowIndexes.Start.HasValue ? rows[maybeRowIndexes.Start.Value].Offset : border.Top,
-                        Bottom = maybeRowIndexes.End.HasValue
-                            ? rows[maybeRowIndexes.End.Value].Offset
-                            : containerBorderBox.Height - border.Bottom - scrollbarGutter.Height,
-                        Left = maybeColIndexes.Start.HasValue
-                            ? columns[maybeColIndexes.Start.Value].Offset
-                            : (direction.IsRtl() ? border.Left + scrollbarGutter.Width : border.Left),
-                        Right = maybeColIndexes.End.HasValue
-                            ? columns[maybeColIndexes.End.Value].Offset
-                            : (direction.IsRtl() ? containerBorderBox.Width - border.Right : containerBorderBox.Width - border.Right - scrollbarGutter.Width),
-                    };
-
-                    var (contentSizeContrib, _, _) = GridAlignmentUtils.AlignAndPositionItem(
-                        tree, child, orderVal, gridAreaRect, containerAlignmentStyles, 0f, direction);
-                    itemContentSizeContribution = itemContentSizeContribution.F32Max(contentSizeContrib);
-                    orderVal++;
+                    if (inflowCursor < items.Count) candidates.Append(ref items[inflowCursor++].OofCandidates);
+                    continue;
                 }
+                var justify = (childStyle.JustifySelf() ?? justifyItems ?? AlignItems.Normal).ResolveSelfRelative(childStyle.Direction(), direction, true);
+                var align = (childStyle.AlignSelf() ?? alignItems ?? AlignItems.Normal).ResolveSelfRelative(childStyle.Direction(), direction, false);
+                var contentArea = new Rect<float>(border.Left + padding.Left + (direction.IsRtl() ? scrollbarGutter.Width : 0),
+                    containerBorderBox.Width - border.Right - padding.Right - (direction.IsRtl() ? 0 : scrollbarGutter.Width),
+                    border.Top + padding.Top, containerBorderBox.Height - border.Bottom - padding.Bottom - scrollbarGutter.Height);
+                if (((ICoreStyle)style).IsContainingBlock().ForPosition(childStyle.Position()))
+                {
+                    contentArea = ResolveStaticPositionGridArea(childStyle, nameResolver, finalRowCounts, finalColCounts,
+                        rows, columns, direction, border, scrollbarGutter, containerBorderBox);
+                }
+                candidates.Push(new OofCandidate { Node = child, Order = orderVal++, Position = childStyle.Position(),
+                    StaticPosition = new(AxisStaticPosition.FromAlignment(justify, new(contentArea.Left, contentArea.Right), direction.IsRtl()),
+                        AxisStaticPosition.FromAlignment(align, new(contentArea.Top, contentArea.Bottom), false)) });
+            }
+
+            tree.SetDetailedGridInfo(node, detailed);
+            LayoutOutput FinishOutput(LayoutOutput output)
+            {
+                output.OofCandidates = candidates;
+                var inset = border.Add(new Rect<float>(direction.IsRtl() ? scrollbarGutter.Width : 0,
+                    direction.IsRtl() ? 0 : scrollbarGutter.Width, 0, scrollbarGutter.Height));
+                output.OofPositioningArea = new(containerBorderBox.Sub(inset.SumAxes()), new(inset.Left, inset.Top));
+                var rect = itemContentSizeContribution;
+                if (parentIsScroll) { rect.Right += direction.IsRtl() ? padding.Left : padding.Right; rect.Bottom += padding.Bottom; }
+                output.ScrollableOverflowRect = rect;
+                return output;
             }
 
             // If there are no items then return just the container size (no baseline)
             if (items.Count == 0)
-                return LayoutOutput.FromOuterSize(containerBorderBox);
+                return FinishOutput(LayoutOutput.FromOuterSize(containerBorderBox));
 
-            // Determine the grid container baseline(s) (currently we only compute the first baseline)
-            float gridContainerBaseline;
+            float? gridContainerBaseline = null;
+            if (!style.Contain().SuppressesBaseline())
             {
-                // Sort items by row start position
-                items.Sort((a, b) => a.RowIndexes.Start.CompareTo(b.RowIndexes.Start));
-
-                // Get the row index of the first row containing items
-                var firstRow = items[0].RowIndexes.Start;
-
-                // Create a slice of all of the items that start in this row
-                int firstRowEndIdx = 0;
-                for (int i = 0; i < items.Count; i++)
-                {
-                    if (items[i].RowIndexes.Start != firstRow) break;
-                    firstRowEndIdx = i + 1;
-                }
-
-                // Check if any items in *this row* are baseline aligned
-                bool rowHasBaselineItem = false;
-                for (int i = 0; i < firstRowEndIdx; i++)
-                {
-                    if (items[i].AlignSelfStyle == AlignItems.Baseline)
-                    {
-                        rowHasBaselineItem = true;
-                        break;
-                    }
-                }
-
-                GridItem baselineItem;
-                if (rowHasBaselineItem)
-                {
-                    baselineItem = items[0];
-                    for (int i = 0; i < firstRowEndIdx; i++)
-                    {
-                        if (items[i].AlignSelfStyle == AlignItems.Baseline)
-                        {
-                            baselineItem = items[i];
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    baselineItem = items[0];
-                }
-
+                ushort firstRow = ushort.MaxValue;
+                foreach (var item in items) firstRow = Math.Min(firstRow, item.RowIndexes.Start);
+                GridItem? first = null, aligned = null;
+                foreach (var item in items)
+                    if (item.RowIndexes.Start == firstRow) { first ??= item; if (item.ParticipatesInBaselineAlignment) { aligned = item; break; } }
+                var baselineItem = aligned ?? first!;
                 gridContainerBaseline = baselineItem.YPosition + (baselineItem.Baseline ?? baselineItem.Height);
             }
 
-            return LayoutOutput.FromSizesAndBaselines(
-                containerBorderBox,
-                itemContentSizeContribution,
-                new Point<float?> { X = null, Y = gridContainerBaseline });
+            return FinishOutput(LayoutOutput.FromSizesAndBaselines(containerBorderBox,
+                new Size<float>(itemContentSizeContribution.Right, itemContentSizeContribution.Bottom),
+                new Point<float?> { X = null, Y = gridContainerBaseline }));
         }
 
-        /// <summary>
-        /// Reverses only non-gutter column tracks in-place while preserving line/gutter slots.
-        /// </summary>
-        private static void ReverseNonGutterTracks(ref ValueList<GridTrack> tracks, TrackCounts trackCounts)
+        // Unlike the final positioning area, the static rectangle preserves raw adjacent
+        // track/gutter edges, including reversed extents caused by overflowing alignment.
+        private static Rect<float> ResolveStaticPositionGridArea(IGridItemStyle childStyle, NamedLineResolver resolver,
+            TrackCounts rowCounts, TrackCounts columnCounts, in ValueList<GridTrack> rows, in ValueList<GridTrack> columns,
+            Direction direction, Rect<float> border, Size<float> scrollbarGutter, Size<float> container)
         {
-            // When the explicit grid has 0/1 tracks, visual RTL mirroring is entirely determined by implicit tracks.
-            // Reverse all non-gutter tracks in that case.
-            if (trackCounts.Explicit <= 1)
-            {
-                const int MIN_TRACK_VEC_LEN_TO_REVERSE_COLUMNS = 5;
-                if (tracks.Count < MIN_TRACK_VEC_LEN_TO_REVERSE_COLUMNS)
-                    return;
-                int left = 1;
-                int right = tracks.Count - 2;
-                while (left < right)
-                {
-                    var tmp = tracks[left];
-                    tracks[left] = tracks[right];
-                    tracks[right] = tmp;
-                    left += 2;
-                    right = right >= 2 ? right - 2 : 0;
-                }
-                return;
-            }
-
-            int explicitTrackCount = trackCounts.Explicit;
-            if (explicitTrackCount < 2)
-                return;
-
-            {
-                int left = trackCounts.NegativeImplicit;
-                int right = left + explicitTrackCount - 1;
-                while (left < right)
-                {
-                    int leftIdx = (2 * left) + 1;
-                    int rightIdx = (2 * right) + 1;
-                    var tmp = tracks[leftIdx];
-                    tracks[leftIdx] = tracks[rightIdx];
-                    tracks[rightIdx] = tmp;
-                    left += 1;
-                    right = right >= 1 ? right - 1 : 0;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Maps initialized column indexes to occupancy-matrix indexes for auto-fit collapsing in RTL.
-        /// </summary>
-        private static int RtlColumnOccupancyIndexForInitialization(int columnIndex, TrackCounts trackCounts)
-        {
-            if (trackCounts.Explicit <= 1)
-                return trackCounts.Len() - columnIndex - 1;
-
-            int explicitStart = trackCounts.NegativeImplicit;
-            int explicitEnd = explicitStart + trackCounts.Explicit;
-            if (columnIndex >= explicitStart && columnIndex < explicitEnd)
-                return explicitStart + (explicitEnd - columnIndex - 1);
-            return columnIndex;
+            var columnLines = resolver.ResolveColumnNames(childStyle.GetGridColumn()).IntoOriginZero(columnCounts.Explicit)
+                .ResolveAbsolutelyPositionedGridTracks();
+            var rowLines = resolver.ResolveRowNames(childStyle.GetGridRow()).IntoOriginZero(rowCounts.Explicit)
+                .ResolveAbsolutelyPositionedGridTracks();
+            int? cs = columnLines.Start?.TryIntoTrackVecIndex(columnCounts), ce = columnLines.End?.TryIntoTrackVecIndex(columnCounts);
+            int? rs = rowLines.Start?.TryIntoTrackVecIndex(rowCounts), re = rowLines.End?.TryIntoTrackVecIndex(rowCounts);
+            static float Start(in ValueList<GridTrack> tracks, int index) => tracks[index + 1 < tracks.Count ? index + 1 : index].Offset;
+            static float End(in ValueList<GridTrack> tracks, int index) => tracks[index == 0 && tracks.Count > 1 ? 1 : index].Offset;
+            static float RtlStart(in ValueList<GridTrack> tracks, int index) => tracks[tracks.Count > index + 1 || index == 0 ? index : index - 1].Offset;
+            static float RtlEnd(in ValueList<GridTrack> tracks, int index) => tracks[index == 0 ? 0 : index - 1].Offset;
+            float left = direction.IsRtl()
+                ? ce is { } e ? RtlEnd(columns, e) : border.Left + scrollbarGutter.Width
+                : cs is { } s ? Start(columns, s) : border.Left;
+            float right = direction.IsRtl()
+                ? cs is { } rtlStart ? RtlStart(columns, rtlStart) : container.Width - border.Right
+                : ce is { } ltrEnd ? End(columns, ltrEnd) : container.Width - border.Right - scrollbarGutter.Width;
+            return new(left, right, rs is { } top ? Start(rows, top) : border.Top,
+                re is { } bottom ? End(rows, bottom) : container.Height - border.Bottom - scrollbarGutter.Height);
         }
     }
 }

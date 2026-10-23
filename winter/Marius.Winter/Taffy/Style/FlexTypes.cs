@@ -101,4 +101,13 @@ public enum FlexWrap
 
     /// <summary>Items will wrap in the opposite direction to this item's FlexDirection</summary>
     WrapReverse,
+    Balance,
+    BalanceReverse,
+}
+
+public static class FlexWrapExtensions
+{
+    public static bool IsMultiLine(this FlexWrap value) => value != FlexWrap.NoWrap;
+    public static bool IsReverse(this FlexWrap value) => value is FlexWrap.WrapReverse or FlexWrap.BalanceReverse;
+    public static bool IsBalance(this FlexWrap value) => value is FlexWrap.Balance or FlexWrap.BalanceReverse;
 }

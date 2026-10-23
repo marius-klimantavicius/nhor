@@ -1,0 +1,91 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "evidence": [
+    "json-byte-escape-profile-before.json",
+    "json-byte-escape-surrogate-corrected.json",
+    "json-byte-escape-lossless-corrected.json",
+    "arm-json-byte-escape-lossless-corrected.json"
+  ],
+  "cases": [
+    {
+      "name": "ascii",
+      "inputHex": "7b2276616c7565223a2268656c6c6f227d",
+      "expectedNative": "parse=1,key=76616c7565,value=68656c6c6f,invalid=0"
+    },
+    {
+      "name": "utf8",
+      "inputHex": "7b2276616c7565223a22c3a9f09f9880227d",
+      "expectedNative": "parse=1,key=76616c7565,value=c3a9f09f9880,invalid=0"
+    },
+    {
+      "name": "escaped-pair",
+      "inputHex": "7b2276616c7565223a225c75643833645c7564653030227d",
+      "expectedNative": "parse=1,key=76616c7565,value=f09f9880,invalid=0"
+    },
+    {
+      "name": "escaped-low",
+      "inputHex": "7b2276616c7565223a225c7564633030227d",
+      "expectedNative": "parse=1,key=76616c7565,value=not-string,invalid=1"
+    },
+    {
+      "name": "escaped-high",
+      "inputHex": "7b2276616c7565223a225c7564383030227d",
+      "expectedNative": "parse=1,key=76616c7565,value=not-string,invalid=1"
+    },
+    {
+      "name": "escaped-low-low",
+      "inputHex": "7b2276616c7565223a225c75646330305c7564633031227d",
+      "expectedNative": "parse=1,key=76616c7565,value=not-string,invalid=1"
+    },
+    {
+      "name": "escaped-high-nonlow",
+      "inputHex": "7b2276616c7565223a225c75643830305c7530303431227d",
+      "expectedNative": "parse=1,key=76616c7565,value=not-string,invalid=1"
+    },
+    {
+      "name": "escaped-low-key",
+      "inputHex": "7b225c7564633030223a2274657874227d",
+      "expectedNative": "parse=1,invalid=1"
+    },
+    {
+      "name": "escaped-null",
+      "inputHex": "7b2276616c7565223a22415c753030303042227d",
+      "expectedNative": "parse=1,key=76616c7565,value=41,invalid=0"
+    },
+    {
+      "name": "raw-continuation",
+      "inputHex": "7b2276616c7565223a2280227d",
+      "expectedNative": "parse=1,key=76616c7565,value=80,invalid=0"
+    },
+    {
+      "name": "raw-overlong",
+      "inputHex": "7b2276616c7565223a22c0af227d",
+      "expectedNative": "parse=1,key=76616c7565,value=c0af,invalid=0"
+    },
+    {
+      "name": "raw-high-surrogate",
+      "inputHex": "7b2276616c7565223a22eda080227d",
+      "expectedNative": "parse=1,key=76616c7565,value=eda080,invalid=0"
+    },
+    {
+      "name": "raw-low-surrogate",
+      "inputHex": "7b2276616c7565223a22edb080227d",
+      "expectedNative": "parse=1,key=76616c7565,value=edb080,invalid=0"
+    },
+    {
+      "name": "raw-truncated",
+      "inputHex": "7b2276616c7565223a22e2227d",
+      "expectedNative": "parse=1,key=76616c7565,value=e2,invalid=0"
+    },
+    {
+      "name": "raw-invalid-leading",
+      "inputHex": "7b2276616c7565223a22ff227d",
+      "expectedNative": "parse=1,key=76616c7565,value=ff,invalid=0"
+    },
+    {
+      "name": "raw-embedded-null",
+      "inputHex": "7b2276616c7565223a22610062227d",
+      "expectedNative": "parse=1,key=76616c7565,value=not-string,invalid=1"
+    }
+  ]
+}

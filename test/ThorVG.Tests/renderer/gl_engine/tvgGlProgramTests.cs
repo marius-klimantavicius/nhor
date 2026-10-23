@@ -46,16 +46,18 @@ namespace ThorVG.Tests
         [Fact]
         public void GlProgram_HasGetUniformLocation()
         {
-            var method = typeof(GlProgram).GetMethod("GetUniformLocation");
+            var method = typeof(GlProgram).GetMethod("GetUniformLocation", new[] { typeof(System.ReadOnlySpan<byte>) });
             Assert.NotNull(method);
+            Assert.NotNull(typeof(GlProgram).GetMethod("GetUniformLocation", new[] { typeof(GlShaderUniform) }));
             Assert.Equal(typeof(int), method!.ReturnType);
         }
 
         [Fact]
         public void GlProgram_HasGetUniformBlockIndex()
         {
-            var method = typeof(GlProgram).GetMethod("GetUniformBlockIndex");
+            var method = typeof(GlProgram).GetMethod("GetUniformBlockIndex", new[] { typeof(System.ReadOnlySpan<byte>) });
             Assert.NotNull(method);
+            Assert.NotNull(typeof(GlProgram).GetMethod("GetUniformBlockIndex", new[] { typeof(GlShaderUniformBlock) }));
             Assert.Equal(typeof(int), method!.ReturnType);
         }
 

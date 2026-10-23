@@ -1,0 +1,45 @@
+{
+  "target": "64d2d589d909f48b6d70b341ce4fe34130e26d68",
+  "architectures": {
+    "x64": {
+      "evidence": "lottie-modifier-polystar-native-inputs-x86.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c.json",
+        "sha256": "3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c",
+        "archive": "docs/thorvg-update/source-snapshots/3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c.tar.gz"
+      },
+      "records": 820,
+      "golden": {
+        "path": "lottie-modifier-x64-native-golden.bin",
+        "bytes": 371104,
+        "sha256": "a271883238f2d8cde961bd937d266e710d5d413217c2c60cb71b6426357b36f6"
+      },
+      "starInput": {
+        "path": "lottie-modifier-x64-native-star-inputs.bin",
+        "bytes": 3280,
+        "sha256": "57f18659c566362d2a46c9cf971a9f63c69ebafdfd8484ffd7d5731c5bc81945"
+      }
+    },
+    "arm64": {
+      "evidence": "lottie-modifier-polystar-native-inputs-arm.json",
+      "sourceSnapshot": {
+        "manifest": "docs/thorvg-update/source-snapshots/3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c.json",
+        "sha256": "3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c",
+        "archive": "docs/thorvg-update/source-snapshots/3fb4bde05b538f46747c098dc2898790a3c49daba4c6441530f294191775082c.tar.gz"
+      },
+      "records": 820,
+      "golden": {
+        "path": "lottie-modifier-arm64-native-golden.bin",
+        "bytes": 371272,
+        "sha256": "f7bd67cc7fc45acf8fc7b435ca04a7e7ea26dd2bbe1828136f23b62d37a639f2"
+      },
+      "starInput": {
+        "path": "lottie-modifier-arm64-native-star-inputs.bin",
+        "bytes": 3280,
+        "sha256": "57f18659c566362d2a46c9cf971a9f63c69ebafdfd8484ffd7d5731c5bc81945"
+      }
+    }
+  },
+  "scope": "820 original normal native records per architecture:720 modifier geometry/entrypoint/chain cases,4actual borrowed-view witnesses and96polystar cases. Native Builder generates12valid input shapes; both modifiers consume identical saved input words. ARM results come from actual original GNU ARM64/QEMU. This does not validate managed Builder. No new malformed/corruption/fuzz/authoredUTF8 cases.",
+  "parentReview": "pending"
+}

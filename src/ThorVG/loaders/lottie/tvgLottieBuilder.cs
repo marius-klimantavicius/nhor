@@ -21,32 +21,43 @@ namespace ThorVG
         public bool inorder;
     }
 
-    public class RenderText
+    public class RenderText : IDisposable
     {
         public Point cursor;
         public int line, space, idx;
         public float lineSpace, totalLineSpace;
-        public int pIdx;        // current processing character index into text
+        public int pIdx;        // current native UTF-8 byte index
         public string text;     // the full text string
+        internal readonly byte[] utf8;
         public int nChars;
         public float scale;
         public Scene textScene;
         public Scene lineScene;
         public float capScale, firstMargin;
         public LottieTextFollowPath? follow;
+        public bool perpendicular;
 
         public RenderText(LottieText text, TextDocument doc)
         {
             this.text = doc.text ?? "";
+            utf8 = doc.Utf8;
             pIdx = 0;
-            nChars = this.text.Length;
+            nChars = utf8.Length;
             scale = doc.size;
             textScene = Scene.Gen();
             lineScene = Scene.Gen();
         }
+
+        public void Dispose()
+        {
+            Paint.Rel(textScene);
+            Paint.Rel(lineScene);
+            textScene = null!;
+            lineScene = null!;
+        }
     }
 
-    public class RenderContext : IInlistNode<RenderContext>
+    public class RenderContext : IInlistNode<RenderContext>, IDisposable
     {
         public RenderContext? Prev { get; set; }
         public RenderContext? Next { get; set; }
@@ -79,38 +90,20 @@ namespace ThorVG
             repeaters.AddRange(rhs.repeaters);
             fragment = rhs.fragment;
 
-            // copy modifiers
-            var m = rhs.modifiers;
-            while (m != null)
+            LottieModifier? tail = null;
+            for (var m = rhs.modifiers; m != null; m = m.next)
             {
-                switch (m.type)
+                LottieModifier clone = m switch
                 {
-                    case LottieModifier.ModifierType.Roundness:
-                    {
-                        var roundness = (LottieRoundnessModifier)m;
-                        Update(new LottieRoundnessModifier(roundness.r));
-                        break;
-                    }
-                    case LottieModifier.ModifierType.Offset:
-                    {
-                        var offset = (LottieOffsetModifier)m;
-                        Update(new LottieOffsetModifier(offset.offset, offset.miterLimit, offset.join));
-                        break;
-                    }
-                    case LottieModifier.ModifierType.PuckerBloat:
-                    {
-                        var pucker = (LottiePuckerBloatModifier)m;
-                        Update(new LottiePuckerBloatModifier(pucker.amount));
-                        break;
-                    }
-                    case LottieModifier.ModifierType.ZigZag:
-                    {
-                        var zigzag = (LottieZigZagModifier)m;
-                        Update(new LottieZigZagModifier(zigzag.amp, zigzag.freq, zigzag.point));
-                        break;
-                    }
-                }
-                m = m.next;
+                    LottieRoundnessModifier r => new LottieRoundnessModifier(r.r),
+                    LottieOffsetModifier o => new LottieOffsetModifier(o.offset, o.miterLimit, o.join),
+                    LottiePuckerBloatModifier p => new LottiePuckerBloatModifier(p.amount),
+                    LottieZigZagModifier z => new LottieZigZagModifier(z.amp, z.freq, z.point),
+                    _ => throw new InvalidOperationException("Unknown Lottie modifier")
+                };
+                if (tail == null) modifiers = clone;
+                else tail.next = clone;
+                tail = clone;
             }
 
             if (rhs.transform.HasValue)
@@ -135,23 +128,30 @@ namespace ThorVG
 
         public void Update(LottieModifier next)
         {
-            if (modifiers != null) modifiers = modifiers.Decorate(next);
-            else modifiers = next;
+            next.next = modifiers;
+            modifiers = next;
         }
 
         public void Dispose()
         {
-            propagator?.Unref(false);
+            var owner = propagator;
+            propagator = null;
+            owner?.Unref(false);
+            merging = null;
+            transform = null;
+            modifiers = null;
+            repeaters.Clear();
         }
     }
 
-    public class LottieBuilder
+    public class LottieBuilder : IDisposable
     {
         private LottieExpressions? exps;
         public LottieTween tween = new();
         public AssetResolver? resolver;
         public Action<LottieAudioResolver, object?>? audioResolver;
         public object? audioResolverData;
+        public float volume = 1.0f;
 
         // Object pools for per-frame allocations
         private Stack<RenderContext> contextPool = new();
@@ -207,6 +207,19 @@ namespace ThorVG
             exps = LottieExpressions.Instance();
         }
 
+        ~LottieBuilder() => Dispose();
+
+        public void Dispose()
+        {
+            var expressions = System.Threading.Interlocked.Exchange(ref exps, null);
+            if (expressions == null) return;
+            LottieExpressions.Retrieve(expressions);
+            tween.Dispose();
+            contextPool.Clear();
+            contextListPool.Clear();
+            GC.SuppressFinalize(this);
+        }
+
         public bool Expressions()
         {
             return exps != null;
@@ -218,15 +231,15 @@ namespace ThorVG
         {
             var x = TvgMath.Deg2Rad(transform.ddd!.rx.Evaluate(frameNo, tween, exps));
             var y = TvgMath.Deg2Rad(transform.ddd.ry.Evaluate(frameNo, tween, exps));
-            var z = TvgMath.Deg2Rad(transform.rotation.Evaluate(frameNo, tween, exps)) + angle;
+            var z = TvgMath.MultiplyAdd(transform.rotation.Evaluate(frameNo, tween, exps), TvgMath.Deg2Rad(1.0f), angle);
 
             var sx = MathF.Sin(x); var sy = MathF.Sin(y); var sz = MathF.Sin(z);
             var cx = MathF.Cos(x); var cy = MathF.Cos(y); var cz = MathF.Cos(z);
 
             var ri00 = cy * cz;
             var ri01 = -cy * sz;
-            var ri10 = sx * sy * cz + cx * sz;
-            var ri11 = -sx * sy * sz + cx * cz;
+            var ri10 = TvgMath.MultiplyAdd(sx * sy, cz, cx * sz);
+            var ri11 = TvgMath.MultiplyAdd(-sx * sy, sz, cx * cz);
 
             var o = transform.ddd.orient.Evaluate(frameNo, tween, exps);
             if (o.x == 0.0f && o.y == 0.0f && o.z == 0.0f)
@@ -250,15 +263,15 @@ namespace ThorVG
 
             var ro00 = coy * coz;
             var ro01 = -coy * soz;
-            var ro10 = sox * soy * coz + cox * soz;
-            var ro11 = -sox * soy * soz + cox * coz;
-            var ro20 = -cox * soy * coz + sox * soz;
-            var ro21 = cox * soy * soz + sox * coz;
+            var ro10 = TvgMath.MultiplyAdd(sox * soy, coz, cox * soz);
+            var ro11 = TvgMath.MultiplyAdd(-sox * soy, soz, cox * coz);
+            var ro20 = TvgMath.MultiplyAdd(-cox * soy, coz, sox * soz);
+            var ro21 = TvgMath.MultiplyAdd(cox * soy, soz, sox * coz);
 
-            m.e11 = ri00 * ro00 + ri01 * ro10 + ri02 * ro20;
-            m.e12 = ri00 * ro01 + ri01 * ro11 + ri02 * ro21;
-            m.e21 = ri10 * ro00 + ri11 * ro10 + ri12 * ro20;
-            m.e22 = ri10 * ro01 + ri11 * ro11 + ri12 * ro21;
+            m.e11 = TvgMath.MultiplyAdd(ri02, ro20, TvgMath.MultiplyAdd(ri00, ro00, ri01 * ro10));
+            m.e12 = TvgMath.MultiplyAdd(ri02, ro21, TvgMath.MultiplyAdd(ri00, ro01, ri01 * ro11));
+            m.e21 = TvgMath.MultiplyAdd(ri12, ro20, TvgMath.MultiplyAdd(ri10, ro00, ri11 * ro10));
+            m.e22 = TvgMath.MultiplyAdd(ri12, ro21, TvgMath.MultiplyAdd(ri10, ro01, ri11 * ro11));
         }
 
         private static void Rotate(LottieTransform transform, float frameNo, ref Matrix m, float angle, LottieTween tween, LottieExpressions? exps)
@@ -289,32 +302,33 @@ namespace ThorVG
             {
                 float cosVal = MathF.Cos(TvgMath.Deg2Rad(axisDeg));
                 var B = cosVal * cosVal * tanVal;
-                m.e12 += B * m.e11;
-                m.e22 += B * m.e21;
+                m.e12 = TvgMath.MultiplyAdd(B, m.e11, m.e12);
+                m.e22 = TvgMath.MultiplyAdd(B, m.e21, m.e22);
                 return;
             }
             else if (MathF.Abs(axisDeg - 90.0f) < 0.01f || MathF.Abs(axisDeg + 90.0f) < 0.01f)
             {
                 float sinVal = -MathF.Sin(TvgMath.Deg2Rad(axisDeg));
                 var C = sinVal * sinVal * tanVal;
-                m.e11 -= C * m.e12;
-                m.e21 -= C * m.e22;
+                m.e11 = TvgMath.MultiplyAdd(-C, m.e12, m.e11);
+                m.e21 = TvgMath.MultiplyAdd(-C, m.e22, m.e21);
                 return;
             }
 
             var axis = -TvgMath.Deg2Rad(axisDeg);
             var cosV = MathF.Cos(axis);
             var sinV = MathF.Sin(axis);
-            var A = sinV * cosV * tanVal;
+            var oneMinusA = TvgMath.MultiplyAdd(-(sinV * cosV), tanVal, 1.0f);
+            var onePlusA = TvgMath.MultiplyAdd(sinV * cosV, tanVal, 1.0f);
             var Bv = cosV * cosV * tanVal;
             var Cv = sinV * sinV * tanVal;
 
             var e11 = m.e11;
             var e21 = m.e21;
-            m.e11 = (1.0f - A) * e11 - Cv * m.e12;
-            m.e12 = Bv * e11 + (1.0f + A) * m.e12;
-            m.e21 = (1.0f - A) * e21 - Cv * m.e22;
-            m.e22 = Bv * e21 + (1.0f + A) * m.e22;
+            m.e11 = TvgMath.MultiplyAdd(oneMinusA, e11, -Cv * m.e12);
+            m.e12 = TvgMath.MultiplyAdd(Bv, e11, onePlusA * m.e12);
+            m.e21 = TvgMath.MultiplyAdd(oneMinusA, e21, -Cv * m.e22);
+            m.e22 = TvgMath.MultiplyAdd(Bv, e21, onePlusA * m.e22);
         }
 
         private static bool UpdateTransformMatrix(LottieTransform? transform, float frameNo, ref Matrix matrix, out byte opacity, bool autoOrient, LottieTween tween, LottieExpressions? exps)
@@ -330,7 +344,7 @@ namespace ThorVG
             if (transform.coords != null)
                 TvgMath.Translate(ref matrix, new Point(transform.coords.x.Evaluate(frameNo, tween, exps), transform.coords.y.Evaluate(frameNo, tween, exps)));
             else
-                TvgMath.Translate(ref matrix, transform.position.Evaluate(frameNo, tween, exps));
+                TvgMath.Translate(ref matrix, transform.position.EvaluateForRendering(frameNo, tween, exps));
 
             var angle = autoOrient ? transform.position.GetAngle(frameNo, tween) : 0.0f;
             Rotate(transform, frameNo, ref matrix, angle, tween, exps);
@@ -400,8 +414,6 @@ namespace ThorVG
 
         private static unsafe void Repeat(LottieGroup parent, Shape path, LottieRenderPooler<Shape> pooler, RenderContext ctx)
         {
-            path.Ref(); // prevent pooler from returning the same path
-
             var propagators = new List<Shape> { ctx.propagator! };
             var shapes = new List<Shape>();
 
@@ -427,7 +439,7 @@ namespace ThorVG
                         shape.Opacity(RenderHelper.Multiply(shape.Opacity(), opacity));
 
                         var m = TvgMath.Identity();
-                        TvgMath.Translate(ref m, TvgMath.PointAdd(TvgMath.PointMul(repeater.position, multiplier), repeater.anchor));
+                        TvgMath.Translate(ref m, LottieModifierHelpers.ScaleAdd(repeater.anchor, repeater.position, multiplier));
                         TvgMath.Scale(ref m, new Point(MathF.Pow(repeater.scale.x * 0.01f, multiplier), MathF.Pow(repeater.scale.y * 0.01f, multiplier)));
                         TvgMath.Rotate(ref m, repeater.rotation * multiplier);
                         TvgMath.TranslateR(ref m, TvgMath.PointNeg(repeater.anchor));
@@ -462,7 +474,6 @@ namespace ThorVG
                 }
                 shapes.Clear();
             }
-            path.Unref();
         }
 
         private static unsafe void Close(ref Array<Point> pts, Point p, bool round)
@@ -533,7 +544,7 @@ namespace ThorVG
             // FIXME: preserve the stroke width. too workaround, need a better design.
             if (ctx.propagator.rs.StrokeWidth() > 0.0f)
             {
-                var denominator = MathF.Sqrt(m.e11 * m.e11 + m.e12 * m.e12);
+                var denominator = MathF.Sqrt(TvgMath.MultiplyAdd(m.e11, m.e11, m.e12 * m.e12));
                 if (denominator > 1.0f) ctx.propagator.StrokeWidth(ctx.propagator.GetStrokeWidth() / denominator);
             }
 
@@ -582,10 +593,12 @@ namespace ThorVG
 
             var contexts = AcquireContextList();
             var propagator = group.Mergeable() ? ctx.propagator! : (Shape)ctx.propagator!.pImpl.Duplicate(group.renderPooler.Pooling());
-            contexts.Back(AcquireContext(ctx, propagator, group.Mergeable()));
-
-            UpdateChildren(group, frameNo, contexts);
-            ReleaseContextList(contexts);
+            try
+            {
+                contexts.Back(AcquireContext(ctx, propagator, group.Mergeable()));
+                UpdateChildren(group, frameNo, contexts);
+            }
+            finally { ReleaseContextList(contexts); }
         }
 
         private bool Fragmented(LottieGroup parent, int childIdx, Inlist<RenderContext> contexts, RenderContext ctx, RenderFragment fragment)
@@ -703,7 +716,7 @@ namespace ThorVG
         {
             var rect = (LottieRect)parent.children[childIdx];
             var size = rect.size.Evaluate(frameNo, tween, exps);
-            var pos = TvgMath.PointSub(rect.position.Evaluate(frameNo, tween, exps), TvgMath.PointMul(size, 0.5f));
+            var pos = TvgMath.PointSub(rect.position.EvaluateForRendering(frameNo, tween, exps), TvgMath.PointMul(size, 0.5f));
             var r = MathF.Min(rect.radius.Evaluate(frameNo, tween, exps), MathF.Min(size.x * 0.5f, size.y * 0.5f));
 
             if (ctx.repeaters.Count == 0)
@@ -714,9 +727,14 @@ namespace ThorVG
             else
             {
                 var shape = rect.renderPooler.Pooling();
-                shape.ResetShape();
-                AppendRect(rect, shape, pos, size, r, rect.clockwise, ctx);
-                Repeat(parent, shape, rect.renderPooler, ctx);
+                shape.Ref();
+                try
+                {
+                    shape.ResetShape();
+                    AppendRect(rect, shape, pos, size, r, rect.clockwise, ctx);
+                    Repeat(parent, shape, rect.renderPooler, ctx);
+                }
+                finally { shape.Unref(); }
             }
         }
 
@@ -747,7 +765,7 @@ namespace ThorVG
         private void UpdateEllipse(LottieGroup parent, int childIdx, float frameNo, Inlist<RenderContext> contexts, RenderContext ctx)
         {
             var ellipse = (LottieEllipse)parent.children[childIdx];
-            var pos = ellipse.position.Evaluate(frameNo, tween, exps);
+            var pos = ellipse.position.EvaluateForRendering(frameNo, tween, exps);
             var size = TvgMath.PointMul(ellipse.size.Evaluate(frameNo, tween, exps), 0.5f);
 
             if (ctx.repeaters.Count == 0)
@@ -758,9 +776,14 @@ namespace ThorVG
             else
             {
                 var shape = ellipse.renderPooler.Pooling();
-                shape.ResetShape();
-                AppendCircle(ellipse, shape, pos, size, ellipse.clockwise, ctx);
-                Repeat(parent, shape, ellipse.renderPooler, ctx);
+                shape.Ref();
+                try
+                {
+                    shape.ResetShape();
+                    AppendCircle(ellipse, shape, pos, size, ellipse.clockwise, ctx);
+                    Repeat(parent, shape, ellipse.renderPooler, ctx);
+                }
+                finally { shape.Unref(); }
             }
         }
 
@@ -784,16 +807,21 @@ namespace ThorVG
             else
             {
                 var shape = path.renderPooler.Pooling();
-                shape.ResetShape();
-                Matrix* t = null;
-                Matrix tVal;
-                if (ctx.transform.HasValue)
+                shape.Ref();
+                try
                 {
-                    tVal = ctx.transform.Value;
-                    t = &tVal;
+                    shape.ResetShape();
+                    Matrix* t = null;
+                    Matrix tVal;
+                    if (ctx.transform.HasValue)
+                    {
+                        tVal = ctx.transform.Value;
+                        t = &tVal;
+                    }
+                    path.pathset.Evaluate(frameNo, shape.rs.path, t, tween, exps, ctx.modifiers);
+                    Repeat(parent, shape, path.renderPooler, ctx);
                 }
-                path.pathset.Evaluate(frameNo, shape.rs.path, t, tween, exps, ctx.modifiers);
-                Repeat(parent, shape, path.renderPooler, ctx);
+                finally { shape.Unref(); }
             }
         }
 
@@ -802,6 +830,7 @@ namespace ThorVG
             const float POLYSTAR_MAGIC_NUMBER = 0.47829f / 0.28f;
 
             var ptsCnt = star.ptsCnt.Evaluate(frameNo, tween, exps);
+            if (ptsCnt < 1) return;
             var innerRadius = star.innerRadius.Evaluate(frameNo, tween, exps);
             var outerRadius = star.outerRadius.Evaluate(frameNo, tween, exps);
             var innerRoundness = star.innerRoundness.Evaluate(frameNo, tween, exps) * 0.01f;
@@ -932,6 +961,7 @@ namespace ThorVG
             const float POLYGON_MAGIC_NUMBER = 0.25f;
 
             var ptsCnt = (int)MathF.Floor(star.ptsCnt.Evaluate(frameNo, tween, exps));
+            if (ptsCnt < 1) return;
             var radius = star.outerRadius.Evaluate(frameNo, tween, exps);
             var outerRoundness = star.outerRoundness.Evaluate(frameNo, tween, exps) * 0.01f;
 
@@ -1011,7 +1041,7 @@ namespace ThorVG
 
             // Optimize: Can we skip the individual coords transform?
             var matrix = TvgMath.Identity();
-            TvgMath.Translate(ref matrix, star.position.Evaluate(frameNo, tween, exps));
+            TvgMath.Translate(ref matrix, star.position.EvaluateForRendering(frameNo, tween, exps));
             TvgMath.Rotate(ref matrix, star.rotation.Evaluate(frameNo, tween, exps));
 
             if (ctx.transform.HasValue) matrix = TvgMath.Multiply(ctx.transform.Value, matrix);
@@ -1028,10 +1058,15 @@ namespace ThorVG
             else
             {
                 var shape = star.renderPooler.Pooling();
-                shape.ResetShape();
-                if (star.starType == LottiePolyStar.StarType.Star) UpdateStar(star, frameNo, identity ? null : matrix, shape, ctx, tween, exps);
-                else UpdatePolygon(parent, star, frameNo, identity ? null : matrix, shape, ctx, tween, exps);
-                Repeat(parent, shape, star.renderPooler, ctx);
+                shape.Ref();
+                try
+                {
+                    shape.ResetShape();
+                    if (star.starType == LottiePolyStar.StarType.Star) UpdateStar(star, frameNo, identity ? null : matrix, shape, ctx, tween, exps);
+                    else UpdatePolygon(parent, star, frameNo, identity ? null : matrix, shape, ctx, tween, exps);
+                    Repeat(parent, shape, star.renderPooler, ctx);
+                }
+                finally { shape.Unref(); }
             }
         }
 
@@ -1073,7 +1108,7 @@ namespace ThorVG
             r.cnt = (int)repeater.copies.Evaluate(frameNo, tween, exps);
             r.transform = ctx.propagator!.Transform();
             r.offset = repeater.offset.Evaluate(frameNo, tween, exps);
-            r.position = repeater.position.Evaluate(frameNo, tween, exps);
+            r.position = repeater.position.EvaluateForRendering(frameNo, tween, exps);
             r.anchor = repeater.anchor.Evaluate(frameNo, tween, exps);
             r.scale = repeater.scale.Evaluate(frameNo, tween, exps);
             r.rotation = repeater.rotation.Evaluate(frameNo, tween, exps);
@@ -1095,8 +1130,8 @@ namespace ThorVG
             {
                 var length = MathF.Abs(begin - end);
                 var tmp = begin;
-                begin = length * ctx.propagator.rs.stroke.trim.begin + tmp;
-                end = length * ctx.propagator.rs.stroke.trim.end + tmp;
+                begin = TvgMath.MultiplyAdd(length, ctx.propagator.rs.stroke.trim.begin, tmp);
+                end = TvgMath.MultiplyAdd(length, ctx.propagator.rs.stroke.trim.end, tmp);
             }
 
             ctx.propagator.Trimpath(begin, end, trimpath.trimType == LottieTrimpath.TrimType.Simultaneous);
@@ -1208,9 +1243,7 @@ namespace ThorVG
 
         private void UpdateSolid(LottieLayer layer)
         {
-            var solidFill = layer.statical.Pooling(true);
-            solidFill.Opacity(layer.cacheOpacity);
-            layer.scene!.Add(solidFill);
+            layer.scene!.Add(layer.statical.Pooling(true));
         }
 
         private void UpdateImage(LottieGroup layer)
@@ -1218,8 +1251,7 @@ namespace ThorVG
             if (layer.children.Count == 0) return;
 
             if (layer.children[0] is not LottieImage image) return;
-            var picture = image.bitmap.picture;
-            if (picture == null) return;
+            var picture = image.Get();
 
             // resolve an image asset if needed
             if (resolver != null && !image.resolved)
@@ -1240,7 +1272,7 @@ namespace ThorVG
             if (paint.SetFont(doc.name) != Result.Success)
             {
                 string? src;
-                if (text.font?.path != null) src = text.font.path;
+                if (text.font?.external == true) src = text.font.b64src;
                 else src = $"name:{doc.name}";
 
                 if (resolver == null || resolver.func == null || !resolver.func(paint, src, resolver.data))
@@ -1250,8 +1282,8 @@ namespace ThorVG
             }
 
             // text build - preprocess text
-            var textStr = doc.text ?? "";
-            var buf = new char[textStr.Length + 1];
+            var textStr = doc.Utf8;
+            var buf = new byte[textStr.Length + 1];
             var bIdx = 0;
             var feed = false;
             for (int i = 0; i < textStr.Length; ++i)
@@ -1260,14 +1292,14 @@ namespace ThorVG
                 if (textStr[i] == '\r' || textStr[i] == '\x03')
                 {
                     if (i == textStr.Length - 1) break;  // ignore trailing occurrences
-                    if (!feed) buf[bIdx] = '\n';
+                    if (!feed) buf[bIdx] = (byte)'\n';
                     else continue;
                 }
                 else buf[bIdx] = textStr[i];
                 feed = buf[bIdx] == '\n';
                 ++bIdx;
             }
-            var processedText = new string(buf, 0, bIdx);
+            var processedText = TvgUtf8.Decode(buf.AsSpan(0, bIdx));
 
             var color = doc.color;
             paint.SetFill((byte)color.r, (byte)color.g, (byte)color.b);
@@ -1275,13 +1307,13 @@ namespace ThorVG
             if (text.font != null && text.font.style != null && text.font.style.Contains("Italic")) paint.SetItalic(0.18f);
             paint.SetText(processedText);
             paint.SetLayout(doc.bboxSize.x, doc.bboxSize.y);
-            paint.Translate(doc.bboxPos.x, doc.bboxPos.y);
             if (doc.bboxSize.x > 0.0f) paint.SetWrapping(TextWrap.Smart);
 
             // Align to the baseline when unboxed, otherwise to the box top.
             paint.GetMetrics(out var metrics);
-            var valign = doc.bboxSize.y > 0.0f ? 0.0f : metrics.ascent / (metrics.ascent - metrics.descent);
-            paint.SetAlign(doc.justify, valign);
+            var vpos = doc.bboxPos.y - (doc.bboxSize.y > 0 ? 0 : metrics.ascent);
+            paint.Translate(doc.bboxPos.x, vpos);
+            paint.SetAlign(doc.justify, 0);
 
             var hspacing = 1.0f + doc.tracking * doc.size / metrics.ascent;
             var vspacing = (doc.height > 0.0f && paint.Lines() > 1) ? (doc.height / metrics.advance) : 1.0f;
@@ -1302,7 +1334,7 @@ namespace ThorVG
 
             foreach (var range in text.ranges)
             {
-                var f = range.Factor(frameNo, (float)processedText.Length, 0.0f);
+                var f = range.Factor(frameNo, (float)doc.Utf8.Length, 0.0f);
                 if (TvgMath.Zero(f)) continue;
 
                 // fill & opacity
@@ -1377,28 +1409,30 @@ namespace ThorVG
                 needGroup = true;
 
                 // transform
-                translation = TvgMath.PointAdd(translation, TvgMath.PointMul(f, range.style.position.Evaluate(frameNo, tween, exps)));
+                translation = LottieModifierHelpers.ScaleAdd(translation, range.style.position.EvaluateForRendering(frameNo, tween, exps), f);
                 var sc = range.style.scale.Evaluate(frameNo, tween, exps);
-                scaling = TvgMath.PointMul(scaling, TvgMath.PointAdd(TvgMath.PointMul(f, TvgMath.PointSub(TvgMath.PointMul(sc, 0.01f), new Point(1.0f, 1.0f))), new Point(1.0f, 1.0f)));
-                rotation += f * range.style.rotation.Evaluate(frameNo, tween, exps);
+                scaling = TvgMath.PointMul(scaling, new Point(
+                    TvgMath.MultiplyAdd(f, TvgMath.MultiplyAdd(sc.x, 0.01f, -1.0f), 1.0f),
+                    TvgMath.MultiplyAdd(f, TvgMath.MultiplyAdd(sc.y, 0.01f, -1.0f), 1.0f)));
+                rotation = TvgMath.MultiplyAdd(f, range.style.rotation.Evaluate(frameNo, tween, exps), rotation);
 
                 // fill & opacity
-                opacity = (byte)(opacity - f * (opacity - range.style.opacity.Evaluate(frameNo, tween, exps)));
+                opacity = (byte)TvgMath.MultiplyAdd(-f, opacity - range.style.opacity.Evaluate(frameNo, tween, exps), opacity);
                 shape.Opacity(opacity);
 
                 range.Color(frameNo, ref color, ref strokeColor, f, tween, exps);
-                fillOpacity = (byte)(fillOpacity - f * (fillOpacity - range.style.fillOpacity.Evaluate(frameNo, tween, exps)));
+                fillOpacity = (byte)TvgMath.MultiplyAdd(-f, fillOpacity - range.style.fillOpacity.Evaluate(frameNo, tween, exps), fillOpacity);
                 shape.SetFill((byte)color.r, (byte)color.g, (byte)color.b, fillOpacity);
 
                 // stroke
                 if (range.style.flagStrokeWidth) shape.StrokeWidth(f * range.style.strokeWidth.Evaluate(frameNo, tween, exps) / ctx.scale);
                 if (shape.GetStrokeWidth() > 0.0f)
                 {
-                    strokeOpacity = (byte)(strokeOpacity - f * (strokeOpacity - range.style.strokeOpacity.Evaluate(frameNo, tween, exps)));
+                    strokeOpacity = (byte)TvgMath.MultiplyAdd(-f, strokeOpacity - range.style.strokeOpacity.Evaluate(frameNo, tween, exps), strokeOpacity);
                     shape.StrokeFill((byte)strokeColor.r, (byte)strokeColor.g, (byte)strokeColor.b, strokeOpacity);
                     shape.Order(doc.strokeBelow);
                 }
-                ctx.cursor.x += f * range.style.letterSpace.Evaluate(frameNo, tween, exps);
+                ctx.cursor.x = TvgMath.MultiplyAdd(f, range.style.letterSpace.Evaluate(frameNo, tween, exps), ctx.cursor.x);
                 var spacing = f * range.style.lineSpace.Evaluate(frameNo, tween, exps);
                 if (spacing > ctx.lineSpace) ctx.lineSpace = spacing;
             }
@@ -1416,8 +1450,8 @@ namespace ThorVG
 
                 // center pivoting
                 var pivot = TvgMath.PointMul(align, -1.0f);
-                transform.e13 += pivot.x * transform.e11 + pivot.x * transform.e12;
-                transform.e23 += pivot.y * transform.e21 + pivot.y * transform.e22;
+                transform.e13 += TvgMath.MultiplyAdd(pivot.x, transform.e11, pivot.x * transform.e12);
+                transform.e23 += TvgMath.MultiplyAdd(pivot.y, transform.e21, pivot.y * transform.e22);
 
                 //world space translation
                 transform.e13 += translation.x / ctx.scale;
@@ -1445,8 +1479,9 @@ namespace ThorVG
                 var width = glyph.width * 0.5f;
                 var pos = ctx.follow.Position(ctx.cursor.x + width + ctx.firstMargin, ref angle);
                 matrix.e11 = matrix.e22 = ctx.capScale;
-                matrix.e13 = pos.x - width * matrix.e11;
-                matrix.e23 = pos.y - width * matrix.e21;
+                if (ctx.perpendicular) TvgMath.Rotate(ref matrix, TvgMath.Rad2Deg(angle));
+                matrix.e13 = TvgMath.MultiplyAdd(-width, matrix.e11, pos.x);
+                matrix.e23 = TvgMath.MultiplyAdd(-width, matrix.e21, pos.y);
             }
             else
             {
@@ -1458,34 +1493,35 @@ namespace ThorVG
             ctx.textScene.Add(shape);
         }
 
-        private static LottieGlyph? SearchGlyph(LottieFont font, string text, int idx, TextDocument doc, out float capScale)
+        private static LottieGlyph? SearchGlyph(LottieFont font, ReadOnlySpan<byte> text, int idx, TextDocument doc, out float capScale)
         {
             capScale = 1.0f;
-            var codeIdx = idx;
-            string? capCode = null;
+            Span<byte> capCode = stackalloc byte[1];
+            scoped ReadOnlySpan<byte> code = text.Slice(idx);
             if (idx < text.Length && text[idx] < 0x80 && doc.caps > 0 && text[idx] >= 'a' && text[idx] <= 'z')
             {
-                capCode = ((char)(text[idx] + 'A' - 'a')).ToString();
+                capCode[0] = (byte)(text[idx] + 'A' - 'a');
+                code = capCode;
                 if (doc.caps == 2) capScale = 0.7f;
             }
 
             foreach (var glyph in font.chars)
             {
-                var code = capCode ?? text.Substring(codeIdx);
-                if (code.Length >= glyph.len && code.Substring(0, glyph.len) == glyph.code) return glyph;
+                if (code.Length >= glyph.len && glyph.Utf8Code.Length >= glyph.len &&
+                    code.Slice(0, glyph.len).SequenceEqual(glyph.Utf8Code.AsSpan(0, glyph.len))) return glyph;
             }
             return null;
         }
 
-        private static float NextWordWidth(LottieText text, TextDocument doc, string str, int idx)
+        private static float NextWordWidth(LottieText text, TextDocument doc, ReadOnlySpan<byte> str, int idx)
         {
             var w = 0.0f;
-            while (idx < str.Length && str[idx] != ' ' && str[idx] != '\r' && str[idx] != '\x03')
+            while (idx < str.Length && str[idx] != 0 && str[idx] != ' ' && str[idx] != '\r' && str[idx] != '\x03')
             {
                 var glyph = SearchGlyph(text.font!, str, idx, doc, out var capScale);
                 if (glyph != null)
                 {
-                    w += (glyph.width + doc.tracking) * capScale;
+                    w = TvgMath.MultiplyAdd(glyph.width + doc.tracking, capScale, w);
                     idx += glyph.len;
                 }
                 else ++idx;
@@ -1495,15 +1531,16 @@ namespace ThorVG
 
         private void UpdateLocalFont(LottieLayer layer, float frameNo, LottieText text, TextDocument doc)
         {
-            var ctx = new RenderText(text, doc);
+            using var ctx = new RenderText(text, doc);
             ctx.follow = (text.follow != null && (uint)text.follow.maskIdx < layer.masks.Count) ? text.follow : null;
             ctx.firstMargin = ctx.follow != null ? ctx.follow.Prepare(layer.masks[ctx.follow.maskIdx], frameNo, ctx.scale, tween, exps) : 0.0f;
+            ctx.perpendicular = ctx.follow != null && ctx.follow.perpendicular.Evaluate(frameNo, tween, exps) != 0;
             var lineWrapped = false;
 
             // text string
             while (true)
             {
-                char currentChar = ctx.pIdx < ctx.text.Length ? ctx.text[ctx.pIdx] : '\0';
+                byte currentChar = ctx.pIdx < ctx.utf8.Length ? ctx.utf8[ctx.pIdx] : (byte)0;
 
                 // new line of the cursor position
                 if (lineWrapped || currentChar == 13 || currentChar == 3 || currentChar == '\0')
@@ -1514,7 +1551,7 @@ namespace ThorVG
 
                     // horizontal alignment
                     var layout = new Point(doc.bboxPos.x, doc.bboxPos.y + ascent - doc.shift);
-                    layout.x += doc.justify * (doc.bboxSize.x - ctx.cursor.x * ctx.scale);
+                    layout.x = TvgMath.MultiplyAdd(doc.justify, TvgMath.MultiplyAdd(-ctx.cursor.x, ctx.scale, doc.bboxSize.x), layout.x);
 
                     // new text group, single scene based on text-grouping
                     ctx.textScene.Add(ctx.lineScene);
@@ -1527,6 +1564,7 @@ namespace ThorVG
 
                     if (currentChar == '\0')
                     {
+                        ctx.textScene = null!;
                         break;
                     }
                     if (!lineWrapped) ++ctx.pIdx;
@@ -1537,15 +1575,15 @@ namespace ThorVG
 
                     // new text group, single scene for each line
                     ctx.textScene = Scene.Gen();
-                    ctx.cursor = new Point(0.0f, (++ctx.line * doc.height + ctx.totalLineSpace) / ctx.scale);
+                    ctx.cursor = new Point(0.0f, TvgMath.MultiplyAdd(++ctx.line, doc.height, ctx.totalLineSpace) / ctx.scale);
                     continue;
                 }
-                var glyph = SearchGlyph(text.font!, ctx.text, ctx.pIdx, doc, out ctx.capScale);
+                var glyph = SearchGlyph(text.font!, ctx.utf8, ctx.pIdx, doc, out ctx.capScale);
                 var advance = glyph != null ? (glyph.width + doc.tracking) * ctx.capScale : 0.0f;
 
                 if (currentChar == ' ')
                 {
-                    if (doc.bboxSize.x > 0.0f && (ctx.cursor.x + advance + NextWordWidth(text, doc, ctx.text, ctx.pIdx + 1)) * ctx.scale >= doc.bboxSize.x)
+                    if (doc.bboxSize.x > 0.0f && (ctx.cursor.x + advance + NextWordWidth(text, doc, ctx.utf8, ctx.pIdx + 1)) * ctx.scale >= doc.bboxSize.x)
                     {
                         ++ctx.pIdx;
                         lineWrapped = true;
@@ -1678,12 +1716,12 @@ namespace ThorVG
             }
         }
 
-        private bool UpdateMatte(LottieComposition comp, float frameNo, Scene scene, LottieLayer layer)
+        private bool UpdateMatte(LottieComposition comp, float frameNo, LottieLayer layer)
         {
             var target = layer.matteTarget;
             if (target == null || target.layerType == LottieLayer.LayerType.Null) return true;
 
-            UpdateLayer(comp, scene, target, frameNo);
+            UpdateLayer(comp, null, target, frameNo);
 
             if (target.scene != null)
             {
@@ -1824,8 +1862,10 @@ namespace ThorVG
             if (layer.children.Count == 0 || layer.children[0] is not LottieAudio asset) return;
             var ctrl = layer.Audio();
             var active = frameNo >= layer.inFrame && frameNo < layer.outFrame;
-            var volume = active ? TvgMath.Clamp(ctrl.volume.Evaluate(frameNo, tween, exps), 0.0f, 100.0f) : 100.0f;
-            var changed = active != ctrl.prevActive || (active && !TvgMath.Equal(volume, ctrl.prevVolume));
+            var position = layer.Remap(comp, frameNo, exps);
+            if (position < 0.0f) active = false;
+            var value = active ? volume * ctrl.volume.Evaluate(frameNo, tween, exps) : 100.0f;
+            var changed = active != ctrl.prevActive || (active && !TvgMath.Equal(value, ctrl.prevVolume));
             if (changed)
             {
                 var info = new LottieAudioResolver
@@ -1834,17 +1874,17 @@ namespace ThorVG
                     mimeType = asset.mimeType,
                     size = asset.size,
                     embedded = asset.size > 0,
-                    volume = volume,
+                    volume = value,
                     active = active,
-                    offset = active ? (layer.Remap(comp, frameNo, exps) - layer.Remap(comp, layer.inFrame, exps)) / comp.frameRate : 0.0f
+                    offset = active ? position / comp.frameRate : 0.0f
                 };
                 audioResolver?.Invoke(info, audioResolverData);
             }
             ctrl.prevActive = active;
-            ctrl.prevVolume = volume;
+            ctrl.prevVolume = value;
         }
 
-        private void UpdateLayer(LottieComposition comp, Scene scene, LottieLayer layer, float frameNo)
+        private void UpdateLayer(LottieComposition comp, Scene? scene, LottieLayer layer, float frameNo)
         {
             if (layer.layerType == LottieLayer.LayerType.Audio)
             {
@@ -1871,7 +1911,7 @@ namespace ThorVG
 
             layer.scene.Transform(layer.cacheMatrix);
 
-            if (!layer.matteSrc && !UpdateMatte(comp, frameNo, scene, layer)) return;
+            if (!UpdateMatte(comp, frameNo, layer)) return;
 
             layer.scene.SetBlend(layer.blendMethod);
 
@@ -1903,9 +1943,12 @@ namespace ThorVG
                     if (layer.children.Count > 0)
                     {
                         var contexts = AcquireContextList();
-                        contexts.Back(AcquireContext(layer.renderPooler.Pooling()));
-                        UpdateChildren(layer, frameNo, contexts);
-                        ReleaseContextList(contexts);
+                        try
+                        {
+                            contexts.Back(AcquireContext(layer.renderPooler.Pooling()));
+                            UpdateChildren(layer, frameNo, contexts);
+                        }
+                        finally { ReleaseContextList(contexts); }
                     }
                     break;
                 }
@@ -1915,7 +1958,7 @@ namespace ThorVG
 
             UpdateEffect(layer, frameNo, comp.quality);
 
-            if (!layer.matteSrc) scene.Add(layer.scene);
+            scene?.Add(layer.scene);
         }
 
         // --- Build methods ---
@@ -1927,7 +1970,11 @@ namespace ThorVG
                 if (layer.rid != asset.id) continue;
                 if (layer.layerType == LottieLayer.LayerType.Precomp)
                 {
-                    var assetLayer = (LottieLayer)asset;
+                    if (asset.type != LottieObject.ObjectType.Composition || asset is not LottieRootLayer assetLayer)
+                    {
+                        TvgCommon.TVGERR("LOTTIE", "Precomp layer references a non-composition asset.");
+                        break;
+                    }
                     if (BuildComposition(comp, assetLayer))
                     {
                         layer.children = new List<LottieObject>(assetLayer.children);
@@ -1972,24 +2019,23 @@ namespace ThorVG
 
         private static void AttachFont(LottieComposition comp, LottieLayer parent)
         {
-            foreach (var childObj in parent.children)
+            if (parent.children.Count > 0 && parent.children[0] is LottieText text && text.type == LottieObject.ObjectType.Text)
             {
-                var text = (LottieText)childObj;
                 var doc = text.doc.Evaluate(0);
-                if (doc.name == null) continue;
-                var len = doc.name.Length;
-                foreach (var font in comp.fonts)
+                if (doc.name != null)
                 {
-                    if (font.name != null && font.name.Length == len && font.name == doc.name)
+                    foreach (var font in comp.fonts)
                     {
-                        text.font = font;
-                        break;
+                        if (TvgStr.Equal(font.name, doc.name)) { text.font = font; break; }
                     }
                 }
+                return;
             }
+            // Match the target's empty invalid text layer before rendering.
+            parent.children.Clear();
         }
 
-        private static bool BuildComposition(LottieComposition comp, LottieLayer parent)
+        private static bool BuildComposition(LottieComposition comp, LottieRootLayer parent)
         {
             if (parent.children.Count == 0) return false;
             if (parent.buildDone) return true;

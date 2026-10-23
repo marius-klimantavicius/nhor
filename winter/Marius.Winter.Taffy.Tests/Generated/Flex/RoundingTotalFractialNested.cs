@@ -13,6 +13,7 @@ public class RoundingTotalFractialNested
         var taffy = NewTestTree();
         var node00 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             FlexGrowValue = 1f,
             FlexBasisValue = Dimension.FromLength(0.3f),
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(9.9f)),
@@ -20,6 +21,7 @@ public class RoundingTotalFractialNested
         });
         var node01 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             FlexGrowValue = 4f,
             FlexBasisValue = Dimension.FromLength(0.3f),
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(1.1f)),
@@ -27,6 +29,7 @@ public class RoundingTotalFractialNested
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             FlexDirectionValue = FlexDirection.Column,
             FlexGrowValue = 0.7f,
             FlexBasisValue = Dimension.FromLength(50.3f),
@@ -34,16 +37,19 @@ public class RoundingTotalFractialNested
         }, new NodeId[] { node00, node01 });
         var node1 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             FlexGrowValue = 1.6f,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
         });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             FlexGrowValue = 1.1f,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10.7f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             FlexDirectionValue = FlexDirection.Column,
             SizeValue = new Size<Dimension>(Dimension.FromLength(87.4f), Dimension.FromLength(113.4f)),
         }, new NodeId[] { node0, node1, node2 });
@@ -86,6 +92,7 @@ public class RoundingTotalFractialNested
         var taffy = NewTestTree();
         var node00 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexGrowValue = 1f,
             FlexBasisValue = Dimension.FromLength(0.3f),
@@ -94,6 +101,7 @@ public class RoundingTotalFractialNested
         });
         var node01 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexGrowValue = 4f,
             FlexBasisValue = Dimension.FromLength(0.3f),
@@ -102,6 +110,7 @@ public class RoundingTotalFractialNested
         });
         var node0 = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexDirectionValue = FlexDirection.Column,
             FlexGrowValue = 0.7f,
@@ -110,18 +119,21 @@ public class RoundingTotalFractialNested
         }, new NodeId[] { node00, node01 });
         var node1 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexGrowValue = 1.6f,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10f)),
         });
         var node2 = taffy.NewLeaf(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexGrowValue = 1.1f,
             SizeValue = new Size<Dimension>(Dimension.Auto(), Dimension.FromLength(10.7f)),
         });
         var node = taffy.NewWithChildren(new Style
         {
+            PositionValue = Position.Relative,
             BoxSizingValue = BoxSizing.ContentBox,
             FlexDirectionValue = FlexDirection.Column,
             SizeValue = new Size<Dimension>(Dimension.FromLength(87.4f), Dimension.FromLength(113.4f)),

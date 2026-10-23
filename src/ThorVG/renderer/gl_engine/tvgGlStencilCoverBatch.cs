@@ -1,5 +1,6 @@
 // Ported from ThorVG/src/renderer/gpu_engine/gl/tvgGlStencilCoverBatch.h and .cpp
 
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -8,9 +9,10 @@ namespace ThorVG
 {
     public unsafe class GlStencilCoverBatch
     {
-        private const uint BatchRegionMaxCount = 512;
-        private const uint BatchVertexMaxCount = 262144;
-        private const uint BatchIndexMaxCount = 1048576;
+        private static readonly uint BatchRegionMaxCount = OperatingSystem.IsBrowser() ? 256u : 512u;
+        private static readonly int BatchRegionResetThreshold = OperatingSystem.IsBrowser() ? 64 : 128;
+        private static readonly uint BatchVertexMaxCount = OperatingSystem.IsBrowser() ? 65536u : 262144u;
+        private static readonly uint BatchIndexMaxCount = OperatingSystem.IsBrowser() ? 262144u : 1048576u;
         private const uint CoverVertexCount = 6;
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -41,11 +43,17 @@ namespace ThorVG
             task = null;
             stencilTask = null;
             mode = GlStencilMode.None;
-            bounds.Clear();
+            ClearBounds();
             stencilViewBounds = default;
             coverViewBounds = default;
             vertexCount = indexOffset = indexCount = 0;
             clipped = ySorted = open = false;
+        }
+
+        private void ClearBounds()
+        {
+            bounds.Clear();
+            if (bounds.Capacity > BatchRegionResetThreshold) bounds.Capacity = 0;
         }
 
         public GlRenderTask Prepare(GlProgram? stencilProgram, GlRenderPass renderPass, GlRenderTask coverTask,
@@ -125,8 +133,9 @@ namespace ThorVG
             var vertexOffset = gpuBuffer.Push(buffer.vertex.data, buffer.vertex.count * sizeof(float));
             uint* indices = null;
             var indexOffset = gpuBuffer.ReserveIndex(buffer.index.count * sizeof(uint), (void**)&indices);
-            for (uint i = 0; i < buffer.index.count; ++i) indices[i] = buffer.index[i];
-            task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = vertexOffset });
+            if (buffer.index.count > 0)
+                NativeMemory.Copy(buffer.index.data, indices, (nuint)buffer.index.count * sizeof(uint));
+            task.AddVertexLayout(new GlVertexLayout { index = 0, size = 2, stride = 2 * sizeof(float), offset = vertexOffset, arrayBufferId = gpuBuffer.GetBufferId() });
             task.SetDrawRange(indexOffset, buffer.index.count);
             return indices;
         }
@@ -182,7 +191,7 @@ namespace ThorVG
             clipped = isClipped;
             ySorted = renderPass.GetViewport().Sh() > renderPass.GetViewport().Sw();
             coverViewBounds = viewBounds;
-            bounds.Clear();
+            ClearBounds();
             SetStencilMergeTarget(stencil, viewBounds, buffer);
             open = region.Valid();
             if (open) AddBounds(region);
@@ -224,8 +233,8 @@ namespace ThorVG
             ref var layout = ref stencilTask.mVertexLayout[0];
             ref var appendLayout = ref stencil.mVertexLayout[0];
             if (layout.index != appendLayout.index || layout.size != appendLayout.size || layout.stride != appendLayout.stride) return false;
-            if (layout.offset + vertexCount * layout.stride != appendLayout.offset || layout.type != appendLayout.type || layout.normalized != appendLayout.normalized || layout.arrayBufferId != appendLayout.arrayBufferId) return false;
-            if (stencil.mIndexOffset != indexOffset + indexCount * sizeof(uint)) return false;
+            if ((nuint)layout.offset + (nuint)vertexCount * layout.stride != appendLayout.offset || layout.type != appendLayout.type || layout.normalized != appendLayout.normalized || layout.arrayBufferId != appendLayout.arrayBufferId) return false;
+            if (stencil.mIndexOffset != (nuint)indexOffset + (nuint)indexCount * sizeof(uint)) return false;
 
             for (uint i = 0; i < buffer.index.count; ++i) stencilIndices[i] = buffer.index[i] + vertexCount;
             indexCount += stencil.mIndexCount;
@@ -234,6 +243,7 @@ namespace ThorVG
             stencilTask.mIndexCount = indexCount;
             stencilTask.mDrawDepth = stencil.mDrawDepth;
             stencilTask.mViewport.AddWith(stencil.mViewport);
+            stencil.Dispose();
             return true;
         }
 
@@ -252,15 +262,16 @@ namespace ThorVG
             ref var color = ref dst.mVertexLayout[1];
             ref var coverColor = ref cover.mVertexLayout[1];
             if (position.stride != coverPosition.stride || position.arrayBufferId != coverPosition.arrayBufferId || color.stride != coverColor.stride || color.arrayBufferId != coverColor.arrayBufferId) return false;
-            var dstEnd = position.offset + (dst.mArrayOffset + dst.mIndexCount) * position.stride;
-            var coverStart = coverPosition.offset + cover.mArrayOffset * coverPosition.stride;
-            var colorEnd = color.offset + (dst.mArrayOffset + dst.mIndexCount) * color.stride;
-            var coverColorStart = coverColor.offset + cover.mArrayOffset * coverColor.stride;
+            var dstEnd = (nuint)position.offset + ((nuint)dst.mArrayOffset + dst.mIndexCount) * position.stride;
+            var coverStart = (nuint)coverPosition.offset + (nuint)cover.mArrayOffset * coverPosition.stride;
+            var colorEnd = (nuint)color.offset + ((nuint)dst.mArrayOffset + dst.mIndexCount) * color.stride;
+            var coverColorStart = (nuint)coverColor.offset + (nuint)cover.mArrayOffset * coverColor.stride;
             Debug.Assert(dstEnd == coverStart && colorEnd == coverColorStart);
             if (dstEnd != coverStart || colorEnd != coverColorStart) return false;
             dst.mIndexCount += cover.mIndexCount;
             dst.mViewport.AddWith(cover.mViewport);
             dst.mDrawDepth = cover.mDrawDepth;
+            cover.Dispose();
             return true;
         }
 

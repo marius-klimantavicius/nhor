@@ -6,7 +6,7 @@ namespace ThorVG.Tests
 {
     public class testPicture
     {
-        private static readonly string TEST_DIR = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ref", "ThorVG", "test", "resources"));
+        private static readonly string TEST_DIR = System.IO.Path.Combine(AppContext.BaseDirectory, "fixtures", "legacy-upstream", "resources");
 
         [Fact]
         public void PictureCreation()
@@ -264,7 +264,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -282,6 +282,7 @@ namespace ThorVG.Tests
 
             Assert.Equal(Result.Success, canvas.Add(picture));
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 
@@ -333,7 +334,7 @@ namespace ThorVG.Tests
         {
             Assert.Equal(Result.Success, Initializer.Init());
 
-            var canvas = SwCanvas.Gen();
+            using var canvas = SwCanvas.Gen();
             Assert.NotNull(canvas);
 
             var buffer = new uint[100 * 100];
@@ -349,6 +350,7 @@ namespace ThorVG.Tests
 
             Assert.Equal(Result.Success, canvas.Add(picture));
 
+            canvas?.Dispose();
             Assert.Equal(Result.Success, Initializer.Term());
         }
 

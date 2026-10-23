@@ -10,11 +10,14 @@ using static ThorVG.SwRaster;
 namespace ThorVG
 {
     // =====================================================================
-    //  Task types (synchronous in C# port)
+    //  CPU tasks use the same scheduler and per-worker pools as native ThorVG.
     // =====================================================================
 
     public class SwTask
     {
+        private readonly LoaderTask task;
+
+        public SwTask() { task = new LoaderTask(Run); }
         public SwSurface? surface;
         public SwMpool? mpool;
         public RenderRegion clipBox;
@@ -58,10 +61,12 @@ namespace ThorVG
         public virtual void Run(uint tid) { }
         public virtual void DisposeTask() { }
         public virtual bool Clip(ref SwRle target) { return false; }
-        public void Done() { /* synchronous - no-op */ }
+        public void Done() => task.Done();
+        public void Request() => TaskScheduler.Request(task);
         public bool Complete()
         {
             prvBox = valid ? curBox : default;
+            nodirty = false;
             return true;
         }
     }
@@ -72,6 +77,7 @@ namespace ThorVG
         public RenderShape? rshape;
         public bool clipper;
         public bool antiAlias = true;
+        internal bool lcdSubpixel;
 
         private bool Antialiasing(float strokeWidth)
         {
@@ -84,7 +90,7 @@ namespace ThorVG
             if (rshape?.stroke == null || TvgMath.Zero(rshape.stroke.width)) return 0.0f;
             if (!clipper && (rshape.stroke.fill == null && rshape.stroke.color.a == 0)) return 0.0f;
             if (TvgMath.Zero(rshape.stroke.trim.begin - rshape.stroke.trim.end)) return 0.0f;
-            return rshape.stroke.width * (float)Math.Sqrt(transform.e11 * transform.e11 + transform.e12 * transform.e12);
+            return rshape.stroke.width * (float)Math.Sqrt(TvgMath.MultiplyAdd(transform.e11, transform.e11, transform.e12 * transform.e12));
         }
 
         public override bool Clip(ref SwRle target)
@@ -114,11 +120,11 @@ namespace ThorVG
                 SwLcdSubpixel.ResetLcdRle(shape); // [LCD Subpixel]
                 if (rshape!.fill != null || rshape.color.a > 0 || clipper)
                 {
-                    if (SwShapeOps.shapePrepare(shape, rshape, transform, clipBox, ref curBox, mpool!, tid, clips.Count > 0))
+                    if (SwShapeOps.shapePrepare(shape, rshape, transform, clipBox, ref curBox, mpool!, tid, clips.Count > 0) &&
+                        SwShapeOps.shapeGenRle(shape, curBox, mpool!, tid, Antialiasing(strokeWidth)))
                     {
-                        if (!SwShapeOps.shapeGenRle(shape, curBox, mpool!, tid, Antialiasing(strokeWidth))) goto err;
                         // [LCD Subpixel] Generate 3x-resolution RLE for LCD text rendering
-                        if (SwLcdSubpixel.IsActive())
+                        if (lcdSubpixel)
                             SwLcdSubpixel.GenerateLcdRle(shape, curBox, mpool!, tid);
                     }
                     else
@@ -157,10 +163,9 @@ namespace ThorVG
             {
                 if (p is SwTask clipTask)
                 {
-                    bool clipShapeRle = true, clipStrokeRle = true;
-                    if (shape.hasRle) { clipShapeRle = clipTask.Clip(ref shape.rle); }
-                    if (shape.hasStrokeRle) { clipStrokeRle = clipTask.Clip(ref shape.strokeRle); }
-                    if (!clipShapeRle || !clipStrokeRle) goto err;
+                    var clipShapeRle = clipTask.Clip(ref shape.rle);
+                    var clipStrokeRle = clipTask.Clip(ref shape.strokeRle);
+                    if (!clipShapeRle && !clipStrokeRle) goto err;
                 }
             }
 
@@ -178,6 +183,7 @@ namespace ThorVG
         public override void DisposeTask()
         {
             SwShapeOps.shapeFree(shape);
+            clips.Clear();
         }
     }
 
@@ -188,7 +194,9 @@ namespace ThorVG
 
         public override bool Clip(ref SwRle target)
         {
-            // Image as ClipPath not supported
+            // The target explicitly leaves image clippers unsupported and
+            // passes their target through (tvgSwRenderer.cpp SwImageTask::clip).
+            TvgCommon.TVGERR("SW_ENGINE", "Image is used as ClipPath?");
             return true;
         }
 
@@ -245,6 +253,7 @@ namespace ThorVG
         public override void DisposeTask()
         {
             SwImageOps.imageFree(image);
+            clips.Clear();
         }
     }
 
@@ -252,25 +261,34 @@ namespace ThorVG
     //  SwRenderer
     // =====================================================================
 
-    public unsafe class SwRenderer : RenderMethod, ISwTargetResult
+    public unsafe class SwRenderer : RenderMethod, ISwTargetResult, IDisposable
     {
         private SwSurface? surface;
         private SwMpool? mpool;
         private RenderDirtyRegion dirtyRegion = new RenderDirtyRegion();
         private bool fulldraw;
+        private bool rendered;
         private bool antiAlias = true;
         private List<SwTask> tasks = new List<SwTask>();
         private List<SwSurface> compositors = new List<SwSurface>();
 
         private static int rendererCnt = -1;
+        private static readonly object rendererMtx = new object();
+        private int disposed;
 
         // Constructor
         public SwRenderer(uint threads = 1, EngineOption op = EngineOption.Default)
         {
-            if (rendererCnt == -1)
+            lock (rendererMtx)
             {
+                // Managed canvases can outlive an Init/Term cycle until GC.
+                // A later scheduler may have more workers than the old pool.
                 SwMemPool.mpoolInit(threads);
-                rendererCnt = 0;
+                if (rendererCnt == -1)
+                {
+                    rendererCnt = 0;
+                }
+                ++rendererCnt;
             }
 
             mpool = SwMemPool.mpoolReq();
@@ -278,13 +296,29 @@ namespace ThorVG
             dirtyRegion.support = op == EngineOption.Default || (op & EngineOption.SmartRender) != 0;
             antiAlias = op == EngineOption.Default || (op & EngineOption.Aliased) == 0;
 
-            ++rendererCnt;
         }
 
         ~SwRenderer()
         {
-            ClearCompositors();
-            --rendererCnt;
+            try { Dispose(); }
+            catch (Exception exception) { TvgCommon.TVGERR("RENDERER", "CPU finalizer: {0}", exception.Message); }
+        }
+
+        protected override void ReleaseResources() => Dispose();
+
+        public void Dispose()
+        {
+            if (System.Threading.Interlocked.Exchange(ref disposed, 1) != 0) return;
+            try { Sync(); }
+            finally
+            {
+                ClearCompositors();
+                surface?.Dispose();
+                surface = null;
+                dirtyRegion.Dispose();
+                lock (rendererMtx) --rendererCnt;
+                GC.SuppressFinalize(this);
+            }
         }
 
         // --- Clear ---
@@ -303,14 +337,20 @@ namespace ThorVG
         {
             foreach (var task in tasks)
             {
-                if (task.disposed) { /* task can be GC'd */ }
+                task.Done();
+                if (task.disposed) task.DisposeTask();
                 else
                 {
-                    task.Done();
                     task.pushed = false;
                 }
             }
             tasks.Clear();
+            if (rendered)
+            {
+                dirtyRegion.Clear();
+                fulldraw = false;
+                rendered = false;
+            }
             return true;
         }
 
@@ -321,6 +361,7 @@ namespace ThorVG
         public Result TargetResult(uint* data, uint stride, uint w, uint h, ColorSpace cs)
         {
             if (data == null || stride == 0 || w == 0 || h == 0 || w > stride) return Result.InvalidArguments;
+            if (cs != ColorSpace.ABGR8888 && cs != ColorSpace.ABGR8888S && cs != ColorSpace.ARGB8888 && cs != ColorSpace.ARGB8888S) return Result.NonSupport;
 
             ClearCompositors();
 
@@ -354,6 +395,8 @@ namespace ThorVG
             {
                 return Result.InvalidArguments;
             }
+
+            if (cs != ColorSpace.ABGR8888 && cs != ColorSpace.ABGR8888S && cs != ColorSpace.ARGB8888 && cs != ColorSpace.ARGB8888S) return Result.NonSupport;
 
             ClearCompositors();
 
@@ -391,8 +434,12 @@ namespace ThorVG
 
             for (int idx = 0; idx < RenderDirtyRegion.PARTITIONING; ++idx)
             {
-                var regions = dirtyRegion.Get(idx);
-                // regions is Array<RenderRegion> - iterate if data is available
+                ref var regions = ref dirtyRegion.Get(idx);
+                for (uint i = 0; i < regions.count; ++i)
+                {
+                    var region = regions.data[i];
+                    rasterClear(surface, region.X(), region.Y(), region.W(), region.H());
+                }
             }
 
             return true;
@@ -406,9 +453,7 @@ namespace ThorVG
                 rasterUnpremultiply(surface);
             }
 
-            dirtyRegion.Clear();
-            fulldraw = false;
-
+            rendered = true;
             return true;
         }
 
@@ -443,6 +488,30 @@ namespace ThorVG
             return dirtyRegion.Deactivate(disable);
         }
 
+        public override uint DirtyRegions() => fulldraw || dirtyRegion.Deactivated() ? 1u : dirtyRegion.Count();
+
+        public override Result DirtyRegions(Span<Region> regions)
+        {
+            if (regions.IsEmpty) return Result.InvalidArguments;
+            if (fulldraw || dirtyRegion.Deactivated())
+            {
+                regions[0] = new Region(0, 0, (int)surface!.w, (int)surface.h);
+                return Result.Success;
+            }
+            int output = 0;
+            for (int idx = 0; idx < RenderDirtyRegion.PARTITIONING; ++idx)
+            {
+                ref var partition = ref dirtyRegion.Get(idx);
+                for (uint i = 0; i < partition.count; ++i)
+                {
+                    var region = partition.data[i];
+                    regions[output++] = new Region(region.min.x, region.min.y, region.max.x, region.max.y);
+                    if (output == regions.Length) return Result.Success;
+                }
+            }
+            return Result.Success;
+        }
+
         // --- RenderImage ---
         public override bool RenderImage(object? data)
         {
@@ -452,8 +521,25 @@ namespace ThorVG
 
             if (task.valid)
             {
-                // full scene rendering
-                RasterImage(surface!, task.image, task.transform, task.curBox, task.opacity);
+                if (fulldraw || task.nodirty || task.pushed || dirtyRegion.Deactivated())
+                {
+                    RasterImage(surface!, task.image, task.transform, task.curBox, task.opacity);
+                }
+                else if (task.curBox.Valid())
+                {
+                    for (int idx = 0; idx < RenderDirtyRegion.PARTITIONING; ++idx)
+                    {
+                        if (!dirtyRegion.Partition(idx).Intersected(task.curBox)) continue;
+                        ref var regions = ref dirtyRegion.Get(idx);
+                        for (uint i = 0; i < regions.count; ++i)
+                        {
+                            ref var region = ref regions[i];
+                            if (task.curBox.max.x <= region.min.x) break;
+                            if (task.curBox.Intersected(region))
+                                RasterImage(surface!, task.image, task.transform, RenderRegion.Intersect(task.curBox, region), task.opacity);
+                        }
+                    }
+                }
             }
             return task.Complete();
         }
@@ -541,16 +627,45 @@ namespace ThorVG
                     }
                 }
 
-                // Determine draw order based on strokeFirst()
-                if (task.rshape!.StrokeFirst())
+                if (fulldraw || task.nodirty || task.pushed || dirtyRegion.Deactivated())
                 {
-                    strokeShape(task, surface!, task.curBox);
-                    fillShape(task, surface!, task.shape.bbox);
+                    if (task.rshape!.StrokeFirst())
+                    {
+                        strokeShape(task, surface!, task.curBox);
+                        fillShape(task, surface!, task.shape.bbox);
+                    }
+                    else
+                    {
+                        fillShape(task, surface!, task.shape.bbox);
+                        strokeShape(task, surface!, task.curBox);
+                    }
                 }
-                else
+                else if (task.curBox.Valid())
                 {
-                    fillShape(task, surface!, task.shape.bbox);
-                    strokeShape(task, surface!, task.curBox);
+                    for (int idx = 0; idx < RenderDirtyRegion.PARTITIONING; ++idx)
+                    {
+                        if (!dirtyRegion.Partition(idx).Intersected(task.curBox)) continue;
+                        ref var regions = ref dirtyRegion.Get(idx);
+                        for (uint i = 0; i < regions.count; ++i)
+                        {
+                            ref var region = ref regions[i];
+                            if (task.curBox.max.x <= region.min.x) break;
+                            if (task.rshape!.StrokeFirst())
+                            {
+                                if (task.rshape.stroke != null && task.curBox.Intersected(region))
+                                    strokeShape(task, surface!, RenderRegion.Intersect(task.curBox, region));
+                                if (task.shape.bbox.Intersected(region))
+                                    fillShape(task, surface!, RenderRegion.Intersect(task.shape.bbox, region));
+                            }
+                            else
+                            {
+                                if (task.shape.bbox.Intersected(region))
+                                    fillShape(task, surface!, RenderRegion.Intersect(task.shape.bbox, region));
+                                if (task.rshape.stroke != null && task.curBox.Intersected(region))
+                                    strokeShape(task, surface!, RenderRegion.Intersect(task.curBox, region));
+                            }
+                        }
+                    }
                 }
             }
             return task.Complete();
@@ -715,6 +830,9 @@ namespace ThorVG
                 case SceneEffect.GaussianBlur:
                     SwPostEffect.effectGaussianBlurUpdate((RenderEffectGaussianBlur)effect, transform);
                     break;
+                case SceneEffect.MotionBlur:
+                    SwPostEffect.effectMotionBlurUpdate((RenderEffectMotionBlur)effect, transform);
+                    break;
                 case SceneEffect.DropShadow:
                     SwPostEffect.effectDropShadowUpdate((RenderEffectDropShadow)effect, transform);
                     break;
@@ -735,6 +853,7 @@ namespace ThorVG
             return effect.type switch
             {
                 SceneEffect.GaussianBlur => SwPostEffect.effectGaussianBlurRegion((RenderEffectGaussianBlur)effect),
+                SceneEffect.MotionBlur => SwPostEffect.effectMotionBlurRegion((RenderEffectMotionBlur)effect),
                 SceneEffect.DropShadow => SwPostEffect.effectDropShadowRegion((RenderEffectDropShadow)effect),
                 _ => false
             };
@@ -750,6 +869,7 @@ namespace ThorVG
             return effect.type switch
             {
                 SceneEffect.GaussianBlur => SwPostEffect.effectGaussianBlur(p, Request(surface!.channelSize, true), (RenderEffectGaussianBlur)effect),
+                SceneEffect.MotionBlur => SwPostEffect.effectMotionBlur(p, Request(surface!.channelSize, true), (RenderEffectMotionBlur)effect),
                 SceneEffect.DropShadow => DropShadowRender(p, (RenderEffectDropShadow)effect, direct),
                 SceneEffect.Fill => SwPostEffect.effectFill(p, (RenderEffectFill)effect, direct),
                 SceneEffect.Tint => SwPostEffect.effectTint(p, (RenderEffectTint)effect, direct),
@@ -776,6 +896,9 @@ namespace ThorVG
 
         // --- Bounds ---
         public override bool Bounds(object? data, Point[] pt4, in Matrix m)
+            => Bounds(data, pt4.AsSpan(), m);
+
+        public override bool Bounds(object? data, Span<Point> pt4, in Matrix m)
         {
             if (data == null) return false;
 
@@ -798,11 +921,10 @@ namespace ThorVG
             {
                 if (SwRleOps.rleIntersect(task.shape.strokeRle, region)) return true;
             }
-            if (task.shape.hasRle)
-            {
-                return SwRleOps.rleIntersect(task.shape.rle, region);
-            }
-            return task.shape.fastTrack;
+            // A rectangle can reuse allocated (now empty) RLE storage from a
+            // previous curved path. Native short-circuits its fast-track first.
+            return task.shape.fastTrack ||
+                (task.shape.hasRle && SwRleOps.rleIntersect(task.shape.rle, region));
         }
 
         public override bool IntersectsImage(object? data, in RenderRegion region)
@@ -882,10 +1004,8 @@ namespace ThorVG
         {
             var task = data as SwTask;
             if (task == null) return;
-            task.Done();
-            task.DisposeTask();
-
             if (task.pushed) task.disposed = true;
+            else { task.Done(); task.DisposeTask(); }
         }
 
         // --- Prepare ---
@@ -898,7 +1018,8 @@ namespace ThorVG
             task.mpool = mpool;
             task.clipBox = RenderRegion.Intersect(vport, new RenderRegion(0, 0, (int)surface!.w, (int)surface.h));
             task.transform = transform;
-            task.clips = clips;
+            // Traversal pops/clears its list before deferred workers finish.
+            task.clips.CopyFrom(ref clips);
             task.dirtyRegion = dirtyRegion;
             task.opacity = opacity;
             task.nodirty = dirtyRegion.Deactivated();
@@ -911,16 +1032,12 @@ namespace ThorVG
                 tasks.Add(task);
             }
 
-            // Guarantee composition targets get ready
-            foreach (var p in clips)
-            {
-                (p as SwTask)?.Done();
-            }
-
             if (task.Ready(ready)) return task;
-
-            // Execute synchronously (no task scheduler)
-            if (flags != 0) task.Run(0);
+            if (flags != 0)
+            {
+                foreach (var p in clips) (p as SwTask)?.Done();
+                task.Request();
+            }
 
             return task;
         }
@@ -950,6 +1067,10 @@ namespace ThorVG
 
             task.clipper = clipper;
             task.antiAlias = antiAlias;
+            // Text preparation runs on the caller; execution may run on a worker.
+            var lcdSubpixel = SwLcdSubpixel.IsActive();
+            if (task.lcdSubpixel != lcdSubpixel) flags |= RenderUpdateFlag.Path;
+            task.lcdSubpixel = lcdSubpixel;
 
             return PrepareCommon(task, transform, ref clips, opacity, flags, opacity == 0 && !clipper);
         }
@@ -957,12 +1078,13 @@ namespace ThorVG
         // --- Static management ---
         public static bool Term()
         {
-            if (rendererCnt > 0) return false;
-
-            SwMemPool.mpoolTerm();
-            rendererCnt = -1;
-
-            return true;
+            lock (rendererMtx)
+            {
+                if (rendererCnt > 0) return false;
+                SwMemPool.mpoolTerm();
+                rendererCnt = -1;
+                return true;
+            }
         }
 
         public static SwRenderer Gen(uint threads = 1, EngineOption op = EngineOption.Default)
