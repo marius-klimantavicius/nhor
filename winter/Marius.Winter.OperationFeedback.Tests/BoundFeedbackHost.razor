@@ -1,0 +1,22 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+
+<LogView @key="_key" Buffer="_buffer" @bind-FollowTail="_follow" FontSize="_font" Color="_color" />
+<ProgressBar IsIndeterminate="_busy" IsPaused="_paused" Value="_progress" />
+<StatusPanel Status="_status" Retry="Retry" Cancel="Cancel" IsProgressPaused="_paused" ShowProgress="_showProgress" />
+
+@code {
+    internal LogBuffer _buffer = new();
+    internal bool _follow = true, _busy, _paused;
+    internal bool _showProgress = true;
+    internal float? _font;
+    internal Color4? _color;
+    internal float _progress;
+    internal int _key, _retries, _cancels;
+    internal OperationStatus _status = new();
+    private void Retry() => _retries++;
+    private void Cancel() => _cancels++;
+    internal void Render() => StateHasChanged();
+}

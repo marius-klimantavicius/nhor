@@ -1,0 +1,78 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Playground.Scenarios
+@inject Window Owner
+@implements IAsyncDisposable
+
+<Panel Layout="@Column" Padding="@(new Thickness(8))">
+    <Label Text="Operation feedback · Preview pack" FontSize="22" />
+    <Label Text="Install 40 simulated media previews. Inspect earlier log lines during work, then jump to the latest output." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Button Text="Install preview pack" Enabled="@(!_data.Status.IsBusy)" OnClick="@(() => _data.StartAsync())" />
+        <Button Text="Simulate failure" Enabled="@(!_data.Status.IsBusy)" OnClick="@(() => _data.StartAsync(true))" />
+        <Button Text="Reset" OnClick="Reset" />
+        <Button Text="@(_pausedMotion ? "Resume motion" : "Pause motion")" OnClick="@(() => _pausedMotion = !_pausedMotion)" />
+        <Button Text="@(_showProgress ? "Hide progress" : "Show progress")" OnClick="@(() => _showProgress = !_showProgress)" />
+    </Panel>
+    <StatusPanel Status="_data.Status" Retry="_data.RetryAsync" Cancel="_data.CancelAsync" IsProgressPaused="_pausedMotion" ShowProgress="_showProgress" />
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Panel Layout="@Sample" Padding="@(new Thickness(2))">
+            <Label Text="cover.png" />
+            <Image Source="OperationFeedbackMedia.Raster" RequestedWidth="48" RequestedHeight="40" />
+        </Panel>
+        <Panel Layout="@Sample" Padding="@(new Thickness(2))">
+            <Label Text="motion.gif" />
+            <GifImage Source="OperationFeedbackMedia.Gif" RequestedWidth="48" RequestedHeight="40" IsPlaying="@(_data.Status.IsBusy && !_pausedMotion)" />
+        </Panel>
+        <Panel Layout="@Sample" Padding="@(new Thickness(2))">
+            <Label Text="pulse.json" />
+            <LottieImage Source="@OperationFeedbackMedia.Lottie" RequestedWidth="80" RequestedHeight="40" IsPlaying="@(_data.Status.IsBusy && !_pausedMotion)" />
+        </Panel>
+        <Label Text="Samples animate while installing." TextWrapping="ThorVG.TextWrap.Word" />
+    </Panel>
+    <Label Text="Review note (editable; not written to disk)" />
+    <TextArea Text="@_note" OnTextChanged="@(value => _note = value)" MinHeight="72" MaxHeight="90" />
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Label Text="Installation log" />
+        <Button Text="Jump to latest" OnClick="@(() => _log?.JumpToLatest())" />
+        <Button Text="Clear log" OnClick="@(() => _log?.Clear())" />
+        <Label Text="@(_follow ? "Following latest" : "Inspecting earlier output")" />
+    </Panel>
+    <LogView @ref="_log" Buffer="_data.Logs" @bind-FollowTail="_follow" LayoutData="@Grow" MinHeight="100" />
+    <Label Text="@_data.Result" TextWrapping="ThorVG.TextWrap.Word" />
+</Panel>
+
+@code {
+    private OperationFeedbackData _data = null!;
+    private Marius.Winter.Blazor.Elements.LogView? _log;
+    private bool _follow = true, _disposed;
+    private bool _pausedMotion, _showProgress = true;
+    private string _note = "Review the preview pack before installation.\nKeep the raster cover and animated samples.";
+    private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 6 };
+    private static readonly Marius.Winter.FlexLayout Row = new() { Gap = 6, Wrap = FlexWrap.Wrap, AlignItems = Alignment.Center };
+    private static readonly Marius.Winter.StackLayout Sample = new() { Spacing = 2 };
+    private static readonly FlexItem Grow = new() { Grow = 1, Basis = 0 };
+    protected override void OnInitialized()
+    {
+        _data = new OperationFeedbackData(action => Owner.Dispatcher.InvokeAsync(action));
+        _data.Changed += Changed;
+    }
+    private void Changed() { if (!_disposed) StateHasChanged(); }
+    private void Reset()
+    {
+        _pausedMotion = false;
+        _showProgress = true;
+        _data.Reset();
+        _follow = true;
+        _note = "Review the preview pack before installation.\nKeep the raster cover and animated samples.";
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _data.Changed -= Changed;
+        await _data.DisposeAsync();
+    }
+}

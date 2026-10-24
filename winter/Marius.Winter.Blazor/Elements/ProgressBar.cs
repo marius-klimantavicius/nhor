@@ -12,12 +12,16 @@ public class ProgressBar : WinterComponentBase
     }
 
     [Parameter] public float Value { get; set; }
+    [Parameter] public bool IsIndeterminate { get; set; }
+    [Parameter] public bool IsPaused { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
 
         builder.AddAttribute("Value", Value);
+        builder.AddAttribute(nameof(IsIndeterminate), IsIndeterminate);
+        builder.AddAttribute(nameof(IsPaused), IsPaused);
     }
 
     class Handler : WinterElementHandler
@@ -31,6 +35,8 @@ public class ProgressBar : WinterComponentBase
         {
             switch (attributeName)
             {
+                case nameof(IsIndeterminate): ProgressBarControl.IsIndeterminate = AttributeHelper.GetBool(attributeValue); break;
+                case nameof(IsPaused): ProgressBarControl.IsPaused = AttributeHelper.GetBool(attributeValue); break;
                 case "Value":
                     ProgressBarControl.Value = AttributeHelper.GetFloat(attributeValue);
                     break;

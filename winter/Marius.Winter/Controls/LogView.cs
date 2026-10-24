@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Threading;
 using System.Numerics;
 
 using ThorVG;
@@ -12,6 +14,121 @@ namespace Marius.Winter;
 /// </summary>
 public class LogView : Element
 {
+    private readonly LogBuffer _localBuffer = new();
+    private LogBuffer? _buffer;
+    private Subscription? _subscription;
+    private LogSnapshot? _snapshot;
+    private string _compatibilityText = "";
+    private bool _followTail = true;
+
+    /// <summary>Caller-owned buffer, authoritative over Text while supplied.</summary>
+    public LogBuffer? Buffer
+    {
+        get => _buffer;
+        set
+        {
+            if (ReferenceEquals(_buffer, value)) return;
+            Unsubscribe();
+            _buffer = value;
+            if (value == null) _localBuffer.Replace(_compatibilityText, trim: false);
+            Subscribe();
+            ApplySnapshot(CurrentBuffer.Snapshot, true);
+        }
+    }
+
+    private LogBuffer CurrentBuffer => _buffer ?? _localBuffer;
+    public bool FollowTail { get => _followTail; set => SetFollowTail(value, false); }
+    public Action<bool>? FollowTailChanged;
+    public int SelectionStart => _selAnchor < 0 ? 0 : Math.Min(_selAnchor, _selEnd);
+    public int SelectionLength => _selAnchor < 0 ? 0 : Math.Abs(_selAnchor - _selEnd);
+    public string SelectedText => GetSelectedText();
+    public float ScrollOffset => _scrollY;
+
+    /// <summary>UI-thread convenience. Worker producers should append to Buffer.</summary>
+    public void Append(string text)
+    {
+        OwnerWindow?.Dispatcher.VerifyAccess();
+        CurrentBuffer.Append(text);
+        ApplySnapshot(CurrentBuffer.Snapshot);
+    }
+
+    public void Clear()
+    {
+        OwnerWindow?.Dispatcher.VerifyAccess();
+        CurrentBuffer.Clear();
+        ApplySnapshot(CurrentBuffer.Snapshot);
+    }
+
+    public void JumpToLatest() => SetFollowTail(true, true);
+
+    private void SetFollowTail(bool value, bool user)
+    {
+        bool changed = _followTail != value;
+        _followTail = value;
+        if (value) { _scrollY = float.MaxValue; ClampScroll(); UpdateContent(); UpdateScrollbar(); MarkDirty(); }
+        if (changed && user) FollowTailChanged?.Invoke(value);
+    }
+
+    private void Subscribe()
+    {
+        if (OwnerWindow is { } window && _subscription == null)
+            _subscription = new Subscription(this, CurrentBuffer, window);
+    }
+    private void Unsubscribe() { _subscription?.Dispose(); _subscription = null; }
+    protected override void OnDetaching() => Unsubscribe();
+    protected override void OnDisposed() { Unsubscribe(); FollowTailChanged = null; }
+
+    private sealed class Subscription : IDisposable
+    {
+        private readonly LogView _view;
+        private readonly LogBuffer _source;
+        private readonly Window _window;
+        private int _queued, _disposed;
+        internal Subscription(LogView view, LogBuffer source, Window window)
+        { _view = view; _source = source; _window = window; source.Changed += Changed; }
+        private void Changed()
+        {
+            if (Volatile.Read(ref _disposed) != 0) return;
+            if (_window.Dispatcher.CheckAccess()) { Apply(); return; }
+            if (Interlocked.Exchange(ref _queued, 1) != 0) return;
+            _ = _window.Dispatcher.InvokeAsync(() => { Interlocked.Exchange(ref _queued, 0); Apply(); });
+        }
+        private void Apply()
+        {
+            if (Volatile.Read(ref _disposed) == 0 && ReferenceEquals(_view._subscription, this) && !_view.IsDisposed)
+                _view.ApplySnapshot(_source.Snapshot);
+        }
+        public void Dispose() { Interlocked.Exchange(ref _disposed, 1); _source.Changed -= Changed; }
+    }
+
+    private void ApplySnapshot(LogSnapshot snapshot, bool replace = false)
+    {
+        if (!replace && _snapshot?.Version == snapshot.Version) return;
+        bool reset = replace || _snapshot == null || _snapshot.ResetId != snapshot.ResetId;
+        long removed = reset ? 0 : snapshot.StartOffset - _snapshot!.StartOffset;
+        if (reset) { _selAnchor = _selEnd = -1; _scrollY = 0; }
+        else if (removed > 0)
+        {
+            int count = (int)Math.Min(removed, _text.Length);
+            int lines = 0;
+            for (int i = 0; i < count; i++) if (_text[i] == '\n') lines++;
+            _scrollY = Math.Max(0, _scrollY - lines * _lineHeight);
+            if (_selAnchor >= 0)
+            {
+                _selAnchor = (int)Math.Clamp(_selAnchor - removed, 0, snapshot.Text.Length);
+                _selEnd = (int)Math.Clamp(_selEnd - removed, 0, snapshot.Text.Length);
+            }
+        }
+        _snapshot = snapshot;
+        _text = snapshot.Text;
+        RebuildLines();
+        _totalContentHeight = _lines.Length * _lineHeight;
+        if (_followTail) _scrollY = float.MaxValue;
+        ClampScroll();
+        UpdateContent();
+        UpdateScrollbar();
+        MarkDirty();
+    }
     private Shape? _backgroundShape;
     private Shape? _clipShape;
     private Shape? _selectionShape;
@@ -29,7 +146,7 @@ public class LogView : Element
     private bool _colorSet;
     private bool _fontSizeSet;
 
-    private float _lineHeight;
+    private float _lineHeight = 18.9f;
     private float _scrollY;
     private float _totalContentHeight;
     private bool _shapesCreated;
@@ -64,18 +181,10 @@ public class LogView : Element
         get => _text;
         set
         {
-            if (_text == value) return;
-            _text = value ?? "";
-            RebuildLines();
-            _selAnchor = -1;
-            _selEnd = -1;
-            if (_shapesCreated)
-            {
-                UpdateContent();
-                UpdateScrollbar();
-            }
-            InvalidateMeasure();
-            MarkDirty();
+            _compatibilityText = value ?? "";
+            if (_buffer != null || _text == _compatibilityText) return;
+            _localBuffer.Replace(_compatibilityText, trim: false);
+            ApplySnapshot(_localBuffer.Snapshot);
         }
     }
 
@@ -84,11 +193,16 @@ public class LogView : Element
         get => _fontSize;
         set
         {
-            if (_fontSize == value) return;
-            _fontSize = value;
             _fontSizeSet = true;
+            if (_fontSize == value) return;
+            float oldHeight = _lineHeight;
+            _fontSize = value;
             _effectiveFontSize = EffectiveFontSize(value);
             _lineHeight = _effectiveFontSize * 1.35f;
+            _scrollY = oldHeight > 0 ? _scrollY / oldHeight * _lineHeight : 0;
+            _totalContentHeight = _lines.Length * _lineHeight;
+            if (_followTail) _scrollY = float.MaxValue;
+            ClampScroll();
             if (_shapesCreated)
             {
                 RebuildLineTexts();
@@ -99,6 +213,9 @@ public class LogView : Element
             MarkDirty();
         }
     }
+
+    /// <summary>Resume inherited theme font sizing.</summary>
+    public void ResetFontSize() { _fontSizeSet = false; if (_shapesCreated) OnThemeChanged(); }
 
     public string FontName
     {
@@ -198,6 +315,8 @@ public class LogView : Element
             UpdateContent();
             UpdateScrollbar();
         }
+        Subscribe();
+        ApplySnapshot(CurrentBuffer.Snapshot);
     }
 
     private void RebuildLineTexts()
@@ -208,7 +327,9 @@ public class LogView : Element
             foreach (var t in _lineTexts)
             {
                 if (t != null)
+                {
                     _contentScene.Remove(t);
+                }
             }
         }
         _lineTexts = Array.Empty<Text?>();
@@ -329,12 +450,13 @@ public class LogView : Element
 
     protected override void OnSizeChanged()
     {
+        _totalContentHeight = _lines.Length * _lineHeight;
         float w = Bounds.W, h = Bounds.H;
         _backgroundShape?.ResetShape();
         _backgroundShape?.AppendRect(0, 0, w, h, 3, 3);
 
         _clipShape?.ResetShape();
-        _clipShape?.AppendRect(Padding, Padding, w - 2 * Padding, h - 2 * Padding, 0, 0);
+        _clipShape?.AppendRect(Padding, Padding, Math.Max(0, w - 2 * Padding), Math.Max(0, h - 2 * Padding), 0, 0);
 
         // Re-add scrollbar shapes to stay on top
         if (_scrollTrack != null)
@@ -347,6 +469,7 @@ public class LogView : Element
         }
 
         ClampScroll();
+        if (_followTail) { _scrollY = float.MaxValue; ClampScroll(); }
         UpdateContent();
         UpdateScrollbar();
     }
@@ -392,6 +515,7 @@ public class LogView : Element
         if (_totalContentHeight <= viewportH) return;
 
         _scrollY -= dy * _lineHeight * 3;
+        SetFollowTail(false, true);
         ClampScroll();
         UpdateContent();
         UpdateScrollbar();
@@ -408,6 +532,7 @@ public class LogView : Element
         float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin * 2;
         if (lx >= trackX)
         {
+            SetFollowTail(false, true);
             _scrollbarDrag = true;
             _scrollbarDragStartY = ly;
             _scrollbarDragStartScroll = _scrollY;
@@ -415,6 +540,7 @@ public class LogView : Element
         }
 
         // Text selection
+        SetFollowTail(false, true);
         int charIdx = GetCharIndexAtPosition(lx, ly);
         _selAnchor = charIdx;
         _selEnd = charIdx;
@@ -476,6 +602,7 @@ public class LogView : Element
         switch (key)
         {
             case GLFW_KEY_A when ctrl:
+                SetFollowTail(false, true);
                 _selAnchor = 0;
                 _selEnd = _text.Length;
                 UpdateSelection();
@@ -487,6 +614,7 @@ public class LogView : Element
                 break;
 
             case GLFW_KEY_HOME:
+                SetFollowTail(false, true);
                 _scrollY = 0;
                 ClampScroll();
                 UpdateContent();
@@ -495,15 +623,12 @@ public class LogView : Element
                 break;
 
             case GLFW_KEY_END:
-                _scrollY = float.MaxValue;
-                ClampScroll();
-                UpdateContent();
-                UpdateScrollbar();
-                MarkDirty();
+                JumpToLatest();
                 break;
 
             case GLFW_KEY_PAGE_UP:
             {
+                SetFollowTail(false, true);
                 float viewportH = Bounds.H - 2 * Padding;
                 _scrollY -= viewportH;
                 ClampScroll();
@@ -515,6 +640,7 @@ public class LogView : Element
 
             case GLFW_KEY_PAGE_DOWN:
             {
+                SetFollowTail(false, true);
                 float viewportH = Bounds.H - 2 * Padding;
                 _scrollY += viewportH;
                 ClampScroll();
@@ -599,7 +725,11 @@ public class LogView : Element
 
             if (selX2 > selX1)
             {
-                _selectionShape?.AppendRect(selX1, lineY, selX2 - selX1, _lineHeight, 0, 0);
+                float top = Math.Max(Padding, lineY);
+                float bottom = Math.Min(Bounds.H - Padding, lineY + _lineHeight);
+                float left = Math.Clamp(selX1, Padding, Math.Max(Padding, Bounds.W - Padding));
+                float right = Math.Clamp(selX2, left, Math.Max(left, Bounds.W - Padding));
+                _selectionShape?.AppendRect(left, top, right - left, Math.Max(0, bottom - top), 0, 0);
                 anyRect = true;
             }
         }
@@ -632,11 +762,13 @@ public class LogView : Element
 
         // Binary-ish search for character position
         float prevWidth = 0;
-        for (int i = 1; i <= lineText.Length; i++)
+        var boundaries = StringInfo.ParseCombiningCharacters(lineText);
+        for (int cluster = 0; cluster < boundaries.Length; cluster++)
         {
+            int i = cluster + 1 < boundaries.Length ? boundaries[cluster + 1] : lineText.Length;
             float width = MeasureTextWidth(lineText[..i]);
             float midpoint = (prevWidth + width) / 2f;
-            if (textX < midpoint) return _lineOffsets[line] + i - 1;
+            if (textX < midpoint) return _lineOffsets[line] + boundaries[cluster];
             prevWidth = width;
         }
         return _lineOffsets[line] + lineText.Length;
@@ -672,6 +804,22 @@ public class LogView : Element
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
+        float oldLineHeight = _lineHeight;
+        if (!_fontSizeSet) _fontSize = style.FontSize;
+        _effectiveFontSize = EffectiveFontSize(_fontSize);
+        _lineHeight = _effectiveFontSize * 1.35f;
+        if (_lineHeight != oldLineHeight)
+        {
+            _scrollY = oldLineHeight > 0 ? _scrollY / oldLineHeight * _lineHeight : 0;
+            _totalContentHeight = _lines.Length * _lineHeight;
+            RebuildLineTexts();
+            if (_followTail) _scrollY = float.MaxValue;
+            ClampScroll();
+            UpdateContent();
+            UpdateScrollbar();
+            InvalidateMeasure();
+        }
+
         _backgroundShape?.SetFill(style.Background.R8, style.Background.G8, style.Background.B8, style.Background.A8);
 
         var selColor = theme.SelectionColor;
@@ -692,6 +840,7 @@ public class LogView : Element
             if (menu.Items.Count > 0) menu.AddSeparator();
             menu.AddItem("Select All", () =>
             {
+                SetFollowTail(false, true);
                 _selAnchor = 0;
                 _selEnd = _text.Length;
                 UpdateSelection();

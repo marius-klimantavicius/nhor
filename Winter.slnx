@@ -5,4 +5,6 @@
   <Project Path="winter/Marius.Winter.Blazor.Playground/Marius.Winter.Blazor.Playground.csproj" />
   <Project Path="winter/Marius.Winter.Tests/Marius.Winter.Tests.csproj" />
   <Project Path="winter/Marius.Winter.Blazor.Tests/Marius.Winter.Blazor.Tests.csproj" />
+  <Project Path="winter/Marius.Winter.SplitPane.Tests/Marius.Winter.SplitPane.Tests.csproj" />
+  <Project Path="winter/Marius.Winter.OperationFeedback.Tests/Marius.Winter.OperationFeedback.Tests.csproj" />
 </Solution>
