@@ -59,27 +59,23 @@ public sealed class WindowsAndDialogsScenario : IDisposable
         _environment = new ComboBox(Enumerable.Range(0, 24).Select(i => i == 0 ? "Personal studio" : $"Shared studio {i:00} · Žąsis").ToArray());
         _protect = new Checkbox("Protect unsaved edits (checks before cancel)");
         _error = new Label() { TextWrapping = ThorVG.TextWrap.Word };
-        _body = new Panel { Layout = new FlexLayout { Direction = Orientation.Vertical, Gap = 6 }, Padding = new Thickness(0) };
-        _body.AddChild(new Label("Display name (required)")); _body.AddChild(_name);
-        _body.AddChild(new Label("Workspace")); _body.AddChild(_environment);
-        _body.AddChild(new Label("Biography (Enter adds a line)")); _body.AddChild(_biography);
+        var form = new Form { Layout = new FlexLayout { Direction = Orientation.Vertical, Gap = 6 }, Padding = new Thickness(0) };
+        _body = form;
+        form.AddChild(new Field("Display name (required)", _name) { Validate = () => string.IsNullOrWhiteSpace(_name.Text) ? ["Enter a display name before saving."] : [] });
+        form.AddChild(new Field("Workspace", _environment));
+        form.AddChild(new Field("Biography (Enter adds a line)", _biography));
+        form.ValidSubmit += () => _ = _modal?.RequestCloseAsync(DialogCloseReason.Accepted);
+        form.InvalidSubmit += () => _error.Text = "Enter a display name before saving.";
         _body.AddChild(_protect); _body.AddChild(_error);
         _footer = Row();
-        _footer.AddChild(Action("Save", () => _ = _modal?.RequestCloseAsync(DialogCloseReason.Accepted)));
+        _footer.AddChild(Action("Save", () => form.Submit()));
         _footer.AddChild(Action("Cancel", () => _ = _modal?.RequestCloseAsync(DialogCloseReason.Cancel)));
         _footer.AddChild(Action("Remove opener", () => { _root.Children[2].RemoveChild(_opener); _result.Text = "Opener removed; closing will choose another available action."; }));
         _footer.AddChild(Action("Remove dialog", () => { RemoveModal(); _result.Text = "Editor removed; profile kept. Recreate it to continue."; }));
         _modal = new ModalDialog { Title = "Edit profile", Width = 560, Height = 440, Body = _body, Footer = _footer, InitialFocus = () => _name,
-            DefaultAction = Validate, CloseGuard = Guard, CloseOnBackdrop = _backdrop.IsChecked };
+            CloseGuard = Guard, CloseOnBackdrop = _backdrop.IsChecked };
         _modal.Closed += Closed;
         _root.AddChild(_modal); if (_large) SetSize();
-    }
-    private ValueTask<bool> Validate(CancellationToken token)
-    {
-        bool valid = !string.IsNullOrWhiteSpace(_name.Text);
-        _error.Text = valid ? "" : "Enter a display name before saving.";
-        if (!valid) _window.SetFocus(_name);
-        return ValueTask.FromResult(valid);
     }
     private async ValueTask<bool> Guard(DialogResult result, CancellationToken token)
     {
@@ -121,6 +117,8 @@ public sealed class WindowsAndDialogsScenario : IDisposable
     {
         _modal?.Dispose(); _modal = null;
         _body?.Dispose(); _body = null; _footer?.Dispose(); _footer = null;
+        // Form's Fields borrow their editors too.
+        _name?.Dispose(); _biography?.Dispose(); _environment?.Dispose();
     }
     private void Reset()
     {

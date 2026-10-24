@@ -4,6 +4,8 @@
 @using System.Threading
 @using System.Threading.Tasks
 @using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using System.ComponentModel.DataAnnotations
 @using Modal = Marius.Winter.Blazor.Elements.ModalDialog
 
 <ScrollPanel Layout="@(new Marius.Winter.StackLayout { Spacing = 0 })" HorizontalScroll="ScrollMode.Never" Padding="@(new Thickness(0))">
@@ -28,23 +30,20 @@
     @if (_mounted)
     {
         <ModalDialog @ref="_modal" @key="_identity" @bind-IsOpen="_open" Title="Edit profile" Width="560" Height="440"
-               InitialFocus="@(() => _nameInput)" DefaultAction="Validate" CloseGuard="Guard" Closed="Completed"
+               CloseGuard="Guard" Closed="Completed"
                CloseOnBackdrop="_backdrop" ResetVersion="_reset">
             <Body>
-                <Panel Layout="@BodyColumn" Padding="@(new Thickness(0))">
-                    <Label Text="Display name (required)" />
-                    <TextBox @ref="_nameInput" @bind-Text="_name" ResetVersion="_reset" />
-                    <Label Text="Workspace" />
-                    <ComboBox Items="@Environments" @bind-SelectedIndex="_environment" />
-                    <Label Text="Biography (Enter adds a line)" />
-                    <TextArea @bind-Text="_biography" ResetVersion="_reset" MinHeight="76" />
+                <WinterForm @ref="_form" Model="_draft" OnValidSubmit="SubmitProfile" OnInvalidSubmit="InvalidProfile">
+                    <TextField Label="Display name (required)" @bind-Value="_draft.Name" ResetVersion="_reset" />
+                    <Field Label="Workspace"><ComboBox Items="@Environments" @bind-SelectedIndex="_environment" /></Field>
+                    <TextField Label="Biography (Enter adds a line)" @bind-Value="_draft.Biography" ResetVersion="_reset" Multiline="true" MultilineHeight="76" />
                     <Checkbox Text="Protect unsaved edits (checks before cancel)" @bind-IsChecked="_protect" />
                     <Label Text="@_error" TextWrapping="ThorVG.TextWrap.Word" />
-                </Panel>
+                </WinterForm>
             </Body>
             <Footer>
                 <Panel Layout="@Row" Padding="@(new Thickness(0))">
-                    <Button Text="Save" OnClick="@(() => Close(DialogCloseReason.Accepted))" />
+                    <Button Text="Save" OnClick="Submit" />
                     <Button Text="Cancel" OnClick="@(() => Close(DialogCloseReason.Cancel))" />
                     <Button Text="Remove opener" OnClick="@(() => _showOpener = false)" />
                     <Button Text="Remove dialog" OnClick="Remove" />
@@ -65,9 +64,18 @@
 @code {
     [Parameter] public Window? OwnerWindow { get; set; }
     private Modal? _modal;
-    private Marius.Winter.Blazor.Elements.TextBox? _nameInput;
+    private Marius.Winter.Blazor.Elements.WinterForm? _form;
+    public sealed class ProfileDraft
+    {
+        [Required(ErrorMessage = "Enter a display name before saving.")]
+        public string Name { get; set; } = "Marius";
+        public string Biography { get; set; } = "Designing a quiet workspace.";
+    }
+    private ProfileDraft _draft = new();
     private string _savedName = "Marius", _savedBio = "Designing a quiet workspace.";
-    private string _name = "Marius", _biography = "Designing a quiet workspace.", _error = "";
+    private string _name { get => _draft.Name; set => _draft.Name = value; }
+    private string _biography { get => _draft.Biography; set => _draft.Biography = value; }
+    private string _error = "";
     private string _result = "Ready to edit. Save accepts changes; Escape or Cancel keeps the original.";
     private bool _open, _backdrop, _protect, _settings, _large;
     private bool _mounted = true, _showOpener = true;
@@ -75,21 +83,16 @@
     private long _reset;
     private static readonly string[] Environments = Enumerable.Range(0, 24).Select(i => i == 0 ? "Personal studio" : $"Shared studio {i:00} · Žąsis").ToArray();
     private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 10 };
-    private static readonly Marius.Winter.FlexLayout BodyColumn = new() { Direction = Orientation.Vertical, Gap = 6 };
     private static readonly Marius.Winter.FlexLayout Row = new() { Wrap = FlexWrap.Wrap, Gap = 8 };
     private void Open()
     {
-        _mounted = true; _name = _savedName; _biography = _savedBio; _environment = _savedEnvironment;
+        _mounted = true; _draft = new ProfileDraft { Name = _savedName, Biography = _savedBio }; _environment = _savedEnvironment;
         _protect = false; _error = ""; _reset++; _open = true;
     }
     private async Task Close(DialogCloseReason reason) { if (_modal != null) await _modal.RequestCloseAsync(reason); }
-    private ValueTask<bool> Validate(CancellationToken token)
-    {
-        bool valid = !string.IsNullOrWhiteSpace(_name);
-        _error = valid ? "" : "Enter a display name before saving.";
-        if (!valid) _nameInput?.TryFocus();
-        StateHasChanged(); return ValueTask.FromResult(valid);
-    }
+    private Task Submit() => _form?.SubmitAsync() ?? Task.CompletedTask;
+    private Task SubmitProfile(EditContext context) => Close(DialogCloseReason.Accepted);
+    private void InvalidProfile(EditContext context) => _error = "Enter a display name before saving.";
     private async ValueTask<bool> Guard(DialogResult result, CancellationToken token)
     {
         if (!_protect || result.Accepted) return true;

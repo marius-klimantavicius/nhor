@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Reflection;
 using System.Threading.Tasks;
 using Marius.Winter.Blazor;
+using Microsoft.AspNetCore.Components.Forms;
 using Xunit;
 
 namespace Marius.Winter.Tests;
@@ -26,10 +27,12 @@ public class ModalScenarioInputTests
         var name = $"C06-{(razor ? "razor" : "native")}-{backend}-{dark}-{large}";
         using var window = new Window(800, 620, name, theme, backend);
         Playground.Scenarios.WindowsAndDialogsScenario? scenario = null;
+        Blazor.Playground.Scenarios.WindowsAndDialogs? razorScenario = null;
         if (razor)
         {
             var host = window.UseBlazor();
-            Assert.True(host.AddComponent<Blazor.Playground.Scenarios.WindowsAndDialogs>(new Dictionary<string, object> { ["OwnerWindow"] = window }).IsCompletedSuccessfully);
+            var mounted = host.AddComponent<Blazor.Playground.Scenarios.WindowsAndDialogs>(new Dictionary<string, object> { ["OwnerWindow"] = window });
+            Assert.True(mounted.IsCompletedSuccessfully); razorScenario = mounted.Result;
         }
         else
         {
@@ -41,6 +44,15 @@ public class ModalScenarioInputTests
         ModalDialog Modal() => Walk(Root()).OfType<ModalDialog>().Single();
         TextBox Editor() => Walk(Modal().Body!).OfType<TextBox>().Single();
         Label Result() => Walk(Root()).OfType<Label>().Single(l => l.Text.StartsWith("Saved profile:") || l.Text.StartsWith("Canceled ("));
+        int acceptedRequests = 0, submitRequests = 0, beforeValidSubmit = 0;
+        var observedForms = new HashSet<Form>();
+        void ObserveForm()
+        {
+            var form = Assert.Single(Walk(Modal().Body!).OfType<Form>());
+            if (!observedForms.Add(form)) return;
+            if (razor) form.SubmitRequested += () => submitRequests++;
+            else form.ValidSubmit += () => submitRequests++;
+        }
         var input = Task.Run(async () =>
         {
             try
@@ -51,13 +63,23 @@ public class ModalScenarioInputTests
                 {
                     Assert.True(Modal().IsOpen); Assert.Same(Editor(), window.FocusedElement);
                     Assert.InRange(Modal().DialogBounds.Bottom, 0, window.Bounds.H);
+                    ObserveForm();
+                    Modal().CloseRequested += result => { if (result.Accepted) acceptedRequests++; };
                 });
                 using (new HeldKey(0xffe3)) x.Key((nuint)'a');
                 x.Key(0xff08); x.Key(0xff0d); await Task.Delay(70);
                 await window.Dispatcher.InvokeAsync(() =>
                 {
                     Assert.True(Modal().IsOpen);
+                    Assert.Equal(0, acceptedRequests);
                     Assert.Contains(Walk(Modal().Body!).OfType<Label>(), l => l.Text == "Enter a display name before saving.");
+                    Assert.True(Walk(Modal().Body!).OfType<Field>().First().Invalid);
+                    if (razorScenario != null)
+                    {
+                        var form = (Blazor.Elements.WinterForm)typeof(Blazor.Playground.Scenarios.WindowsAndDialogs).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(razorScenario)!;
+                        Assert.True(form.CurrentEditContext.IsModified(new FieldIdentifier(form.CurrentEditContext.Model, "Name")));
+                        Assert.Contains("Enter a display name before saving.", form.CurrentEditContext.GetValidationMessages());
+                    }
                 });
                 x.Key(0xff1b); await Task.Delay(60); x.Key(0xff0d); await Task.Delay(65);
                 x.Key(0xff57); using (new HeldKey(0xffe1)) x.Key(0xff50);
@@ -68,8 +90,9 @@ public class ModalScenarioInputTests
                 await Task.Delay(45);
                 await window.Dispatcher.InvokeAsync(() => { Assert.NotSame(Button("Edit profile"), window.FocusedElement); window.SetFocus(Editor()); });
                 // Current typed text is accepted through Enter, with no blur first.
+                await window.Dispatcher.InvokeAsync(() => { ObserveForm(); beforeValidSubmit = submitRequests; });
                 x.Key(0xff57); x.Key((nuint)'X'); x.Key(0xff0d); await Task.Delay(100);
-                await window.Dispatcher.InvokeAsync(() => { Assert.False(Modal().IsOpen); Assert.Equal("Saved profile: Mariusx.", Result().Text); });
+                await window.Dispatcher.InvokeAsync(() => { Assert.False(Modal().IsOpen); Assert.Equal("Saved profile: Mariusx.", Result().Text); Assert.Equal(1, acceptedRequests); Assert.Equal(beforeValidSubmit + 1, submitRequests); });
                 RectF opener = default;
                 await window.Dispatcher.InvokeAsync(() => opener = Absolute(Button("Edit profile")));
                 x.Move((int)opener.X + 10, (int)opener.Y + 10); x.Click(); await Task.Delay(80);
