@@ -1,0 +1,80 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Linq
+@using Microsoft.AspNetCore.Components
+
+<Panel Layout="@Column" Padding="@(new Thickness(12))">
+    <Label Text="Notes" FontSize="22" />
+    <Label Text="Select a phrase, style it, and keep a snapshot. Undo and redo restore text and formatting." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Button Text="Bold" OnClick="@(() => _editor?.ToggleBold())" />
+        <Button Text="Italic" OnClick="@(() => _editor?.ToggleItalic())" />
+        <Button Text="Underline" OnClick="@(() => _editor?.ToggleUnderline())" />
+        <Button Text="Strike" OnClick="@(() => _editor?.ToggleStrikethrough())" />
+        <Button Text="Blue" OnClick="@(() => _editor?.SetSelectionColor(Blue))" />
+        <Button Text="Clear style" OnClick="@(() => _editor?.ClearFormatting())" />
+        <Button Text="Undo" Enabled="@(_state?.CanUndo == true)" OnClick="@(() => _editor?.Undo())" />
+        <Button Text="Redo" Enabled="@(_state?.CanRedo == true)" OnClick="@(() => _editor?.Redo())" />
+    </Panel>
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Button Text="Select phrase" OnClick="SelectPhrase" />
+        <Button Text="Replace plain" OnClick="ReplacePlain" />
+        <Button Text="Save snapshot" OnClick="Save" />
+        <Button Text="Restore snapshot" OnClick="Restore" />
+        <Button Text="Rerender" OnClick="@(() => _rerenders++)" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <RichTextBox @ref="_editor" @bind-Text="_text" @bind-Document="BoundDocument" Placeholder="Write a field note" ResetVersion="_resetVersion"
+                 FormattingStateChanged="StateChanged" FontSize="@(_large ? 24 : 16)" LayoutData="@Grow" MinHeight="130" />
+    <Label Text="@FormatResult" TextWrapping="ThorVG.TextWrap.Word" />
+    <Label Text="@($"Document: {_document.Text.Length} characters, {_document.Runs.Count(r => r.Style != default)} styled runs · Snapshot: {(_saved == null ? "none" : "saved")} · Rerenders: {_rerenders}")" TextWrapping="ThorVG.TextWrap.Word" />
+    <LogView Text="@_preview" MinHeight="90" MaxHeight="120" />
+    <Panel Layout="@Row" Padding="@(new Thickness(0))">
+        <Button Text="Light" Enabled="@(OwnerWindow != null)" OnClick="@(() => { if (OwnerWindow != null) OwnerWindow.Theme = Theme.Light; })" />
+        <Button Text="Dark" Enabled="@(OwnerWindow != null)" OnClick="@(() => { if (OwnerWindow != null) OwnerWindow.Theme = Theme.Dark; })" />
+        <Button Text="Larger text" OnClick="@(() => _large = !_large)" />
+    </Panel>
+</Panel>
+
+@code {
+    [Parameter] public Window? OwnerWindow { get; set; }
+    private const string Note = "Review the blue horizon.\nKeep the trail open.";
+    private Marius.Winter.Blazor.Elements.RichTextBox? _editor;
+    private RichDocument _document = new(Note);
+    private string _text = Note;
+    private bool _plainBinding;
+    private RichDocument? BoundDocument
+    {
+        get => _plainBinding ? null : _document;
+        set { if (value != null) _document = value; }
+    }
+    private RichTextFormattingState? _state;
+    private string? _saved;
+    private string _preview = "Save snapshot to inspect its versioned text, styles and colors.";
+    private long _resetVersion;
+    private int _rerenders;
+    private bool _large;
+    private static Color4 Blue => new(.12f, .45f, .88f);
+    private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 8 };
+    private static readonly Marius.Winter.FlexLayout Row = new() { Wrap = FlexWrap.Wrap, Gap = 6 };
+    private static readonly FlexItem Grow = new() { Grow = 1, Basis = 160 };
+    private string FormatResult => _state is not { } s ? "Format: None" : $"Format: {s.Format}{(s.MixedFormat ? " (mixed)" : "")} · {(s.Color.HasValue ? "custom color" : "theme color")} · Selection: {s.SelectionLength} · Undo: {s.CanUndo} · Redo: {s.CanRedo}";
+    private void StateChanged(RichTextFormattingState state)
+    {
+        _state = state;
+        if (_plainBinding && _editor?.CurrentDocument is { } document) _document = document;
+    }
+    private void SelectPhrase() { _editor?.Select(11, 12); _editor?.Focus(); }
+    private void ReplacePlain() { _plainBinding = true; _text = Note; _document = new(Note); _resetVersion++; }
+    private void Save() { _saved = (_editor?.CurrentDocument ?? _document).ToJson(); _preview = _saved; }
+    private void Restore()
+    {
+        if (_saved == null) { _preview = "Save a snapshot first."; return; }
+        _plainBinding = false; _document = RichDocument.FromJson(_saved); _resetVersion++;
+    }
+    private void Reset()
+    {
+        _plainBinding = false; _text = Note; _document = new(Note); _saved = null; _resetVersion++; _rerenders = 0; _large = false;
+        _preview = "Save snapshot to inspect its versioned text, styles and colors.";
+    }
+}
