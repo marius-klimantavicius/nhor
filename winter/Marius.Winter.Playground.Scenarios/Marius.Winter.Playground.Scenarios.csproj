@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Marius.Winter/Marius.Winter.csproj" />
+    <Compile Include="../Marius.Winter.Playground/Scenarios/AssetCatalogData.cs" Link="Scenarios/AssetCatalogData.cs" />
+  </ItemGroup>
+</Project>

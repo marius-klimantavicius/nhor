@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Marius.Winter.Blazor\Marius.Winter.Blazor.csproj" />
     <Compile Include="../Marius.Winter.Playground/Scenarios/OperationFeedbackData.cs" Link="Scenarios/OperationFeedbackData.cs" />
     <Compile Include="../Marius.Winter.Playground/Scenarios/OperationFeedbackMedia.cs" Link="Scenarios/OperationFeedbackMedia.cs" />
+    <ProjectReference Include="../Marius.Winter.Playground.Scenarios/Marius.Winter.Playground.Scenarios.csproj" />
   </ItemGroup>
 
 </Project>

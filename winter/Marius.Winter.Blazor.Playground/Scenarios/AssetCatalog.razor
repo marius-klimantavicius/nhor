@@ -1,0 +1,96 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Linq
+@using System.Collections.Generic
+@using Marius.Winter.Scenarios
+@using Microsoft.AspNetCore.Components
+
+<Panel Layout="@Column" Padding="@(new Thickness(8))">
+    <Label Text="Asset catalog" FontSize="22" />
+    <Label Text="Select a row. Enter or double-click opens it; Preview is a separate action. Sort using table headers." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions" Padding="@(new Thickness(0))">
+        <Label Text="Filter" />
+        <TextBox Text="@_filter" TextChanged="Filter" Placeholder="Name or type" LayoutData="@(new FlexItem { Grow = 1, Basis = 160 })" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <Panel Layout="@Actions" Padding="@(new Thickness(0))">
+        <Button Text="Insert" OnClick="Insert" /><Button Text="Remove" OnClick="Remove" />
+        <Button Text="Reverse" OnClick="Reverse" /><Button Text="Rename" OnClick="Rename" /><Button Text="Update size" OnClick="UpdateSize" />
+    </Panel>
+    <Panel Layout="@Actions" Padding="@(new Thickness(0))">
+        <Button Text="List" OnClick="@(() => _table = false)" /><Button Text="Table" OnClick="@(() => _table = true)" />
+    </Panel>
+    <ListView TItem="CatalogAsset" Items="VisibleItems" KeySelector="AssetCatalogData.Key" @bind-SelectedKey="_selected"
+              OnActivate="Activate" ResetVersion="_reset" Visible="@(!_table)" LayoutData="@Grow" MinHeight="100">
+        <ItemTemplate Context="asset">
+            <Panel Layout="@AssetRowLayout" Padding="@(new Thickness(0))">
+                <Panel Layout="@NameLayout" Padding="@(new Thickness(0))" LayoutData="@(new FlexItem { Grow = 1, Basis = 120 })">
+                    <SvgImage Svg="@asset.Thumbnail" RequestedWidth="28" RequestedHeight="28" />
+                    <Label Text="@asset.Name" TextWrapping="ThorVG.TextWrap.Word" LayoutData="@(new FlexItem { Grow = 1, Basis = 80 })" />
+                </Panel>
+                <Label Text="@($"{asset.Type} · {asset.Size} KB")" />
+                <Button Text="Preview" OnClick="@(() => Preview(asset))" />
+            </Panel>
+        </ItemTemplate>
+        <EmptyContent><Label Text="No matching assets. Clear Filter or Reset." /></EmptyContent>
+    </ListView>
+    <BasicTable TItem="CatalogAsset" Items="VisibleItems" KeySelector="AssetCatalogData.Key" Columns="Columns" @bind-SelectedKey="_selected"
+                @bind-Sort:get="_sort" @bind-Sort:set="Sorted" OnActivate="Activate" ResetVersion="_reset" Visible="_table" LayoutData="@Grow" MinHeight="100">
+        <EmptyContent><Label Text="No matching assets. Clear Filter or Reset." /></EmptyContent>
+    </BasicTable>
+    <Label Text="@AssetCatalogData.Details(VisibleItems.FirstOrDefault(a => a.Key == _selected))" TextWrapping="ThorVG.TextWrap.Word" />
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+</Panel>
+
+@code {
+    private CatalogAsset[] _all = AssetCatalogData.Create();
+    private string _filter = "", _result = "Ready: 8 assets.";
+    private string? _selected = "harbor";
+    private TableSort? _sort;
+    private int _insert;
+    private long _reset;
+    private bool _table;
+    private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 7 };
+    private static readonly Marius.Winter.FlexLayout Actions = new() { Wrap = FlexWrap.Wrap, Gap = 5 };
+    private static readonly Marius.Winter.FlexLayout AssetRowLayout = new() { Gap = 7, AlignItems = Alignment.Center };
+    private static readonly Marius.Winter.FlexLayout NameLayout = new() { Gap = 5, AlignItems = Alignment.Center };
+    private static readonly FlexItem Grow = new() { Grow = 1, Basis = 0 };
+    private CatalogAsset[] VisibleItems => AssetCatalogData.Order(AssetCatalogData.Filter(_all, _filter), _sort);
+    private CatalogAsset? Target => VisibleItems.FirstOrDefault(a => a.Key == _selected) ?? VisibleItems.FirstOrDefault();
+    private IReadOnlyList<BasicTableColumn<CatalogAsset>> Columns => [
+        new("name", "Name", 230, 80, 1, NameCell, Comparer: AssetCatalogData.NameComparer),
+        new("type", "Type", 65, 45, Format: a => a.Type, Comparer: AssetCatalogData.TypeComparer),
+        new("size", "KB", 70, 48, Format: a => a.Size.ToString(), Comparer: AssetCatalogData.SizeComparer),
+        new("action", "Action", 95, 78, CellTemplate: ActionCell)];
+    private RenderFragment<CatalogAsset> NameCell => asset => @<Panel Layout="@NameLayout" Padding="@(new Thickness(0))">
+        <SvgImage Svg="@asset.Thumbnail" RequestedWidth="28" RequestedHeight="28" />
+        <Label Text="@asset.Name" TextWrapping="ThorVG.TextWrap.Word" LayoutData="@(new FlexItem { Grow = 1, Basis = 80 })" />
+    </Panel>;
+    private RenderFragment<CatalogAsset> ActionCell => asset => @<Button Text="Preview" OnClick="@(() => Preview(asset))" />;
+    private void Preview(CatalogAsset asset) => _result = "Preview: " + asset.Name + " · " + asset.Key;
+    private void Activate(ItemActivation<CatalogAsset> action) => _result = "Opened: " + action.Item.Name + " · " + action.Key;
+    private void Sorted(TableSort? sort) { _sort = sort; if (sort != null) _result = $"Sorted: {sort.Column} · {sort.Direction}"; }
+    private void Filter(string value) { _filter = value; if (!VisibleItems.Any(a => a.Key == _selected)) _selected = null; }
+    private void Insert()
+    {
+        var asset = new CatalogAsset("new-" + ++_insert, "New landscape " + _insert + ".svg", "SVG", 12, AssetCatalogData.Thumbnail("#236a9a"));
+        _all = [asset, .._all]; _result = "Inserted: " + asset.Name;
+    }
+    private void Remove()
+    {
+        if (Target is not { } asset) return;
+        _all = _all.Where(a => a.Key != asset.Key).ToArray(); if (_selected == asset.Key) _selected = null; _result = "Removed: " + asset.Name;
+    }
+    private void Reverse() { _all = _all.AsEnumerable().Reverse().ToArray(); _sort = null; _result = "Reversed asset order."; }
+    private void Rename()
+    {
+        if (Target is not { } asset) return;
+        _all = _all.Select(a => a.Key == asset.Key ? a with { Name = "Renamed · " + a.Name } : a).ToArray(); _result = "Renamed: " + asset.Key;
+    }
+    private void UpdateSize()
+    {
+        if (Target is not { } asset) return;
+        _all = _all.Select(a => a.Key == asset.Key ? a with { Size = a.Size + 1 } : a).ToArray(); _result = "Updated size: " + asset.Key;
+    }
+    private void Reset() { _all = AssetCatalogData.Create(); _insert = 0; _filter = ""; _selected = "harbor"; _sort = null; _table = false; _reset++; _result = "Ready: 8 assets."; }
+}
