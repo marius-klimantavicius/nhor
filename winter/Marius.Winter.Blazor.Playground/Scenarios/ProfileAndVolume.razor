@@ -1,0 +1,96 @@
+@using System.Threading
+@using System.Threading.Tasks
+@implements IAsyncDisposable
+
+<ScrollPanel Padding="@(new Thickness(8))">
+    <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+    <Label Text="Profile and volume" FontSize="22" />
+    <Label Text="Enter commits names; Ctrl+Enter commits notes." />
+    <Label Text="Name" />
+    <TextBox @bind-Text="Name" TextCommitted="Committed" ResetVersion="@_resetVersion" />
+    <Panel>
+        <FlexLayout Wrap="FlexWrap.Wrap" Gap="20" />
+        <Checkbox Text="Create desktop shortcut" @bind-IsChecked="Shortcut" ResetVersion="@_resetVersion" />
+        <Checkbox Text="Protect name" @bind-IsChecked="ProtectName" ResetVersion="@_resetVersion" />
+    </Panel>
+    <Label Text="Profile type" />
+    <ComboBox Items="@_profiles" @bind-SelectedIndex="Profile" ResetVersion="@_resetVersion" />
+    <Label Text="Volume" />
+    <Slider @bind-Value="Volume" Min="0" Max="@(_limit ? 60 : 100)" Step="1" ResetVersion="@_resetVersion" />
+    <ProgressBar Value="@(Volume / 100)" />
+    <Checkbox Text="Limit volume to 60%" @bind-IsChecked="Limit" ResetVersion="@_resetVersion" />
+    <Label Text="Notes" />
+    <TextArea @bind-Text="Notes" TextCommitted="Committed" MinHeight="84" MaxHeight="84" ResetVersion="@_resetVersion" />
+    <Panel>
+        <FlexLayout Wrap="FlexWrap.Wrap" Gap="10" />
+        <Button Text="Reset" OnClick="Reset" />
+        <Button Text="Clear name" OnClick="ClearName" />
+        <Button Text="Save after delay" OnClick="StartSaveAsync" />
+    </Panel>
+    <Label Text="@Summary" />
+    <Label Text="@_commit" />
+    <Label Text="@_saved" />
+</ScrollPanel>
+
+@code {
+    private readonly string[] _profiles = ["Personal", "Studio"];
+    private string _name = "Milda", _notes = "Studio profile";
+    private bool _shortcut, _protect, _limit;
+    private float _volume = 40;
+    private int _profile;
+    private string _commit = "Committed edit: none", _saved = "No saved profile yet";
+    private long _resetVersion, _generation;
+    private CancellationTokenSource? _saveCancellation;
+    private Task _saveTask = Task.CompletedTask;
+    private bool _disposed;
+    private string Name { get => _name; set { CancelSave(); if (!_protect) _name = value; } }
+    private string Notes { get => _notes; set { CancelSave(); _notes = value; } }
+    private bool Shortcut { get => _shortcut; set { CancelSave(); _shortcut = value; } }
+    private bool ProtectName { get => _protect; set => _protect = value; }
+    private bool Limit { get => _limit; set { CancelSave(); _limit = value; if (value) _volume = Math.Min(_volume, 60); } }
+    private float Volume { get => _volume; set { CancelSave(); _volume = value; } }
+    private int Profile { get => _profile; set { CancelSave(); _profile = value; } }
+    private string Summary => $"Profile: {_name} · {_profiles[_profile]} · shortcut {(_shortcut ? "on" : "off")} · volume {_volume:0}%";
+    private void Committed(TextCommitEventArgs args) => _commit = $"Committed edit ({args.Reason}): {args.Text.Replace("\n", " / ")}";
+    private void ClearName() { CancelSave(); _name = ""; _resetVersion++; }
+    private void Reset()
+    {
+        CancelSave(); _resetVersion++;
+        _name = "Milda"; _notes = "Studio profile"; _shortcut = false; _protect = false; _limit = false;
+        _profile = 0; _volume = 40; _commit = "Committed edit: none"; _saved = "No saved profile yet";
+    }
+    private void CancelSave()
+    {
+        _generation++; _saveCancellation?.Cancel();
+        if (_saved == "Saving profile…" && !_disposed) _saved = "Profile changed; save again";
+    }
+    private async Task SaveAsync()
+    {
+        CancelSave(); var generation = _generation; var summary = Summary;
+        _saveCancellation?.Dispose(); _saveCancellation = new CancellationTokenSource(); var token = _saveCancellation.Token;
+        _saved = "Saving profile…";
+        try
+        {
+            await Task.Delay(650, token).ConfigureAwait(false);
+            if (_disposed || generation != _generation || token.IsCancellationRequested) return;
+            await InvokeAsync(() =>
+            {
+                if (!_disposed && generation == _generation && !token.IsCancellationRequested)
+                    _saved = "Saved: " + summary;
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { }
+    }
+    private Task StartSaveAsync()
+    {
+        var save = SaveAsync();
+        _saveTask = _saveTask.IsCompleted ? save : Task.WhenAll(_saveTask, save);
+        return save;
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return; _disposed = true; CancelSave();
+        try { await _saveTask.ConfigureAwait(false); }
+        finally { _saveCancellation?.Dispose(); }
+    }
+}
