@@ -340,7 +340,7 @@ public class ComboBox : Element
 
         _isOpen = true;
         _popup = new ComboBoxPopup(this, _items.ToArray(), _selectedIndex);
-        win.ShowOverlay(_popup);
+        win.ShowOverlay(_popup, this);
         PositionPopup();
         _popup.RevealHighlight();
     }

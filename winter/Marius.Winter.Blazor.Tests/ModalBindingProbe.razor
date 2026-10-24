@@ -1,0 +1,43 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System
+@using System.Collections.Generic
+@using System.Threading
+@using System.Threading.Tasks
+@namespace Marius.Winter.Blazor.Tests
+
+@if (Mounted)
+{
+    <ModalDialog @ref="Modal" @bind-IsOpen:get="Open" @bind-IsOpen:set="SetOpen" OnIsOpenChanged="Legacy" Closed="Complete"
+                 Title="@Title" ResetVersion="ResetVersion" DefaultAction="Accept" CloseGuard="Guard" InitialFocus="@(() => Input)">
+        <Body><TextBox @ref="Input" @bind-Text="Name" /></Body>
+        <Footer><Button Text="@FooterText" OnClick="@(() => Modal!.RequestCloseAsync(DialogCloseReason.Accepted))" /></Footer>
+    </ModalDialog>
+}
+
+@code {
+    public Marius.Winter.Blazor.Elements.ModalDialog? Modal;
+    public Marius.Winter.Blazor.Elements.TextBox? Input;
+    public bool Open { get; private set; } = true;
+    public bool Mounted { get; private set; } = true;
+    public bool RejectClose { get; set; }
+    public string Name { get; set; } = "Marius";
+    public string AcceptedName { get; private set; } = "";
+    public string Title { get; private set; } = "Edit profile";
+    public string FooterText { get; private set; } = "Save";
+    public long ResetVersion { get; private set; }
+    public int Changes, LegacyCalls;
+    public List<DialogResult> Results { get; } = [];
+    public Func<CancellationToken, ValueTask<bool>>? Validation;
+    public Func<DialogResult, CancellationToken, ValueTask<bool>>? Policy;
+    public Func<Task>? AfterChanged;
+    private async Task SetOpen(bool value) { Changes++; if (!RejectClose) Open = value; if (AfterChanged != null) await AfterChanged(); }
+    private void Legacy(bool value) => LegacyCalls++;
+    private void Complete(DialogResult value) { Results.Add(value); if (value.Accepted) AcceptedName = Name; }
+    private ValueTask<bool> Accept(CancellationToken token) => Validation?.Invoke(token) ?? ValueTask.FromResult(!string.IsNullOrWhiteSpace(Name));
+    private ValueTask<bool> Guard(DialogResult value, CancellationToken token) => Policy?.Invoke(value, token) ?? ValueTask.FromResult(true);
+    public void RenderAgain() => StateHasChanged();
+    public void Reset(bool open) { ResetVersion++; Open = open; Name = "Reset"; StateHasChanged(); }
+    public void Slots() { Title = "Changed profile"; FooterText = "Accept profile"; StateHasChanged(); }
+    public void Remove() { Mounted = false; StateHasChanged(); }
+}

@@ -67,6 +67,12 @@ public unsafe class Window : Element
     // Overlay layer — rendered on top of all children, hit-tested first
     private Scene? _overlayScene;
     private readonly List<Element> _overlays = new();
+    private readonly Dictionary<Element, Element> _overlayInputOwners = new();
+    private ModalDialog? _modal;
+    private bool _keyBubbled;
+    private bool _routingKey;
+    private ModalDialog? _keyModal;
+    private long _keyModalSession;
 
     // Context menu state
     private MenuPopup? _contextMenuPopup;
@@ -383,6 +389,8 @@ public unsafe class Window : Element
 
     private void FlushLayout()
     {
+        _modal?.UpdatePlacement();
+        EnsureModalFocus();
         Measure(Bounds.W, Bounds.H);
         foreach (var root in Children)
         {
@@ -511,10 +519,59 @@ public unsafe class Window : Element
         {
             element.State = element.State | ElementState.Focused;
             element.OnFocus();
+            _modal?.RevealFocus(element);
         }
     }
 
-    private bool CanReceiveInput(Element element) => ReferenceEquals(element.OwnerWindow, this) && element.IsActive;
+    private bool CanReceiveInput(Element element) => ReferenceEquals(element.OwnerWindow, this) && element.IsActive && InModalScope(element);
+
+    private bool InModalScope(Element element)
+    {
+        if (_modal == null) return true;
+        if (ReferenceEquals(element, _modal.ModalRoot) || IsDescendantOf(element, _modal.ModalRoot)) return true;
+        for (Element? root = element; root != null; root = root.Parent)
+            if (_overlayInputOwners.TryGetValue(root, out var owner)) return InModalScope(owner);
+        return false;
+    }
+
+    internal bool IsCurrentKeyScope => !_routingKey || (ReferenceEquals(_keyModal, _modal) && (_modal == null || _modal.SessionId == _keyModalSession));
+    internal bool NoteKeyBubble() { _keyBubbled = true; return IsCurrentKeyScope; }
+
+    internal void BeginModal(ModalDialog modal)
+    {
+        Dispatcher.VerifyAccess();
+        if (_modal != null && !ReferenceEquals(_modal, modal)) throw new InvalidOperationException("Only one in-window modal may be open.");
+        DismissAllOverlays();
+        ReleaseSubtreeReferences(this);
+        _modal = modal;
+    }
+
+    internal void EndModal(ModalDialog modal, Element? opener)
+    {
+        if (!ReferenceEquals(_modal, modal)) return;
+        DismissAllOverlays();
+        ReleaseSubtreeReferences(modal.ModalRoot);
+        _modal = null;
+        if (ShutdownToken.IsCancellationRequested) return;
+        if (opener is { Focusable: true } && CanReceiveInput(opener)) SetFocus(opener);
+        else
+        {
+            var eligible = new List<Element>(); CollectFocusable(this, eligible);
+            SetFocus(eligible.Count > 0 ? eligible[0] : null);
+        }
+    }
+
+    internal void EnsureModalFocus(Element? requested = null)
+    {
+        if (_modal == null) return;
+        if (requested is { Focusable: true } && CanReceiveInput(requested)) { SetFocus(requested); return; }
+        if (_focusedElement != null && CanReceiveInput(_focusedElement) && _focusedElement.Focusable) return;
+        // Prefer body editors/actions over the title close button.
+        var eligible = new List<Element>();
+        if (_modal.Body != null) CollectFocusable(_modal.Body, eligible);
+        if (_modal.Footer != null) CollectFocusable(_modal.Footer, eligible);
+        SetFocus(eligible.Count > 0 ? eligible[0] : _modal.FocusFallback);
+    }
 
     private Element? FocusedInput()
     {
@@ -571,14 +628,17 @@ public unsafe class Window : Element
 
     // --- Overlay management ---
 
-    public void ShowOverlay(Element overlay)
+    public void ShowOverlay(Element overlay, Element? inputOwner = null)
     {
         ThrowIfDisposed();
         overlay.ThrowIfDisposed();
         if (_overlays.Contains(overlay)) return;
         if (overlay.Parent != null || overlay._overlayOwner != null)
             throw new InvalidOperationException("Overlay already has an owner");
+        if (_modal != null && !ReferenceEquals(overlay, _modal.ModalRoot) && (inputOwner == null || !CanReceiveInput(inputOwner)))
+            throw new InvalidOperationException("A modal owns input; overlays must belong to its active content.");
         _overlays.Add(overlay);
+        if (inputOwner != null) _overlayInputOwners.Add(overlay, inputOwner);
         overlay._overlayOwner = this;
         _overlayScene?.Add(overlay.Scene);
         overlay.NotifyAttached();
@@ -592,6 +652,7 @@ public unsafe class Window : Element
         overlay.DetachSubtree();
         _overlayScene?.Remove(overlay.Scene);
         overlay._overlayOwner = null;
+        _overlayInputOwners.Remove(overlay);
         _dirty = true;
     }
 
@@ -601,10 +662,10 @@ public unsafe class Window : Element
         HideTooltip();
         foreach (var overlay in _overlays.ToArray())
         {
+            if (ReferenceEquals(overlay, _modal?.ModalRoot)) continue;
             RemoveOverlay(overlay);
             overlay.OnBlur();
         }
-        _overlays.Clear();
         _contextMenuPopup = null;
         _contextMenuTarget = null;
         _dirty = true;
@@ -637,7 +698,7 @@ public unsafe class Window : Element
         if (py < 4) py = 4;
 
         _contextMenuPopup.Arrange(new RectF(px, py, popupSize.X, popupSize.Y));
-        ShowOverlay(_contextMenuPopup);
+        ShowOverlay(_contextMenuPopup, target);
 
         // Fade-in animation
         _contextMenuPopup.Opacity = 0;
@@ -680,7 +741,13 @@ public unsafe class Window : Element
     private void CycleFocus(bool forward)
     {
         var focusable = new List<Element>();
-        CollectFocusable(this, focusable);
+        if (_modal != null)
+        {
+            if (_modal.Body != null) CollectFocusable(_modal.Body, focusable);
+            if (_modal.Footer != null) CollectFocusable(_modal.Footer, focusable);
+            if (_modal.ShowCloseButton) focusable.Add(_modal.FocusFallback);
+        }
+        else CollectFocusable(this, focusable);
         if (focusable.Count == 0) return;
 
         int current = _focusedElement != null ? focusable.IndexOf(_focusedElement) : -1;
@@ -761,7 +828,30 @@ public unsafe class Window : Element
                     return;
                 }
 
-                FocusedInput()?.OnKeyDown(key, mods, action == GLFW_REPEAT);
+                EnsureModalFocus();
+                var focused = FocusedInput();
+                // Child popup dismissals consume Escape before the modal.
+                if (_modal != null && key == GLFW_KEY_ESCAPE)
+                {
+                    if (focused is ComboBox { IsDropDownOpen: true }) focused.OnKeyDown(key, mods, action == GLFW_REPEAT);
+                    else if (_overlays.Exists(o => !ReferenceEquals(o, _modal.ModalRoot) && o is not TooltipOverlay)) DismissAllOverlays();
+                    else if (action != GLFW_REPEAT) _modal.Escape();
+                }
+                else
+                {
+                    _keyBubbled = false;
+                    _keyModal = _modal; _keyModalSession = _modal?.SessionId ?? 0; _routingKey = true;
+                    try
+                    {
+                        focused?.OnKeyDown(key, mods, action == GLFW_REPEAT);
+                        // Legacy TextBox commits but does not bubble Enter. Newer
+                        // form-aware inputs bubble themselves; never route twice.
+                        if (_modal != null && IsCurrentKeyScope && !_keyBubbled && ReferenceEquals(focused, _focusedElement)
+                            && focused is TextBox && (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER))
+                            focused.Parent?.OnKeyDown(key, mods, action == GLFW_REPEAT);
+                    }
+                    finally { _routingKey = false; _keyModal = null; }
+                }
                 _dirty = true;
             }
             else if (action == GLFW_RELEASE)
@@ -789,8 +879,24 @@ public unsafe class Window : Element
                 var overlayHit = HitTestOverlays(_mouseX, _mouseY);
                 if (overlayHit != null)
                 {
-                    _capturedElement = overlayHit;
-                    overlayHit.OnMouseDown(button, _mouseX, _mouseY);
+                    if (_modal != null)
+                    {
+                        // Outside a child popup dismisses the transient first.
+                        Element root = overlayHit; while (root.Parent != null) root = root.Parent;
+                        if (ReferenceEquals(root, _modal.ModalRoot)) DismissAllOverlays();
+                        if (button == 1) { SetFocus(overlayHit); ShowContextMenu(overlayHit, _mouseX, _mouseY); _dirty = true; return; }
+                        var handler = BubbleMouseDown(overlayHit, button, _mouseX, _mouseY);
+                        var capture = handler ?? overlayHit;
+                        _capturedElement = CanReceiveInput(capture) ? capture : null;
+                        // Popup rows keep focus at their owning chooser.
+                        if (!(_overlayInputOwners.TryGetValue(root, out var popupOwner) && popupOwner is ComboBox))
+                        { if (capture.Focusable) SetFocus(capture); else EnsureModalFocus(); }
+                    }
+                    else
+                    {
+                        _capturedElement = overlayHit;
+                        overlayHit.OnMouseDown(button, _mouseX, _mouseY);
+                    }
                     _dirty = true;
                     return;
                 }
@@ -900,7 +1006,7 @@ public unsafe class Window : Element
         Glfw.Glfw.glfwSetScrollCallback(_window!, (w, xoffset, yoffset) =>
         {
             ValidatePointerReferences();
-            var target = _hoveredElement ?? HitTest(_mouseX, _mouseY);
+            var target = _hoveredElement ?? HitTestOverlays(_mouseX, _mouseY) ?? (_modal == null ? HitTest(_mouseX, _mouseY) : null);
             if (target != null && target != this)
             {
                 target.OnScroll((float)xoffset, (float)yoffset);
@@ -1086,7 +1192,7 @@ public unsafe class Window : Element
         if (_tooltipElement == null || _tooltipElement.Tooltip == null) return;
 
         _tooltipOverlay = new TooltipOverlay(_tooltipElement.Tooltip);
-        ShowOverlay(_tooltipOverlay);
+        ShowOverlay(_tooltipOverlay, _tooltipElement);
         _tooltipOverlay.PositionNear(_tooltipMouseX, _tooltipMouseY, (uint)_logicalWidth, (uint)_logicalHeight, _theme);
 
         // Fade-in animation

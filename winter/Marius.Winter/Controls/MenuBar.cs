@@ -439,7 +439,7 @@ public class MenuBar : Element
         if (popupX < 4) popupX = 4;
 
         _popup.Arrange(new RectF(popupX, popupY, popupW, popupSize.Y));
-        win.ShowOverlay(_popup);
+        win.ShowOverlay(_popup, this);
 
         // Fade-in animation
         _popup.Opacity = 0;
@@ -851,7 +851,7 @@ internal class MenuPopup : Element
         if (subY < 4) subY = 4;
 
         _subPopup.Arrange(new RectF(subX, subY, subSize.X, subSize.Y));
-        win.ShowOverlay(_subPopup);
+        win.ShowOverlay(_subPopup, this);
 
         // Fade-in animation
         _subPopup.Opacity = 0;

@@ -665,7 +665,11 @@ public abstract class Element : IDisposable
         }
     }
 
-    protected void OnKeyDownBubble(int key, int mods, bool repeat) => _parent?.OnKeyDown(key, mods, repeat);
+    protected void OnKeyDownBubble(int key, int mods, bool repeat)
+    {
+        if (OwnerWindow?.NoteKeyBubble() == false) return;
+        _parent?.OnKeyDown(key, mods, repeat);
+    }
 
     // --- Hit testing ---
 
