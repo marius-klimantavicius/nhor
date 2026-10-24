@@ -10,6 +10,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
 {
     private readonly Window _window;
     private readonly Panel _root;
+    private readonly ScrollPanel _scroll;
     private readonly Button _opener;
     private readonly Label _result = new() { TextWrapping = ThorVG.TextWrap.Word };
     private readonly Label _profile = new();
@@ -30,6 +31,8 @@ public sealed class WindowsAndDialogsScenario : IDisposable
     {
         _window = window;
         _root = new Panel { Layout = new FlexLayout { Direction = Orientation.Vertical, Gap = 10 }, Padding = new Thickness(12) };
+        _scroll = new ScrollPanel { Layout = new StackLayout { Spacing = 0 }, HorizontalScroll = ScrollMode.Never, Padding = new Thickness(0) };
+        _scroll.AddChild(_root);
         _root.AddChild(new Label("Windows and dialogs") { FontSize = 22 });
         _root.AddChild(new Label("Edit your profile, save it, or cancel to keep the original. The background counter waits while the editor is open.") { TextWrapping = ThorVG.TextWrap.Word });
         var actions = Row();
@@ -47,7 +50,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
         window.Closing += Closing;
         CreateModal(); Reset();
     }
-    public Element Content => _root;
+    public Element Content => _scroll;
     private static Panel Row() => new() { Layout = new FlexLayout { Wrap = FlexWrap.Wrap, Gap = 8 }, Padding = new Thickness(0) };
     private static Button Action(string text, Action action) => new(text) { Clicked = action };
     private void CreateModal()
@@ -133,7 +136,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
         if (_disposed) return; _disposed = true;
         _window.Closing -= Closing;
         RemoveModal(); if (_opener.Parent == null) _opener.Dispose();
-        _root.Dispose();
+        _scroll.Dispose();
     }
     private ValueTask Closing() { Dispose(); return ValueTask.CompletedTask; }
 }

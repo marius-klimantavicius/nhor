@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components
 @using Modal = Marius.Winter.Blazor.Elements.ModalDialog
 
+<ScrollPanel Layout="@(new Marius.Winter.StackLayout { Spacing = 0 })" HorizontalScroll="ScrollMode.Never" Padding="@(new Thickness(0))">
 <Panel Layout="@Column" Padding="@(new Thickness(12))">
     <Label Text="Windows and dialogs" FontSize="22" />
     <Label Text="Edit your profile, save it, or cancel to keep the original. The background counter waits while the editor is open." TextWrapping="ThorVG.TextWrap.Word" />
@@ -59,6 +60,7 @@
         </DialogWindow>
     }
 </Panel>
+</ScrollPanel>
 
 @code {
     [Parameter] public Window? OwnerWindow { get; set; }
