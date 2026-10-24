@@ -91,6 +91,17 @@ public class AssetCatalogInteractionTests
                 x.Capture(prefix + "-narrow", 440, 620);
                 await window.Dispatcher.InvokeAsync(() => { Assert.Equal(8, table.Body.Rows.Count); Assert.Equal(0, table.Body.Viewport.Scroll); Assert.True(table.Body.Bounds.W <= 440); Assert.True(table.Body.Rows[0].Bounds.H > 0); });
                 await Click(Button("List")); x.Capture(prefix + "-narrow-list", 440, 620);
+                if (backend == RenderBackend.SW)
+                    await window.Dispatcher.InvokeAsync(() =>
+                    {
+                        uint RowPixel(Element row)
+                        {
+                            row.WindowToLocal(0, 0, out var nx, out var ny);
+                            return WindowRuntimeTests.Buffer(window)[((int)-ny + 2) * (int)window.FramebufferWidth + (int)-nx + (int)(row.Bounds.W / 2)];
+                        }
+                        Assert.Equal("harbor", list.SelectedKey);
+                        Assert.NotEqual(RowPixel(list.Rows[1]), RowPixel(list.Rows[0]));
+                    });
                 await Click(Button("Reset")); await Click(Button("Table"));
                 await Click(Button("Name")); await window.Dispatcher.InvokeAsync(() => Assert.Equal("cafe", table.Controller.Items[0].Key));
                 x.CloseNormally();
