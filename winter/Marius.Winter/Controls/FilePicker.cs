@@ -152,7 +152,7 @@ public sealed class FilePicker : Panel
             _accept.Visible = !confirm; _yes.Visible = _no.Visible = confirm;
             if (state.Overwrite is { } overwrite)
             {
-                _confirmationId = overwrite.Id; _overwrite.Text = $"{overwrite.Path.Value} already exists. Replace it? The picker returns permission; the application writes the output.";
+                _confirmationId = overwrite.Id; _overwrite.Text = $"{overwrite.Path.Value} already exists. Replace this file?";
             }
             var nextBody = confirm ? _confirmation : _body;
             if (!ReferenceEquals(_modal.Body, nextBody)) { _modal.Body = nextBody; if (_modal.IsOpen) OwnerWindow?.SetFocus(confirm ? _no : _name); }

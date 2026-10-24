@@ -128,7 +128,7 @@
         if (_selectedPath is not { } source) return;
         var path = source.Value; var kind = _fileKind; var generation = ++_generation;
         _lastAction = ActionKind.Convert; _converting = true; _convertedSaveData = null;
-        SetStatus("Converting synchronously. This conversion cannot be interrupted.", OperationState.Working);
+        SetStatus("Converting… This conversion cannot be interrupted.", OperationState.Working);
         void ConvertOnOwner()
         {
             if (_disposed || generation != _generation) return;
