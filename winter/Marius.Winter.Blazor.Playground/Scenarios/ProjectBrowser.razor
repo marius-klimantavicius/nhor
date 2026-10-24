@@ -98,7 +98,7 @@
     private void Rename() { _renamed = !_renamed; _controller.SetItems(Items()); _result = "Renamed the selected note; its key is unchanged."; }
     private void Reorder() { _reordered = !_reordered; _controller.SetItems(Items()); _result = "Reordered the project; selection follows its key."; }
     private Task Refresh() { _result = "Refreshed src. Open it to load again."; return _tree?.RefreshAsync("src") ?? Task.CompletedTask; }
-    private void ThemeChanged() { if (OwnerWindow != null) OwnerWindow.Theme = ReferenceEquals(OwnerWindow.Theme, Theme.Dark) ? Theme.Light : Theme.Dark; }
+    private void ThemeChanged() { if (OwnerWindow != null) OwnerWindow.Theme = OwnerWindow.Theme.WindowBackground.R < .5f ? Theme.Light : Theme.Dark; }
     private void Reset()
     {
         Interlocked.Increment(ref _generation);

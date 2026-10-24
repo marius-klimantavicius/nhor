@@ -109,13 +109,17 @@ double-clicking an error message retries. Loading, empty, and error/retry messag
 appear as ordinary rows. `FontSize` uses logical units and rows grow with text;
 selection/reveal ensure visibility, including after font/viewport changes.
 
-Register native `Scenarios.ProjectBrowserScenario(Window).Content` through the
-existing `ScenarioHost.AddScenario` seam, retaining/disposal of the scenario owner.
-Register Razor `Scenarios.ProjectBrowser` with `OwnerWindow`. Entry-point registration
-is deliberately left to the integration owner. Both modules provide duplicate-name
+Both actual playground hosts register **Project browser** alongside the existing
+pages and **Environment and tabs**. Native hosts can also register
+`Scenarios.ProjectBrowserScenario(Window).Content` through `ScenarioHost.AddScenario`,
+retaining/disposal of the scenario owner. Razor hosts pass `OwnerWindow` to
+`Scenarios.ProjectBrowser`. Both modules provide duplicate-name
 notes, lazy src, empty, fail-once packages, Reveal selected, Rename, Reorder,
 Refresh src, Reset, theme/text-size controls, and selected/loading/error/cancellation
 results. The fixture is deterministic and never browses the filesystem.
+The Light / dark action toggles the actual current light/dark appearance, including
+an initially dark window. Global host theme/text-size actions follow that current
+tone, so module and host controls can be used together.
 
 This is a bounded text/icon/status tree. Arbitrary row templates, virtualization,
 filesystem browsing, and multi-selection are outside C05. Qualification is Linux

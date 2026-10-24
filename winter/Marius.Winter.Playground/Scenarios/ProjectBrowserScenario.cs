@@ -34,7 +34,7 @@ public sealed class ProjectBrowserScenario : IDisposable
         actions.AddChild(Action("Reorder", () => { _reordered = !_reordered; Replace("Reordered the project; selection follows its key."); }));
         actions.AddChild(Action("Refresh src", () => { _ = _tree.RefreshAsync("src"); _result.Text = "Refreshed src. Open it to load again."; }));
         actions.AddChild(Action("Reset", Reset));
-        actions.AddChild(Action("Light / dark", () => _window.Theme = ReferenceEquals(_window.Theme, Theme.Dark) ? Theme.Light : Theme.Dark));
+        actions.AddChild(Action("Light / dark", () => _window.Theme = _window.Theme.WindowBackground.R < .5f ? Theme.Light : Theme.Dark));
         actions.AddChild(Action("Larger text", () => { _large = !_large; _tree.FontSize = _large ? 26 : 14; }));
         _root.AddChild(actions); _root.AddChild(_selection); _root.AddChild(_tree); _root.AddChild(_status); _root.AddChild(_result);
         _controller.Changed += Changed;

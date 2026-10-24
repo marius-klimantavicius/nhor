@@ -11,7 +11,7 @@ public sealed class ScenarioHost : IDisposable
     private readonly ComboBox _navigation = new();
     private readonly Panel _pages = new() { Layout = new GridLayout { Columns = [TrackSize.Fr()], Rows = [TrackSize.Fr()] } };
     private readonly List<string> _names = [];
-    private bool _dark, _large;
+    private bool _large;
     public Element Content { get; }
 
     public ScenarioHost(Window window)
@@ -22,7 +22,7 @@ public sealed class ScenarioHost : IDisposable
         _navigation.MinWidth = 240;
         _navigation.UserSelectionChanged += Select;
         toolbar.AddChild(_navigation);
-        toolbar.AddChild(new Button("Toggle theme") { Clicked = () => { _dark = !_dark; ApplyAppearance(); } });
+        toolbar.AddChild(new Button("Toggle theme") { Clicked = () => ApplyAppearance(toggleTheme: true) });
         toolbar.AddChild(new Button("Larger text") { Clicked = () => { _large = !_large; ApplyAppearance(); } });
         root.AddChild(toolbar); root.AddChild(_pages); Content = root;
     }
@@ -39,9 +39,11 @@ public sealed class ScenarioHost : IDisposable
         for (int i = 0; i < _pages.Children.Count; i++) _pages.Children[i].Visible = i == index;
     }
 
-    private void ApplyAppearance()
+    private void ApplyAppearance(bool toggleTheme = false)
     {
-        var theme = _dark ? Theme.Dark : Theme.Light;
+        bool dark = _window.Theme.WindowBackground.R < .5f;
+        if (toggleTheme) dark = !dark;
+        var theme = dark ? Theme.Dark : Theme.Light;
         foreach (var style in new[] { theme.Button, theme.TextBox, theme.Checkbox, theme.Slider, theme.Label, theme.ProgressBar, theme.Tooltip, theme.MenuBar })
             style.FontSize *= _large ? 1.3f : 1;
         _window.Theme = theme;

@@ -35,8 +35,13 @@ public class PlaygroundShutdownTests(ITestOutputHelper output)
             WindowRegressionOwner.Flush(window);
             Draw(window);
             var elements = Descendants(window).ToArray();
-            var tabs = Assert.Single(elements.OfType<TabWidget>());
+            // The registered Environment page adds its own three settings
+            // tabs. Keep the original gallery's nine-tab transition coverage
+            // and include both modules in every scene/runtime release check.
+            Assert.Equal(2, elements.OfType<TabWidget>().Count());
+            var tabs = Assert.Single(elements.OfType<TabWidget>(), t => t.TabCount == 9);
             Assert.Equal(9, tabs.TabCount);
+            Assert.Equal(3, Assert.Single(elements.OfType<TabWidget>(), t => !ReferenceEquals(t, tabs)).TabCount);
             Assert.Contains(elements, e => e is ScrollPanel);
             Assert.Contains(elements, e => e is TreeView);
             Assert.Contains(elements, e => e is SvgImage);
