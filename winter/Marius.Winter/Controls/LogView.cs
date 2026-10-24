@@ -75,7 +75,16 @@ public class LogView : Element
             _subscription = new Subscription(this, CurrentBuffer, window);
     }
     private void Unsubscribe() { _subscription?.Dispose(); _subscription = null; }
-    protected override void OnDetaching() => Unsubscribe();
+    protected override void OnDetaching()
+    {
+        Unsubscribe();
+        // Appends can add glyph paints after the last canvas update. Release
+        // these owned paints before parent removal asks the rendered scene for
+        // damage bounds; unprepared text has no renderer bounds yet.
+        RebuildLineTexts();
+        _mouseDown = _scrollbarDrag = false;
+        base.OnDetaching();
+    }
     protected override void OnDisposed() { Unsubscribe(); FollowTailChanged = null; }
 
     private sealed class Subscription : IDisposable
@@ -317,6 +326,8 @@ public class LogView : Element
         }
         Subscribe();
         ApplySnapshot(CurrentBuffer.Snapshot);
+        // An unchanged buffer version still needs glyphs after detachment.
+        UpdateContent();
     }
 
     private void RebuildLineTexts()
