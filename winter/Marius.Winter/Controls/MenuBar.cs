@@ -228,25 +228,29 @@ public class MenuBar : Element
             // Measure with temp text for reliable bounds
             var m = ThorVG.Text.Gen();
             if (m == null) continue;
-            m.SetFont(style.FontName);
-            m.SetFontSize(fontSize);
-            m.SetText(_menus[i].Title);
-            m.Bounds(out float bx, out float by, out float bw, out float bh);
-            if (bh <= 0) bh = style.FontSize;
-            if (bw <= 0) bw = 40;
+            try
+            {
+                m.SetFont(style.FontName);
+                m.SetFontSize(fontSize);
+                m.SetText(_menus[i].Title);
+                m.Bounds(out float bx, out float by, out float bw, out float bh);
+                if (bh <= 0) bh = style.FontSize;
+                if (bw <= 0) bw = 40;
 
-            float cellW = bw + TitlePadH * 2;
-            float barH = Bounds.H > 0 ? Bounds.H : style.FontSize + BarPadV * 2;
+                float cellW = bw + TitlePadH * 2;
+                float barH = Bounds.H > 0 ? Bounds.H : style.FontSize + BarPadV * 2;
 
-            _titleX.Add(x);
-            _titleW.Add(cellW);
+                _titleX.Add(x);
+                _titleW.Add(cellW);
 
-            // Position text centered in cell
-            float tx = x + TitlePadH - bx;
-            float ty = (barH - bh) / 2f - by;
-            _titleScenes[i].Translate(tx, ty);
+                // Position text centered in cell
+                float tx = x + TitlePadH - bx;
+                float ty = (barH - bh) / 2f - by;
+                _titleScenes[i].Translate(tx, ty);
 
-            x += cellW;
+                x += cellW;
+            }
+            finally { m.Unref(); }
         }
     }
 
@@ -559,11 +563,15 @@ internal class MenuPopup : Element
                 var m = ThorVG.Text.Gen();
                 if (m != null)
                 {
-                    m.SetFont(style.FontName);
-                    m.SetFontSize(fontSize);
-                    m.SetText(item.Label);
-                    m.Bounds(out _, out _, out float bw, out _);
-                    if (bw > maxW) maxW = bw;
+                    try
+                    {
+                        m.SetFont(style.FontName);
+                        m.SetFontSize(fontSize);
+                        m.SetText(item.Label);
+                        m.Bounds(out _, out _, out float bw, out _);
+                        if (bw > maxW) maxW = bw;
+                    }
+                    finally { m.Unref(); }
                 }
             }
         }
@@ -703,16 +711,20 @@ internal class MenuPopup : Element
                 var m = ThorVG.Text.Gen();
                 if (m != null)
                 {
-                    m.SetFont(style.FontName);
-                    m.SetFontSize(fontSize);
-                    m.SetText(_items[i].Label);
-                    m.Bounds(out float bx, out float by, out _, out float bh);
-                    if (bh > 0)
+                    try
                     {
-                        float tx = 12 - bx;
-                        float ty = y + (_itemHeight - bh) / 2f - by;
-                        _itemScenes[i]?.Translate(tx, ty);
+                        m.SetFont(style.FontName);
+                        m.SetFontSize(fontSize);
+                        m.SetText(_items[i].Label);
+                        m.Bounds(out float bx, out float by, out _, out float bh);
+                        if (bh > 0)
+                        {
+                            float tx = 12 - bx;
+                            float ty = y + (_itemHeight - bh) / 2f - by;
+                            _itemScenes[i]?.Translate(tx, ty);
+                        }
                     }
+                    finally { m.Unref(); }
                 }
 
                 // Position submenu arrow ">"

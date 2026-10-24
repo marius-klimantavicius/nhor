@@ -248,30 +248,34 @@ public class Button : Element
         // Measure with a fresh Text to avoid scene transforms polluting bounds
         var m = ThorVG.Text.Gen();
         if (m == null) return;
-        m.SetFont(Style.FontName);
-        m.SetFontSize(EffectiveFontSize(Style.FontSize));
-        m.SetText(_text);
-        m.Bounds(out float bx, out float by, out float bw, out float bh);
-        if (bw <= 0 || bh <= 0) return;
-
-        float padX = Style.Padding.Left;
-        float x;
-        switch (_textAlign)
+        try
         {
-            case Alignment.Start:
-                x = padX - bx;
-                break;
-            case Alignment.End:
-                x = Bounds.W - padX - bw - bx;
-                break;
-            default: // Center, Stretch
-                x = (Bounds.W - bw) / 2f - bx;
-                break;
-        }
-        float y = (Bounds.H - bh) / 2f - by;
+            m.SetFont(Style.FontName);
+            m.SetFontSize(EffectiveFontSize(Style.FontSize));
+            m.SetText(_text);
+            m.Bounds(out float bx, out float by, out float bw, out float bh);
+            if (bw <= 0 || bh <= 0) return;
 
-        _shadowScene?.Translate(x, y - 1);
-        _labelScene.Translate(x, y);
+            float padX = Style.Padding.Left;
+            float x;
+            switch (_textAlign)
+            {
+                case Alignment.Start:
+                    x = padX - bx;
+                    break;
+                case Alignment.End:
+                    x = Bounds.W - padX - bw - bx;
+                    break;
+                default: // Center, Stretch
+                    x = (Bounds.W - bw) / 2f - bx;
+                    break;
+            }
+            float y = (Bounds.H - bh) / 2f - by;
+
+            _shadowScene?.Translate(x, y - 1);
+            _labelScene.Translate(x, y);
+        }
+        finally { m.Unref(); }
     }
 
     protected override void OnStateChanged(ElementState oldState, ElementState newState)

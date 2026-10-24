@@ -113,14 +113,18 @@ public class Checkbox : Element
         if (_labelScene == null || string.IsNullOrEmpty(_text)) return;
         var m = ThorVG.Text.Gen();
         if (m == null) return;
-        m.SetFont(style.FontName);
-        m.SetFontSize(EffectiveFontSize(style.FontSize));
-        m.SetText(_text);
-        m.Bounds(out _, out float by, out _, out float bh);
-        if (bh <= 0) return;
-        float h = Bounds.H > 0 ? Bounds.H : style.FontSize * 1.3f;
-        float y = (h - bh) / 2f - by;
-        _labelScene.Translate(1.6f * style.FontSize, y);
+        try
+        {
+            m.SetFont(style.FontName);
+            m.SetFontSize(EffectiveFontSize(style.FontSize));
+            m.SetText(_text);
+            m.Bounds(out _, out float by, out _, out float bh);
+            if (bh <= 0) return;
+            float h = Bounds.H > 0 ? Bounds.H : style.FontSize * 1.3f;
+            float y = (h - bh) / 2f - by;
+            _labelScene.Translate(1.6f * style.FontSize, y);
+        }
+        finally { m.Unref(); }
     }
 
     protected override void OnSizeChanged()
@@ -135,13 +139,20 @@ public class Checkbox : Element
 
         // Use fresh text for measurement
         var m = ThorVG.Text.Gen();
-        if (m != null && !string.IsNullOrEmpty(_text))
+        if (m != null)
         {
-            m.SetFont(style.FontName);
-            m.SetFontSize(EffectiveFontSize(style.FontSize));
-            m.SetText(_text);
-            m.Bounds(out _, out _, out float bw, out _);
-            if (bw > 0) textW = bw;
+            try
+            {
+                if (!string.IsNullOrEmpty(_text))
+                {
+                    m.SetFont(style.FontName);
+                    m.SetFontSize(EffectiveFontSize(style.FontSize));
+                    m.SetText(_text);
+                    m.Bounds(out _, out _, out float bw, out _);
+                    if (bw > 0) textW = bw;
+                }
+            }
+            finally { m.Unref(); }
         }
 
         // Nanogui: (textW + 1.8 * fontSize, fontSize * 1.3)

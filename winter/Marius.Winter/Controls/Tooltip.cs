@@ -125,12 +125,16 @@ internal class TooltipOverlay : Element
 
             // Measure
             var measure = ThorVG.Text.Gen();
-            measure!.SetFont(style.FontName);
-            measure.SetFontSize(fontSize);
-            measure.SetText(_text);
-            measure.Bounds(out _textBx, out _textBy, out float bw, out float bh);
-            _textW = bw > 0 ? bw : 0;
-            _textH = bh > 0 ? bh : style.FontSize;
+            try
+            {
+                measure!.SetFont(style.FontName);
+                measure.SetFontSize(fontSize);
+                measure.SetText(_text);
+                measure.Bounds(out _textBx, out _textBy, out float bw, out float bh);
+                _textW = bw > 0 ? bw : 0;
+                _textH = bh > 0 ? bh : style.FontSize;
+            }
+            finally { measure?.Unref(); }
 
             // Create the actual paint
             _textPaint = ThorVG.Text.Gen();

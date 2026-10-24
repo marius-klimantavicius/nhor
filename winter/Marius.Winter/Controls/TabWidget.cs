@@ -207,16 +207,20 @@ public class TabWidget : Element
             var m = ThorVG.Text.Gen();
             if (m != null)
             {
-                m.SetFont(style.FontName);
-                m.SetFontSize(fontSize);
-                m.SetText(_tabs[i].Label);
-                m.Bounds(out float bx, out float by, out float bw, out float bh);
-                if (bw > 0 && bh > 0)
+                try
                 {
-                    float tx = x + (tabW - bw) / 2f - bx;
-                    float ty = (_tabHeaderHeight - bh) / 2f - by;
-                    _headerScenes[i].Translate(tx, ty);
+                    m.SetFont(style.FontName);
+                    m.SetFontSize(fontSize);
+                    m.SetText(_tabs[i].Label);
+                    m.Bounds(out float bx, out float by, out float bw, out float bh);
+                    if (bw > 0 && bh > 0)
+                    {
+                        float tx = x + (tabW - bw) / 2f - bx;
+                        float ty = (_tabHeaderHeight - bh) / 2f - by;
+                        _headerScenes[i].Translate(tx, ty);
+                    }
                 }
+                finally { m.Unref(); }
             }
 
             x += tabW + 2;
@@ -228,11 +232,15 @@ public class TabWidget : Element
         var style = Style;
         var m = ThorVG.Text.Gen();
         if (m == null) return 60;
-        m.SetFont(style.FontName);
-        m.SetFontSize(EffectiveFontSize(style.FontSize));
-        m.SetText(_tabs[index].Label);
-        m.Bounds(out _, out _, out float bw, out _);
-        return Math.Max(40, bw + 20); // minimum tab width with padding
+        try
+        {
+            m.SetFont(style.FontName);
+            m.SetFontSize(EffectiveFontSize(style.FontSize));
+            m.SetText(_tabs[index].Label);
+            m.Bounds(out _, out _, out float bw, out _);
+            return Math.Max(40, bw + 20); // minimum tab width with padding
+        }
+        finally { m.Unref(); }
     }
 
     protected override Vector2 MeasureCore(float availableWidth, float availableHeight)

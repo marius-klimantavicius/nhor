@@ -162,19 +162,23 @@ public class Label : Element
         // Use a temporary Text for measurement to avoid world-space transform pollution
         var m = ThorVG.Text.Gen();
         if (m == null) return new Vector2(0, _fontSize);
-        m.SetFont(_bold ? "default-bold" : Style.FontName);
-        m.SetFontSize(EffectiveFontSize(_fontSize));
-        if (_textWrapping != TextWrap.None && availableWidth > 0 && !float.IsInfinity(availableWidth))
+        try
         {
-            m.SetWrapping(_textWrapping);
-            m.SetLayout(availableWidth, 0);
+            m.SetFont(_bold ? "default-bold" : Style.FontName);
+            m.SetFontSize(EffectiveFontSize(_fontSize));
+            if (_textWrapping != TextWrap.None && availableWidth > 0 && !float.IsInfinity(availableWidth))
+            {
+                m.SetWrapping(_textWrapping);
+                m.SetLayout(availableWidth, 0);
+                m.SetText(_text);
+                m.GetTextSize(out _, out float wh);
+                return new Vector2(availableWidth, wh > 0 ? wh : _fontSize);
+            }
             m.SetText(_text);
-            m.GetTextSize(out _, out float wh);
-            return new Vector2(availableWidth, wh > 0 ? wh : _fontSize);
+            m.Bounds(out _, out _, out float bw, out float bh);
+            return new Vector2(bw > 0 ? bw : 0, bh > 0 ? bh : _fontSize);
         }
-        m.SetText(_text);
-        m.Bounds(out _, out _, out float bw, out float bh);
-        return new Vector2(bw > 0 ? bw : 0, bh > 0 ? bh : _fontSize);
+        finally { m.Unref(); }
     }
 
     protected override void OnSizeChanged()
@@ -192,16 +196,20 @@ public class Label : Element
         // The (bx, by) offset is the gap between the text origin and the visual glyph box.
         var m = ThorVG.Text.Gen();
         if (m == null) return;
-        m.SetFont(_bold ? "default-bold" : Style.FontName);
-        m.SetFontSize(EffectiveFontSize(_fontSize));
-        if (_textWrapping != TextWrap.None)
+        try
         {
-            m.SetWrapping(_textWrapping);
-            m.SetLayout(Bounds.W, Bounds.H);
+            m.SetFont(_bold ? "default-bold" : Style.FontName);
+            m.SetFontSize(EffectiveFontSize(_fontSize));
+            if (_textWrapping != TextWrap.None)
+            {
+                m.SetWrapping(_textWrapping);
+                m.SetLayout(Bounds.W, Bounds.H);
+            }
+            m.SetText(_text);
+            m.Bounds(out float bx, out float by, out _, out _);
+            _textScene?.Translate(-bx, -by);
         }
-        m.SetText(_text);
-        m.Bounds(out float bx, out float by, out _, out _);
-        _textScene?.Translate(-bx, -by);
+        finally { m.Unref(); }
     }
 
     protected override Style GetDefaultStyle()

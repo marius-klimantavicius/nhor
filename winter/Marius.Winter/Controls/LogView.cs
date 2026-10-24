@@ -296,11 +296,15 @@ public class LogView : Element
         if (string.IsNullOrEmpty(text)) return;
         var t = ThorVG.Text.Gen();
         if (t == null) return;
-        t.SetFont(_fontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out bx, out by, out bw, out bh);
-        if (bh <= 0) bh = _effectiveFontSize;
+        try
+        {
+            t.SetFont(_fontName);
+            t.SetFontSize(_effectiveFontSize);
+            t.SetText(text);
+            t.Bounds(out bx, out by, out bw, out bh);
+            if (bh <= 0) bh = _effectiveFontSize;
+        }
+        finally { t.Unref(); }
     }
 
     private float MeasureTextWidth(string text)
@@ -308,11 +312,15 @@ public class LogView : Element
         if (string.IsNullOrEmpty(text)) return 0;
         var t = ThorVG.Text.Gen();
         if (t == null) return 0;
-        t.SetFont(_fontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out float bx, out _, out float bw, out _);
-        return bx + bw;
+        try
+        {
+            t.SetFont(_fontName);
+            t.SetFontSize(_effectiveFontSize);
+            t.SetText(text);
+            t.Bounds(out float bx, out _, out float bw, out _);
+            return bx + bw;
+        }
+        finally { t.Unref(); }
     }
 
     protected override Vector2 MeasureCore(float availableWidth, float availableHeight)

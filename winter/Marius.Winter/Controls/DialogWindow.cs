@@ -209,15 +209,19 @@ public class DialogWindow : Element, ILayoutContainer
         var style = Style;
         var m = ThorVG.Text.Gen();
         if (m == null) return;
-        m.SetFont(style.FontName);
-        m.SetFontSize(EffectiveFontSize(style.FontSize));
-        m.SetText(_title);
-        m.Bounds(out float bx, out float by, out float bw, out float bh);
-        if (bw <= 0 || bh <= 0) return;
+        try
+        {
+            m.SetFont(style.FontName);
+            m.SetFontSize(EffectiveFontSize(style.FontSize));
+            m.SetText(_title);
+            m.Bounds(out float bx, out float by, out float bw, out float bh);
+            if (bw <= 0 || bh <= 0) return;
 
-        float x = (Bounds.W - bw) / 2f - bx;
-        float y = (HeaderHeight - bh) / 2f - by;
-        _titleScene.Translate(x, y);
+            float x = (Bounds.W - bw) / 2f - bx;
+            float y = (HeaderHeight - bh) / 2f - by;
+            _titleScene.Translate(x, y);
+        }
+        finally { m.Unref(); }
     }
 
     private void UpdateCloseButton()

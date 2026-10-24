@@ -136,14 +136,18 @@ public class ComboBox : Element
         var t = ThorVG.Text.Gen();
         if (t != null)
         {
-            t.SetFont(style.FontName);
-            t.SetFontSize(EffectiveFontSize(style.FontSize));
-            foreach (var item in _items)
+            try
             {
-                t.SetText(item);
-                t.Bounds(out _, out _, out float bw, out _);
-                if (bw > maxW) maxW = bw;
+                t.SetFont(style.FontName);
+                t.SetFontSize(EffectiveFontSize(style.FontSize));
+                foreach (var item in _items)
+                {
+                    t.SetText(item);
+                    t.Bounds(out _, out _, out float bw, out _);
+                    if (bw > maxW) maxW = bw;
+                }
             }
+            finally { t.Unref(); }
         }
         return new Vector2(maxW + 40, style.FontSize + 10); // +40 for arrow + padding
     }
@@ -191,15 +195,19 @@ public class ComboBox : Element
 
         var m = ThorVG.Text.Gen();
         if (m == null) return;
-        m.SetFont(style.FontName);
-        m.SetFontSize(EffectiveFontSize(style.FontSize));
-        m.SetText(text);
-        m.Bounds(out float bx, out float by, out float bw, out float bh);
-        if (bw <= 0 || bh <= 0) return;
+        try
+        {
+            m.SetFont(style.FontName);
+            m.SetFontSize(EffectiveFontSize(style.FontSize));
+            m.SetText(text);
+            m.Bounds(out float bx, out float by, out float bw, out float bh);
+            if (bw <= 0 || bh <= 0) return;
 
-        float x = 10 - bx; // left-aligned with padding
-        float y = (Bounds.H - bh) / 2f - by;
-        _labelScene.Translate(x, y);
+            float x = 10 - bx; // left-aligned with padding
+            float y = (Bounds.H - bh) / 2f - by;
+            _labelScene.Translate(x, y);
+        }
+        finally { m.Unref(); }
     }
 
     private void UpdateLabel()
@@ -471,15 +479,19 @@ internal class ComboBoxPopup : Element
             // Measure for by compensation
             var m = ThorVG.Text.Gen();
             if (m == null) continue;
-            m.SetFont(style.FontName);
-            m.SetFontSize(fontSize);
-            m.SetText(_items[i]);
-            m.Bounds(out float bx, out float by, out _, out float bh);
-            if (bh <= 0) continue;
+            try
+            {
+                m.SetFont(style.FontName);
+                m.SetFontSize(fontSize);
+                m.SetText(_items[i]);
+                m.Bounds(out float bx, out float by, out _, out float bh);
+                if (bh <= 0) continue;
 
-            float x = 8 - bx;
-            float y = 2 + i * _itemHeight + (_itemHeight - bh) / 2f - by;
-            _itemScenes[i].Translate(x, y);
+                float x = 8 - bx;
+                float y = 2 + i * _itemHeight + (_itemHeight - bh) / 2f - by;
+                _itemScenes[i].Translate(x, y);
+            }
+            finally { m.Unref(); }
         }
 
         UpdateHighlight();
