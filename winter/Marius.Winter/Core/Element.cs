@@ -13,6 +13,7 @@ public abstract class Element : IDisposable
     private Element? _parent;
     private readonly List<Element> _children = new();
     private RectF _bounds;
+    private RectF _layoutBounds; // requested rectangle, before visibility/constraints
     private bool _visible = true;
     private bool _enabled = true;
     private float _opacity = 1f;
@@ -32,6 +33,7 @@ public abstract class Element : IDisposable
     private float? _minWidth, _minHeight, _maxWidth, _maxHeight;
     internal bool HasLayoutBounds;
     internal bool AutoArrangeRoot;
+    internal RectF LayoutBounds => _layoutBounds;
 
     // --- Taffy integration ---
     internal NodeId _taffyNode;
@@ -69,22 +71,28 @@ public abstract class Element : IDisposable
         {
             HasLayoutBounds = true;
             AutoArrangeRoot = false;
-            if (_bounds.X == value.X && _bounds.Y == value.Y &&
-                _bounds.W == value.W && _bounds.H == value.H)
-                return;
-
-            var sizeChanged = _bounds.W != value.W || _bounds.H != value.H;
-            var positionChanged = _bounds.X != value.X || _bounds.Y != value.Y;
-            _bounds = value;
-            _scene.Translate(value.X, value.Y);
-
-            if (sizeChanged)
-                OnSizeChanged();
-            if (positionChanged)
-                OnPositionChanged();
-
-            MarkDirty();
+            _layoutBounds = value;
+            SetArrangedBounds(value);
         }
+    }
+
+    private void SetArrangedBounds(RectF value)
+    {
+        if (_bounds.X == value.X && _bounds.Y == value.Y &&
+            _bounds.W == value.W && _bounds.H == value.H)
+            return;
+
+        var sizeChanged = _bounds.W != value.W || _bounds.H != value.H;
+        var positionChanged = _bounds.X != value.X || _bounds.Y != value.Y;
+        _bounds = value;
+        _scene.Translate(value.X, value.Y);
+
+        if (sizeChanged)
+            OnSizeChanged();
+        if (positionChanged)
+            OnPositionChanged();
+
+        MarkDirty();
     }
 
     public bool Visible
@@ -426,10 +434,13 @@ public abstract class Element : IDisposable
             ArrangeCore(Bounds);
             return;
         }
+        // Keep the target independently of collapsed arranged geometry. Manual
+        // roots/children have no parent layout to reconstruct it on show.
+        _layoutBounds = finalBounds;
         float w = _visible ? ClampWidth(finalBounds.W) : 0;
         float h = _visible ? ClampHeight(finalBounds.H) : 0;
         var clamped = new RectF(finalBounds.X, finalBounds.Y, w, h);
-        Bounds = clamped;
+        SetArrangedBounds(clamped);
         ArrangeCore(clamped);
     }
 

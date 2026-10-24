@@ -395,7 +395,7 @@ public unsafe class Window : Element
     {
         if (element.IsMeasureDirty || (autoRoot && (element.Bounds.W != Bounds.W || element.Bounds.H != Bounds.H)))
         {
-            var bounds = autoRoot ? new RectF(0, 0, Bounds.W, Bounds.H) : element.Bounds;
+            var bounds = autoRoot ? new RectF(0, 0, Bounds.W, Bounds.H) : element.LayoutBounds;
             element.Measure(bounds.W, bounds.H);
             element.Arrange(bounds);
             element.AutoArrangeRoot = autoRoot;
@@ -447,6 +447,9 @@ public unsafe class Window : Element
         if (_animator.HasActiveAnimations) timeout = Math.Max(0, 1.0 / 60 - (_clock.Elapsed.TotalSeconds - _lastFrameTime));
         if (_tooltipElement != null && _tooltipOverlay == null) timeout = Math.Min(timeout, Math.Max(0, TooltipDelay - _tooltipTimer));
         if (timeout <= 0) return;
+        // GLFW waits also poll and dispatch native callbacks before returning.
+        // Async input handlers must capture the same context as PollEvents.
+        using var scope = Dispatcher.EnterScope();
         if (double.IsPositiveInfinity(timeout)) Glfw.Glfw.glfwWaitEvents();
         else Glfw.Glfw.glfwWaitEventsTimeout(timeout);
     }
