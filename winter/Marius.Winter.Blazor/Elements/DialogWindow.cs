@@ -38,6 +38,7 @@ public class DialogWindow : WinterComponentBase
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
         bool _sizeInitialized;
+        float _initialWidth, _initialHeight;
         readonly CoalescedEvent _closeEvent;
         Marius.Winter.DialogWindow DialogWindowControl => (Marius.Winter.DialogWindow)ElementControl;
 
@@ -60,23 +61,12 @@ public class DialogWindow : WinterComponentBase
                     break;
                 case "Width":
                 {
-                    if (!_sizeInitialized)
-                    {
-                        var w = AttributeHelper.GetFloat(attributeValue);
-                        if (w > 0)
-                            DialogWindowControl.Bounds = new RectF(DialogWindowControl.Bounds.X, DialogWindowControl.Bounds.Y, w, DialogWindowControl.Bounds.H);
-                    }
+                    if (!_sizeInitialized) _initialWidth = AttributeHelper.GetFloat(attributeValue);
                     break;
                 }
                 case "Height":
                 {
-                    if (!_sizeInitialized)
-                    {
-                        var h = AttributeHelper.GetFloat(attributeValue);
-                        if (h > 0)
-                            DialogWindowControl.Bounds = new RectF(DialogWindowControl.Bounds.X, DialogWindowControl.Bounds.Y, DialogWindowControl.Bounds.W, h);
-                        _sizeInitialized = true;
-                    }
+                    if (!_sizeInitialized) _initialHeight = AttributeHelper.GetFloat(attributeValue);
                     break;
                 }
                 case "onclose":
@@ -87,6 +77,16 @@ public class DialogWindow : WinterComponentBase
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
             }
+        }
+
+        public override void CommitAttributes()
+        {
+            if (_sizeInitialized || IsDisposed) return;
+            _sizeInitialized = true;
+            var bounds = DialogWindowControl.Bounds;
+            DialogWindowControl.Bounds = new RectF(bounds.X, bounds.Y,
+                _initialWidth > 0 ? _initialWidth : bounds.W,
+                _initialHeight > 0 ? _initialHeight : bounds.H);
         }
 
         public void AddChild(Element child, int physicalSiblingIndex)
