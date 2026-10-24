@@ -702,6 +702,19 @@ public abstract class Element : IDisposable
     protected void AddPaint(Paint paint) => _paintScene.Add(paint);
     protected void RemovePaint(Paint paint) => _paintScene.Remove(paint);
 
+    // Scene.Remove releases its owner. Keep the paint alive while moving it
+    // above child scenes; the scene is its only permanent owner.
+    protected void BringPaintToFront(Paint paint)
+    {
+        paint.Ref();
+        try
+        {
+            _scene.Remove(paint);
+            _scene.Add(paint);
+        }
+        finally { paint.Unref(); }
+    }
+
     protected void MarkDirty()
     {
         var w = OwnerWindow;

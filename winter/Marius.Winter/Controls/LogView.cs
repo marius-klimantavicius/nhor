@@ -186,13 +186,11 @@ public class LogView : Element
             // Scrollbar track
             _scrollTrack = Shape.Gen();
             _scrollTrack!.SetFill(128, 128, 128, 40);
-            Scene.Remove(_scrollTrack);
             Scene.Add(_scrollTrack);
 
             // Scrollbar thumb
             _scrollThumb = Shape.Gen();
             _scrollThumb!.SetFill(128, 128, 128, 100);
-            Scene.Remove(_scrollThumb);
             Scene.Add(_scrollThumb);
 
             RebuildLines();
@@ -341,13 +339,11 @@ public class LogView : Element
         // Re-add scrollbar shapes to stay on top
         if (_scrollTrack != null)
         {
-            Scene.Remove(_scrollTrack);
-            Scene.Add(_scrollTrack);
+            BringPaintToFront(_scrollTrack);
         }
         if (_scrollThumb != null)
         {
-            Scene.Remove(_scrollThumb);
-            Scene.Add(_scrollThumb);
+            BringPaintToFront(_scrollThumb);
         }
 
         ClampScroll();

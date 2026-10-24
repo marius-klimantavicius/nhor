@@ -278,10 +278,10 @@ public class TreeView : Element
         _clipShape?.AppendRect(Bounds.X, Bounds.Y, w, h, 0, 0);
 
         // Re-order scrollbars on top
-        if (_scrollTrack != null) { Scene.Remove(_scrollTrack); Scene.Add(_scrollTrack); }
-        if (_scrollThumb != null) { Scene.Remove(_scrollThumb); Scene.Add(_scrollThumb); }
-        if (_scrollTrackH != null) { Scene.Remove(_scrollTrackH); Scene.Add(_scrollTrackH); }
-        if (_scrollThumbH != null) { Scene.Remove(_scrollThumbH); Scene.Add(_scrollThumbH); }
+        if (_scrollTrack != null) BringPaintToFront(_scrollTrack);
+        if (_scrollThumb != null) BringPaintToFront(_scrollThumb);
+        if (_scrollTrackH != null) BringPaintToFront(_scrollTrackH);
+        if (_scrollThumbH != null) BringPaintToFront(_scrollThumbH);
 
         UpdateRowPositions();
         UpdateHighlights();
@@ -409,10 +409,10 @@ public class TreeView : Element
         if (_hoveredIndex >= _visibleRows.Count) _hoveredIndex = -1;
 
         // Re-order scrollbars on top of new rows
-        if (_scrollTrack != null) { Scene.Remove(_scrollTrack); Scene.Add(_scrollTrack); }
-        if (_scrollThumb != null) { Scene.Remove(_scrollThumb); Scene.Add(_scrollThumb); }
-        if (_scrollTrackH != null) { Scene.Remove(_scrollTrackH); Scene.Add(_scrollTrackH); }
-        if (_scrollThumbH != null) { Scene.Remove(_scrollThumbH); Scene.Add(_scrollThumbH); }
+        if (_scrollTrack != null) BringPaintToFront(_scrollTrack);
+        if (_scrollThumb != null) BringPaintToFront(_scrollThumb);
+        if (_scrollTrackH != null) BringPaintToFront(_scrollTrackH);
+        if (_scrollThumbH != null) BringPaintToFront(_scrollThumbH);
     }
 
     private void RebuildVisibleRows()

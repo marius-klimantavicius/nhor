@@ -314,10 +314,10 @@ public class ScrollPanel : Element, ILayoutContainer
         }
 
         // Ensure scrollbars render on top of children
-        if (_scrollTrackV != null) { Scene.Remove(_scrollTrackV); Scene.Add(_scrollTrackV); }
-        if (_scrollThumbV != null) { Scene.Remove(_scrollThumbV); Scene.Add(_scrollThumbV); }
-        if (_scrollTrackH != null) { Scene.Remove(_scrollTrackH); Scene.Add(_scrollTrackH); }
-        if (_scrollThumbH != null) { Scene.Remove(_scrollThumbH); Scene.Add(_scrollThumbH); }
+        if (_scrollTrackV != null) BringPaintToFront(_scrollTrackV);
+        if (_scrollThumbV != null) BringPaintToFront(_scrollThumbV);
+        if (_scrollTrackH != null) BringPaintToFront(_scrollTrackH);
+        if (_scrollThumbH != null) BringPaintToFront(_scrollThumbH);
 
         UpdateScrollbars();
     }
