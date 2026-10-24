@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);BL0006</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+    <ProjectReference Include="../Marius.Winter.Blazor/Marius.Winter.Blazor.csproj" />
+    <ProjectReference Include="../Marius.Winter.Playground/Marius.Winter.Playground.csproj" />
+    <ProjectReference Include="../Marius.Winter.Blazor.Playground/Marius.Winter.Blazor.Playground.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,80 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Linq
+@using Microsoft.AspNetCore.Components
+
+<Panel Layout="@Column" Padding="@(new Thickness(8))">
+    <Label Text="Resizable workspace" FontSize="22" />
+    <Label Text="Choose an asset, edit its review note, and resize the browser or preview/log divider." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions" Padding="@(new Thickness(0))">
+        <Button Text="Reset" OnClick="Reset" />
+        <Button Text="Change orientation" OnClick="Flip" />
+        <Button Text="Replace preview" OnClick="@(() => _replacement = !_replacement)" />
+        <Button Text="Hide/show workspace" OnClick="@(() => _visible = !_visible)" />
+    </Panel>
+    <SplitPane @bind-Position="_browserPosition" Orientation="_orientation" FirstMinimum="130" SecondMinimum="180"
+               Visible="_visible" VisiblePositionChanged="@(v => _browserVisible = v)" LayoutData="@Grow">
+        <First>
+            <ScrollPanel @key="_resetKey" Layout="@BrowserLayout" Padding="@(new Thickness(8))" HorizontalScroll="ScrollMode.Never">
+                <Label Text="Project browser" />
+                @foreach (string asset in Assets)
+                {
+                    <Button @key="asset" Text="@asset" OnClick="@(() => Select(asset))" />
+                }
+            </ScrollPanel>
+        </First>
+        <Second>
+            <SplitPane @bind-Position="_previewPosition" Orientation="Orientation.Vertical" ResetPosition="180" FirstMinimum="80" SecondMinimum="70"
+                       VisiblePositionChanged="@(v => _previewVisible = v)">
+                <First>
+                    @if (_replacement)
+                    {
+                        <Panel @key="true" Layout="@BrowserLayout" Padding="@(new Thickness(8))">
+                            <Label Text="Preview details" />
+                            <Label Text="The replacement keeps the browser and log in place." TextWrapping="ThorVG.TextWrap.Word" />
+                            <Button Text="Return to review" OnClick="@(() => _replacement = false)" />
+                        </Panel>
+                    }
+                    else
+                    {
+                        <Panel @key="false" Layout="@Column" Padding="@(new Thickness(8))">
+                            <Label Text="@("Preview: " + _selected)" />
+                            <TextArea Text="@_note" OnTextChanged="@(v => _note = v)" LayoutData="@Grow" />
+                        </Panel>
+                    }
+                </First>
+                <Second><LogView Text="@LogText" /></Second>
+            </SplitPane>
+        </Second>
+    </SplitPane>
+    <Label Text="@($"Browser: {_browserPosition:0} requested / {_browserVisible:0} visible · Preview: {_previewPosition:0} / {_previewVisible:0} · {_orientation}")" TextWrapping="ThorVG.TextWrap.Word" />
+</Panel>
+
+@code {
+    private float _browserPosition = 220, _previewPosition = 180, _browserVisible, _previewVisible;
+    private Orientation _orientation;
+    private bool _visible = true, _replacement;
+    private int _resetKey;
+    private string _selected = "landscape.svg";
+    private string _note = "Review the selected asset.\nKeep the horizon level.";
+    private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 8 };
+    private static readonly Marius.Winter.FlexLayout Actions = new() { Wrap = FlexWrap.Wrap, Gap = 6 };
+    private static readonly Marius.Winter.StackLayout BrowserLayout = new() { Spacing = 6 };
+    private static readonly FlexItem Grow = new() { Grow = 1, Basis = 0 };
+    private static readonly string[] Assets = new[] { "landscape.svg", "portrait.png", "notes é.txt", "日本語 preview.svg", "Family 👩‍💻.svg" }
+        .Concat(Enumerable.Range(1, 24).Select(i => $"Sample {i:00} — landscape review.svg")).ToArray();
+    private string LogText => "Opened " + _selected + "\n" + string.Join("\n", Enumerable.Range(1, 28).Select(i => $"{i:00}  Preview ready · review the asset"));
+    private void Select(string asset) => _selected = asset;
+    private void Flip() => _orientation = _orientation == Orientation.Horizontal ? Orientation.Vertical : Orientation.Horizontal;
+    private void Reset()
+    {
+        _resetKey++;
+        _browserPosition = 220;
+        _previewPosition = 180;
+        _orientation = Orientation.Horizontal;
+        _visible = true;
+        _replacement = false;
+        _selected = "landscape.svg";
+        _note = "Review the selected asset.\nKeep the horizon level.";
+    }
+}

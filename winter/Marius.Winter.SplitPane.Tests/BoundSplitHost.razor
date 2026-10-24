@@ -1,0 +1,30 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+
+@if (Mounted)
+{
+    <SplitPane @ref="Control" @bind-Position="Position" FirstMinimum="80" SecondMinimum="90" Orientation="Direction">
+        <First>
+            @if (Replacement)
+            {
+                <Button @key="Replacement" Text="Replacement pane" />
+            }
+            else
+            {
+                <Label Text="Browser é / 日本語 / 👩‍💻" />
+                <Label Text="Second browser row" />
+            }
+        </First>
+        <Second><Label Text="Preview" /></Second>
+    </SplitPane>
+}
+
+@code {
+    public Marius.Winter.Blazor.Elements.SplitPane Control { get; private set; } = null!;
+    public float Position { get; set; } = 180;
+    public Marius.Winter.Orientation Direction { get; set; }
+    public bool Replacement { get; set; }
+    public bool Mounted { get; set; } = true;
+    public void Render() => StateHasChanged();
+}
