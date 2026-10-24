@@ -22,6 +22,7 @@ public class RichLabel : Element
     private float _fontSize = 14f;
     private bool _fontSizeSet;
     private Color4 _color;
+    private bool _colorSet;
     private float _svgIntrinsicW, _svgIntrinsicH;
     private bool _shapesCreated;
 
@@ -72,6 +73,9 @@ public class RichLabel : Element
             if (_textPaint != null)
             {
                 _textPaint.SetFontSize(EffectiveFontSize(value));
+                // Rebuild the text path as well as its font metrics. A font-size
+                // change alone does not invalidate ThorVG's retained draw path.
+                _textPaint.SetText(_text);
                 InvalidateMeasure();
                 MarkDirty();
             }
@@ -83,11 +87,26 @@ public class RichLabel : Element
         get => _color;
         set
         {
+            _colorSet = true;
             if (_color.R == value.R && _color.G == value.G && _color.B == value.B && _color.A == value.A) return;
             _color = value;
             _textPaint?.SetFill(value.R8, value.G8, value.B8);
             MarkDirty();
         }
+    }
+
+    /// <summary>Clear the explicit text size and resume the current theme/style size.</summary>
+    public void ResetFontSize()
+    {
+        FontSize = Style.FontSize;
+        _fontSizeSet = false;
+    }
+
+    /// <summary>Clear the explicit text color and resume the current theme text color.</summary>
+    public void ResetColor()
+    {
+        Color = (OwnerWindow?.Theme ?? Theme.Dark).TextColor;
+        _colorSet = false;
     }
 
     protected override void OnAttached()
@@ -98,7 +117,7 @@ public class RichLabel : Element
             var theme = OwnerWindow?.Theme ?? Theme.Dark;
             var style = Style;
 
-            if (_color.A == 0)
+            if (!_colorSet)
                 _color = theme.TextColor;
             if (!_fontSizeSet)
                 _fontSize = style.FontSize;
@@ -216,9 +235,8 @@ public class RichLabel : Element
     protected override void OnThemeChanged()
     {
         if (!_shapesCreated) return;
-        var theme = OwnerWindow?.Theme ?? Theme.Dark;
-        _color = theme.TextColor;
-        _textPaint?.SetFill(_color.R8, _color.G8, _color.B8);
+        if (!_fontSizeSet) ResetFontSize();
+        if (!_colorSet) ResetColor();
         MarkDirty();
     }
 }

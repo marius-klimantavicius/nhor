@@ -1,0 +1,113 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+
+<ScrollPanel Padding="@(new Thickness(12))">
+    <StackLayout Spacing="10" CrossAlignment="Alignment.Start" />
+    <Label Text="Help and rich display" FontSize="22" />
+    <Label Text="Hover a help button. Change help or resize the preview." />
+    <Panel>
+        <StackLayout Orientation="Orientation.Horizontal" Spacing="8" CrossAlignment="Alignment.Center" />
+        <Button Text="About favorites" Tooltip="Keep useful items in Favorites." />
+        <Button Text="Preview star" TooltipContent="@_svgHelp" />
+        @if (_showFavorite)
+        {
+            <Button Text="Favorite" Tooltip="@_fallback" TooltipContent="@_help" />
+        }
+    </Panel>
+    <Panel>
+        <StackLayout Orientation="Orientation.Horizontal" Spacing="8" CrossAlignment="Alignment.Center" />
+        <Button Text="Replace help" OnClick="ReplaceHelp" />
+        <Button Text="Plain fallback" OnClick="UseFallback" />
+        <Button Text="Clear help" OnClick="ClearHelp" />
+    </Panel>
+    <Panel>
+        <StackLayout Orientation="Orientation.Horizontal" Spacing="8" CrossAlignment="Alignment.Center" />
+        <Button Text="Remove favorite" OnClick="RemoveFavorite" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <Separator />
+    <RichLabel Text="@_name" FontSize="@_fontSize" Color="@_color" />
+    <SvgImage Svg="@_icon" RequestedWidth="@_iconSize" RequestedHeight="@_iconSize" />
+    <Panel>
+        <StackLayout Orientation="Orientation.Horizontal" Spacing="8" CrossAlignment="Alignment.Center" />
+        <Button Text="Larger preview" OnClick="LargerPreview" />
+        <Button Text="Theme sizes" OnClick="ThemeSizes" />
+        <Button Text="Clear display" OnClick="ClearDisplay" />
+    </Panel>
+    <Label Text="@_result" />
+</ScrollPanel>
+
+@code {
+    private const string Star = "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><path fill='#f5b400' d='M12 1l3 7 8 1-6 5 2 9-7-4-7 4 2-9-6-5 8-1z'/></svg>";
+    private readonly TooltipContent _svgHelp = new(Svg: Star);
+    private TooltipContent? _help = FavoriteHelp();
+    private string? _fallback = "Favorite help (plain)";
+    private bool _showFavorite = true;
+    private string? _name = "Favorite · Žvaigždė · Café";
+    private string? _icon = Star;
+    private float? _fontSize = 18;
+    private Color4? _color = new Color4(.1f, .4f, .65f, 1);
+    private float? _iconSize = 32;
+    private string _result = "Ready: Star icon help, 18-unit text and 32-unit preview.";
+
+    private static TooltipContent FavoriteHelp() => new("Star icon", Star) { TrailingSvg = Star };
+    private void ReplaceHelp()
+    {
+        _help = new TooltipContent("Saved · Žvaigždė", Star) { TrailingSvg = Star };
+        _result = "Favorite help: Saved · Žvaigždė, with two stars.";
+    }
+    private void UseFallback()
+    {
+        _help = null;
+        _fallback = "Favorite help (plain)";
+        _result = "Favorite help: plain text fallback.";
+    }
+    private void ClearHelp()
+    {
+        _help = null;
+        _fallback = null;
+        _result = "Favorite help cleared. Hover Favorite to check.";
+    }
+    private void RemoveFavorite()
+    {
+        _showFavorite = false;
+        _result = "Favorite removed. Its help is gone too.";
+    }
+    private void LargerPreview()
+    {
+        RestoreDisplay();
+        _fontSize = 28;
+        _color = new Color4(.65f, .24f, .08f, 1);
+        _iconSize = 64;
+        _result = "Preview: 28-unit text and 64-unit icon.";
+    }
+    private void ThemeSizes()
+    {
+        RestoreDisplay();
+        _fontSize = null;
+        _color = null;
+        _iconSize = null;
+        _result = "Preview: theme text/color and intrinsic 24-unit icon.";
+    }
+    private void ClearDisplay()
+    {
+        _name = null;
+        _icon = null;
+        _result = "Preview cleared. Reset restores text and icon.";
+    }
+    private void RestoreDisplay()
+    {
+        _name = "Favorite · Žvaigždė · Café";
+        _icon = Star;
+    }
+    private void Reset()
+    {
+        _showFavorite = true;
+        _help = FavoriteHelp();
+        _fallback = "Favorite help (plain)";
+        RestoreDisplay();
+        _fontSize = 18;
+        _color = new Color4(.1f, .4f, .65f, 1);
+        _iconSize = 32;
+        _result = "Ready: Star icon help, 18-unit text and 32-unit preview.";
+    }
+}

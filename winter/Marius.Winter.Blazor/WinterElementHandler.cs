@@ -43,7 +43,8 @@ public class WinterElementHandler : IWinterElementHandler, IHandleAttributeBatch
                 ElementControl.Opacity = AttributeHelper.GetFloat(attributeValue, 1f);
                 break;
             case "Tooltip":
-                ElementControl.Tooltip = (string?)attributeValue;
+                ElementControl.Tooltip = (object?)WeakObjectStore.Get<TooltipContent>(attributeValue)
+                    ?? attributeValue as string;
                 break;
             case "LayoutData":
                 ElementControl.LayoutData = WeakObjectStore.Get<object>(attributeValue) ?? attributeValue;

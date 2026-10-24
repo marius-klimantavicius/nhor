@@ -9,6 +9,8 @@ public abstract class WinterComponentBase : NativeControlComponentBase
     [Parameter] public bool Enabled { get; set; } = true;
     [Parameter] public float Opacity { get; set; } = 1f;
     [Parameter] public string? Tooltip { get; set; }
+    /// <summary>Noninteractive rich help. When non-null, takes precedence over Tooltip.</summary>
+    [Parameter] public TooltipContent? TooltipContent { get; set; }
     [Parameter] public object? LayoutData { get; set; }
     [Parameter] public float? MinWidth { get; set; }
     [Parameter] public float? MinHeight { get; set; }
@@ -25,7 +27,9 @@ public abstract class WinterComponentBase : NativeControlComponentBase
         builder.AddAttribute("Enabled", Enabled);
         if (Opacity < 1f)
             builder.AddAttribute("Opacity", Opacity);
-        if (Tooltip != null)
+        if (TooltipContent != null)
+            builder.AddAttribute("Tooltip", TooltipContent);
+        else if (Tooltip != null)
             builder.AddAttribute("Tooltip", Tooltip);
         if (LayoutData != null)
             builder.AddAttribute("LayoutData", LayoutData);

@@ -13,6 +13,8 @@ public class RichLabel : WinterComponentBase
 
     [Parameter] public string? Text { get; set; }
     [Parameter] public string? Svg { get; set; }
+    [Parameter] public float? FontSize { get; set; }
+    [Parameter] public Color4? Color { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
@@ -22,6 +24,10 @@ public class RichLabel : WinterComponentBase
             builder.AddAttribute("Text", Text);
         if (Svg != null)
             builder.AddAttribute("Svg", Svg);
+        if (FontSize.HasValue)
+            builder.AddAttribute("FontSize", FontSize.Value);
+        if (Color.HasValue)
+            builder.AddAttribute("Color", Color.Value);
     }
 
     class Handler : WinterElementHandler
@@ -40,6 +46,14 @@ public class RichLabel : WinterComponentBase
                     break;
                 case "Svg":
                     RichLabelControl.Svg = AttributeHelper.GetString(attributeValue);
+                    break;
+                case "FontSize":
+                    if (attributeValue == null) RichLabelControl.ResetFontSize();
+                    else RichLabelControl.FontSize = AttributeHelper.GetFloat(attributeValue);
+                    break;
+                case "Color":
+                    if (attributeValue == null) RichLabelControl.ResetColor();
+                    else RichLabelControl.Color = AttributeHelper.GetColor4(attributeValue);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
