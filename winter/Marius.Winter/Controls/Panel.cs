@@ -5,6 +5,9 @@ namespace Marius.Winter;
 
 public class Panel : Element, ILayoutContainer
 {
+    // Unknown layouts remain a measured leaf in the bridge and arrange their
+    // children through the public ILayout contract.
+    internal override bool ManagesOwnChildLayout => _layout != null && _layout is not (StackLayout or FlexLayout or GridLayout);
     private Shape? _backgroundShape;
     private Shape? _borderShape;
     private ILayout? _layout;
@@ -145,6 +148,11 @@ public class Panel : Element, ILayoutContainer
     protected override void ArrangeCore(RectF finalBounds)
     {
         if (_layout == null) return;
+        if (ManagesOwnChildLayout)
+        {
+            _layout.Arrange(this, new RectF(0, 0, finalBounds.W, finalBounds.H));
+            return;
+        }
         var engine = OwnerWindow?._taffyLayout;
         if (engine != null && !engine.IsComputing)
         {

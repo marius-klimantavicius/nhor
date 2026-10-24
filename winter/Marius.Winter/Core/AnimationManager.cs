@@ -15,53 +15,60 @@ public class Animation
 
 public class AnimationManager
 {
-    private readonly List<Animation> _active = new();
-    private bool _hasActiveAnimations;
+    private sealed class Entry(Animation animation) { internal readonly Animation Animation = animation; }
+    private readonly List<Entry> _active = new();
+    internal Action? Changed;
 
-    public bool HasActiveAnimations => _hasActiveAnimations;
+    public bool HasActiveAnimations => _active.Count != 0;
 
     public void Start(Animation anim)
     {
-        _active.Add(anim);
-        _hasActiveAnimations = true;
+        ArgumentNullException.ThrowIfNull(anim);
+        _active.RemoveAll(e => ReferenceEquals(e.Animation, anim));
+        anim.Elapsed = 0;
+        _active.Add(new Entry(anim));
+        Changed?.Invoke();
     }
 
     public void Cancel(object tag)
     {
         for (int i = _active.Count - 1; i >= 0; i--)
         {
-            if (_active[i].Tag == tag)
+            if (Equals(_active[i].Animation.Tag, tag))
                 _active.RemoveAt(i);
         }
-        _hasActiveAnimations = _active.Count > 0;
     }
 
     public void CancelAll()
     {
         _active.Clear();
-        _hasActiveAnimations = false;
     }
 
-    public void Tick(float dt)
+    /// <summary>Applies the start-of-tick set in insertion order. New starts wait
+    /// until the next tick; cancellation suppresses completion. Nonpositive
+    /// durations apply their final value once. Returns true for any applied frame.</summary>
+    public bool Tick(float dt)
     {
-        if (_active.Count == 0) return;
+        if (_active.Count == 0) return false;
+        bool applied = false;
 
-        for (int i = _active.Count - 1; i >= 0; i--)
+        foreach (var entry in _active.ToArray())
         {
-            var a = _active[i];
-            a.Elapsed += dt;
-            float t = Math.Clamp(a.Elapsed / a.Duration, 0f, 1f);
+            if (!_active.Contains(entry)) continue;
+            var a = entry.Animation;
+            a.Elapsed += Math.Max(0, dt);
+            float t = a.Duration <= 0 ? 1 : Math.Clamp(a.Elapsed / a.Duration, 0f, 1f);
             float eased = a.Easing(t);
+            applied = true;
             a.Apply?.Invoke(eased);
 
-            if (t >= 1f)
+            if (t >= 1f && _active.Remove(entry))
             {
                 a.OnComplete?.Invoke();
-                _active.RemoveAt(i);
             }
         }
 
-        _hasActiveAnimations = _active.Count > 0;
+        return applied;
     }
 }
 

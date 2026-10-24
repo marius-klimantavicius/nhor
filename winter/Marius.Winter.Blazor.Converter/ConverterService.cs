@@ -14,15 +14,19 @@ public enum FileKind { Unknown, Svg, Lottie }
 
 public static class ConverterService
 {
-    private static bool _initialized;
-
-    private static void EnsureInit()
+    private sealed class GraphicsLease : IDisposable
     {
-        if (_initialized) return;
-        uint threads = (uint)Environment.ProcessorCount;
-        if (threads > 1) threads--;
-        Initializer.Init(threads);
-        _initialized = true;
+        public GraphicsLease()
+        {
+            uint threads = (uint)Math.Max(0, Environment.ProcessorCount - 1);
+            Check(Initializer.Init(threads), "acquire ThorVG for conversion");
+        }
+        public void Dispose() => Check(Initializer.Term(), "release ThorVG after conversion");
+    }
+
+    private static void Check(Result result, string operation)
+    {
+        if (result != Result.Success) throw new InvalidOperationException($"Failed to {operation}: {result}.");
     }
 
     public static FileKind Detect(string path)
@@ -40,9 +44,11 @@ public static class ConverterService
     /// <summary>Render an SVG file to PNG bytes.</summary>
     public static byte[] ConvertSvgToPng(string svgPath)
     {
-        EnsureInit();
+        using var runtime = new GraphicsLease();
+        var picture = Picture.Gen();
+        picture.Ref();
+        try
         {
-            var picture = Picture.Gen();
             if (picture.Load(svgPath) != Result.Success)
                 throw new InvalidOperationException($"Failed to load SVG: {svgPath}");
 
@@ -63,22 +69,24 @@ public static class ConverterService
             }
 
             var buffer = new uint[w * h];
-            var canvas = SwCanvas.Gen();
-            canvas.Target(buffer, w, w, h, ColorSpace.ARGB8888S);
-            canvas.Add(picture);
-            canvas.Draw(true);
-            canvas.Sync();
+            using var canvas = SwCanvas.Gen() ?? throw new InvalidOperationException("ThorVG SW canvas is unavailable for conversion.");
+            Check(canvas.Target(buffer, w, w, h, ColorSpace.ARGB8888S), "target conversion canvas");
+            Check(canvas.Add(picture), "attach conversion picture");
+            Check(canvas.Update(), "update conversion canvas");
+            Check(canvas.Draw(true), "render conversion canvas");
+            Check(canvas.Sync(), "synchronize conversion canvas");
 
             return PngBuilder.Build(w, h, buffer);
         }
+        finally { picture.Unref(); }
     }
 
     /// <summary>Convert a Lottie file to GIF bytes.</summary>
     public static byte[] ConvertLottieToGif(string lottiePath, uint quality = 100, uint fps = 0)
     {
-        EnsureInit();
+        using var runtime = new GraphicsLease();
         {
-            var animation = TvgAnimation.Gen();
+            using var animation = TvgAnimation.Gen();
             var pic = animation.GetPicture();
             if (pic.Load(lottiePath) != Result.Success)
                 throw new InvalidOperationException($"Failed to load Lottie: {lottiePath}");
@@ -93,10 +101,10 @@ public static class ConverterService
             var tempFile = Path.Combine(Path.GetTempPath(), $"tvg_converter_{Guid.NewGuid():N}.gif");
             try
             {
-                var saver = Saver.Gen();
-                saver.Background(bg);
-                saver.Save(animation, tempFile, quality, fps);
-                saver.Sync();
+                using var saver = Saver.Gen();
+                Check(saver.Background(bg), "set GIF background");
+                Check(saver.Save(animation, tempFile, quality, fps), "save GIF");
+                Check(saver.Sync(), "synchronize GIF");
                 return File.ReadAllBytes(tempFile);
             }
             finally

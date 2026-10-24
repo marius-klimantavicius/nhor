@@ -30,6 +30,8 @@ public abstract class Element : IDisposable
     private Style? _observedStyle;
     private Style? _observedEffectiveStyle;
     private float? _minWidth, _minHeight, _maxWidth, _maxHeight;
+    internal bool HasLayoutBounds;
+    internal bool AutoArrangeRoot;
 
     // --- Taffy integration ---
     internal NodeId _taffyNode;
@@ -65,16 +67,21 @@ public abstract class Element : IDisposable
         get => _bounds;
         set
         {
+            HasLayoutBounds = true;
+            AutoArrangeRoot = false;
             if (_bounds.X == value.X && _bounds.Y == value.Y &&
                 _bounds.W == value.W && _bounds.H == value.H)
                 return;
 
             var sizeChanged = _bounds.W != value.W || _bounds.H != value.H;
+            var positionChanged = _bounds.X != value.X || _bounds.Y != value.Y;
             _bounds = value;
             _scene.Translate(value.X, value.Y);
 
             if (sizeChanged)
                 OnSizeChanged();
+            if (positionChanged)
+                OnPositionChanged();
 
             MarkDirty();
         }
@@ -411,6 +418,8 @@ public abstract class Element : IDisposable
 
     public void Arrange(RectF finalBounds)
     {
+        AutoArrangeRoot = false;
+        HasLayoutBounds = true;
         if (IgnoresParentArrange)
         {
             // Keep our own bounds; only re-arrange internal content.
@@ -482,6 +491,8 @@ public abstract class Element : IDisposable
     protected virtual void OnAttached() { }
     protected virtual void OnDetaching() { }
     protected virtual void OnSizeChanged() { }
+    /// <summary>Called after a parent-space position change, including Arrange.</summary>
+    protected virtual void OnPositionChanged() { }
     protected virtual void OnStyleChanged()
     {
         OnThemeChanged();
@@ -694,13 +705,17 @@ public abstract class Element : IDisposable
     {
         var t = ThorVG.Text.Gen();
         if (t == null) return requestedSize;
-        t.SetFont(Style.FontName);
-        t.SetFontSize(requestedSize);
-        t.SetText("M");
-        t.GetMetrics(out var m);
-        float measuredHeight = m.ascent - m.descent;
-        if (measuredHeight > 0)
-            return requestedSize * requestedSize / measuredHeight;
-        return requestedSize;
+        try
+        {
+            t.SetFont(Style.FontName);
+            t.SetFontSize(requestedSize);
+            t.SetText("M");
+            t.GetMetrics(out var m);
+            float measuredHeight = m.ascent - m.descent;
+            if (measuredHeight > 0)
+                return requestedSize * requestedSize / measuredHeight;
+            return requestedSize;
+        }
+        finally { t.Unref(); }
     }
 }

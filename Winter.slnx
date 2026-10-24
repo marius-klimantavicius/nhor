@@ -3,4 +3,6 @@
   <Project Path="winter/Marius.Winter.Playground/Marius.Winter.Playground.csproj" />
   <Project Path="winter/Marius.Winter.Blazor/Marius.Winter.Blazor.csproj" />
   <Project Path="winter/Marius.Winter.Blazor.Playground/Marius.Winter.Blazor.Playground.csproj" />
+  <Project Path="winter/Marius.Winter.Tests/Marius.Winter.Tests.csproj" />
+  <Project Path="winter/Marius.Winter.Blazor.Tests/Marius.Winter.Blazor.Tests.csproj" />
 </Solution>

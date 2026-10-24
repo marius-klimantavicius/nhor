@@ -5,32 +5,58 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Marius.Winter.Blazor;
 
-public class WinterBlazorHost
+public class WinterBlazorHost : IAsyncDisposable
 {
     private readonly WinterRenderer _renderer;
     private readonly Window _window;
     private readonly Element _rootContainer;
+    private readonly IServiceProvider _services;
+    private Task? _disposeTask;
 
     internal WinterBlazorHost(Window window, Element rootContainer, IServiceProvider serviceProvider)
     {
         _window = window;
         _rootContainer = rootContainer;
-        var loggerFactory = serviceProvider.GetService<ILoggerFactory>() ?? LoggerFactory.Create(_ => { });
+        _services = serviceProvider;
+        var loggerFactory = serviceProvider.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance;
         _renderer = new WinterRenderer(window, serviceProvider, loggerFactory);
+        _window.Closing += DisposeAsync;
     }
 
     public WinterRenderer Renderer => _renderer;
 
     public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>() where TComponent : IComponent
     {
+        ObjectDisposedException.ThrowIf(_disposeTask != null, this);
         return _renderer.AddComponent<TComponent>(_rootContainer);
     }
 
     public Task<TComponent> AddComponent<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(Dictionary<string, object> parameters) where TComponent : IComponent
     {
+        ObjectDisposedException.ThrowIf(_disposeTask != null, this);
         return _renderer.AddComponent<TComponent>(_rootContainer, parameters);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_disposeTask != null) return new ValueTask(_disposeTask);
+        if (!_window.Dispatcher.CheckAccess())
+            return new ValueTask(_window.Dispatcher.InvokeAsync(() => DisposeAsync().AsTask()));
+        return new ValueTask(_disposeTask ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        _window.Closing -= DisposeAsync;
+        try { await _renderer.DisposeAsync(); }
+        finally
+        {
+            if (_services is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
+            else if (_services is IDisposable disposable) disposable.Dispose();
+        }
     }
 }

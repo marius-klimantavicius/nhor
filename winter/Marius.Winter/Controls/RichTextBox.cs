@@ -276,6 +276,7 @@ public class RichTextBox : Element
             mt.SetFontSize(_effectiveFontSize);
             mt.SetText("Mg");
             mt.GetMetrics(out var metrics);
+            mt.Unref();
             _ascent = metrics.ascent;
             _descent = metrics.descent;
             _lineHeight = (_ascent - _descent) * 1.35f;
@@ -996,14 +997,18 @@ public class RichTextBox : Element
     {
         var t = ThorVG.Text.Gen();
         if (t == null) return requestedSize;
-        t.SetFont("default-bold");
-        t.SetFontSize(requestedSize);
-        t.SetText("M");
-        t.GetMetrics(out var m);
-        float measuredHeight = m.ascent - m.descent;
-        if (measuredHeight > 0)
-            return requestedSize * requestedSize / measuredHeight;
-        return requestedSize;
+        try
+        {
+            t.SetFont("default-bold");
+            t.SetFontSize(requestedSize);
+            t.SetText("M");
+            t.GetMetrics(out var m);
+            float measuredHeight = m.ascent - m.descent;
+            if (measuredHeight > 0)
+                return requestedSize * requestedSize / measuredHeight;
+            return requestedSize;
+        }
+        finally { t.Unref(); }
     }
 
     /// <summary>
@@ -1765,6 +1770,13 @@ public class RichTextBox : Element
 
     // --- Theme/Style ---
 
+    protected override void OnDisposed()
+    {
+        _measureText?.Unref();
+        _measureTextBold?.Unref();
+        _measureText = _measureTextBold = null;
+    }
+
     protected override Style GetDefaultStyle()
     {
         return OwnerWindow?.Theme.TextBox ?? new Style();
@@ -1775,6 +1787,20 @@ public class RichTextBox : Element
         if (!_shapesCreated) return;
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
+
+        _effectiveFontSize = EffectiveFontSize(style.FontSize);
+        _effectiveBoldFontSize = EffectiveBoldFontSize(style.FontSize);
+        _measureText!.SetFont(style.FontName);
+        _measureText.SetFontSize(_effectiveFontSize);
+        _measureTextBold!.SetFontSize(_effectiveBoldFontSize);
+        _measureText.SetText("Mg");
+        _measureText.GetMetrics(out var metrics);
+        _ascent = metrics.ascent;
+        _descent = metrics.descent;
+        _lineHeight = (_ascent - _descent) * 1.35f;
+        if (_lineHeight <= 0) _lineHeight = _effectiveFontSize * 1.35f;
+        _placeholderPaint?.SetFont(style.FontName);
+        _placeholderPaint?.SetFontSize(_effectiveFontSize);
 
         _backgroundShape?.SetFill(style.Background.R8, style.Background.G8, style.Background.B8, style.Background.A8);
         _borderShape?.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);

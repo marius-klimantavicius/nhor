@@ -1,12 +1,14 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Glfw;
 using ThorVG;
 using static Glfw.GLFW;
+using Task = System.Threading.Tasks.Task;
 
 namespace Marius.Winter;
 
@@ -21,11 +23,30 @@ public unsafe class Window : Element
     private uint _width, _height;
     private bool _dirty = true;
     private bool _initialized;
+    private bool _ownsSession, _graphicsInitialized, _glfwInitialized, _disposing, _running;
+    private bool _drawable = true;
+    private volatile bool _closeRequested;
+    private int _logicalWidth, _logicalHeight;
+    private readonly object _runtimeGate = new();
+    private static readonly object SessionGate = new();
+    private static bool _sessionActive;
+    private readonly CancellationTokenSource _shutdown = new();
 
     private Theme _theme;
     private readonly AnimationManager _animator = new();
     internal readonly TaffyLayoutEngine _taffyLayout = new();
-    public readonly ConcurrentQueue<Action> DispatcherQueue = new();
+    public WindowDispatcherQueue DispatcherQueue { get; }
+    public WindowDispatcher Dispatcher { get; }
+    public CancellationToken ShutdownToken { get; }
+    /// <summary>UI-thread async teardown, while the native context is alive.
+    /// Only disposal continuations are pumped once shutdown begins.</summary>
+    public event Func<ValueTask>? Closing;
+    public uint FramebufferWidth => _drawable ? _width : 0;
+    public uint FramebufferHeight => _drawable ? _height : 0;
+    public float RenderScaleX => _logicalWidth > 0 ? (float)_width / _logicalWidth : 1;
+    public float RenderScaleY => _logicalHeight > 0 ? (float)_height / _logicalHeight : 1;
+    public float ContentScaleX { get; private set; } = 1;
+    public float ContentScaleY { get; private set; } = 1;
     public Action? Resized;
     private Shape? _backgroundShape;
     private Stopwatch _clock = null!;
@@ -125,179 +146,334 @@ public unsafe class Window : Element
     public bool Dirty
     {
         get => _dirty;
-        set => _dirty = value;
+        set { bool wake = value && !_dirty; _dirty = value; if (wake) Wake(); }
     }
 
     public Window(int width, int height, string title, Theme? theme = null,
         RenderBackend backend = RenderBackend.SW)
     {
+        DispatcherQueue = new WindowDispatcherQueue(Wake);
+        Dispatcher = new WindowDispatcher(DispatcherQueue);
+        ShutdownToken = _shutdown.Token;
         _width = (uint)width;
         _height = (uint)height;
         _theme = theme ?? Theme.Dark;
         _backend = backend;
-
-        if (Initializer.Init(0) != Result.Success)
+        _animator.Changed = () => Dirty = true;
+        try
         {
-            Console.Error.WriteLine("Failed to init ThorVG engine");
-            return;
-        }
-
-        if (Glfw.Glfw.glfwInit() != GLFW_TRUE)
-        {
-            Console.Error.WriteLine("Failed to init GLFW");
-            return;
-        }
-
-        Glfw.Glfw.glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        Glfw.Glfw.glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        Glfw.Glfw.glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            Glfw.Glfw.glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-
-        Glfw.Glfw.glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        Glfw.Glfw.glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-
-        _window = Glfw.Glfw.glfwCreateWindow(width, height, title, null, null);
-        if (_window == null)
-        {
-            Console.Error.WriteLine("Failed to create GLFW window");
-            return;
-        }
-
-        Glfw.Glfw.glfwMakeContextCurrent(_window);
-        InitCursors();
-
-        if (_backend == RenderBackend.GL)
-        {
-            var glCanvas = GlCanvas.Gen();
-            if (glCanvas == null)
+            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Window dimensions must be positive.");
+            lock (SessionGate)
             {
-                Console.Error.WriteLine("GlCanvas not available");
-                return;
+                if (_sessionActive) throw new InvalidOperationException("Winter supports one live Window session per process. Dispose the current Window before constructing another.");
+                _sessionActive = _ownsSession = true;
             }
-            _canvas = glCanvas;
-            RetargetGlCanvas();
+            Check(Initializer.Init(0), "initialize ThorVG");
+            _graphicsInitialized = true;
+
+            if (Glfw.Glfw.glfwInit() != GLFW_TRUE)
+                throw NativeFailure("initialize GLFW");
+            _glfwInitialized = true;
+
+            Glfw.Glfw.glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+            Glfw.Glfw.glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+            Glfw.Glfw.glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                Glfw.Glfw.glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+
+            Glfw.Glfw.glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            Glfw.Glfw.glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+
+            _window = Glfw.Glfw.glfwCreateWindow(width, height, title, null, null);
+            if (_window == null)
+                throw NativeFailure("create GLFW OpenGL 3.3 window");
+
+            Glfw.Glfw.glfwMakeContextCurrent(_window);
+            Glfw.Glfw.glfwSwapInterval(0);
+            Glfw.Glfw.glfwGetWindowSize(_window, out _logicalWidth, out _logicalHeight);
+            Glfw.Glfw.glfwGetFramebufferSize(_window, out int initialW, out int initialH);
+            _drawable = initialW > 0 && initialH > 0;
+            Glfw.Glfw.glfwGetWindowContentScale(_window, out float contentX, out float contentY);
+            ContentScaleX = contentX; ContentScaleY = contentY;
+            _width = (uint)Math.Max(1, initialW); _height = (uint)Math.Max(1, initialH);
+            InitCursors();
+
+            if (_backend == RenderBackend.GL)
+            {
+                var glCanvas = GlCanvas.Gen();
+                if (glCanvas == null)
+                    throw new InvalidOperationException("Winter initialization failed: ThorVG GL canvas is unavailable.");
+                _canvas = glCanvas;
+                RetargetGlCanvas();
+            }
+            else
+            {
+                if (!LoadGlFunctions())
+                    throw new InvalidOperationException("Winter initialization failed: required OpenGL 3.3 SW upload functions are unavailable.");
+                InitBlitPipeline();
+
+                var swCanvas = SwCanvas.Gen();
+                if (swCanvas == null)
+                    throw new InvalidOperationException("Winter initialization failed: ThorVG SW canvas is unavailable.");
+                _canvas = swCanvas;
+                RetargetSwCanvas();
+            }
+
+            LoadDefaultFont();
+
+            // Background shape
+            _backgroundShape = Shape.Gen();
+            _backgroundShape!.AppendRect(0, 0, _logicalWidth, _logicalHeight, 0, 0);
+            var bg = _theme.WindowBackground;
+            _backgroundShape.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
+            AddPaint(_backgroundShape);
+
+            // Add our scene as canvas root
+            Check(_canvas.Add(Scene), "attach Window scene");
+
+            // Overlay scene — added directly to canvas so it always renders on top of everything
+            _overlayScene = Scene.Gen()!;
+            Check(_canvas.Add(_overlayScene), "attach overlay scene");
+
+            Bounds = new RectF(0, 0, _logicalWidth, _logicalHeight);
+            ApplyRenderScale();
+            SetupCallbacks();
+
+            _clock = Stopwatch.StartNew();
+            _initialized = true;
         }
-        else
+        catch
         {
-            if (!LoadGlFunctions())
-            {
-                Console.Error.WriteLine("Failed to load GL functions");
-                return;
-            }
-            InitBlitPipeline();
-
-            var swCanvas = SwCanvas.Gen();
-            if (swCanvas == null)
-            {
-                Console.Error.WriteLine("SwCanvas not available");
-                return;
-            }
-            _canvas = swCanvas;
-            RetargetSwCanvas();
+            Dispose();
+            throw;
         }
-
-        LoadDefaultFont();
-
-        // Background shape
-        _backgroundShape = Shape.Gen();
-        _backgroundShape!.AppendRect(0, 0, _width, _height, 0, 0);
-        var bg = _theme.WindowBackground;
-        _backgroundShape.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
-        AddPaint(_backgroundShape);
-
-        // Add our scene as canvas root
-        _canvas.Add(Scene);
-
-        // Overlay scene — added directly to canvas so it always renders on top of everything
-        _overlayScene = Scene.Gen()!;
-        _canvas.Add(_overlayScene);
-
-        _clock = Stopwatch.StartNew();
-        _initialized = true;
     }
 
     public void Run()
     {
-        if (!_initialized || _window == null) return;
-
-        Glfw.Glfw.glfwShowWindow(_window);
-        SetupCallbacks();
-
-        // Initial layout
-        Bounds = new RectF(0, 0, _width, _height);
-        _dirty = true;
-
-        while (Glfw.Glfw.glfwWindowShouldClose(_window) == 0)
+        Dispatcher.VerifyAccess();
+        ThrowIfDisposed();
+        if (!_initialized || _window == null) throw new InvalidOperationException("Window initialization did not complete.");
+        if (_running) throw new InvalidOperationException("Window.Run is already active.");
+        _running = true;
+        try
         {
-            Glfw.Glfw.glfwPollEvents();
-
-            // Drain dispatcher queue (Blazor integration)
-            while (DispatcherQueue.TryDequeue(out var action))
+            Glfw.Glfw.glfwMakeContextCurrent(_window);
+            Glfw.Glfw.glfwShowWindow(_window);
+            _lastFrameTime = _clock.Elapsed.TotalSeconds;
+            while (!_closeRequested && Glfw.Glfw.glfwWindowShouldClose(_window) == 0)
             {
-                try { action(); }
-                catch (Exception ex) { Console.Error.WriteLine($"Dispatcher error: {ex}"); }
-                _dirty = true;
-            }
-
-            var now = _clock.Elapsed.TotalSeconds;
-            float dt = (float)(now - _lastFrameTime);
-            _lastFrameTime = now;
-
-            if (dt > 0.25f) dt = 0.25f; // clamp after pauses
-
-            _animator.Tick(dt);
-            if (_animator.HasActiveAnimations) _dirty = true;
-
-            // Tooltip delay timer
-            if (_tooltipElement != null && _tooltipOverlay == null)
-            {
-                _tooltipTimer += dt;
-                if (_tooltipTimer >= TooltipDelay)
-                    ShowTooltip();
-            }
-
-            if (_dirty)
-            {
-                _dirty = false;
-                _canvas!.Update();
-                _canvas.Draw(true);
-                _canvas.Sync();
-                if (_backend == RenderBackend.SW)
-                    BlitToScreen();
-                else
-                    Glfw.Glfw.glfwSwapBuffers(_window);
+                using (Dispatcher.EnterScope())
+                {
+                    // Advance the previous frame's deadlines before callbacks
+                    // can start a new animation/tooltip after a long native wait.
+                    var now = _clock.Elapsed.TotalSeconds;
+                    float elapsed = (float)(now - _lastFrameTime);
+                    _lastFrameTime = now;
+                    if (_animator.Tick(Math.Min(elapsed, 0.25f))) _dirty = true;
+                    if (_tooltipElement != null && _tooltipOverlay == null)
+                    {
+                        _tooltipTimer += elapsed;
+                        if (_tooltipTimer >= TooltipDelay) ShowTooltip();
+                    }
+                    Glfw.Glfw.glfwPollEvents();
+                    DrainDispatcher();
+                    if (_closeRequested || IsDisposed) break;
+                    FlushLayout();
+                    if (_dirty && _drawable)
+                    {
+                        _dirty = false;
+                        Check(_canvas!.Update(), "update canvas");
+                        Check(_canvas.Draw(true), "draw canvas");
+                        Check(_canvas.Sync(), "synchronize canvas");
+                        if (_backend == RenderBackend.SW) BlitToScreen();
+                        else Glfw.Glfw.glfwSwapBuffers(_window);
+                    }
+                }
+                if (!_closeRequested && !IsDisposed && Glfw.Glfw.glfwWindowShouldClose(_window) == 0) WaitForWork();
             }
         }
-
-        Dispose();
+        finally { _running = false; Dispose(); }
     }
 
     public override void Dispose()
     {
-        if (IsDisposed) return;
-        DismissAllOverlays();
-        base.Dispose();
-        _canvas = null;
-
-        for (int i = 0; i < _cursors.Length; i++)
+        Dispatcher.VerifyAccess();
+        if (IsDisposed || _disposing) return;
+        _disposing = true;
+        var failures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception ex) { failures.Add(ex); } }
+        Dispatcher.BeginShutdown();
+        if (_window != null) Glfw.Glfw.glfwMakeContextCurrent(_window);
+        using (Dispatcher.EnterScope(cleanup: true))
         {
-            if (_cursors[i] != null)
+            Cleanup(() => _shutdown.Cancel());
+            var closing = Closing;
+            Closing = null;
+            if (closing != null)
+                foreach (Func<ValueTask> handler in closing.GetInvocationList())
+                    Cleanup(() => CompleteTeardown(handler()));
+            Cleanup(DismissAllOverlays);
+            _animator.CancelAll();
+            if (_canvas != null) Cleanup(() => Check(_canvas.Sync(), "synchronize canvas before disposal"));
+            Cleanup(() => base.Dispose());
+            if (_canvas != null) Cleanup(_canvas.Dispose);
+            _canvas = null;
+            _overlayScene = null;
+        }
+        Dispatcher.Close();
+
+        lock (_runtimeGate)
+        {
+            for (int i = 0; i < _cursors.Length; i++)
             {
-                Glfw.Glfw.glfwDestroyCursor(_cursors[i]!);
-                _cursors[i] = null;
+                if (_cursors[i] != null)
+                {
+                    Cleanup(() => Glfw.Glfw.glfwDestroyCursor(_cursors[i]!));
+                    _cursors[i] = null;
+                }
             }
-        }
 
-        if (_window != null)
+            if (_window != null)
+            {
+                Cleanup(DeleteBlitPipeline);
+                Cleanup(() => Glfw.Glfw.glfwDestroyWindow(_window));
+                _window = null;
+            }
+            if (_glfwInitialized) { Cleanup(Glfw.Glfw.glfwTerminate); _glfwInitialized = false; }
+        }
+        if (_graphicsInitialized) { Cleanup(() => Check(Initializer.Term(), "release ThorVG runtime")); _graphicsInitialized = false; }
+        if (_ownsSession) { lock (SessionGate) { _sessionActive = false; _ownsSession = false; } }
+        _initialized = false;
+        _shutdown.Dispose();
+        if (failures.Count != 0) throw new AggregateException("Winter shutdown failed; all cleanup stages were attempted.", failures);
+    }
+
+    /// <summary>May be called from any thread; wakes a waiting Run loop.</summary>
+    public void Close() { _closeRequested = true; Wake(); }
+
+    private void Wake()
+    {
+        lock (_runtimeGate)
+            if (_glfwInitialized && _window != null) Glfw.Glfw.glfwPostEmptyEvent();
+    }
+
+    private void DrainDispatcher()
+    {
+        long started = Stopwatch.GetTimestamp();
+        for (int i = 0; i < 64 && DispatcherQueue.TryDequeue(out var action); i++)
         {
-            Glfw.Glfw.glfwDestroyWindow(_window);
-            _window = null;
+            action();
+            _dirty = true;
+            if (_closeRequested || IsDisposed || Stopwatch.GetElapsedTime(started).TotalMilliseconds >= 4) break;
         }
+    }
 
-        Glfw.Glfw.glfwTerminate();
-        Initializer.Term();
+    /// <summary>Opt an immediate child into filling the logical client area.
+    /// A later explicit Bounds/Arrange assignment returns it to manual sizing.</summary>
+    public void SetAutoLayout(Element root)
+    {
+        Dispatcher.VerifyAccess();
+        if (root.Parent != this) throw new ArgumentException("Automatic roots must be immediate Window children.", nameof(root));
+        root.AutoArrangeRoot = true;
+        root.InvalidateMeasure();
+    }
+
+    private void FlushLayout()
+    {
+        Measure(Bounds.W, Bounds.H);
+        foreach (var root in Children)
+        {
+            if (!root.HasLayoutBounds && root is ILayoutContainer { Layout: not null }) root.AutoArrangeRoot = true;
+            FlushElement(root, root.AutoArrangeRoot);
+        }
+        foreach (var overlay in _overlays.ToArray()) FlushElement(overlay, false);
+    }
+
+    private void FlushElement(Element element, bool autoRoot)
+    {
+        if (element.IsMeasureDirty || (autoRoot && (element.Bounds.W != Bounds.W || element.Bounds.H != Bounds.H)))
+        {
+            var bounds = autoRoot ? new RectF(0, 0, Bounds.W, Bounds.H) : element.Bounds;
+            element.Measure(bounds.W, bounds.H);
+            element.Arrange(bounds);
+            element.AutoArrangeRoot = autoRoot;
+        }
+        // Manual-layout leaves and containers without a layout can own dirty
+        // descendants absent from their parent's Taffy traversal.
+        foreach (var child in element.Children) FlushElement(child, false);
+    }
+
+    private void ApplyRenderScale()
+    {
+        var matrix = new Matrix { e11 = RenderScaleX, e22 = RenderScaleY, e33 = 1 };
+        Check(Scene.Transform(matrix), "scale Window scene");
+        if (_overlayScene != null) Check(_overlayScene.Transform(matrix), "scale overlay scene");
+    }
+
+    private void ResizeTarget(int framebufferWidth, int framebufferHeight)
+    {
+        _drawable = framebufferWidth > 0 && framebufferHeight > 0;
+        if (!_drawable) return;
+        uint width = (uint)framebufferWidth, height = (uint)framebufferHeight;
+        if (width != _width || height != _height)
+        {
+            Check(_canvas!.Sync(), "synchronize canvas before retarget");
+            _width = width; _height = height;
+            if (_backend == RenderBackend.GL) RetargetGlCanvas();
+            else RetargetSwCanvas();
+        }
+        ApplyRenderScale();
+        _dirty = true;
+    }
+
+    private void RefreshNativeSize()
+    {
+        Glfw.Glfw.glfwGetWindowSize(_window!, out int width, out int height);
+        if (width > 0 && height > 0)
+        {
+            _logicalWidth = width; _logicalHeight = height;
+            Bounds = new RectF(0, 0, width, height);
+        }
+        Glfw.Glfw.glfwGetFramebufferSize(_window!, out int fbWidth, out int fbHeight);
+        ResizeTarget(fbWidth, fbHeight);
+    }
+
+    private void WaitForWork()
+    {
+        if (!DispatcherQueue.IsEmpty || (_dirty && _drawable)) return;
+        double timeout = double.PositiveInfinity;
+        if (_animator.HasActiveAnimations) timeout = Math.Max(0, 1.0 / 60 - (_clock.Elapsed.TotalSeconds - _lastFrameTime));
+        if (_tooltipElement != null && _tooltipOverlay == null) timeout = Math.Min(timeout, Math.Max(0, TooltipDelay - _tooltipTimer));
+        if (timeout <= 0) return;
+        if (double.IsPositiveInfinity(timeout)) Glfw.Glfw.glfwWaitEvents();
+        else Glfw.Glfw.glfwWaitEventsTimeout(timeout);
+    }
+
+    private void CompleteTeardown(ValueTask operation)
+    {
+        var task = operation.AsTask();
+        // Unlike a blocking GetResult, this services async disposal continuations.
+        // External completion wakes the native wait even without a UI continuation.
+        _ = task.ContinueWith(_ => Wake(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, System.Threading.Tasks.TaskScheduler.Default);
+        while (!task.IsCompleted)
+        {
+            DrainDispatcher();
+            if (!task.IsCompleted && DispatcherQueue.IsEmpty) Glfw.Glfw.glfwWaitEvents();
+        }
+        task.GetAwaiter().GetResult();
+    }
+
+    private static void Check(Result result, string operation)
+    {
+        if (result != Result.Success) throw new InvalidOperationException($"Winter failed to {operation}: ThorVG returned {result}.");
+    }
+
+    private static Exception NativeFailure(string operation)
+    {
+        int code = Glfw.Glfw.glfwGetError(out string? detail);
+        return new InvalidOperationException($"Winter failed to {operation}: GLFW error 0x{code:X}: {detail ?? "no platform diagnostic"}.");
     }
 
     public void SetCursor(CursorType type)
@@ -526,14 +702,11 @@ public unsafe class Window : Element
         var resName = "Marius.Winter.Resources.PublicSans-Regular.ttf";
         using var stream = asm.GetManifestResourceStream(resName);
         if (stream == null)
-        {
-            Console.Error.WriteLine($"Font resource not found: {resName}");
-            return;
-        }
+            throw new InvalidOperationException($"Winter initialization failed: embedded font resource was not found: {resName}.");
 
         var data = new byte[stream.Length];
         stream.ReadExactly(data);
-        Text.LoadFont("default", data, (uint)data.Length, "font/ttf");
+        Check(Text.LoadFont("default", data, (uint)data.Length, "font/ttf"), "load default font");
 
         var boldResName = "Marius.Winter.Resources.PublicSans-Bold.ttf";
         using var boldStream = asm.GetManifestResourceStream(boldResName);
@@ -541,7 +714,7 @@ public unsafe class Window : Element
         {
             var boldData = new byte[boldStream.Length];
             boldStream.ReadExactly(boldData);
-            Text.LoadFont("default-bold", boldData, (uint)boldData.Length, "font/ttf");
+            Check(Text.LoadFont("default-bold", boldData, (uint)boldData.Length, "font/ttf"), "load bold font");
         }
 
         var monoResName = "Marius.Winter.Resources.JetBrainsMono-Regular.ttf";
@@ -550,7 +723,7 @@ public unsafe class Window : Element
         {
             var monoData = new byte[monoStream.Length];
             monoStream.ReadExactly(monoData);
-            Text.LoadFont("monospace", monoData, (uint)monoData.Length, "font/ttf");
+            Check(Text.LoadFont("monospace", monoData, (uint)monoData.Length, "font/ttf"), "load monospace font");
         }
     }
 
@@ -722,19 +895,22 @@ public unsafe class Window : Element
             }
         });
 
-        Glfw.Glfw.glfwSetFramebufferSizeCallback(_window!, (w, fbW, fbH) =>
+        Glfw.Glfw.glfwSetWindowSizeCallback(_window!, (w, width, height) => RefreshNativeSize());
+        Glfw.Glfw.glfwSetFramebufferSizeCallback(_window!, (w, width, height) => ResizeTarget(width, height));
+        Glfw.Glfw.glfwSetWindowContentScaleCallback(_window!, (w, x, y) =>
         {
-            if (fbW > 0 && fbH > 0)
-            {
-                _width = (uint)fbW;
-                _height = (uint)fbH;
-                if (_backend == RenderBackend.GL)
-                    RetargetGlCanvas();
-                else
-                    RetargetSwCanvas();
-                Bounds = new RectF(0, 0, _width, _height);
-                _dirty = true;
-            }
+            ContentScaleX = x; ContentScaleY = y;
+            RefreshNativeSize();
+        });
+        Glfw.Glfw.glfwSetWindowRefreshCallback(_window!, _ => _dirty = true);
+        Glfw.Glfw.glfwSetWindowCloseCallback(_window!, _ => Close());
+        Glfw.Glfw.glfwSetWindowFocusCallback(_window!, (_, focused) =>
+        {
+            if (focused == 0) ReleaseSubtreeReferences(this);
+        });
+        Glfw.Glfw.glfwSetCursorEnterCallback(_window!, (_, entered) =>
+        {
+            if (entered == 0 && _capturedElement == null && _hoveredElement != null) ReleaseSubtreeReferences(_hoveredElement);
         });
     }
 
@@ -870,7 +1046,7 @@ public unsafe class Window : Element
 
         _tooltipOverlay = new TooltipOverlay(_tooltipElement.Tooltip);
         ShowOverlay(_tooltipOverlay);
-        _tooltipOverlay.PositionNear(_tooltipMouseX, _tooltipMouseY, _width, _height, _theme);
+        _tooltipOverlay.PositionNear(_tooltipMouseX, _tooltipMouseY, (uint)_logicalWidth, (uint)_logicalHeight, _theme);
 
         // Fade-in animation
         _tooltipOverlay.Opacity = 0;
@@ -916,8 +1092,8 @@ public unsafe class Window : Element
         {
             context = _window.context.wgl.handle;
         }
-        if (context == 0) context = 1; // fallback — CurrentContext() is a no-op in C# port
-        ((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S);
+        if (context == 0) throw new PlatformNotSupportedException("Winter GL requires a supported GLFW GLX or WGL context; no native context handle was available.");
+        Check(((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S), "target GL canvas");
     }
 
     // --- SW backend ---
@@ -951,7 +1127,38 @@ public unsafe class Window : Element
         _glVertexAttribPointer = (delegate* unmanaged[Cdecl]<uint, int, uint, byte, int, nint, void>)GetProc("glVertexAttribPointer");
         _glEnableVertexAttribArray = (delegate* unmanaged[Cdecl]<uint, void>)GetProc("glEnableVertexAttribArray");
 
-        return _glGenTextures != null && _glCreateProgram != null && _glGenVertexArrays != null;
+        return _glGenTextures != null && _glBindTexture != null && _glTexImage2D != null &&
+            _glTexSubImage2D != null && _glTexParameteri != null && _glViewport != null &&
+            _glClearColor != null && _glClear != null && _glDrawArrays != null && _glCreateShader != null &&
+            _glShaderSource != null && _glCompileShader != null && _glCreateProgram != null &&
+            _glAttachShader != null && _glLinkProgram != null && _glUseProgram != null && _glDeleteShader != null &&
+            _glGenVertexArrays != null && _glBindVertexArray != null && _glGenBuffers != null &&
+            _glBindBuffer != null && _glBufferData != null && _glVertexAttribPointer != null && _glEnableVertexAttribArray != null;
+    }
+
+    private void DeleteBlitPipeline()
+    {
+        if (_texId != 0)
+        {
+            var delete = (delegate* unmanaged[Cdecl]<int, uint*, void>)GetProc("glDeleteTextures");
+            uint id = _texId; if (delete != null) delete(1, &id); _texId = 0;
+        }
+        if (_vbo != 0)
+        {
+            var delete = (delegate* unmanaged[Cdecl]<int, uint*, void>)GetProc("glDeleteBuffers");
+            uint id = _vbo; if (delete != null) delete(1, &id); _vbo = 0;
+        }
+        if (_vao != 0)
+        {
+            var delete = (delegate* unmanaged[Cdecl]<int, uint*, void>)GetProc("glDeleteVertexArrays");
+            uint id = _vao; if (delete != null) delete(1, &id); _vao = 0;
+        }
+        if (_shaderProgram != 0)
+        {
+            var delete = (delegate* unmanaged[Cdecl]<uint, void>)GetProc("glDeleteProgram");
+            if (delete != null) delete(_shaderProgram); _shaderProgram = 0;
+        }
+        _glReady = false;
     }
 
     private void InitBlitPipeline()
@@ -1011,7 +1218,7 @@ public unsafe class Window : Element
     private void RetargetSwCanvas()
     {
         _buffer = new uint[_width * _height];
-        ((SwCanvas)_canvas!).Target(_buffer, _width, _width, _height, ColorSpace.ARGB8888);
+        Check(((SwCanvas)_canvas!).Target(_buffer, _width, _width, _height, ColorSpace.ARGB8888), "target SW canvas");
 
         if (_glReady)
         {

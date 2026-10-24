@@ -520,25 +520,75 @@ void Run() {
         glfwPollEvents();
 
         float dt = ComputeDeltaTime();
-        animator.Tick(dt);
+        dirty |= animator.Tick(dt); // includes the final applied frame
+        FlushDirtyLayout();
 
         if (dirty) {
             dirty = false;
             canvas.Update();
-            canvas.Draw();
+            canvas.Draw(true);
             canvas.Sync();
             BlitToScreen();       // GL texture upload + fullscreen quad
             glfwSwapBuffers(handle);
         }
+        WaitForEventsOrAnimationOrTooltipDeadline();
     }
 }
 ```
 
 ### Idle optimization
 
-When nothing changes (`dirty == false` and no animations running), the loop
-only calls `glfwPollEvents()` — no rendering work. Could switch to
-`glfwWaitEventsTimeout()` to reduce CPU usage when idle.
+When clean, the runtime waits in GLFW. Active animations set a 60 Hz deadline;
+pending tooltips set their remaining delay. Queued work and `Window.Close()` post
+a native empty event to wake the wait. Each iteration drains at most 64 queued
+actions or 4 ms of work before allowing layout and rendering to progress.
+
+### Runtime contracts
+
+Create, run and dispose a Window on the same UI thread. One live Window session
+is supported per process. A second Window throws without terminating the first.
+Use `Window.Dispatcher.InvokeAsync` for work from other threads; ordinary awaits
+capture the Window synchronization context. Explicit `ConfigureAwait(false)`
+opts out of UI affinity. Do not synchronously block the UI thread on incomplete
+dispatcher tasks. Legacy `DispatcherQueue.Enqueue` wakes and schedules a draw,
+throws once shutdown starts, and has no task completion/error channel.
+
+`Run()` flushes dirty layout before rendering and disposes in `finally` on exit
+or callback/render failure. Native Panels with a layout fill the client area
+until explicitly arranged; `SetAutoLayout` opts another immediate child into
+that behavior. Explicit Bounds/Arrange preserves a root's manual rectangle.
+Manually managed leaf roots keep their own geometry. Unknown custom `ILayout`
+implementations on Panel use manual measure/arrange, including when attached.
+Changes made in one dispatcher action are batched into the next layout flush.
+`Visible=false` collapses layout and makes the subtree ineligible for input.
+
+Layout, pointer, popup and font sizes use logical client units. The runtime
+queries initial logical and framebuffer sizes independently. Framebuffer ratios
+scale both the root and overlay scenes; cursor coordinates stay logical.
+Content scale is exposed as metadata, without multiplying that ratio again.
+A zero framebuffer suspends drawing and keeps the last target allocation until
+restoration. Arbitrary user scene transforms do not participate in hit testing.
+
+RemoveChild/ClearChildren detach reusable Elements; Dispose permanently releases
+their retained subtree resources. Detached rendered Elements remain caller-owned
+and must be disposed before closing their graphics session; retaining backend
+paint data across Window sessions is not supported. Window shutdown cancels outstanding dispatcher
+invocations, rejects new application work, and drops late UI continuations.
+External I/O or work using `ConfigureAwait(false)` must honor `ShutdownToken`
+cooperatively and avoid touching disposed UI. Async `Closing` handlers run on the
+UI thread while its native context is alive; a dedicated disposal context keeps
+their continuations pumping. Disposers must finish or cancel their external work.
+The Blazor host disposes its renderer/components before its owned services.
+Canvas Sync/Dispose runs before native GL context destruction. Worker graphics
+operations must balance their own ThorVG Init/Term and dispose canvases before
+releasing that acquire; the Converter follows this contract.
+
+Initialization and canvas failures throw actionable exceptions. Dispatcher
+delegate errors fault the returned task; raw callback/animation errors propagate
+from Run after cleanup. Shutdown attempts every cleanup stage and aggregates
+cleanup failures. Retained Elements and native APIs still require UI-thread access.
+High-DPI hardware on Windows/macOS/Wayland, full accessibility/IME, generalized
+keyboard-only navigation and exercised NativeAOT workflows remain unqualified.
 
 ---
 
@@ -606,10 +656,10 @@ Also add to `ThorVG.slnx`:
 ## Key Efficiency Details
 
 ### What happens when nothing changes
-- `glfwPollEvents()` processes OS events
-- `animator.Tick()` returns immediately (no active animations)
-- `dirty` is false → skip `canvas.Update/Draw/Sync` and GL blit entirely
-- CPU cost: effectively zero (just the poll syscall)
+- GLFW waits for native events, managed posts or the next scheduled deadline.
+- A clean window skips canvas rendering, upload and layout recomputation.
+- Idle CPU depends on platform events and services; skipping draws alone is not
+  evidence of zero CPU cost.
 
 ### What happens on a hover color change
 1. `backgroundShape.SetFill(r, g, b, a)` — ThorVG sets `RenderUpdateFlag.Color`

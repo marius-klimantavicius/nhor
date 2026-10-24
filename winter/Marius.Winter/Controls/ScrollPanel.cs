@@ -279,6 +279,13 @@ public class ScrollPanel : Element, ILayoutContainer
         }
     }
 
+    protected override void OnPositionChanged()
+    {
+        // ThorVG applies a clip in the incoming parent's coordinate space.
+        _clipShape?.ResetShape();
+        _clipShape?.AppendRect(Bounds.X, Bounds.Y, Bounds.W, Bounds.H, 0, 0);
+    }
+
     protected override void OnSizeChanged()
     {
         float w = Bounds.W, h = Bounds.H;

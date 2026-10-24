@@ -105,12 +105,17 @@ public class Image : Element
         }
 
         _intrinsicW = _intrinsicH = 0;
+        InvalidateMeasure();
+        MarkDirty();
 
         if (_source == null || _source.Length == 0) return;
 
         var picture = Picture.Gen();
         if (picture.Load(_source, (uint)_source.Length, _mimeType, null, true) != Result.Success)
+        {
+            picture.Unref();
             return;
+        }
 
         picture.GetSize(out _intrinsicW, out _intrinsicH);
         _picture = picture;

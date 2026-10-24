@@ -260,6 +260,13 @@ public class TreeView : Element
         return new Vector2(w, h);
     }
 
+    protected override void OnPositionChanged()
+    {
+        // Keep the parent-space clip aligned on position-only moves too.
+        _clipShape?.ResetShape();
+        _clipShape?.AppendRect(Bounds.X, Bounds.Y, Bounds.W, Bounds.H, 0, 0);
+    }
+
     protected override void OnSizeChanged()
     {
         float w = Bounds.W, h = Bounds.H;

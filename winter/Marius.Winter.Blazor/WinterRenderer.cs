@@ -16,8 +16,10 @@ public class WinterRenderer : NativeComponentRenderer
     public WinterRenderer(Window window, IServiceProvider serviceProvider, ILoggerFactory loggerFactory)
         : base(serviceProvider, loggerFactory)
     {
+        window.Dispatcher.VerifyAccess();
         _window = window;
         _dispatcher = new WinterDispatcher(window);
+        _window.Closing += DisposeForWindowAsync;
     }
 
     private readonly WinterDispatcher _dispatcher;
@@ -31,42 +33,25 @@ public class WinterRenderer : NativeComponentRenderer
     protected override void HandleException(Exception exception)
     {
         Console.Error.WriteLine($"Blazor render error: {exception}");
+        throw new InvalidOperationException("Winter Blazor rendering failed. See the inner exception for the component or attribute error.", exception);
+    }
+
+    private ValueTask DisposeForWindowAsync() => DisposeAsync();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _window.Dispatcher.VerifyAccess();
+            _window.Closing -= DisposeForWindowAsync;
+        }
+        base.Dispose(disposing);
     }
 
     protected override Task UpdateDisplayAsync(in RenderBatch renderBatch)
     {
-        // Process all Blazor DOM changes (add/remove children, apply attributes)
         var result = base.UpdateDisplayAsync(renderBatch);
-
-        // Re-layout window children after Blazor updates to fix stale measurements.
-        // Without this, incremental child additions during page switches leave
-        // panels with stale content heights (e.g. ScrollPanel shows phantom scrollbar).
-        // Only re-layout when something actually changed (IsMeasureDirty), to avoid
-        // measurement instability from content-less spacer panels that return
-        // available space as their desired size.
-        var b = _window.Bounds;
-        if (b.W > 0 && b.H > 0)
-        {
-            bool anyDirty = false;
-            foreach (var child in _window.Children)
-            {
-                if (child.IsMeasureDirty)
-                {
-                    anyDirty = true;
-                    break;
-                }
-            }
-            if (anyDirty)
-            {
-                foreach (var child in _window.Children)
-                {
-                    child.Measure(b.W, b.H);
-                    child.Arrange(new RectF(0, 0, b.W, b.H));
-                }
-            }
-            _window.Dirty = true;
-        }
-
+        _window.Dirty = true;
         return result;
     }
 
@@ -113,13 +98,7 @@ public class WinterRenderer : NativeComponentRenderer
             else
                 ElementControl.InsertChild(child, physicalSiblingIndex);
 
-            // Auto-layout: measure and arrange the child to fill the parent
-            var b = ElementControl.Bounds;
-            if (b.W > 0 && b.H > 0)
-            {
-                child.Measure(b.W, b.H);
-                child.Arrange(new RectF(0, 0, b.W, b.H));
-            }
+            if (ElementControl is Window window) window.SetAutoLayout(child);
         }
 
         public void RemoveChild(Element child)

@@ -1118,6 +1118,11 @@ public class TextArea : Element
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
+        _effectiveFontSize = EffectiveFontSize(style.FontSize);
+        _lineHeight = _effectiveFontSize * 1.35f;
+        _placeholderPaint?.SetFont(style.FontName);
+        _placeholderPaint?.SetFontSize(_effectiveFontSize);
+
         _backgroundShape?.SetFill(style.Background.R8, style.Background.G8, style.Background.B8, style.Background.A8);
         _borderShape?.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
         _cursorShape?.SetFill(theme.CursorColor.R8, theme.CursorColor.G8, theme.CursorColor.B8, theme.CursorColor.A8);
@@ -1126,9 +1131,15 @@ public class TextArea : Element
         _selectionShape?.SetFill(selColor.R8, selColor.G8, selColor.B8, selColor.A8);
 
         foreach (var t in _lineTexts)
+        {
+            t?.SetFont(style.FontName);
+            t?.SetFontSize(_effectiveFontSize);
             t?.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
+        }
 
         _placeholderPaint?.SetFill(theme.DisabledTextColor.R8, theme.DisabledTextColor.G8, theme.DisabledTextColor.B8);
+
+        UpdateContent();
 
         MarkDirty();
     }

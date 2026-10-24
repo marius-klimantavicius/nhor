@@ -79,13 +79,18 @@ public class SvgImage : Element
         }
 
         _intrinsicW = _intrinsicH = 0;
+        InvalidateMeasure();
+        MarkDirty();
 
         if (string.IsNullOrEmpty(_svg)) return;
 
         var picture = Picture.Gen();
         var bytes = Encoding.UTF8.GetBytes(_svg);
         if (picture.Load(bytes, (uint)bytes.Length, "svg", null, true) != Result.Success)
+        {
+            picture.Unref();
             return;
+        }
 
         picture.GetSize(out _intrinsicW, out _intrinsicH);
         _picture = picture;

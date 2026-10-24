@@ -104,8 +104,8 @@ Target: `winter/Marius.Winter.Blazor/`
 | `IWinterContainerElementHandler.cs` | `AddChild(Element, int)`, `RemoveChild(Element)`, `GetChildIndex(Element)` |
 | `WinterElementManager.cs` | Maps Core's `AddChildElement`/`RemoveChildElement` → `Element.AddChild/InsertChild/RemoveChild`. Handles `INonPhysicalChild`. |
 | `WinterRenderer.cs` | Extends `NativeComponentRenderer`. Creates `WinterElementManager`. `AddComponent<T>(Element parent)` entry point. |
-| `WinterDispatcher.cs` | `Dispatcher` subclass that queues work items for GLFW thread. Uses `ConcurrentQueue<Action>` drained each frame via `Window.ProcessDispatcherQueue()`. |
-| `WinterBlazorHost.cs` | Holds renderer + root handler. Returned by `Window.UseBlazor()`. Exposes `AddComponent<T>()`. |
+| `WinterDispatcher.cs` | Blazor `Dispatcher` backed by the Window dispatcher and its UI synchronization context. |
+| `WinterBlazorHost.cs` | Owns renderer and services; exposes `AddComponent<T>()` and `DisposeAsync()`, and tears down automatically on Window close. |
 | `WindowExtensions.cs` | `UseBlazor(this Window, Action<IServiceCollection>?)` extension. Creates renderer, root panel, returns host. |
 | `WinterElementHandler.cs` | Base handler: `EventManager`, `ConfigureEvent()`, base `ApplyAttribute` for `Visible`, `Enabled`, `Opacity`, `Tooltip`. |
 | `EventManager.cs` | Copied from MBB `Elements/Handlers/EventManager.cs`, namespace-adapted. |
@@ -158,7 +158,7 @@ Each component registers its handler in a static constructor via `ElementHandler
 | File | Change |
 |------|--------|
 | `Core/Element.cs` | Add `InsertChild(Element child, int index)` — needed for Blazor sibling ordering. Same as `AddChild` but uses `_children.Insert(index, child)`. |
-| `Core/Window.cs` | Add `ProcessDispatcherQueue()` — drains `ConcurrentQueue<Action>` each frame in `Run()` loop. Add `internal ConcurrentQueue<Action> DispatcherQueue`. |
+| `Core/Window.cs` | Owns the bounded dispatcher pump, native wait/wake, dirty layout flush and shutdown. |
 
 ### Phase 5: Sample Playground
 
@@ -174,18 +174,23 @@ App.razor                                (root component with panels, buttons, e
 
 ### Dispatcher (GLFW Thread Safety)
 
-Winter/GLFW is single-threaded. All UI mutations must happen on the main thread.
-`WinterDispatcher` maintains a `ConcurrentQueue<Action>`. Background threads enqueue
-work via `InvokeAsync()`. `Window.Run()` drains the queue each frame before polling events.
-For synchronous initialization (common case), `Dispatcher.CreateDefault()` works fine as
-a fallback.
+Window construction, Run and disposal use one owning UI thread. The real
+`WinterDispatcher` delegates to `Window.Dispatcher`, which installs a scoped UI
+synchronization context and wakes GLFW for queued continuations. Await returned
+tasks to observe errors; ordinary async lifecycle and event continuations stay
+on that thread. The default Blazor dispatcher is not a native Window substitute.
+On close, application tasks are canceled and late UI continuations dropped;
+async component/service disposal is pumped before native teardown. See
+[runtime contracts](GUI.md#runtime-contracts) for cancellation and ownership rules.
 
 ### Layout Triggering
 
-Winter requires explicit `Measure()` + `Arrange()`. After Blazor applies a render batch
-(adding/removing children), `WinterRenderer.UpdateDisplayAsync` calls `InvalidateMeasure()`
-on the root. The Window's run-loop already calls `Measure` + `Arrange` on dirty elements
-each frame, so no extra mechanism is needed — just `InvalidateMeasure()` + `MarkDirty()`.
+Window owns one pre-render dirty layout flush for native and Blazor trees.
+Blazor roots attached directly to Window opt into filling its logical client
+area; explicit Bounds/Arrange returns a root to manual sizing. Element mutations
+invalidate measurement and schedule the next flush. Renderer batches and
+UseBlazor resize hooks do not perform competing whole-window layouts. Custom
+Panel layouts use their `ILayout` implementation when no built-in bridge exists.
 
 ### Event Mapping
 
