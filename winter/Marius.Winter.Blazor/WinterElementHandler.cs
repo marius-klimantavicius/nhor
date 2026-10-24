@@ -172,6 +172,15 @@ public class WinterElementHandler : IWinterElementHandler, IHandleAttributeBatch
             _pendingVersion = -1;
             _value = null;
         }
+
+        /// <summary>Delivers the current scalar before a discrete commit can rerender its parent.</summary>
+        public void Flush()
+        {
+            if (_pendingVersion != _version || HandlerId == 0 || _handler.IsDisposed) return;
+            var value = _value;
+            CancelPending();
+            _handler.Renderer.DispatchNativeEventAsync(HandlerId, null, new ChangeEventArgs { Value = value });
+        }
     }
 
     public virtual bool IsParented() => _parent != null;
