@@ -884,13 +884,18 @@ public unsafe class Window : Element
                         // Outside a child popup dismisses the transient first.
                         Element root = overlayHit; while (root.Parent != null) root = root.Parent;
                         if (ReferenceEquals(root, _modal.ModalRoot)) DismissAllOverlays();
-                        if (button == 1) { SetFocus(overlayHit); ShowContextMenu(overlayHit, _mouseX, _mouseY); _dirty = true; return; }
+                        if (button == 1)
+                        {
+                            if (ReferenceEquals(overlayHit, _modal?.ModalRoot)) EnsureModalFocus();
+                            else { SetFocus(overlayHit); ShowContextMenu(overlayHit, _mouseX, _mouseY); }
+                            _dirty = true; return;
+                        }
                         var handler = BubbleMouseDown(overlayHit, button, _mouseX, _mouseY);
                         var capture = handler ?? overlayHit;
                         _capturedElement = CanReceiveInput(capture) ? capture : null;
                         // Popup rows keep focus at their owning chooser.
                         if (!(_overlayInputOwners.TryGetValue(root, out var popupOwner) && popupOwner is ComboBox))
-                        { if (capture.Focusable) SetFocus(capture); else EnsureModalFocus(); }
+                        { if (capture.Focusable && !ReferenceEquals(capture, _modal?.ModalRoot)) SetFocus(capture); else EnsureModalFocus(); }
                     }
                     else
                     {
