@@ -2,7 +2,7 @@
 @using System.Threading
 @implements IAsyncDisposable
 @* Configuration is validated without touching the filesystem. *@
-@if (_page == Page.Configure && !_browsing)
+@if (_page == Page.Configure)
 {
     <ScrollPanel HorizontalScroll="ScrollMode.Never" Padding="@(new Thickness(12))">
         <FlexLayout Direction="Orientation.Vertical" Gap="10" />
@@ -10,10 +10,9 @@
         <Label Text="Configuration simulation only. No files are installed." TextWrapping="ThorVG.TextWrap.Word" />
         <WinterForm @ref="_form" Model="_configuration" OnValidSubmit="StartInstall" OnInvalidSubmit="Invalid" OnReset="ResetConfiguration">
             <TextField Label="Application name" @bind-Value="_configuration.Name" HelpText="Name shown in the launcher." />
-            <TextField Label="Destination" @bind-Value="_configuration.Destination" ReadOnly="_readOnly" HelpText="Use an absolute destination beginning with /. Browse previews the existing sample folders." />
+            <PathPicker Label="Destination" @bind-Value="_configuration.DestinationPath" ReadOnly="_readOnly" Provider="_fileProvider" InitialDirectory="@_browseDirectory" Mode="FilePickerMode.SelectFolder" HelpText="Choose an existing local folder or edit the absolute destination. The installation remains simulated." />
             <Panel>
                 <FlexLayout Wrap="FlexWrap.Wrap" Gap="10" />
-                <Button Text="Browse..." OnClick="OpenBrowser" />
                 <Checkbox Text="Read-only destination" @bind-IsChecked="_readOnly" />
             </Panel>
             <SelectField TItem="EnvironmentOption" TValue="string" Label="Environment" Items="_environments"
@@ -31,63 +30,6 @@
     </ScrollPanel>
 }
 
-@* ── Folder Browser ── *@
-@if (_page == Page.Configure && _browsing)
-{
-    <Panel>
-        <FlexLayout Direction="Orientation.Vertical" Gap="8" />
-
-        <Label Text="Select Installation Directory" FontSize="18" />
-        <Separator />
-
-        <Label Text="@($"Selected: {_browseSelected ?? "(none)"}")" />
-
-        <TreeView OnSelectionChanged="@(path => _browseSelected = path)"
-                  LayoutData="@(new FlexItem { Grow = 1 })">
-            <TreeViewNode Text="/" Icon="@_driveIcon" Tag="/">
-                <TreeViewNode Text="etc" Icon="@_folderIcon" Tag="/etc">
-                    <TreeViewNode Text="myapp" Icon="@_folderIcon" Tag="/etc/myapp" />
-                </TreeViewNode>
-                <TreeViewNode Text="home" Icon="@_folderIcon" Tag="/home">
-                    <TreeViewNode Text="user" Icon="@_folderIcon" Tag="/home/user">
-                        <TreeViewNode Text="Apps" Icon="@_folderIcon" Tag="/home/user/Apps" />
-                        <TreeViewNode Text="Documents" Icon="@_folderIcon" Tag="/home/user/Documents" />
-                        <TreeViewNode Text="Downloads" Icon="@_folderIcon" Tag="/home/user/Downloads" />
-                        <TreeViewNode Text="Projects" Icon="@_folderIcon" Tag="/home/user/Projects">
-                            <TreeViewNode Text="myapp" Icon="@_folderIcon" Tag="/home/user/Projects/myapp" />
-                        </TreeViewNode>
-                    </TreeViewNode>
-                </TreeViewNode>
-                <TreeViewNode Text="opt" Icon="@_folderIcon" Tag="/opt">
-                    <TreeViewNode Text="myapp" Icon="@_folderOpenIcon" Tag="/opt/myapp" />
-                    <TreeViewNode Text="tools" Icon="@_folderIcon" Tag="/opt/tools" />
-                </TreeViewNode>
-                <TreeViewNode Text="tmp" Icon="@_folderIcon" Tag="/tmp" />
-                <TreeViewNode Text="usr" Icon="@_folderIcon" Tag="/usr">
-                    <TreeViewNode Text="local" Icon="@_folderIcon" Tag="/usr/local">
-                        <TreeViewNode Text="bin" Icon="@_folderIcon" Tag="/usr/local/bin" />
-                        <TreeViewNode Text="lib" Icon="@_folderIcon" Tag="/usr/local/lib" />
-                        <TreeViewNode Text="share" Icon="@_folderIcon" Tag="/usr/local/share" />
-                    </TreeViewNode>
-                    <TreeViewNode Text="share" Icon="@_folderIcon" Tag="/usr/share" />
-                </TreeViewNode>
-                <TreeViewNode Text="var" Icon="@_folderIcon" Tag="/var">
-                    <TreeViewNode Text="lib" Icon="@_folderIcon" Tag="/var/lib" />
-                    <TreeViewNode Text="log" Icon="@_folderIcon" Tag="/var/log" />
-                    <TreeViewNode Text="opt" Icon="@_folderIcon" Tag="/var/opt" />
-                </TreeViewNode>
-            </TreeViewNode>
-        </TreeView>
-
-        <Separator />
-        <Panel>
-            <FlexLayout JustifyContent="JustifyContent.End" Gap="8" />
-            <Button Text="Cancel" OnClick="BrowseCancel" />
-            <Button Text="Select" OnClick="BrowseSelect" />
-        </Panel>
-    </Panel>
-}
-
 @* ── Page 2: Progress ── *@
 @if (_page == Page.Progress)
 {
@@ -98,9 +40,9 @@
         <Separator />
 
         <Label Text="@($"Progress: {(_progress * 100):F0}%")" />
-        <ProgressBar Value="@_progress" />
+        <StatusPanel Status="_operation" Cancel="CancelSimulation" />
 
-        <LogView Text="@_log" LayoutData="@(new FlexItem { Grow = 1 })" />
+        <LogView Buffer="_logs" LayoutData="@(new FlexItem { Grow = 1 })" />
     </Panel>
 }
 
@@ -137,22 +79,18 @@
 @code {
     enum Page { Configure, Progress, Complete }
 
-    // ── Folder icons ──
-
-    const string _driveIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
-  <rect x=""2"" y=""3"" width=""12"" height=""10"" rx=""1.5"" fill=""#78909C"" stroke=""#546E7A"" stroke-width=""0.5""/>
-  <rect x=""4"" y=""10"" width=""2"" height=""1.5"" rx=""0.5"" fill=""#B0BEC5""/>
-  <rect x=""7"" y=""10"" width=""5"" height=""1.5"" rx=""0.5"" fill=""#B0BEC5""/>
-</svg>";
-
-    const string _folderIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
-  <path d=""M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V5.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/>
-</svg>";
-
-    const string _folderOpenIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16"">
-  <path d=""M1.5 2A1.5 1.5 0 000 3.5V6h16v-.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/>
-  <path d=""M0 6l2 8h12l2-8z"" fill=""#FBC02D""/>
-</svg>";
+    [Microsoft.AspNetCore.Components.Parameter] public string? WorkspaceDirectory { get; set; }
+    [Microsoft.AspNetCore.Components.Parameter] public IFilePickerProvider? FileProvider { get; set; }
+    IFilePickerProvider _fileProvider = null!;
+    string _browseDirectory = "";
+    readonly LogBuffer _logs = new(120, 20000);
+    OperationStatus _operation = new("Ready for a simulated installation.");
+    protected override void OnInitialized()
+    {
+        _fileProvider = FileProvider ?? new LocalFilePickerProvider(WorkspaceDirectory);
+        _browseDirectory = WorkspaceDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (WorkspaceDirectory != null) _configuration.Destination = WorkspaceDirectory;
+    }
 
     // ── State ──
     Page _page = Page.Configure;
@@ -169,29 +107,6 @@
     long _generation;
 
     float _progress;
-    string _log = "";
-
-    // ── Folder browser ──
-    bool _browsing;
-    string? _browseSelected;
-
-    void OpenBrowser()
-    {
-        _browseSelected = _configuration.Destination;
-        _browsing = true;
-    }
-
-    void BrowseSelect()
-    {
-        if (_browseSelected != null)
-            _configuration.Destination = _browseSelected;
-        _browsing = false;
-    }
-
-    void BrowseCancel()
-    {
-        _browsing = false;
-    }
 
     // ── Simulated install steps ──
     static readonly (string message, int durationMs)[] _steps =
@@ -224,11 +139,11 @@
     void Invalid(EditContext _) => _configurationResult = "Correct the highlighted configuration before starting the simulation.";
     void ResetConfiguration(EditContext _)
     {
-        _configuration.Name = "MyApp"; _configuration.Destination = "/opt/myapp";
+        _configuration.Name = "MyApp"; _configuration.Destination = WorkspaceDirectory ?? "/opt/myapp";
         _configuration.Environment = "production"; _configuration.Shortcut = true; _configuration.LaunchAtStartup = false;
         _readOnly = false; _configurationResult = "Configuration reset.";
     }
-    void NewConfiguration() { _configuration = new(); _readOnly = false; _configurationResult = "New configuration ready."; }
+    void NewConfiguration() { _configuration = new() { Destination = WorkspaceDirectory ?? "/opt/myapp" }; _readOnly = false; _configurationResult = "New configuration ready."; }
     Task StartInstall(EditContext context)
     {
         if (_disposed || _page != Page.Configure || !ReferenceEquals(context.Model, _configuration)) return Task.CompletedTask;
@@ -239,7 +154,7 @@
     }
     async Task SimulateAsync(long generation, CancellationToken token)
     {
-        _page = Page.Progress; _progress = 0; _log = "Simulation only: no filesystem changes.\n";
+        _page = Page.Progress; _progress = 0; _logs.Clear(); _logs.AppendLine("Simulation only: no filesystem changes."); _operation = new("Simulating installation…", OperationState.Working, Progress: 0);
         try
         {
             for (int i = 0; i < _steps.Length; i++)
@@ -249,7 +164,7 @@
                 await InvokeAsync(() =>
                 {
                     if (_disposed || token.IsCancellationRequested || generation != _generation) return;
-                    _log += message + "\n"; _progress = (float)(i + 1) / _steps.Length;
+                    _logs.AppendLine(message); _progress = (float)(i + 1) / _steps.Length; _operation = new(message, OperationState.Working, Progress: _progress);
                     StateHasChanged();
                 });
                 await Task.Delay(duration, token).ConfigureAwait(false);
@@ -259,7 +174,20 @@
                 if (!_disposed && generation == _generation && !token.IsCancellationRequested) { _page = Page.Complete; StateHasChanged(); }
             });
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (_disposed || generation != _generation) return;
+            try { await InvokeAsync(() =>
+            {
+                if (!_disposed && generation == _generation) { _page = Page.Configure; _configurationResult = "Simulation canceled. Configuration retained; no files changed."; _logs.AppendLine(_configurationResult); StateHasChanged(); }
+            }); }
+            catch (OperationCanceledException) when (_disposed) { }
+        }
+    }
+    async Task CancelSimulation()
+    {
+        _installationCancellation?.Cancel();
+        await _installationTask;
     }
     public async ValueTask DisposeAsync()
     {

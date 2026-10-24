@@ -1,507 +1,182 @@
-@* ── Main layout ── *@
+@using Microsoft.AspNetCore.Components
+@implements IAsyncDisposable
+
 <Panel>
-    <GridLayout Columns="@(new[] { TrackSize.Px(220), TrackSize.Fr(1) })"
-                Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1), TrackSize.Auto() })" />
-
-    @* ── Row 0: Path bar (spans both columns) ── *@
-    <Panel LayoutData="@(new GridItem { Column = 0, Row = 0, ColumnSpan = 2 })">
-        <FlexLayout Gap="6" AlignItems="Alignment.Center" />
-        <Label Text="File:" MinWidth="30" />
-        <TextBox Text="@_selectedPath" Placeholder="Select an SVG or Lottie file..."
-                 OnTextChanged="OnPathTyped"
-                 LayoutData="@(new FlexItem { Grow = 1 })" />
-        <Button Text="Open..." OnClick="@OpenFileDialog" />
+    <GridLayout Columns="@(new[] { TrackSize.Px(220), TrackSize.Fr(1) })" Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1), TrackSize.Auto() })" />
+    <PathPicker Label="Source file" Value="_selectedPath" ValueChanged="PathEdited" Provider="_provider"
+                Mode="FilePickerMode.OpenFile" InitialDirectory="@_directory" Filters="_sourceFilters" Selected="SourcePicked"
+                TextCommitted="SourceCommitted" HelpText="Browse for a source, or type a path and press Enter."
+                LayoutData="@(new GridItem { Column = 0, Row = 0, ColumnSpan = 2 })" />
+    <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
+        <FlexLayout Direction="Orientation.Vertical" Gap="6" />
+        <Label Text="Source browser" />
+        <Button Text="Refresh browser" OnClick="RefreshBrowser" />
+        <DataTree TItem="FilePickerEntry" Items="_roots" KeySelector="@(i => i.Path.Value)" TextSelector="@(i => i.Name)"
+                  MayHaveChildren="@(i => i.IsDirectory)" LoadChildren="ListChildren"
+                  @bind-SelectedKey="_sidebarSelected" @bind-ExpandedKeys="_expanded" OnActivate="SidebarActivate"
+                  ResetVersion="_browserVersion" LayoutData="@(new FlexItem { Grow = 1, Shrink = 1, Basis = 0 })" />
     </Panel>
-
-    @* ── Row 1, Col 0: File browser sidebar ── *@
-    <TreeView OnSelectionChanged="OnTreeSelection"
-              OnNodeExpanded="@OnSidebarExpanded"
-              OnNativeTreeView="@InitSidebarTree"
-              LayoutData="@(new GridItem { Column = 0, Row = 1 })" />
-
-    @* ── Row 1, Col 1: Preview + actions ── *@
     <Panel LayoutData="@(new GridItem { Column = 1, Row = 1 })">
         <FlexLayout Direction="Orientation.Vertical" Gap="8" />
-
-        @* Two preview panels side by side *@
-        <Panel LayoutData="@(new FlexItem { Grow = 1 })">
-            <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(1) })"
-                        Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1) })"
-                        ColumnGap="8" />
-
-            <Label Text="Source" FontSize="13"
-                   LayoutData="@(new GridItem { Column = 0, Row = 0 })" />
-            <Label Text="Converted" FontSize="13"
-                   LayoutData="@(new GridItem { Column = 1, Row = 0 })" />
-
-            @* Source preview *@
+        <Panel LayoutData="@(new FlexItem { Grow = 1, Shrink = 1, Basis = 0 })">
+            <GridLayout Columns="@(new[] { TrackSize.Fr(1), TrackSize.Fr(1) })" Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1) })" ColumnGap="8" />
+            <Label Text="Source" LayoutData="@(new GridItem { Column = 0, Row = 0 })" />
+            <Label Text="Converted" LayoutData="@(new GridItem { Column = 1, Row = 0 })" />
             <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
-                @if (_sourceSvg != null)
-                {
-                    <SvgImage Svg="@_sourceSvg" />
-                }
-                else if (_lottiePath != null)
-                {
-                    <LottieImage Path="@_lottiePath" />
-                }
-                else
-                {
-                    <Label Text="No file loaded" />
-                }
+                @if (_sourceSvg != null) { <SvgImage Svg="@_sourceSvg" /> }
+                else if (_lottiePath != null) { <LottieImage Path="@_lottiePath" /> }
+                else { <Label Text="No file loaded" /> }
             </Panel>
-
-            @* Converted preview *@
             <Panel LayoutData="@(new GridItem { Column = 1, Row = 1 })">
-                @if (_convertedSaveData != null && _fileKind == FileKind.Svg)
-                {
-                    <Image Source="@_convertedSaveData" MimeType="png" />
-                }
-                else if (_convertedSaveData != null && _fileKind == FileKind.Lottie)
-                {
-                    <GifImage Source="@_convertedSaveData" />
-                }
-                else
-                {
-                    <Label Text="Not yet converted" />
-                }
+                @if (_convertedSaveData != null && _fileKind == FileKind.Svg) { <Image Source="_convertedSaveData" MimeType="png" /> }
+                else if (_convertedSaveData != null && _fileKind == FileKind.Lottie) { <GifImage Source="_convertedSaveData" /> }
+                else { <Label Text="Not yet converted" /> }
             </Panel>
         </Panel>
-
-        @* Action buttons *@
-        <Panel MinHeight="36">
-            <FlexLayout Gap="8" JustifyContent="JustifyContent.Start" AlignItems="Alignment.Center" />
+        <Panel>
+            <FlexLayout Wrap="FlexWrap.Wrap" Gap="8" />
+            <Button Text="Reload source" OnClick="ReloadSource" Enabled="@(!_converting && _selectedPath != null)" />
             <Button Text="Convert" OnClick="DoConvert" Enabled="@(_fileKind != FileKind.Unknown && !_converting)" />
-            <Button Text="Save As..." OnClick="OpenSaveDialog" Enabled="@(_convertedSaveData != null)" />
+            <Button Text="Save As…" OnClick="OpenSave" Enabled="@(_convertedSaveData != null && !_converting)" />
         </Panel>
     </Panel>
-
-    @* ── Row 2: Status bar (spans both columns) ── *@
-    <Label Text="@_status"
-           LayoutData="@(new GridItem { Column = 0, Row = 2, ColumnSpan = 2 })"
-           MinHeight="22" FontSize="12" />
+    <Panel LayoutData="@(new GridItem { Column = 0, Row = 2, ColumnSpan = 2 })">
+        <FlexLayout Direction="Orientation.Vertical" Gap="4" />
+        <StatusPanel Status="_status" Retry="Retry" ShowProgress="false" />
+        <LogView Buffer="_logs" MinHeight="60" MaxHeight="80" />
+    </Panel>
+    <FilePicker @bind-IsOpen="_saveOpen" Mode="FilePickerMode.SaveFile" InitialDirectory="@_directory" FileName="@_saveName"
+                Provider="_provider" Filters="_outputFilters" Selected="SaveSelected" Canceled="SaveCanceled" ResetVersion="_saveVersion" />
 </Panel>
 
-@* ── Open file dialog ── *@
-@if (_showOpenDialog)
-{
-    <DialogWindow Title="Open File" Width="550" Height="450"
-                  OnClose="@(() => _showOpenDialog = false)"
-                  Layout="@(new Marius.Winter.GridLayout { Columns = new[] { TrackSize.Fr(1) }, Rows = new[] { TrackSize.Fr(1), TrackSize.Px(36) } })">
-        <TreeView LayoutData="@(new GridItem { Column = 0, Row = 0 })"
-                  OnSelectionChanged="OnOpenTreeSelection"
-                  OnNodeExpanded="@OnOpenExpanded"
-                  OnNodeDoubleClicked="@OnOpenDoubleClicked"
-                  OnNativeTreeView="@InitOpenTree" />
-        <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
-            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
-            <Button Text="Cancel" OnClick="@(() => _showOpenDialog = false)" />
-            <Button Text="Open" OnClick="DoOpen" Enabled="@(_openSelectedFile != null)" />
-        </Panel>
-    </DialogWindow>
-}
-
-@* ── Save dialog ── *@
-@if (_showSaveDialog)
-{
-    <DialogWindow Title="Save As" Width="550" Height="450"
-                  OnClose="@(() => _showSaveDialog = false)"
-                  Layout="@(new Marius.Winter.GridLayout { Columns = new[] { TrackSize.Fr(1) }, Rows = new[] { TrackSize.Fr(1), TrackSize.Px(32), TrackSize.Px(36) } })">
-        <TreeView LayoutData="@(new GridItem { Column = 0, Row = 0 })"
-                  OnSelectionChanged="OnSaveTreeSelection"
-                  OnNodeExpanded="@OnSaveExpanded"
-                  OnNativeTreeView="@InitSaveTree" />
-        <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
-            <FlexLayout Gap="6" AlignItems="Alignment.Center" />
-            <Label Text="Name:" MinWidth="42" />
-            <TextBox Text="@_saveFileName" Placeholder="output.png"
-                     OnTextChanged="@(v => _saveFileName = v)"
-                     LayoutData="@(new FlexItem { Grow = 1 })" />
-        </Panel>
-        <Panel LayoutData="@(new GridItem { Column = 0, Row = 2 })">
-            <FlexLayout Gap="8" JustifyContent="JustifyContent.End" AlignItems="Alignment.Center" />
-            <Button Text="New Folder" OnClick="CreateNewFolder" />
-            <Button Text="Cancel" OnClick="@(() => _showSaveDialog = false)" />
-            <Button Text="Save" OnClick="DoSave" />
-        </Panel>
-    </DialogWindow>
-}
-
 @code {
-    // ── Icons ──
-    const string FolderIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16""><path d=""M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V5.5A1.5 1.5 0 0014.5 4H8L6.5 2z"" fill=""#E8A838""/></svg>";
-    const string FileIcon = @"<svg xmlns=""http://www.w3.org/2000/svg"" viewBox=""0 0 16 16"" width=""16"" height=""16""><path d=""M2 1.5A1.5 1.5 0 013.5 0h5.672a.5.5 0 01.354.146l4.328 4.329a.5.5 0 01.146.354V14.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 14.5z"" fill=""#90CAF9""/></svg>";
+    [Parameter] public Window? OwnerWindow { get; set; }
+    [Parameter] public string? WorkspaceDirectory { get; set; }
+    [Parameter] public string? SettingsDirectory { get; set; }
+    [Parameter] public IFilePickerProvider? FileProvider { get; set; }
+    readonly FilePickerFilter[] _sourceFilters = [new("SVG and Lottie", ".svg", ".json", ".lottie", ".lot"), new("SVG", ".svg"), new("Lottie", ".json", ".lottie", ".lot")];
+    FilePickerFilter[] _outputFilters = [];
+    IFilePickerProvider _provider = null!;
+    IReadOnlyList<FilePickerEntry> _roots = [];
+    IReadOnlySet<string> _expanded = new HashSet<string>();
+    string? _sidebarSelected;
+    string _directory = "", _saveName = "";
+    PickerPath? _selectedPath;
+    FileKind _fileKind;
+    string? _sourceSvg, _lottiePath;
+    byte[]? _convertedSaveData;
+    bool _converting, _saveOpen, _disposed;
+    readonly System.Threading.CancellationTokenSource _lifetime = new();
+    Task _conversionTask = Task.CompletedTask;
+    long _browserVersion, _saveVersion, _generation;
+    enum ActionKind { Load, Convert, Save }
+    ActionKind _lastAction;
+    OperationStatus _status = new("Choose an SVG or Lottie source, convert it, then save the output.");
+    readonly LogBuffer _logs = new(100, 20000);
+    string SettingsPath => System.IO.Path.Combine(SettingsDirectory ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Marius.Winter.Blazor.Converter"), "sidebar.txt");
 
-    // ── Settings persistence ──
-    static readonly string SettingsDir = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Marius.Winter.Blazor.Converter");
-    static readonly string SettingsFile = System.IO.Path.Combine(SettingsDir, "sidebar.txt");
-
-    static string? LoadLastFolder()
+    protected override void OnInitialized()
     {
-        try { return File.Exists(SettingsFile) ? File.ReadAllText(SettingsFile).Trim() : null; }
-        catch { return null; }
+        _provider = FileProvider ?? new LocalFilePickerProvider(WorkspaceDirectory);
+        _directory = WorkspaceDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        try { if (WorkspaceDirectory == null && File.Exists(SettingsPath)) _directory = _provider.Normalize(File.ReadAllText(SettingsPath).Trim()).Value; }
+        catch (Exception error) { Failed("Could not restore browser location: " + error.Message); }
+        SetBrowser();
     }
-
-    static void SaveLastFolder(string path)
+    void SetBrowser()
     {
-        try { Directory.CreateDirectory(SettingsDir); File.WriteAllText(SettingsFile, path); }
-        catch { }
+        _roots = [new(new(_directory), _directory, true)]; _expanded = new HashSet<string> { _directory }; _browserVersion++;
     }
-
-    // ── State ──
-    string _selectedPath = "";
-    FileKind _fileKind = FileKind.Unknown;
-    string? _sourceSvg;
-    string? _lottiePath;
-    byte[]? _convertedSaveData; // output bytes (PNG or GIF) for preview + saving
-    string _status = "Ready";
-    bool _converting;
-
-    // ── Native tree references ──
-    Marius.Winter.TreeView? _sidebarTree;
-    Marius.Winter.TreeView? _openTree;
-    Marius.Winter.TreeView? _saveTree;
-
-    // ── Open dialog ──
-    bool _showOpenDialog;
-    string? _openSelectedFile;
-
-    // ── Save dialog ──
-    bool _showSaveDialog;
-    string _saveFileName = "";
-    string? _saveSelectedDir;
-
-    static readonly string[] SupportedExts = { ".svg", ".json", ".lottie", ".lot" };
-
-    // ── Imperative tree population ──
-
-    void PopulateChildren(Marius.Winter.TreeView tv, Marius.Winter.TreeNode? parent, string dirPath, bool withFiles)
+    Task<IReadOnlyList<FilePickerEntry>> ListChildren(FilePickerEntry directory, System.Threading.CancellationToken token) => ListSupported(directory.Path, token);
+    async Task<IReadOnlyList<FilePickerEntry>> ListSupported(PickerPath directory, System.Threading.CancellationToken token)
     {
-        tv.BeginUpdate();
+        var items = await _provider.ListAsync(directory, token).ConfigureAwait(false);
+        return items.Where(i => i.IsDirectory || _sourceFilters[0].Accepts(i.Name)).OrderByDescending(i => i.IsDirectory).ThenBy(i => i.Name).ToArray();
+    }
+    void RefreshBrowser() => SetBrowser();
+    void PathEdited(PickerPath? path) { _selectedPath = path; }
+    void SourceCommitted(TextCommitEventArgs args) { if (args.Reason == TextCommitReason.Enter) ReloadSource(); }
+    void SourcePicked(FilePickerResult result) { if (result.Path is { } path) LoadFile(path); }
+    void SidebarActivate(FilePickerEntry item) { if (!item.IsDirectory) { _selectedPath = item.Path; LoadFile(item.Path); } }
+    void ReloadSource() { if (_selectedPath is { } path) LoadFile(path); }
+    void LoadFile(PickerPath path)
+    {
+        if (_converting || _disposed) return;
+        _generation++; _saveOpen = false; _saveVersion++; _lastAction = ActionKind.Load;
+        _convertedSaveData = null; _sourceSvg = _lottiePath = null; _fileKind = FileKind.Unknown;
         try
         {
-            foreach (var d in Directory.GetDirectories(dirPath).OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase))
-            {
-                var name = System.IO.Path.GetFileName(d);
-                if (name.StartsWith('.')) continue;
-                var node = tv.AddNode(name, parent, FolderIcon);
-                node.Tag = "dir:" + d;
-                node.MayHaveChildren = true;
-            }
-            if (withFiles)
-            {
-                foreach (var f in Directory.GetFiles(dirPath).OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase))
-                {
-                    var ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
-                    if (!SupportedExts.Contains(ext)) continue;
-                    var node = tv.AddNode(System.IO.Path.GetFileName(f), parent, FileIcon);
-                    node.Tag = "file:" + f;
-                }
-            }
+            var normalized = _provider.Normalize(path.Value); _selectedPath = normalized;
+            var kind = ConverterService.Detect(normalized.Value);
+            if (kind == FileKind.Unknown) throw new IOException("Choose an SVG or Lottie source file.");
+            var contents = File.ReadAllText(normalized.Value);
+            if (kind == FileKind.Svg) _sourceSvg = contents; else _lottiePath = normalized.Value;
+            _fileKind = kind; _directory = _provider.Parent(normalized)?.Value ?? _directory; SetBrowser();
+            SetStatus("Loaded " + System.IO.Path.GetFileName(normalized.Value), OperationState.Completed);
+            try { Directory.CreateDirectory(System.IO.Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, _directory); }
+            catch (Exception error) { Failed("Source loaded; could not save browser location: " + error.Message); }
         }
-        catch { /* permission errors */ }
-
-        // Clear arrow before EndUpdate triggers rebuild if no children were added
-        if (parent != null && parent.Children.Count == 0)
-            parent.MayHaveChildren = false;
-
-        tv.EndUpdate();
+        catch (Exception error) { Failed("Read error: " + error.Message); }
     }
-
-    void HandleExpand(Marius.Winter.TreeView? tv, string? tag, bool withFiles)
+    Task DoConvert()
     {
-        if (tv == null || tag == null) return;
-        var dirTag = tag.StartsWith("dir:") ? tag.Substring(4) : tag;
-        // Find the node by tag
-        var node = FindNodeByTag(tv, tag.StartsWith("dir:") ? tag : "dir:" + tag);
-        if (node == null || node.Children.Count > 0) return; // already populated
-        PopulateChildren(tv, node, dirTag, withFiles);
+        if (_converting || _selectedPath == null || _fileKind == FileKind.Unknown || _disposed) return Task.CompletedTask;
+        return _conversionTask = ConvertAsync();
     }
-
-    Marius.Winter.TreeNode? FindNodeByTag(Marius.Winter.TreeView tv, string tag)
+    async Task ConvertAsync()
     {
-        return FindNodeByTagRecursive(tv.Nodes, tag);
-    }
-
-    Marius.Winter.TreeNode? FindNodeByTagRecursive(List<Marius.Winter.TreeNode> nodes, string tag)
-    {
-        foreach (var n in nodes)
+        if (_selectedPath is not { } source) return;
+        var path = source.Value; var kind = _fileKind; var generation = ++_generation;
+        _lastAction = ActionKind.Convert; _converting = true; _convertedSaveData = null;
+        SetStatus("Converting synchronously. This conversion cannot be interrupted.", OperationState.Working);
+        void ConvertOnOwner()
         {
-            if (n.Tag as string == tag) return n;
-            var found = FindNodeByTagRecursive(n.Children, tag);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
-    // ── Sidebar ──
-
-    void InitSidebarTree(Marius.Winter.TreeView tv)
-    {
-        if (_sidebarTree != null) return; // already initialized
-        _sidebarTree = tv;
-        PopulateChildren(tv, null, "/", withFiles: true);
-
-        // Pre-expand to the last selected folder, falling back to ~/
-        var expandTo = LoadLastFolder();
-        if (expandTo == null || !Directory.Exists(expandTo))
-            expandTo = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(expandTo))
-        {
-            var segments = expandTo.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            Marius.Winter.TreeNode? current = null;
-            var pathSoFar = "";
-            foreach (var seg in segments)
+            if (_disposed || generation != _generation) return;
+            try
             {
-                pathSoFar += "/" + seg;
-                var node = FindNodeByTag(tv, "dir:" + pathSoFar);
-                if (node == null) break;
-                node.IsExpanded = true;
-                PopulateChildren(tv, node, pathSoFar, withFiles: true);
-                current = node;
+                _convertedSaveData = kind == FileKind.Svg ? ConverterService.ConvertSvgToPng(path) : ConverterService.ConvertLottieToGif(path);
+                _saveName = System.IO.Path.GetFileNameWithoutExtension(path) + (kind == FileKind.Svg ? ".png" : ".gif");
+                _outputFilters = [new(kind == FileKind.Svg ? "PNG" : "GIF", kind == FileKind.Svg ? ".png" : ".gif")];
+                SetStatus($"Converted to {(kind == FileKind.Svg ? "PNG" : "GIF")} ({_convertedSaveData.Length} bytes). Save As chooses the destination.", OperationState.Completed);
             }
-            if (current != null)
-                tv.SelectedNode = current;
+            catch (Exception error) { Failed("Conversion error: " + error.Message); }
         }
-    }
-
-    void OnSidebarExpanded(string? tag) => HandleExpand(_sidebarTree, tag, withFiles: true);
-
-    void OnTreeSelection(string? tag)
-    {
-        if (tag == null) return;
-        if (tag.StartsWith("dir:"))
-        {
-            SaveLastFolder(tag.Substring(4));
-            return;
-        }
-        if (!tag.StartsWith("file:")) return;
-        var filePath = tag.Substring(5);
-        var dir = System.IO.Path.GetDirectoryName(filePath);
-        if (dir != null) SaveLastFolder(dir);
-        _selectedPath = filePath;
-        LoadFile(filePath);
-    }
-
-    void OnPathTyped(string value)
-    {
-        _selectedPath = value;
-        if (File.Exists(value))
-            LoadFile(value);
-    }
-
-    void LoadFile(string path)
-    {
-        _convertedSaveData = null;
-        _convertedSaveData = null;
-        _sourceSvg = null;
-        _lottiePath = null;
-        _fileKind = ConverterService.Detect(path);
         try
         {
-            switch (_fileKind)
-            {
-                case FileKind.Svg:
-                    _sourceSvg = File.ReadAllText(path);
-                    _status = "Loaded SVG: " + System.IO.Path.GetFileName(path);
-                    break;
-                case FileKind.Lottie:
-                    _lottiePath = path;
-                    _status = "Loaded Lottie: " + System.IO.Path.GetFileName(path);
-                    break;
-                default:
-                    _status = "Unsupported file type";
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            _status = "Error loading: " + ex.Message;
-            _fileKind = FileKind.Unknown;
-        }
-    }
-
-    async void DoConvert()
-    {
-        if (string.IsNullOrEmpty(_selectedPath) || _converting) return;
-        _converting = true;
-        _convertedSaveData = null;
-        var path = _selectedPath;
-        var kind = _fileKind;
-        _status = "Converting...";
-        _saveFileName = System.IO.Path.GetFileNameWithoutExtension(path)
-                        + (kind == FileKind.Svg ? ".png" : ".gif");
-        await InvokeAsync(StateHasChanged);
-
-        try
-        {
-            byte[]? result = null;
-            Exception? error = null;
-            var thread = new System.Threading.Thread(() =>
-            {
-                try
-                {
-                    result = kind switch
-                    {
-                        FileKind.Svg => ConverterService.ConvertSvgToPng(path),
-                        FileKind.Lottie => ConverterService.ConvertLottieToGif(path),
-                        _ => null,
-                    };
-                }
-                catch (Exception ex) { error = ex; }
-            });
-            thread.IsBackground = true;
-            thread.Start();
-            while (thread.IsAlive)
-                await Task.Delay(50);
-            if (error != null) throw error;
-
-            _convertedSaveData = result;
-            if (result != null)
-                _status = (kind == FileKind.Svg ? "Converted to PNG (" : "Converted to GIF (")
-                           + (result.Length / 1024) + " KB)";
-            else
-                _status = "Conversion produced no output";
-        }
-        catch (Exception ex)
-        {
-            _status = "Conversion error: " + ex.Message;
-        }
-        finally
-        {
-            _converting = false;
             await InvokeAsync(StateHasChanged);
+            await Task.Delay(20, _lifetime.Token);
+            if (OwnerWindow != null) await OwnerWindow.Dispatcher.InvokeAsync(ConvertOnOwner); else ConvertOnOwner();
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested || OwnerWindow?.ShutdownToken.IsCancellationRequested == true) { }
+        finally { if (!_disposed && generation == _generation) { _converting = false; await InvokeAsync(StateHasChanged); } }
     }
-
-    // ── Open file dialog ──
-
-    string? _openCurrentDir;
-
-    void OpenFileDialog()
+    void OpenSave() { if (_convertedSaveData != null) { _saveVersion++; _saveOpen = true; } }
+    void SaveCanceled(FilePickerResult _) => _logs.AppendLine("Save canceled; converted output retained.");
+    void SaveSelected(FilePickerResult result)
     {
-        _openSelectedFile = null;
-        _showOpenDialog = true;
-    }
-
-    void InitOpenTree(Marius.Winter.TreeView tv)
-    {
-        if (_openTree == tv) return;
-        _openTree = tv;
-        var startDir = System.IO.Path.GetDirectoryName(_selectedPath);
-        if (string.IsNullOrEmpty(startDir))
-            startDir = LoadLastFolder();
-        if (string.IsNullOrEmpty(startDir) || !Directory.Exists(startDir))
-            startDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        PopulateOpenDir(tv, startDir!);
-    }
-
-    void PopulateOpenDir(Marius.Winter.TreeView tv, string dir)
-    {
-        _openCurrentDir = dir;
-        tv.BeginUpdate();
-        // Remove existing nodes
-        while (tv.Nodes.Count > 0)
-            tv.RemoveNode(tv.Nodes[tv.Nodes.Count - 1]);
-        // Add ".." if not at root
-        var parentDir = System.IO.Path.GetDirectoryName(dir);
-        if (parentDir != null)
-        {
-            var upNode = tv.AddNode("..", null, FolderIcon);
-            upNode.Tag = "up:" + parentDir;
-        }
-        tv.EndUpdate();
-        PopulateChildren(tv, null, dir, withFiles: true);
-    }
-
-    void OnOpenExpanded(string? tag) => HandleExpand(_openTree, tag, withFiles: true);
-
-    void OnOpenDoubleClicked(string? tag)
-    {
-        if (tag != null && tag.StartsWith("up:") && _openTree != null)
-            PopulateOpenDir(_openTree, tag.Substring(3));
-    }
-
-    void OnOpenTreeSelection(string? tag)
-    {
-        if (tag == null) return;
-        if (tag.StartsWith("file:"))
-            _openSelectedFile = tag.Substring(5);
-        else
-            _openSelectedFile = null;
-    }
-
-    void DoOpen()
-    {
-        if (_openSelectedFile == null) return;
-        _selectedPath = _openSelectedFile;
-        LoadFile(_openSelectedFile);
-        _showOpenDialog = false;
-    }
-
-    // ── Save dialog ──
-
-    void OpenSaveDialog()
-    {
-        _saveSelectedDir = null;
-        _showSaveDialog = true;
-    }
-
-    void InitSaveTree(Marius.Winter.TreeView tv)
-    {
-        if (_saveTree == tv) return;
-        _saveTree = tv;
-        var startDir = System.IO.Path.GetDirectoryName(_selectedPath);
-        if (string.IsNullOrEmpty(startDir))
-            startDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        _saveSelectedDir = startDir;
-        PopulateChildren(tv, null, startDir, withFiles: false);
-    }
-
-    void OnSaveExpanded(string? tag) => HandleExpand(_saveTree, tag, withFiles: false);
-
-    void OnSaveTreeSelection(string? tag)
-    {
-        if (tag == null) return;
-        var dirTag = tag.StartsWith("dir:") ? tag.Substring(4) : tag;
-        _saveSelectedDir = dirTag;
-    }
-
-    void CreateNewFolder()
-    {
-        if (string.IsNullOrEmpty(_saveSelectedDir) || _saveTree == null) return;
-        var newPath = System.IO.Path.Combine(_saveSelectedDir, "New Folder");
-        int i = 1;
-        while (Directory.Exists(newPath))
-            newPath = System.IO.Path.Combine(_saveSelectedDir, "New Folder (" + (i++) + ")");
+        if (_disposed || result.Path is not { } path || _convertedSaveData == null) return;
+        _lastAction = ActionKind.Save;
         try
         {
-            Directory.CreateDirectory(newPath);
-            // Find the parent node and add the new folder
-            var parentNode = FindNodeByTag(_saveTree, "dir:" + _saveSelectedDir);
-            if (parentNode != null)
-            {
-                var node = _saveTree.AddNode("New Folder", parentNode, FolderIcon);
-                node.Tag = "dir:" + newPath;
-            }
-            _saveSelectedDir = newPath;
-            _status = "Created folder: " + newPath;
+            using var output = new FileStream(path.Value, result.Overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write);
+            output.Write(_convertedSaveData);
+            SetStatus("Saved to " + path.Value, OperationState.Completed);
         }
-        catch (Exception ex) { _status = "Error creating folder: " + ex.Message; }
+        catch (Exception error) { Failed("Write error: " + error.Message + " Choose Save As to retry."); }
     }
-
-    void DoSave()
+    Task Retry()
     {
-        if (_convertedSaveData == null || string.IsNullOrEmpty(_saveFileName)) return;
-        var dir = _saveSelectedDir ?? System.IO.Path.GetDirectoryName(_selectedPath) ?? ".";
-        var outputPath = System.IO.Path.Combine(dir, _saveFileName);
-        try
-        {
-            File.WriteAllBytes(outputPath, _convertedSaveData);
-            _status = "Saved to " + outputPath;
-            _showSaveDialog = false;
-        }
-        catch (Exception ex) { _status = "Save error: " + ex.Message; }
+        if (_lastAction == ActionKind.Convert) return DoConvert();
+        if (_lastAction == ActionKind.Save) OpenSave(); else ReloadSource();
+        return Task.CompletedTask;
+    }
+    void Failed(string text) => SetStatus(text, OperationState.Failed);
+    void SetStatus(string text, OperationState state)
+    { _status = new(text, state, state == OperationState.Failed ? StatusSeverity.Error : state == OperationState.Completed ? StatusSeverity.Success : StatusSeverity.Information); _logs.AppendLine(text); }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return; _disposed = true; _generation++; _lifetime.Cancel();
+        try { await _conversionTask.ConfigureAwait(false); }
+        finally { _lifetime.Dispose(); }
     }
 }

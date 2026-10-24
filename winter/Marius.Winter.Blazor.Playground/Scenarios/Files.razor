@@ -1,0 +1,77 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Playground.Scenarios
+@implements IAsyncDisposable
+
+<ScrollPanel HorizontalScroll="ScrollMode.Never" Padding="@(new Thickness(12))">
+    <FlexLayout Direction="Orientation.Vertical" Gap="10" />
+    <Label Text="Files" FontSize="22" />
+    <Label Text="Prepare an export: open cover.svg, save an existing name to confirm overwrite, or choose a folder. This deterministic fixture never writes file contents." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions">
+        <Button Text="Open file" OnClick="@(() => Open(FilePickerMode.OpenFile))" />
+        <Button Text="Save file" OnClick="@(() => Open(FilePickerMode.SaveFile))" />
+        <Button Text="Choose folder" OnClick="@(() => Open(FilePickerMode.SelectFolder))" />
+        <Button Text="Retryable listing" OnClick="@(() => { _provider.FailNext = true; Open(FilePickerMode.OpenFile); })" />
+        <Button Text="Pending listing" OnClick="@(() => { _provider.SlowNext = true; Open(FilePickerMode.OpenFile); })" />
+        <Button Text="Replace pending provider" OnClick="ReplacePending" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <PathPicker Label="Export folder" @bind-Value="_destination" Provider="_provider" InitialDirectory="/Files" ReadOnly="_readOnly"
+                Enabled="@(!_disabled)" ResetVersion="_version" HelpText="Edit the path or Browse. Cancel keeps the previous folder." Selected="DestinationSelected" />
+    <Panel Layout="@Actions">
+        <Checkbox Text="Read-only destination" @bind-IsChecked="_readOnly" />
+        <Checkbox Text="Disable destination" @bind-IsChecked="_disabled" />
+        <Button Text="Replace provider" OnClick="Replace" />
+    </Panel>
+    <Label Text="@($"Export folder: {_destination}")" />
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions">
+        <Button Text="Light" OnClick="@(() => SetTheme(false))" />
+        <Button Text="Dark" OnClick="@(() => SetTheme(true))" />
+        <Button Text="Larger text" OnClick="Larger" />
+    </Panel>
+    <FilePicker @bind-IsOpen="_open" Provider="_provider" Mode="_mode" InitialDirectory="/Files" FileName="@_name" Filters="Filters"
+                ResetVersion="_version" Selected="Completed" Canceled="Completed" />
+</ScrollPanel>
+
+@code {
+    [Parameter] public Window? OwnerWindow { get; set; }
+    FilesFixtureProvider _provider = new();
+    PickerPath? _destination = new PickerPath("/Files");
+    bool _open, _readOnly, _disabled, _large;
+    bool _disposed;
+    System.Threading.CancellationTokenSource? _switchCancellation;
+    Task _switch = Task.CompletedTask;
+    long _generation;
+    long _version;
+    FilePickerMode _mode;
+    string _name = "", _result = "No file selected. Use the fixture; no files are written.";
+    static readonly FilePickerFilter[] Filters = [new("SVG and Lottie", ".svg", ".json"), new("SVG", ".svg"), new("All files")];
+    static readonly Marius.Winter.FlexLayout Actions = new() { Gap = 8, Wrap = FlexWrap.Wrap };
+    void Open(FilePickerMode mode) { CancelSwitch(); _mode = mode; _name = mode == FilePickerMode.SaveFile ? "cover.svg" : ""; _version++; _open = true; }
+    void CancelSwitch() { _generation++; _switchCancellation?.Cancel(); }
+    Task ReplacePending() => _switch = ReplacePendingAsync();
+    async Task ReplacePendingAsync()
+    {
+        _provider.SlowNext = true; Open(FilePickerMode.OpenFile);
+        using var source = new System.Threading.CancellationTokenSource(); _switchCancellation = source; var generation = _generation;
+        try
+        {
+            await Task.Delay(250, source.Token);
+            await InvokeAsync(() =>
+            {
+                if (_disposed || source.IsCancellationRequested || generation != _generation) return;
+                _provider = new(); _version++; _result = "Pending provider replaced; the new fixture is ready."; StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested) { }
+        finally { if (ReferenceEquals(_switchCancellation, source)) _switchCancellation = null; }
+    }
+    void Completed(FilePickerResult result) => _result = result.Accepted ? $"{result.Mode}: {result.Path} · overwrite {(result.Overwrite ? "confirmed" : "not needed")}. No file contents written." : "Canceled; previous export folder retained.";
+    void DestinationSelected(FilePickerResult result) => _result = "Export folder: " + result.Path;
+    void Reset() { CancelSwitch(); _open = _readOnly = _disabled = false; _destination = new("/Files"); _version++; _provider.FailNext = _provider.SlowNext = false; _result = "No file selected. Use the fixture; no files are written."; }
+    void Replace() { _provider = new(); _version++; _result = "Provider replaced. Previous pending work cannot change this fixture."; }
+    void SetTheme(bool dark) { if (OwnerWindow != null) OwnerWindow.Theme = dark ? Theme.Dark : Theme.Light; }
+    void Larger() { _large = !_large; if (OwnerWindow != null) foreach (var style in new[] { OwnerWindow.Theme.Label, OwnerWindow.Theme.Panel, OwnerWindow.Theme.Button, OwnerWindow.Theme.TextBox, OwnerWindow.Theme.Checkbox }) style.FontSize = _large ? 22 : 14; }
+    public async ValueTask DisposeAsync() { _disposed = true; CancelSwitch(); await _switch.ConfigureAwait(false); }
+}
