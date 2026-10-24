@@ -190,6 +190,7 @@ public unsafe class Window : Element
                 throw NativeFailure("create GLFW OpenGL 3.3 window");
 
             Glfw.Glfw.glfwMakeContextCurrent(_window);
+            OpenGlLibraryLifetime.Retain();
             Glfw.Glfw.glfwSwapInterval(0);
             Glfw.Glfw.glfwGetWindowSize(_window, out _logicalWidth, out _logicalHeight);
             Glfw.Glfw.glfwGetFramebufferSize(_window, out int initialW, out int initialH);
