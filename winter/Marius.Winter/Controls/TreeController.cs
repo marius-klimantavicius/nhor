@@ -188,8 +188,11 @@ public sealed class TreeController<TItem> : IDisposable
         {
             CheckAlive();
             if (!_nodes.TryGetValue(key, out var n) || n.State != TreeLoadState.Error) return Task.CompletedTask;
+            var revision = _revision;
             _expanded.Add(key); Request(TreeRequestKind.Retry, n);
-            return StartLoad(n);
+            // Application notification can synchronously reject expansion,
+            // replace the data, refresh this entry, or dispose the controller.
+            return revision == _revision && CanLoad(n) ? StartLoad(n) : Task.CompletedTask;
         }
     }
 
@@ -233,13 +236,25 @@ public sealed class TreeController<TItem> : IDisposable
 
     private Task StartLoad(Entry n)
     {
+        if (!CanLoad(n)) return Task.CompletedTask;
         if (_load == null || !n.Lazy || n.State == TreeLoadState.Loading) return n.Pending;
         Cancel(n);
         var generation = ++n.Generation;
         var cts = n.Cancellation = new CancellationTokenSource();
         n.State = TreeLoadState.Loading; n.Error = null;
         Changed?.Invoke();
-        return n.Pending = LoadAsync(n, generation, cts);
+        // Loading presentation is also an application notification. Do not
+        // invoke a loader after a listener has rejected or superseded it.
+        if (!IsCurrent(n, generation, cts))
+        {
+            if (ReferenceEquals(n.Cancellation, cts)) Cancel(n);
+            cts.Dispose();
+            return Task.CompletedTask;
+        }
+        var pending = LoadAsync(n, generation, cts);
+        // A synchronous loader/completion notification can start a newer load.
+        if (generation == n.Generation) n.Pending = pending;
+        return pending;
     }
 
     private async Task LoadAsync(Entry n, long generation, CancellationTokenSource cts)
@@ -272,12 +287,26 @@ public sealed class TreeController<TItem> : IDisposable
                 Changed?.Invoke();
             }
         }
-        finally { cts.Dispose(); }
+        finally
+        {
+            lock (_gate)
+            {
+                // A discarded completion must never leave its disposed source
+                // reachable, nor clear a newer generation's source or state.
+                if (ReferenceEquals(n.Cancellation, cts))
+                {
+                    n.Cancellation = null;
+                    if (n.State == TreeLoadState.Loading) n.State = TreeLoadState.Idle;
+                }
+                cts.Dispose();
+            }
+        }
     }
 
-    private bool IsCurrent(Entry n, long generation, CancellationTokenSource cts) => !_disposed &&
-        !cts.IsCancellationRequested && generation == n.Generation && _nodes.TryGetValue(n.Key, out var current) &&
+    private bool CanLoad(Entry n) => !_disposed && _nodes.TryGetValue(n.Key, out var current) &&
         ReferenceEquals(current, n) && _expanded.Contains(n.Key) && AncestorsExpanded(n, _expanded);
+    private bool IsCurrent(Entry n, long generation, CancellationTokenSource cts) => !_disposed &&
+        ReferenceEquals(n.Cancellation, cts) && !cts.IsCancellationRequested && generation == n.Generation && CanLoad(n);
     private static void Cancel(Entry n)
     {
         n.Generation++;

@@ -1,0 +1,53 @@
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@using System
+@using System.Collections.Generic
+@using System.Threading.Tasks
+
+@if (show)
+{
+    <DataTree TItem="TreeBindingItem" Items="items" KeySelector="TreeBindingProbe.Key" TextSelector="TreeBindingProbe.Text"
+              SelectedKey="Selected" SelectedKeyChanged="selection" ExpandedKeys="Expanded"
+              ExpandedKeysChanged="Expand" OnActivate="Activate" OnRequest="RequestCallback" ResetVersion="version" />
+}
+
+@code {
+    private IReadOnlyList<TreeBindingItem> items = [new("a", "Folder"), new("b", "Note")];
+    private bool show = true;
+    private long version;
+    private EventCallback<string?> selection;
+    private EventCallback<TreeRequest<TreeBindingItem>> request;
+    private EventCallback<TreeRequest<TreeBindingItem>> RequestCallback => request.HasDelegate ? request :
+        EventCallback.Factory.Create<TreeRequest<TreeBindingItem>>(this, RecordRequest);
+    public string? Selected;
+    public IReadOnlySet<string> Expanded = new HashSet<string>();
+    public int OldCalls, NewCalls, Requests, NewRequests, Expansions, Activations;
+    public TaskCompletionSource? Wait;
+    protected override void OnInitialized()
+    {
+        selection = EventCallback.Factory.Create<string?>(this, Select);
+    }
+    private async Task Select(string? key) { OldCalls++; Selected = key; if (Wait != null) await Wait.Task; }
+    private async Task Expand(IReadOnlySet<string> keys) { Expansions++; Expanded = keys; if (Wait != null) await Wait.Task; }
+    private async Task Activate(TreeBindingItem item) { Activations++; if (Wait != null) await Wait.Task; }
+    private void RecordRequest(TreeRequest<TreeBindingItem> item) => Requests++;
+    public void ReplaceSelection(bool clear) => InvokeAsync(() =>
+    {
+        selection = clear ? default : EventCallback.Factory.Create<string?>(this, _ => NewCalls++);
+        StateHasChanged();
+    }).GetAwaiter().GetResult();
+    public void ReplaceRequest() => InvokeAsync(() =>
+    {
+        request = EventCallback.Factory.Create<TreeRequest<TreeBindingItem>>(this, _ => NewRequests++);
+        StateHasChanged();
+    }).GetAwaiter().GetResult();
+    public void Invalidate(string reason) => InvokeAsync(() =>
+    {
+        Selected = null; Expanded = new HashSet<string>();
+        if (reason == "unmount") show = false;
+        else if (reason == "data") items = [new("a", "Replacement"), new("b", "Note")];
+        else version++;
+        StateHasChanged();
+    }).GetAwaiter().GetResult();
+    public void RenderAgain() => InvokeAsync(StateHasChanged).GetAwaiter().GetResult();
+}

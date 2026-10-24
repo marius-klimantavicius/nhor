@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
@@ -38,8 +39,31 @@ public class DataTree<TItem> : WinterComponentBase
 
     private readonly EventCallback<ChangeEventArgs> _request;
     private sealed record CallbackSet(EventCallback<string?> Selection, EventCallback<IReadOnlySet<string>> Expansion,
-        EventCallback<TreeRequest<TItem>> Request, EventCallback<TItem> Activate);
-    private sealed record Delivery(TreeRequest<TItem> Request, CallbackSet Callbacks);
+        EventCallback<TreeRequest<TItem>> Request, EventCallback<TItem> Activate)
+    {
+        private readonly object? _selection = SubscriptionIdentity(Selection);
+        private readonly object? _expansion = SubscriptionIdentity(Expansion);
+        private readonly object? _request = SubscriptionIdentity(Request);
+        private readonly object? _activate = SubscriptionIdentity(Activate);
+        internal bool SameSubscriptions(CallbackSet other) => Equals(_selection, other._selection) &&
+            Equals(_expansion, other._expansion) && Equals(_request, other._request) && Equals(_activate, other._activate);
+    }
+
+    private static object? SubscriptionIdentity<T>(EventCallback<T> callback)
+    {
+        if (!callback.HasDelegate) return null;
+        // Use Blazor's public event-frame normalization: an implicit receiver
+        // is represented by its delegate (target + method equality), while an
+        // explicit receiver retains the EventCallback. EventCallback.Equals
+        // alone uses delegate reference identity, dropping unchanged method
+        // groups recreated by Razor on an ordinary parent render.
+        using var frames = new RenderTreeBuilder();
+        frames.OpenElement(0, "tree-action");
+        frames.AddAttribute(1, "onrequest", callback);
+        frames.CloseElement();
+        return frames.GetFrames().Array[1].AttributeValue;
+    }
+    private sealed record Delivery(TreeRequest<TItem> Request, CallbackSet Callbacks, Func<bool> IsCurrent);
     private sealed record Configuration(TreeController<TItem>? Controller, IReadOnlyList<TItem>? Items,
         Func<TItem, string>? Key, Func<TItem, string>? Text, Func<TItem, IEnumerable<TItem>>? Children,
         Func<TItem, string?>? Icon, Func<TItem, bool>? MayHaveChildren,
@@ -51,6 +75,7 @@ public class DataTree<TItem> : WinterComponentBase
     private async Task AcceptRequest(ChangeEventArgs args)
     {
         var delivery = (Delivery)args.Value!;
+        if (!delivery.IsCurrent()) return;
         var request = delivery.Request; var callbacks = delivery.Callbacks;
         // Never write state after awaiting application code. Commands retain the
         // subscription and key snapshot from their request, across ordinary renders.
@@ -59,7 +84,9 @@ public class DataTree<TItem> : WinterComponentBase
         if (request.Kind is TreeRequestKind.Expand or TreeRequestKind.Collapse or TreeRequestKind.Retry or TreeRequestKind.Reveal)
             await callbacks.Expansion.InvokeAsync(request.ExpandedKeys);
         if (request.Kind == TreeRequestKind.Activate) await callbacks.Activate.InvokeAsync(request.Item);
-        await callbacks.Request.InvokeAsync(request);
+        // Awaiting application code yields control to parent resets, callback
+        // replacement and unmounts. Never start another obsolete callback.
+        if (delivery.IsCurrent()) await callbacks.Request.InvokeAsync(request);
     }
 
     protected override void RenderAttributes(AttributesBuilder builder)
@@ -78,7 +105,7 @@ public class DataTree<TItem> : WinterComponentBase
         internal Marius.Winter.DataTree<TItem> Control => (Marius.Winter.DataTree<TItem>)ElementControl;
         private Configuration? _configuration, _pending;
         private ulong _requestId;
-        private long _generation;
+        private long _generation, _subscriptionGeneration;
         private int _pendingSelection, _pendingExpansion;
         private static bool Expands(TreeRequestKind kind) => kind is TreeRequestKind.Expand or TreeRequestKind.Collapse or TreeRequestKind.Retry or TreeRequestKind.Reveal;
 
@@ -88,8 +115,11 @@ public class DataTree<TItem> : WinterComponentBase
             if (IsDisposed || _requestId == 0) return;
             if (_configuration == null) return;
             var id = _requestId; var generation = _generation;
+            var subscription = _subscriptionGeneration;
             var controller = Control.Controller; var revision = controller?.Revision;
-            var delivery = new Delivery(request, _configuration.Callbacks);
+            bool IsCurrent() => !IsDisposed && id == _requestId && generation == _generation &&
+                subscription == _subscriptionGeneration && ReferenceEquals(controller, Control.Controller) && revision == controller?.Revision;
+            var delivery = new Delivery(request, _configuration.Callbacks, IsCurrent);
             if (request.Kind == TreeRequestKind.Select) _pendingSelection++;
             if (Expands(request.Kind)) _pendingExpansion++;
             void Deliver()
@@ -97,7 +127,7 @@ public class DataTree<TItem> : WinterComponentBase
                 if (generation != _generation || IsDisposed) return;
                 if (request.Kind == TreeRequestKind.Select) _pendingSelection--;
                 if (Expands(request.Kind)) _pendingExpansion--;
-                if (!IsDisposed && id == _requestId && generation == _generation && ReferenceEquals(controller, Control.Controller) && revision == controller?.Revision)
+                if (IsCurrent())
                     _ = Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery }));
                 else if (_configuration is { } configuration)
                     // A data revision can invalidate the last queued action after
@@ -127,6 +157,9 @@ public class DataTree<TItem> : WinterComponentBase
             _pending = null;
             var previous = _configuration;
             _configuration = next;
+            // Explicit removal/replacement ends the captured application's
+            // subscription. Never retarget an old action to a new callback.
+            if (previous == null || !previous.Callbacks.SameSubscriptions(next.Callbacks)) _subscriptionGeneration++;
             bool selectorsChanged = previous == null || previous.Key != next.Key || previous.Text != next.Text ||
                 previous.Children != next.Children || previous.Icon != next.Icon || previous.MayHaveChildren != next.MayHaveChildren || previous.Load != next.Load;
             bool replaced = !ReferenceEquals(previous?.Controller, next.Controller) || (next.Controller == null && selectorsChanged);

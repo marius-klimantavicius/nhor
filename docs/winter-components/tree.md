@@ -44,6 +44,10 @@ Snapshots (`Roots`, `GetNode`, `ExpandedKeys`) are read-only. Nodes expose typed
 `TreeRequest<TItem>` with `Kind`, `Key`, `Item`, selected key and expanded-key snapshot.
 Programmatic `Synchronize` and data/load updates do not emit user requests. Request
 notifications preserve every expand/collapse/retry/reveal/activation identity.
+Retry revalidates the controller lifetime, data revision, entry and visible
+expansion after application notification. A listener may collapse, replace data
+or dispose the controller there; rejected work does not start. Loading-state
+notifications have the same guard before invoking application loaders.
 
 Loads use cancellation **and** per-entry generation/reference checks. Collapse,
 refresh, replacement, removal and controller disposal invalidate older completions,
@@ -86,8 +90,12 @@ controllers it creates from `Items`. Its `DataController`, `Reveal`, `RefreshAsy
 and `Focus` members support composition without accessing renderer handlers.
 
 Each queued discrete request retains its original key, item, and callback snapshot
-across ordinary renders. Reset, data revision/replacement, or disposal invalidates
-it. Pending selection/expansion notifications do not undo other queued fields from
+across ordinary renders with unchanged subscriptions. Explicit callback replacement
+or clearing, reset, data revision/replacement, or disposal invalidates it, including
+while an earlier selection/expansion/activation callback awaits. The wrapper checks
+that lifetime again before starting OnRequest and never retargets an old action to
+a replacement callback. Application handlers already started own their continuations.
+Pending selection/expansion notifications do not undo other queued fields from
 the same pointer action. Application async callbacks must set bound state before
 awaiting and use their own cancellation/generation check for later application
 work; the wrapper never restores an old value after awaiting a callback.
