@@ -221,17 +221,17 @@ public class TextBox : Element
 
         // Background — nanogui: RoundedRect(x+1, y+1+1, w-2, h-2, 3)
         _backgroundShape?.ResetShape();
-        _backgroundShape?.AppendRect(1, 2, w - 2, h - 2, 3, 3);
+        if (w > 2 && h > 2) _backgroundShape?.AppendRect(1, 2, w - 2, h - 2, 3, 3);
 
         // Border — nanogui: RoundedRect(x+0.5, y+0.5, w-1, h-1, 2.5)
         _borderShape?.ResetShape();
-        _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, 2.5f, 2.5f);
+        if (w > 1 && h > 1) _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, 2.5f, 2.5f);
 
         // Update text clip to content area (coordinates are in _textScene local space,
         // which is already translated by (xSpacing, textY), so x starts at 0)
         float xSp = XSpacing;
         _textClipShape?.ResetShape();
-        _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
+        if (w > 2 * xSp && h > 0) _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
 
         UpdateVisibleText();
     }
@@ -520,10 +520,11 @@ public class TextBox : Element
         if (_textPaint == null) return;
         EnsureTextMetrics();
 
-        _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
+        bool hasTextViewport = Bounds.W > 2 * XSpacing && Bounds.H > 0;
+        _placeholderScene?.Visible(string.IsNullOrEmpty(_text) && hasTextViewport);
         if (_required) UpdateBorderColor();
 
-        if (string.IsNullOrEmpty(_text) || Bounds.W <= 0)
+        if (string.IsNullOrEmpty(_text) || !hasTextViewport)
         {
             _textPaint.SetText("");
             _visibleStart = 0;
@@ -597,6 +598,10 @@ public class TextBox : Element
     {
         if (_cursorShape == null) return;
         float xSpacing = XSpacing;
+        _cursorShape.ResetShape();
+        // Hidden layout and narrow resize can leave no content interval. Keep
+        // the editing offsets, but paint no caret until that interval returns.
+        if (Bounds.W <= 2 * xSpacing || Bounds.H <= 6) return;
         float cursorX = GetCursorX() - _scrollOffset + xSpacing;
         float clipLeft = xSpacing;
         float clipRight = Bounds.W - xSpacing;
@@ -607,7 +612,6 @@ public class TextBox : Element
 
         cursorX = Math.Clamp(cursorX, clipLeft, clipRight);
 
-        _cursorShape.ResetShape();
         _cursorShape.AppendRect(cursorX, cursorY, 1f, cursorH, 0, 0);
     }
 
@@ -633,7 +637,8 @@ public class TextBox : Element
 
     private void UpdateSelection()
     {
-        if (!HasSelection())
+        _selectionShape?.ResetShape();
+        if (!HasSelection() || Bounds.W <= 2 * XSpacing || Bounds.H <= 6)
         {
             _selectionShape?.Visible(false);
             return;
@@ -655,7 +660,6 @@ public class TextBox : Element
         float y = 3;
         float h = Bounds.H - 6;
 
-        _selectionShape?.ResetShape();
         if (endX > startX)
         {
             _selectionShape?.AppendRect(startX, y, endX - startX, h, 0, 0);
