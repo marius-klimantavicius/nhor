@@ -1,0 +1,31 @@
+@using Marius.Winter
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@if (Show)
+{
+    <PathPicker @bind-Value:get="Path" @bind-Value:set="PathChanged" Provider="Provider" InitialDirectory="/" ResetVersion="Version"
+                OnValueChanged="LegacyPath" Label="Destination" ReadOnly="ReadOnly" Selected="PathSelected" />
+    <FilePicker @bind-IsOpen:get="Open" @bind-IsOpen:set="OpenChanged" Provider="Provider" InitialDirectory="/"
+                ResetVersion="Version" OnIsOpenChanged="LegacyOpen" Selected="Selected" Canceled="Canceled" />
+}
+@code {
+    public PickerBindingProvider Provider = new();
+    public PickerPath? Path = new PickerPath("/original");
+    public bool Open = true, Reject, Show = true, ReadOnly;
+    public long Version;
+    public int PathChanges, OpenChanges, LegacyPaths, LegacyOpens;
+    public List<FilePickerResult> Results = new();
+    public TaskCompletionSource? AwaitChange;
+    public TaskCompletionSource AfterChange = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    async Task PathChanged(PickerPath? value) { PathChanges++; if (!Reject) Path = value; if (AwaitChange != null) await AwaitChange.Task; AfterChange.TrySetResult(); }
+    void OpenChanged(bool value) { OpenChanges++; if (!Reject) Open = value; }
+    void LegacyPath(PickerPath? _) => LegacyPaths++;
+    void LegacyOpen(bool _) => LegacyOpens++;
+    void Selected(FilePickerResult result) => Results.Add(result);
+    void Canceled(FilePickerResult result) => Results.Add(result);
+    void PathSelected(FilePickerResult result) => Results.Add(result);
+    public void Refresh() => StateHasChanged();
+    public void Reset() { Version++; Path = new("/reset"); Open = false; StateHasChanged(); }
+    public void Replace() { Provider = new(); Version++; Open = true; StateHasChanged(); }
+    public void Remove() { Show = false; StateHasChanged(); }
+}
