@@ -1,0 +1,36 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@namespace Marius.Winter.Blazor.Tests
+
+@if (Show)
+{
+    <DataTree TItem="TreeBindingItem" @ref="View" Items="Items" KeySelector="Key" TextSelector="Text" ChildrenSelector="Children"
+              @bind-SelectedKey:get="Selected" @bind-SelectedKey:set="Select" @bind-ExpandedKeys:get="Expanded" @bind-ExpandedKeys:set="Expand"
+              OnSelectionChanged="Legacy" OnExpandedKeysChanged="LegacyExpanded" OnRequest="Request" ResetVersion="Version" />
+}
+
+@code {
+    public static readonly System.Func<TreeBindingItem, string> Key = i => i.Key;
+    public static readonly System.Func<TreeBindingItem, string> Text = i => i.Name;
+    public static readonly System.Func<TreeBindingItem, IEnumerable<TreeBindingItem>> Children = i => i.Children ?? [];
+    public DataTree<TreeBindingItem>? View;
+    public IReadOnlyList<TreeBindingItem> Items { get; private set; } = [new("p", "Folder", [new("a", "same"), new("b", "same")])];
+    public string? Selected { get; private set; }
+    public IReadOnlySet<string> Expanded { get; private set; } = new HashSet<string>();
+    public bool Show = true, RejectSelection, RejectExpansion;
+    public long Version;
+    public int LegacyCalls;
+    public readonly List<TreeRequest<TreeBindingItem>> Requests = [];
+    public System.Func<Task>? WaitSelection;
+    private async Task Select(string? key) { if (!RejectSelection) Selected = key; if (WaitSelection != null) await WaitSelection(); }
+    private void Expand(IReadOnlySet<string> keys) { if (!RejectExpansion) Expanded = keys; }
+    private void Legacy(string? key) => LegacyCalls++;
+    private void LegacyExpanded(IReadOnlySet<string> keys) => LegacyCalls++;
+    private void Request(TreeRequest<TreeBindingItem> request) => Requests.Add(request);
+    public void Reset() { Selected = null; Expanded = new HashSet<string>(); Version++; StateHasChanged(); }
+    public void Replace() { Items = [new("q", "New parent", [new("b", "renamed 👩🏽‍💻é"), new("a", "same")])]; Expanded = new HashSet<string> { "q" }; StateHasChanged(); }
+    public void RenderAgain() => StateHasChanged();
+    public void Remove() { Show = false; StateHasChanged(); }
+}

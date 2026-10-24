@@ -57,9 +57,10 @@ public class TreeView : Element
     private bool _draggingThumbH;
     private float _dragStartScrollH;
     private float _dragStartX;
+    private float? _fontSize;
 
 
-    private const float RowHeight = 24f;
+    private float RowHeight => MathF.Max(24, FontSize + 12);
     private const float IndentWidth = 20f;
     private const float ArrowAreaWidth = 16f;
     private const float ArrowSize = 4.5f;
@@ -86,10 +87,42 @@ public class TreeView : Element
     public Action<TreeNode>? NodeExpanded;
     public Action<TreeNode>? NodeCollapsed;
     public Action<TreeNode>? NodeDoubleClicked;
+    public Action<TreeNode>? NodeActivated;
+
+    public TreeView() => Focusable = true;
+
+    /// <summary>Logical text size; row height grows with it.</summary>
+    public float FontSize
+    {
+        get => _fontSize ?? Style.FontSize;
+        set
+        {
+            if (!float.IsFinite(value) || value <= 0) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_fontSize == value) return;
+            _fontSize = value;
+            if (_shapesCreated) RebuildVisibleRows();
+            EnsureRowVisible(_selectedIndex);
+            InvalidateMeasure(); MarkDirty();
+        }
+    }
 
     // --- Public API ---
 
     public List<TreeNode> Nodes => _roots;
+
+    /// <summary>Expands ancestors and scrolls a known node into view.</summary>
+    public void Reveal(TreeNode node)
+    {
+        for (var p = node.Parent; p != null; p = p.Parent) p.IsExpanded = true;
+        if (_shapesCreated) RebuildVisibleRows();
+        EnsureVisible(node);
+    }
+
+    public void EnsureVisible(TreeNode node)
+    {
+        int index = _visibleRows.FindIndex(row => ReferenceEquals(row.Node, node));
+        if (index >= 0) EnsureRowVisible(index);
+    }
 
     /// <summary>Suppress tree rebuilds until EndUpdate is called. Nestable.</summary>
     public void BeginUpdate() => _updateDepth++;
@@ -250,6 +283,18 @@ public class TreeView : Element
             ApplyHighlightColors();
             RebuildVisibleRows();
         }
+        else RebuildVisibleRows();
+    }
+
+    protected override void OnDetaching()
+    {
+        // Rows rebuilt since the last frame have no renderer yet. Release these
+        // owned paints before the rendered outer scene is removed (damage bounds
+        // must not walk unprepared row shapes). Logical nodes/selection survive.
+        _pendingSelectedNode ??= SelectedNode;
+        ClearRowPaints();
+        _selectedIndex = _hoveredIndex = -1;
+        base.OnDetaching();
     }
 
     protected override Vector2 MeasureCore(float availableWidth, float availableHeight)
@@ -286,6 +331,7 @@ public class TreeView : Element
         UpdateRowPositions();
         UpdateHighlights();
         UpdateScrollbar();
+        EnsureRowVisible(_selectedIndex);
     }
 
     // --- Visible row management ---
@@ -366,18 +412,11 @@ public class TreeView : Element
 
     private void RebuildVisibleRowsCore()
     {
-        // Remove old row visuals
-        foreach (var row in _visibleRows)
-        {
-            if (row.Arrow != null) RemovePaint(row.Arrow);
-            if (row.IconScene != null) RemovePaint(row.IconScene);
-            RemovePaint(row.TextScene);
-        }
-        _visibleRows.Clear();
+        ClearRowPaints();
 
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
         var style = Style;
-        float fontSize = EffectiveFontSize(style.FontSize);
+        float fontSize = EffectiveFontSize(FontSize);
 
         // Walk tree depth-first, build visible rows
         foreach (var root in _roots)
@@ -413,6 +452,17 @@ public class TreeView : Element
         if (_scrollThumb != null) BringPaintToFront(_scrollThumb);
         if (_scrollTrackH != null) BringPaintToFront(_scrollTrackH);
         if (_scrollThumbH != null) BringPaintToFront(_scrollThumbH);
+    }
+
+    private void ClearRowPaints()
+    {
+        foreach (var row in _visibleRows)
+        {
+            if (row.Arrow != null) RemovePaint(row.Arrow);
+            if (row.IconScene != null) RemovePaint(row.IconScene);
+            RemovePaint(row.TextScene);
+        }
+        _visibleRows.Clear();
     }
 
     private void RebuildVisibleRows()
@@ -879,6 +929,14 @@ public class TreeView : Element
 
     public override void OnKeyDown(int key, int mods, bool repeat)
     {
+        if (!Enabled) return;
+        if ((key == 257 || key == 335) && !repeat && SelectedNode is { } activated)
+        {
+            NodeActivated?.Invoke(activated);
+            return;
+        }
+        if (key == 268) { if (_visibleRows.Count > 0) SelectRow(0); return; }
+        if (key == 269) { if (_visibleRows.Count > 0) SelectRow(_visibleRows.Count - 1); return; }
         // Up/Down arrow navigation
         if (key == 265) // GLFW_KEY_UP
         {
@@ -915,6 +973,7 @@ public class TreeView : Element
                 NodeExpanded?.Invoke(node);
                 RebuildVisibleRows(node);
             }
+            else if (node.IsExpanded && node.Children.Count > 0) SelectedNode = node.Children[0];
             return;
         }
 
@@ -977,6 +1036,14 @@ public class TreeView : Element
     protected override Style GetDefaultStyle()
     {
         return OwnerWindow?.Theme.Panel ?? new Style();
+    }
+
+    protected override void OnStateChanged(ElementState oldState, ElementState newState)
+    {
+        var color = (OwnerWindow?.Theme ?? Theme.Dark).SelectionColor;
+        _backgroundShape?.StrokeWidth((newState & ElementState.Focused) != 0 ? 2 : 0);
+        _backgroundShape?.StrokeFill(color.R8, color.G8, color.B8, 255);
+        MarkDirty();
     }
 
     protected override void OnThemeChanged()

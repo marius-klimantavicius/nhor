@@ -44,9 +44,9 @@ public class TreeView : WinterComponentBase
     class Handler : WinterElementHandler, IWinterContainerElementHandler
     {
         readonly CoalescedEvent _selectionChangedEvent;
-        readonly CoalescedEvent _nodeExpandedEvent;
-        readonly CoalescedEvent _nodeCollapsedEvent;
-        readonly CoalescedEvent _nodeDoubleClickedEvent;
+        readonly DiscreteTreeEvent _nodeExpandedEvent;
+        readonly DiscreteTreeEvent _nodeCollapsedEvent;
+        readonly DiscreteTreeEvent _nodeDoubleClickedEvent;
 
         Marius.Winter.TreeView TreeViewControl => (Marius.Winter.TreeView)ElementControl;
 
@@ -58,23 +58,43 @@ public class TreeView : WinterComponentBase
             _selectionChangedEvent = new CoalescedEvent(this);
             TreeViewControl.SelectionChanged = node => _selectionChangedEvent.Fire(node?.Tag as string);
 
-            _nodeExpandedEvent = new CoalescedEvent(this);
+            _nodeExpandedEvent = new DiscreteTreeEvent(this);
             TreeViewControl.NodeExpanded = node =>
             {
                 _nodeExpandedEvent.Fire(node.Tag as string);
             };
 
-            _nodeCollapsedEvent = new CoalescedEvent(this);
+            _nodeCollapsedEvent = new DiscreteTreeEvent(this);
             TreeViewControl.NodeCollapsed = node =>
             {
                 _nodeCollapsedEvent.Fire(node.Tag as string);
             };
 
-            _nodeDoubleClickedEvent = new CoalescedEvent(this);
+            _nodeDoubleClickedEvent = new DiscreteTreeEvent(this);
             TreeViewControl.NodeDoubleClicked = node =>
             {
                 _nodeDoubleClickedEvent.Fire(node.Tag as string);
             };
+        }
+
+        // Expansion and activation are commands: preserve every immutable string-tag snapshot.
+        private sealed class DiscreteTreeEvent(Handler owner)
+        {
+            public ulong HandlerId { get; set; }
+            public void Unregister(ulong id) { if (HandlerId == id) HandlerId = 0; }
+            public void Fire(string? key)
+            {
+                var id = HandlerId;
+                if (id == 0 || owner.IsDisposed) return;
+                void Deliver()
+                {
+                    if (!owner.IsDisposed && HandlerId == id)
+                        _ = owner.Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = key });
+                }
+                if (owner.ElementControl.OwnerWindow is { } window)
+                    window.DispatcherQueue.Enqueue(Deliver);
+                else Deliver();
+            }
         }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)

@@ -1,0 +1,93 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@implements IDisposable
+
+<Panel Layout="@Column" Padding="@(new Thickness(8))">
+    <Label Text="Project browser" FontSize="22" />
+    <Label Text="Open src, empty, or packages. Packages fails once: select its message and press Enter or double-click to retry." TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions" Padding="@(new Thickness(0))">
+        <Button Text="Reveal selected" OnClick="Reveal" />
+        <Button Text="Rename" OnClick="Rename" />
+        <Button Text="Reorder" OnClick="Reorder" />
+        <Button Text="Refresh src" OnClick="Refresh" />
+        <Button Text="Reset" OnClick="Reset" />
+        <Button Text="Light / dark" OnClick="ThemeChanged" />
+        <Button Text="Larger text" OnClick="@(() => _large = !_large)" />
+    </Panel>
+    <Label Text="@Selection" />
+    <DataTree TItem="ProjectItem" @ref="_tree" Controller="_controller" @bind-SelectedKey="_selected" @bind-ExpandedKeys="_expanded"
+              OnRequest="Requested" ResetVersion="_version" FontSize="@(_large ? 26 : 14)" LayoutData="@Grow" />
+    <Label Text="@Status" />
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+</Panel>
+
+@code {
+    private sealed record ProjectItem(string Key, string Name, ProjectItem[]? Children = null, bool Lazy = false);
+    [Parameter] public Window? OwnerWindow { get; set; }
+    private TreeController<ProjectItem> _controller = null!;
+    private Marius.Winter.Blazor.Elements.DataTree<ProjectItem>? _tree;
+    private string? _selected = "note-b";
+    private IReadOnlySet<string> _expanded = new HashSet<string> { "project" };
+    private string _result = "Ready. Reveal the selected note or open a folder.";
+    private bool _renamed, _reordered, _large, _disposed;
+    private int _attempts, _cancelled;
+    private long _version;
+    private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 8 };
+    private static readonly Marius.Winter.FlexLayout Actions = new() { Wrap = FlexWrap.Wrap, Gap = 6 };
+    private static readonly FlexItem Grow = new() { Grow = 1, Basis = 0 };
+    protected override void OnInitialized()
+    {
+        _controller = new(i => i.Key, i => i.Name, i => i.Children ?? [], mayHaveChildren: i => i.Lazy, loadChildren: Load);
+        _controller.SetItems(Items()); _controller.Changed += Changed;
+    }
+    private ProjectItem[] Items()
+    {
+        var notes = new[] { new ProjectItem("note-a", "notes.md"), new ProjectItem("note-b", _renamed ? "Review 👩🏽‍💻é.md" : "notes.md") }
+            .Concat(Enumerable.Range(1, 32).Select(i => new ProjectItem("sample-" + i, $"Sample {i:00} — international production notes.md"))).ToArray();
+        if (_reordered) Array.Reverse(notes);
+        ProjectItem[] children = [new("readme", "README.md"), new("src", "src", Lazy: true), new("empty", "empty", Lazy: true), new("retry", "packages", Lazy: true), new("archive", "Archive", notes)];
+        if (_reordered) Array.Reverse(children);
+        return [new("project", "Winter project", children)];
+    }
+    private async Task<IReadOnlyList<ProjectItem>> Load(ProjectItem item, CancellationToken cancellation)
+    {
+        try
+        {
+            await Task.Delay(1200, cancellation).ConfigureAwait(false);
+            cancellation.ThrowIfCancellationRequested();
+            if (item.Key == "retry" && Interlocked.Increment(ref _attempts) == 1) throw new InvalidOperationException("Packages temporarily unavailable");
+            return item.Key == "empty" ? [] : [new(item.Key + "/same-a", "index.cs"), new(item.Key + "/same-b", "index.cs"), new(item.Key + "/unicode", "Žąsis 👩🏽‍💻é.cs")];
+        }
+        catch (OperationCanceledException) { Interlocked.Increment(ref _cancelled); Changed(); throw; }
+    }
+    private void Changed()
+    {
+        if (!_disposed) _ = InvokeAsync(() =>
+        {
+            // A queued native request owns its binding notification. Do not reject
+            // that request by rendering old parent state from a status notification.
+            if (!_disposed && _controller.SelectedKey == _selected && _controller.ExpandedKeys.SetEquals(_expanded)) StateHasChanged();
+        });
+    }
+    private static IEnumerable<DataTreeNode<ProjectItem>> Walk(IReadOnlyList<DataTreeNode<ProjectItem>> nodes) => nodes.SelectMany(n => new[] { n }.Concat(Walk(n.Children)));
+    private string Selection => _selected is { } key && _controller.GetNode(key) is { } node ? $"Selected: {node.Text} [{key}]" : "Selected: none";
+    private string Status => $"Loading: {Walk(_controller.Roots).Count(n => n.LoadState == TreeLoadState.Loading)} · Errors: {Walk(_controller.Roots).Count(n => n.LoadState == TreeLoadState.Error)} · Cancelled loads: {_cancelled}";
+    private void Requested(TreeRequest<ProjectItem> request) => _result = $"{request.Kind}: {request.Item.Name} [{request.Key}]";
+    private void Reveal() { if (_selected is { } key) { _result = _tree?.Reveal(key) == true ? $"Revealed {key}." : "The selection is no longer available."; _tree?.Focus(); } }
+    private void Rename() { _renamed = !_renamed; _controller.SetItems(Items()); _result = "Renamed the selected note; its key is unchanged."; }
+    private void Reorder() { _reordered = !_reordered; _controller.SetItems(Items()); _result = "Reordered the project; selection follows its key."; }
+    private Task Refresh() { _result = "Refreshed src. Open it to load again."; return _tree?.RefreshAsync("src") ?? Task.CompletedTask; }
+    private void ThemeChanged() { if (OwnerWindow != null) OwnerWindow.Theme = ReferenceEquals(OwnerWindow.Theme, Theme.Dark) ? Theme.Light : Theme.Dark; }
+    private void Reset()
+    {
+        _renamed = _reordered = _large = false; _attempts = _cancelled = 0; _version++;
+        _controller.SetItems(Items()); _selected = "note-b"; _expanded = new HashSet<string> { "project" };
+        _result = "Ready. Reveal the selected note or open a folder.";
+    }
+    public void Dispose() { if (_disposed) return; _disposed = true; _controller.Changed -= Changed; _controller.Dispose(); }
+}
