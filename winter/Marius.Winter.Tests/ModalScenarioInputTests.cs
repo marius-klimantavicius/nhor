@@ -86,6 +86,7 @@ public class ModalScenarioInputTests
                 x.Key(0xff0d); await Task.Delay(55);
                 await window.Dispatcher.InvokeAsync(() => { Assert.True(Modal().IsOpen); Assert.Equal(0, acceptedRequests); });
                 x.Key(0xff1b); await Task.Delay(60); x.Key(0xff0d); await Task.Delay(65);
+                await window.Dispatcher.InvokeAsync(() => Assert.All(Walk(Modal().Body!).OfType<Field>(), field => Assert.False(field.Invalid)));
                 x.Key(0xff57); using (new HeldKey(0xffe1)) x.Key(0xff50);
                 await Task.Delay(85);
                 await window.Dispatcher.InvokeAsync(() => Assert.Equal("Marius", (string)typeof(TextBox).GetMethod("GetSelectedText", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Editor(), null)!));

@@ -90,6 +90,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
     {
         if (_modal == null) CreateModal();
         _name.ResetText(_savedName); _biography.ResetText(_savedBio); _environment.SelectedIndex = _savedEnvironment;
+        if (_body is Form form) form.Reset();
         _protect.IsChecked = false; _error.Text = ""; _modal!.IsOpen = true;
     }
     private void Closed(DialogResult result)
@@ -123,6 +124,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
     private void Reset()
     {
         if (_modal != null) _modal.IsOpen = false;
+        if (_body is Form form) form.Reset();
         if (_opener.Parent == null) ((Panel)_root.Children[2]).InsertChild(_opener, 0);
         _savedName = "Marius"; _savedBio = "Designing a quiet workspace."; _savedEnvironment = _counter = 0;
         _backdrop.IsChecked = false; bool wasLarge = _large; _large = false; if (wasLarge) SetSize();
