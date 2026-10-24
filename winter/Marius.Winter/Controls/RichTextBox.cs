@@ -16,6 +16,9 @@ public enum TextFormat
     Strikethrough = 8,
 }
 
+public sealed record RichTextFormattingState(TextFormat Format, Color4? Color, bool MixedFormat, bool MixedColor,
+    int SelectionStart, int SelectionLength, bool CanUndo, bool CanRedo);
+
 public class RichTextBox : Element
 {
     private const float Padding = 8f;
@@ -80,6 +83,7 @@ public class RichTextBox : Element
     private int _selectionStart = -1;
     private TextFormat? _pendingFormat;
     private Color4? _pendingColor;
+    private bool _plainPendingColor;
 
     private bool _shapesCreated;
     private float _scrollX;
@@ -89,6 +93,7 @@ public class RichTextBox : Element
     private float _maxLineWidth;
     private float _effectiveFontSize;
     private float _effectiveBoldFontSize;
+    private float? _fontSize;
     private float _ascent;
     private float _descent;
     private float _regularAscent;
@@ -105,11 +110,18 @@ public class RichTextBox : Element
 
     public Action<string>? TextChanged;
     public Action<TextFormat>? FormatChanged;
+    public event Action<string>? UserTextChanged;
+    public event Action<RichDocument>? DocumentChanged;
+    public event Action<RichDocument>? UserDocumentChanged;
+    public event Action<RichTextFormattingState>? FormattingStateChanged;
+    private readonly RichDocumentHistory _history;
+    private long _revision;
 
     // --- Constructor ---
 
     public RichTextBox(string text = "", string placeholder = "")
     {
+        _history = new RichDocumentHistory(new RichDocument(text));
         _text = text;
         _placeholder = placeholder;
         _cursorPos = text.Length;
@@ -121,24 +133,144 @@ public class RichTextBox : Element
 
     // --- Properties ---
 
+    /// <summary>Logical editor font size; does not mutate the shared theme.</summary>
+    public float FontSize
+    {
+        get => _fontSize ?? Style.FontSize;
+        set
+        {
+            if (!float.IsFinite(value) || value <= 0) throw new ArgumentOutOfRangeException(nameof(value));
+            if (_fontSize == value) return;
+            _fontSize = value; OnThemeChanged(); InvalidateMeasure(); MarkDirty();
+        }
+    }
+    public void ResetFontSize() { if (_fontSize == null) return; _fontSize = null; OnThemeChanged(); InvalidateMeasure(); MarkDirty(); }
+
     public string Text
     {
         get => _text;
         set
         {
             if (_text == value) return;
-            _text = value;
-            _cursorPos = Boundaries.Floor(_cursorPos);
-            _selectionStart = -1;
-            _pendingFormat = null;
-            _pendingColor = null;
-            _runs.Clear();
-            _runs.Add(new TextRun { Start = 0, Length = value.Length, Format = TextFormat.None, Color = null });
-            SplitLines();
-            UpdateContent();
-            MarkDirty();
-            TextChanged?.Invoke(value);
+            ResetDocument(new RichDocument(value));
         }
+    }
+
+    /// <summary>Equal assignment preserves editing state. Unequal external assignment starts a new history baseline.</summary>
+    public RichDocument Document
+    {
+        get => _history.Current;
+        set { ArgumentNullException.ThrowIfNull(value); if (!Document.Equals(value)) ResetDocument(value); }
+    }
+    public bool CanUndo => _history.CanUndo;
+    public bool CanRedo => _history.CanRedo;
+    public int SelectionStart => HasSelection() ? Math.Min(_selectionStart, _cursorPos) : _cursorPos;
+    public int SelectionLength => HasSelection() ? Math.Abs(_selectionStart - _cursorPos) : 0;
+    public RichTextFormattingState FormattingState
+    {
+        get
+        {
+            var format = GetCurrentFormat(); var color = GetCurrentColor();
+            bool mixedFormat = false, mixedColor = false;
+            if (HasSelection())
+            {
+                bool first = true;
+                foreach (var run in _runs)
+                {
+                    if (run.End <= SelectionStart || run.Start >= SelectionStart + SelectionLength) continue;
+                    if (first) { format = run.Format; color = run.Color; first = false; }
+                    else { mixedFormat |= format != run.Format; mixedColor |= !Nullable.Equals(color, run.Color); format &= run.Format; }
+                }
+            }
+            return new(format, color, mixedFormat, mixedColor, SelectionStart, SelectionLength, CanUndo, CanRedo);
+        }
+    }
+
+    public void Focus()
+    {
+        OwnerWindow?.SetFocus(this);
+        UpdateSelection();
+    }
+
+    /// <summary>Select whole graphemes; a zero-length selection floors to a legal caret.</summary>
+    public void Select(int start, int length)
+    {
+        if (start < 0 || length < 0 || start > _text.Length - length) throw new ArgumentOutOfRangeException(nameof(start));
+        _cursorPos = length == 0 ? Boundaries.Floor(start) : Boundaries.Ceiling(start + length);
+        _selectionStart = length == 0 ? -1 : Boundaries.Floor(start);
+        _pendingFormat = null; _pendingColor = null; _plainPendingColor = false;
+        EnsureCursorVisible(); RestartBlink(); NotifyFormatting(); MarkDirty();
+    }
+
+    /// <summary>Explicit reset, even for equal text: clear styles, pending style, selection and history.</summary>
+    public void ResetText(string text) => ResetDocument(new RichDocument(text));
+
+    public void ResetDocument(RichDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        var previous = Document;
+        _history.Reset(document); var revision = ++_revision;
+        LoadDocument(document, clearSelection: true);
+        if (previous.Text != document.Text) TextChanged?.Invoke(document.Text);
+        if (revision != _revision) return;
+        DocumentChanged?.Invoke(document);
+        if (revision == _revision) NotifyFormatting();
+    }
+
+    public bool Undo() => MoveHistory(redo: false);
+    public bool Redo() => MoveHistory(redo: true);
+    private bool MoveHistory(bool redo)
+    {
+        var before = Document;
+        if (!(redo ? _history.Redo() : _history.Undo())) return false;
+        var document = Document; var revision = ++_revision;
+        LoadDocument(document, clearSelection: false);
+        Focus();
+        PublishChange(before, document, revision, user: true);
+        return true;
+    }
+
+    private void LoadDocument(RichDocument document, bool clearSelection)
+    {
+        _text = document.Text; _runs.Clear();
+        foreach (var run in document.Runs)
+            _runs.Add(new TextRun { Start = run.Start, Length = run.Length, Format = run.Style.Format, Color = run.Style.Color });
+        if (_runs.Count == 0) _runs.Add(new TextRun());
+        _cursorPos = Boundaries.Floor(_cursorPos);
+        _selectionStart = clearSelection || _selectionStart < 0 ? -1 : Boundaries.Floor(_selectionStart);
+        _pendingFormat = null; _pendingColor = null; _plainPendingColor = false;
+        SplitLines(); EnsureCursorVisible(); UpdateContent(); MarkDirty();
+    }
+
+    private RichDocument Snapshot()
+    {
+        var runs = new List<RichTextRun>();
+        foreach (var run in _runs) if (run.Length > 0) runs.Add(new(run.Start, run.Length, new(run.Format, run.Color)));
+        return new RichDocument(_text, runs);
+    }
+    private void CompleteUserEdit() => CompleteChange(user: true);
+    private void CompleteChange(bool user)
+    {
+        var before = Document; var document = Snapshot();
+        if (!_history.Apply(document)) { NotifyFormatting(); return; }
+        var revision = ++_revision;
+        PublishChange(before, document, revision, user);
+    }
+    private void PublishChange(RichDocument before, RichDocument document, long revision, bool user)
+    {
+        if (before.Text != document.Text) TextChanged?.Invoke(document.Text);
+        if (revision != _revision) return;
+        DocumentChanged?.Invoke(document);
+        if (revision != _revision) return;
+        if (user) UserDocumentChanged?.Invoke(document);
+        if (revision != _revision) return;
+        if (user && before.Text != document.Text) UserTextChanged?.Invoke(document.Text);
+        if (revision == _revision) NotifyFormatting();
+    }
+    private void NotifyFormatting()
+    {
+        FormatChanged?.Invoke(GetCurrentFormat());
+        FormattingStateChanged?.Invoke(FormattingState);
     }
 
     public string Placeholder
@@ -162,43 +294,37 @@ public class RichTextBox : Element
 
     public void SetSelectionColor(Color4 color)
     {
+        _ = Document.WithStyle(0, 0, new(TextFormat.None, color)); // Validate before changing editor state.
+        Focus();
         if (!HasSelection())
         {
-            _pendingColor = color;
+            _pendingColor = color; _plainPendingColor = false;
+            NotifyFormatting();
             return;
         }
-
-        int start = Math.Min(_selectionStart, _cursorPos);
-        int end = Math.Max(_selectionStart, _cursorPos);
-        ApplyColorToRange(start, end, color);
-        MergeAdjacentRuns();
-        UpdateContent();
-        MarkDirty();
+        ApplyStyleChange(SelectionStart, SelectionLength, style => style with { Color = color }, user: true);
     }
 
     public void ClearFormatting()
     {
-        if (!HasSelection()) return;
-
-        int start = Math.Min(_selectionStart, _cursorPos);
-        int end = Math.Max(_selectionStart, _cursorPos);
-        SplitRunAt(start);
-        SplitRunAt(end);
-
-        for (int i = 0; i < _runs.Count; i++)
+        Focus();
+        if (!HasSelection())
         {
-            var run = _runs[i];
-            if (run.Start >= start && run.End <= end)
-            {
-                run.Format = TextFormat.None;
-                run.Color = null;
-                _runs[i] = run;
-            }
+            _pendingFormat = TextFormat.None; _pendingColor = null; _plainPendingColor = true;
+            NotifyFormatting();
+            return;
         }
+        ApplyStyleChange(SelectionStart, SelectionLength, _ => default, user: true);
+    }
 
-        MergeAdjacentRuns();
-        UpdateContent();
-        MarkDirty();
+    private void ApplyStyleChange(int start, int length, Func<RichTextStyle, RichTextStyle> transform, bool user)
+    {
+        RichDocument next;
+        try { next = Document.TransformStyle(start, length, transform); }
+        catch (ArgumentException) when (user) { return; } // Decline an edit beyond the canonical-run bound before mutation.
+        if (Document.Equals(next)) return;
+        LoadDocument(next, clearSelection: false);
+        CompleteChange(user);
     }
 
     public TextFormat GetCurrentFormat()
@@ -212,6 +338,7 @@ public class RichTextBox : Element
 
     public Color4? GetCurrentColor()
     {
+        if (_plainPendingColor) return null;
         if (_pendingColor.HasValue) return _pendingColor.Value;
         if (_runs.Count == 0) return null;
         int ri = FindRunIndex(_cursorPos > 0 ? _cursorPos - 1 : 0);
@@ -223,34 +350,14 @@ public class RichTextBox : Element
 
     public void SetFormat(int start, int length, TextFormat format)
     {
-        if (start < 0 || length <= 0 || start + length > _text.Length) return;
-        int end = TextEditingBoundaries.ScalarCeiling(_text, start + length);
-        start = TextEditingBoundaries.ScalarFloor(_text, start);
-        SplitRunAt(start);
-        SplitRunAt(end);
-        for (int i = 0; i < _runs.Count; i++)
-        {
-            var run = _runs[i];
-            if (run.Start >= start && run.End <= end)
-            {
-                run.Format = format;
-                _runs[i] = run;
-            }
-        }
-        MergeAdjacentRuns();
-        UpdateContent();
-        MarkDirty();
+        if (start < 0 || length <= 0 || start > _text.Length - length) return;
+        ApplyStyleChange(start, length, style => style with { Format = format }, user: false);
     }
 
     public void SetColor(int start, int length, Color4 color)
     {
-        if (start < 0 || length <= 0 || start + length > _text.Length) return;
-        int end = TextEditingBoundaries.ScalarCeiling(_text, start + length);
-        start = TextEditingBoundaries.ScalarFloor(_text, start);
-        ApplyColorToRange(start, end, color);
-        MergeAdjacentRuns();
-        UpdateContent();
-        MarkDirty();
+        if (start < 0 || length <= 0 || start > _text.Length - length) return;
+        ApplyStyleChange(start, length, style => style with { Color = color }, user: false);
     }
 
     // --- Lifecycle ---
@@ -267,8 +374,8 @@ public class RichTextBox : Element
             _shapesCreated = true;
             var style = Style;
             var theme = OwnerWindow?.Theme ?? Theme.Dark;
-            _effectiveFontSize = EffectiveFontSize(style.FontSize);
-            _effectiveBoldFontSize = EffectiveBoldFontSize(style.FontSize);
+            _effectiveFontSize = EffectiveFontSize(FontSize);
+            _effectiveBoldFontSize = EffectiveBoldFontSize(FontSize);
             _blinkTag = new object();
             _autoScrollTag = new object();
 
@@ -381,6 +488,7 @@ public class RichTextBox : Element
     {
         State = State | ElementState.Focused;
         _cursorShape?.Visible(true);
+        UpdateSelection();
         StartBlinkAnimation();
         MarkDirty();
     }
@@ -390,7 +498,7 @@ public class RichTextBox : Element
         State = State & ~ElementState.Focused;
         _cursorShape?.Visible(false);
         _selectionShape?.Visible(false);
-        _selectionStart = -1;
+        // Retain the logical selection for toolbar commands across focus changes.
         _mouseDown = false;
         StopAutoScroll();
         StopBlinkAnimation();
@@ -407,94 +515,6 @@ public class RichTextBox : Element
                 return i;
         }
         return _runs.Count - 1;
-    }
-
-    private void SplitRunAt(int charPos)
-    {
-        if (charPos <= 0 || charPos >= _text.Length) return;
-        for (int i = 0; i < _runs.Count; i++)
-        {
-            var run = _runs[i];
-            if (charPos > run.Start && charPos < run.End)
-            {
-                int leftLen = charPos - run.Start;
-                int rightLen = run.Length - leftLen;
-                _runs[i] = new TextRun { Start = run.Start, Length = leftLen, Format = run.Format, Color = run.Color };
-                _runs.Insert(i + 1, new TextRun { Start = charPos, Length = rightLen, Format = run.Format, Color = run.Color });
-                return;
-            }
-        }
-    }
-
-    private void InsertTextInRuns(int pos, int len)
-    {
-        if (len <= 0) return;
-
-        // Determine format for inserted text
-        TextFormat fmt;
-        Color4? color;
-        if (_pendingFormat.HasValue || _pendingColor.HasValue)
-        {
-            fmt = _pendingFormat ?? GetFormatAtPos(pos);
-            color = _pendingColor ?? GetColorAtPos(pos);
-        }
-        else
-        {
-            fmt = GetFormatAtPos(pos);
-            color = GetColorAtPos(pos);
-        }
-
-        if (_runs.Count == 0)
-        {
-            _runs.Add(new TextRun { Start = 0, Length = len, Format = fmt, Color = color });
-            return;
-        }
-
-        int ri = FindRunIndexForInsert(pos);
-
-        // Shift all runs after the insertion point
-        for (int i = ri + 1; i < _runs.Count; i++)
-        {
-            var r = _runs[i];
-            r.Start += len;
-            _runs[i] = r;
-        }
-
-        var run = _runs[ri];
-
-        if (RunStyleEquals(run, fmt, color))
-        {
-            // Same format: extend the run
-            run.Length += len;
-            _runs[ri] = run;
-        }
-        else if (pos == run.Start)
-        {
-            // Insert before this run
-            _runs.Insert(ri, new TextRun { Start = pos, Length = len, Format = fmt, Color = color });
-            // Shift this run
-            var shifted = _runs[ri + 1];
-            shifted.Start += len;
-            _runs[ri + 1] = shifted;
-        }
-        else if (pos == run.End)
-        {
-            // Insert after this run (before next)
-            // Shift already done above for runs after ri
-            _runs.Insert(ri + 1, new TextRun { Start = pos, Length = len, Format = fmt, Color = color });
-        }
-        else
-        {
-            // Insert in the middle of a run — split it
-            int leftLen = pos - run.Start;
-            int rightLen = run.Length - leftLen;
-            _runs[ri] = new TextRun { Start = run.Start, Length = leftLen, Format = run.Format, Color = run.Color };
-            _runs.Insert(ri + 1, new TextRun { Start = pos, Length = len, Format = fmt, Color = color });
-            _runs.Insert(ri + 2, new TextRun { Start = pos + len, Length = rightLen, Format = run.Format, Color = run.Color });
-        }
-
-        _pendingFormat = null;
-        _pendingColor = null;
     }
 
     private void DeleteRangeInRuns(int start, int len)
@@ -553,6 +573,7 @@ public class RichTextBox : Element
 
     private void ToggleFormatFlag(TextFormat flag)
     {
+        Focus();
         if (!HasSelection())
         {
             // Toggle pending format
@@ -561,7 +582,7 @@ public class RichTextBox : Element
                 _pendingFormat = cur & ~flag;
             else
                 _pendingFormat = cur | flag;
-            FormatChanged?.Invoke(_pendingFormat.Value);
+            NotifyFormatting();
             return;
         }
 
@@ -577,41 +598,10 @@ public class RichTextBox : Element
             if ((run.Format & flag) == 0) { allHaveFlag = false; break; }
         }
 
-        SplitRunAt(start);
-        SplitRunAt(end);
-
-        for (int i = 0; i < _runs.Count; i++)
+        ApplyStyleChange(start, end - start, style => style with
         {
-            var run = _runs[i];
-            if (run.Start >= start && run.End <= end)
-            {
-                if (allHaveFlag)
-                    run.Format &= ~flag;
-                else
-                    run.Format |= flag;
-                _runs[i] = run;
-            }
-        }
-
-        MergeAdjacentRuns();
-        UpdateContent();
-        MarkDirty();
-    }
-
-    private void ApplyColorToRange(int start, int end, Color4 color)
-    {
-        SplitRunAt(start);
-        SplitRunAt(end);
-
-        for (int i = 0; i < _runs.Count; i++)
-        {
-            var run = _runs[i];
-            if (run.Start >= start && run.End <= end)
-            {
-                run.Color = color;
-                _runs[i] = run;
-            }
-        }
+            Format = allHaveFlag ? style.Format & ~flag : style.Format | flag
+        }, user: true);
     }
 
     private void MergeAdjacentRuns()
@@ -644,15 +634,6 @@ public class RichTextBox : Element
         int ri = FindRunIndex(pos > 0 ? pos - 1 : 0);
         if (ri >= 0 && ri < _runs.Count) return _runs[ri].Color;
         return null;
-    }
-
-    private int FindRunIndexForInsert(int pos)
-    {
-        for (int i = 0; i < _runs.Count; i++)
-        {
-            if (pos <= _runs[i].End) return i;
-        }
-        return _runs.Count - 1;
     }
 
     private static bool RunStyleEquals(TextRun run, TextFormat fmt, Color4? color)
@@ -730,6 +711,8 @@ public class RichTextBox : Element
                 if (lw > _maxLineWidth) _maxLineWidth = lw;
             }
         }
+
+        ClampScroll();
 
         _placeholderScene?.Visible(string.IsNullOrEmpty(_text));
 
@@ -1109,6 +1092,9 @@ public class RichTextBox : Element
     private void EnsureCursorVisible()
     {
         _cursorPos = Boundaries.Floor(_cursorPos);
+        // Parameter synchronization can happen before attach or layout. A
+        // negative provisional viewport must never manufacture a scroll offset.
+        if (!_shapesCreated || _lineHeight <= 0 || Bounds.W <= 2 * Padding || Bounds.H <= 2 * Padding) return;
         float viewportH = ViewportH();
         float viewportW = ViewportW();
         float cursorY = GetCursorY();
@@ -1258,17 +1244,10 @@ public class RichTextBox : Element
 
     private void PasteFromClipboard()
     {
-        var clip = Glfw.Glfw.glfwGetClipboardString(null);
-        if (string.IsNullOrEmpty(clip)) return;
-        DeleteSelection();
-        InsertTextInRuns(_cursorPos, clip.Length);
-        _text = _text.Insert(_cursorPos, clip);
-        _cursorPos = Boundaries.Ceiling(_cursorPos + clip.Length);
-        _selectionStart = -1;
-        SplitLines();
-        EnsureCursorVisible();
-        MarkDirty();
-        TextChanged?.Invoke(_text);
+        var gw = OwnerWindow?.GlfwWindow;
+        if (gw == null) return;
+        string? clip = Glfw.Glfw.glfwGetClipboardString(gw);
+        if (!string.IsNullOrEmpty(clip)) ReplaceSelectionWithText(clip);
     }
 
     // --- Auto-scroll during mouse selection ---
@@ -1381,12 +1360,12 @@ public class RichTextBox : Element
         _lastMouseLx = lx;
         _lastMouseLy = ly;
         _pendingFormat = null;
-        _pendingColor = null;
+        _pendingColor = null; _plainPendingColor = false;
         StartAutoScroll();
         UpdateCursorPosition();
         UpdateSelection();
         RestartBlink();
-        FormatChanged?.Invoke(GetCurrentFormat());
+        NotifyFormatting();
         MarkDirty();
         return true;
     }
@@ -1472,6 +1451,7 @@ public class RichTextBox : Element
         UpdateCursorPosition();
         UpdateSelection();
         RestartBlink();
+        NotifyFormatting();
         MarkDirty();
     }
 
@@ -1499,18 +1479,22 @@ public class RichTextBox : Element
 
     public override void OnTextInput(string text)
     {
-        if (!Enabled) return;
+        if (!Enabled || string.IsNullOrEmpty(text)) return;
+        ReplaceSelectionWithText(text);
+    }
 
-        DeleteSelection();
-        InsertTextInRuns(_cursorPos, text.Length);
-        _text = _text.Insert(_cursorPos, text);
-        _cursorPos = Boundaries.Ceiling(_cursorPos + text.Length);
-        _selectionStart = -1;
-        SplitLines();
-        EnsureCursorVisible();
-        RestartBlink();
-        MarkDirty();
-        TextChanged?.Invoke(_text);
+    private void ReplaceSelectionWithText(string text)
+    {
+        int start = SelectionStart;
+        var style = new RichTextStyle(_pendingFormat ?? GetFormatAtPos(start),
+            _plainPendingColor ? null : _pendingColor ?? GetColorAtPos(start));
+        RichDocument next;
+        try { next = Document.Replace(start, SelectionLength, text, style); }
+        catch (ArgumentException) { return; } // A bounded editor declines an edit beyond its documented limits.
+        LoadDocument(next, clearSelection: true);
+        _cursorPos = Boundaries.Ceiling(start + text.Length);
+        EnsureCursorVisible(); RestartBlink(); MarkDirty();
+        CompleteUserEdit();
     }
 
     public override void OnKeyDown(int key, int mods, bool repeat)
@@ -1522,18 +1506,15 @@ public class RichTextBox : Element
 
         switch (key)
         {
+            case GLFW_KEY_Z when ctrl:
+                if (shift) Redo(); else Undo();
+                break;
+            case GLFW_KEY_Y when ctrl:
+                Redo();
+                break;
             case GLFW_KEY_ENTER:
             case GLFW_KEY_KP_ENTER:
-                DeleteSelection();
-                InsertTextInRuns(_cursorPos, 1);
-                _text = _text.Insert(_cursorPos, "\n");
-                _cursorPos = Boundaries.Next(_cursorPos);
-                _selectionStart = -1;
-                SplitLines();
-                EnsureCursorVisible();
-                RestartBlink();
-                MarkDirty();
-                TextChanged?.Invoke(_text);
+                ReplaceSelectionWithText("\n");
                 break;
 
             case GLFW_KEY_LEFT:
@@ -1549,10 +1530,10 @@ public class RichTextBox : Element
                     _cursorPos = Boundaries.Previous(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 RestartBlink();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
 
@@ -1569,10 +1550,10 @@ public class RichTextBox : Element
                     _cursorPos = Boundaries.Next(_cursorPos);
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 RestartBlink();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
 
@@ -1591,10 +1572,10 @@ public class RichTextBox : Element
                 }
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 RestartBlink();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
             }
@@ -1614,10 +1595,10 @@ public class RichTextBox : Element
                 }
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 RestartBlink();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
             }
@@ -1634,9 +1615,9 @@ public class RichTextBox : Element
                 }
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
             }
@@ -1653,9 +1634,9 @@ public class RichTextBox : Element
                 }
                 if (!shift) _selectionStart = -1;
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
-                FormatChanged?.Invoke(GetCurrentFormat());
+                NotifyFormatting();
                 MarkDirty();
                 break;
             }
@@ -1673,10 +1654,10 @@ public class RichTextBox : Element
                     SplitLines();
                 }
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                CompleteUserEdit();
                 break;
 
             case GLFW_KEY_DELETE:
@@ -1690,18 +1671,14 @@ public class RichTextBox : Element
                     SplitLines();
                 }
                 _pendingFormat = null;
-                _pendingColor = null;
+                _pendingColor = null; _plainPendingColor = false;
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                CompleteUserEdit();
                 break;
 
             case GLFW_KEY_A when ctrl:
-                _selectionStart = 0;
-                _cursorPos = _text.Length;
-                UpdateCursorPosition();
-                UpdateSelection();
-                MarkDirty();
+                Select(0, _text.Length);
                 break;
 
             case GLFW_KEY_C when ctrl:
@@ -1714,7 +1691,7 @@ public class RichTextBox : Element
                 SplitLines();
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                CompleteUserEdit();
                 break;
 
             case GLFW_KEY_V when ctrl:
@@ -1806,8 +1783,8 @@ public class RichTextBox : Element
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
-        _effectiveFontSize = EffectiveFontSize(style.FontSize);
-        _effectiveBoldFontSize = EffectiveBoldFontSize(style.FontSize);
+        _effectiveFontSize = EffectiveFontSize(FontSize);
+        _effectiveBoldFontSize = EffectiveBoldFontSize(FontSize);
         _measureText!.SetFont(style.FontName);
         _measureText.SetFontSize(_effectiveFontSize);
         _measureTextBold!.SetFontSize(_effectiveBoldFontSize);
@@ -1839,7 +1816,7 @@ public class RichTextBox : Element
                 SplitLines();
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                CompleteUserEdit();
             });
             menu.AddItem("Copy", CopyToClipboard);
         }
