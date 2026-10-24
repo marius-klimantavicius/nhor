@@ -1,0 +1,8 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+<Button Text="Context owner"><ContextMenu><MenuItem Label="Inspect source" OnClick="Click" /></ContextMenu></Button>
+@code {
+    public int Clicks;
+    private void Click() => Clicks++;
+}

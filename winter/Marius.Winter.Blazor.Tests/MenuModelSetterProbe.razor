@@ -1,0 +1,17 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@using System.Collections.Generic
+<MenuBar><Menu Title="Preview"><MenuItem Label="Detailed view" @bind-IsChecked:get="Model.Checked" @bind-IsChecked:set="Model.SetChecked" OnClick="Click" /></Menu></MenuBar>
+@code {
+    public sealed class State
+    {
+        public bool Checked;
+        public List<bool> Checks = new();
+        public void SetChecked(bool value) { Checks.Add(value); Checked = value; }
+    }
+    public State Model = new();
+    public int Clicks;
+    private void Click() => Clicks++;
+    public void RenderAgain() => StateHasChanged();
+}

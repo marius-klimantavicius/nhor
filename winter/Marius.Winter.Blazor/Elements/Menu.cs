@@ -19,7 +19,7 @@ public class Menu : WinterComponentBase
 }
 
 internal enum MenuContainerKind { Bar, Context }
-internal sealed record MenuBinding(Marius.Winter.Menu Menu, Func<Element?> Owner);
+internal sealed record MenuBinding(Marius.Winter.Menu Menu, Func<Element?> Owner, Marius.Winter.Menu? ContextRoot = null);
 
 internal sealed class MenuContainerHandler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
 {
@@ -46,7 +46,8 @@ internal sealed class MenuContainerHandler : WinterElementHandler, IIndexedNonPh
         else if (_kind == MenuContainerKind.Context && parentElement is Element contextOwner)
         { _contextOwner = contextOwner; _previousContext = contextOwner.ContextMenu; _menu = new Marius.Winter.Menu(); contextOwner.ContextMenu = _menu; owner = () => contextOwner; }
         else throw new InvalidOperationException("Menu requires MenuBar; ContextMenu requires a physical owner.");
-        Menu.ElementToMenu.Add(ElementControl, _menu); Menu.Bindings.Add(ElementControl, new MenuBinding(_menu, owner));
+        Menu.ElementToMenu.Add(ElementControl, _menu);
+        Menu.Bindings.Add(ElementControl, new MenuBinding(_menu, owner, _kind == MenuContainerKind.Context ? _menu : null));
     }
     public void Remove()
     {

@@ -1,7 +1,8 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
@@ -22,34 +23,38 @@ public class MenuItem : WinterComponentBase
     private readonly EventCallback<ChangeEventArgs> _delivery;
     public MenuItem() => _delivery = EventCallback.Factory.Create<ChangeEventArgs>(this, Accept);
     private sealed record Configuration(string Label, bool Enabled, bool Checked, string? Shortcut, long Reset,
-        EventCallback Click, EventCallback<bool> Check)
+        EventCallback Click, EventCallback<bool> Check);
+
+    // Components 8 callbacks with an explicit receiver can box an EventCallback
+    // whose public equality uses delegate reference identity. Razor recreates
+    // ordinary model method delegates, so compare their invocation lists and
+    // the exact receiver, for both checked and untyped action subscriptions.
+    private static class CallbackIdentity<TCallback> where TCallback : struct
     {
-        internal object? ClickIdentity = Identity(Click);
-        internal object? CheckIdentity = Identity(Check);
+        private static readonly FieldInfo? DelegateField, ReceiverField;
+        [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, typeof(EventCallback))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, typeof(EventCallback<>))]
+        static CallbackIdentity()
+        {
+            DelegateField = typeof(TCallback).GetField("Delegate", BindingFlags.Instance | BindingFlags.NonPublic);
+            ReceiverField = typeof(TCallback).GetField("Receiver", BindingFlags.Instance | BindingFlags.NonPublic);
+        }
+        internal static bool Same(TCallback a, TCallback b) => a.Equals(b) ||
+            DelegateField != null && ReceiverField != null &&
+            ReferenceEquals(ReceiverField.GetValue(a), ReceiverField.GetValue(b)) &&
+            Equals(DelegateField.GetValue(a), DelegateField.GetValue(b));
     }
-    private static object? Identity<T>(EventCallback<T> callback)
-    {
-        if (!callback.HasDelegate) return null;
-        using var b = new RenderTreeBuilder(); b.OpenElement(0, "menu-command"); b.AddAttribute(1, "onaction", callback); b.CloseElement();
-        return b.GetFrames().Array[1].AttributeValue;
-    }
-    private static object? Identity(EventCallback callback)
-    {
-        if (!callback.HasDelegate) return null;
-        using var b = new RenderTreeBuilder(); b.OpenElement(0, "menu-command"); b.AddAttribute(1, "onaction", callback); b.CloseElement();
-        return b.GetFrames().Array[1].AttributeValue;
-    }
-    private sealed record Delivery(Configuration Configuration, bool Checked, Func<bool> Current);
+    private sealed record Delivery(Configuration Configuration, bool Checked, Func<bool> Current, Action BeginCheck);
     private async Task Accept(ChangeEventArgs args)
     {
         var delivery = (Delivery)args.Value!;
         if (!delivery.Current()) return;
         if (delivery.Configuration.Check.HasDelegate)
         {
+            delivery.BeginCheck();
             IsChecked = delivery.Checked;
             await delivery.Configuration.Check.InvokeAsync(delivery.Checked);
         }
-        if (delivery.Current()) await delivery.Configuration.Click.InvokeAsync();
     }
     protected override void RenderAttributes(AttributesBuilder builder)
     {
@@ -69,6 +74,7 @@ public class MenuItem : WinterComponentBase
         private ulong _deliveryId;
         private long _generation;
         private int _pendingChecks;
+        private bool? _checkFeedback;
         internal Handler(NativeComponentRenderer renderer, EntryKind kind = EntryKind.Command) : base(renderer, new Marius.Winter.Panel()) { _kind = kind; }
         public override void ApplyAttribute(ulong id, string name, object value, string updates)
         {
@@ -82,8 +88,15 @@ public class MenuItem : WinterComponentBase
         {
             if (IsDisposed || _pending is not { } next) return;
             _pending = null; var old = _configuration;
+            // Only the render acknowledging a started checked callback may
+            // change the declared value without superseding later commands.
+            // A changed parent value before delivery is new authority; a
+            // rejected proposal also ends that pending sequence.
+            var feedback = _checkFeedback; _checkFeedback = null;
+            bool checkedAuthority = feedback.HasValue ? next.Checked != feedback.Value : old != null && old.Checked != next.Checked;
             if (old == null || old.Reset != next.Reset || old.Enabled != next.Enabled ||
-                !Equals(old.ClickIdentity, next.ClickIdentity) || !Equals(old.CheckIdentity, next.CheckIdentity))
+                !CallbackIdentity<EventCallback>.Same(old.Click, next.Click) ||
+                !CallbackIdentity<EventCallback<bool>>.Same(old.Check, next.Check) || checkedAuthority)
             { _generation++; _pendingChecks = 0; }
             _configuration = next;
             Synchronize();
@@ -99,18 +112,26 @@ public class MenuItem : WinterComponentBase
             if (IsDisposed || _deliveryId == 0 || _configuration is not { } c || _item is not { CanActivate: true } item || _binding == null) return;
             var generation = _generation; var id = _deliveryId; var revision = item.ActivationRevision;
             var binding = _binding; var owner = binding.Owner(); var window = owner?.OwnerWindow; var ownerVersion = owner?.MenuInputVersion;
+            var contextVersion = owner?.ContextMenuVersion;
             bool Current() => !IsDisposed && generation == _generation && id == _deliveryId && ReferenceEquals(_item, item) &&
                 item.CanActivate && item.ActivationRevision == revision && ReferenceEquals(_binding, binding) &&
+                (binding.ContextRoot == null || owner != null && owner.ContextMenuVersion == contextVersion && ReferenceEquals(owner.ContextMenu, binding.ContextRoot)) &&
                 (window == null || (owner!.IsActive && ReferenceEquals(owner.OwnerWindow, window) && owner.MenuInputVersion == ownerVersion && !window.ShutdownToken.IsCancellationRequested));
             bool check = !item.IsChecked;
             if (c.Check.HasDelegate) { _pendingChecks++; item.IsChecked = check; }
-            var delivery = new Delivery(c, check, Current);
+            var delivery = new Delivery(c, check, Current, () => _checkFeedback = check);
             void Deliver()
             {
                 if (IsDisposed || generation != _generation) return;
                 if (c.Check.HasDelegate) _pendingChecks--;
                 if (!Current()) { Synchronize(); return; }
-                _ = Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery }));
+                _ = Renderer.Dispatcher.InvokeAsync(async () =>
+                {
+                    await Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery });
+                    // Dispatch completes the checked feedback render, including
+                    // parent rejection, before the separate captured action.
+                    if (Current()) await c.Click.InvokeAsync();
+                });
             }
             if (window != null) window.DispatcherQueue.Enqueue(Deliver); else Deliver();
         }
@@ -127,7 +148,7 @@ public class MenuItem : WinterComponentBase
             {
                 _item.Enabled = _enabled;
                 Menu.ElementToMenu.Add(ElementControl, _item.SubMenu!);
-                Menu.Bindings.Add(ElementControl, new MenuBinding(_item.SubMenu!, _binding.Owner));
+                Menu.Bindings.Add(ElementControl, new MenuBinding(_item.SubMenu!, _binding.Owner, _binding.ContextRoot));
             }
             Synchronize();
         }

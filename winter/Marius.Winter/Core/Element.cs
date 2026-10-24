@@ -652,10 +652,17 @@ public abstract class Element : IDisposable
     /// <see cref="OnBuildContextMenu"/> instead.
     /// </summary>
     private Menu? _contextMenu;
+    internal long ContextMenuVersion { get; private set; }
     public Menu? ContextMenu
     {
         get => _contextMenu;
-        set { if (ReferenceEquals(_contextMenu, value)) return; OwnerWindow?.ContextMenuChanged(this); _contextMenu = value; }
+        set
+        {
+            if (ReferenceEquals(_contextMenu, value)) return;
+            ContextMenuVersion++;
+            OwnerWindow?.ContextMenuChanged(this);
+            _contextMenu = value;
+        }
     }
 
     /// <summary>

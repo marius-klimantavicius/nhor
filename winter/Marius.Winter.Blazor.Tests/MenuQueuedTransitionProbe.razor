@@ -1,0 +1,32 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@using System.Collections.Generic
+@using System.Threading.Tasks
+<Button Text="Context owner">
+    <ContextMenu>
+        <MenuItem Label="@Label" @bind-IsChecked:get="Model.Checked" @bind-IsChecked:set="Model.SetChecked" OnClick="Model.Click" />
+        <SubMenu Label="More">
+            <MenuItem Label="Nested check" @bind-IsChecked:get="Model.Checked" @bind-IsChecked:set="Model.SetChecked" OnClick="Model.Click" />
+        </SubMenu>
+    </ContextMenu>
+</Button>
+<MenuBar><Menu Title="Preview">
+    <MenuItem Label="@Label" @bind-IsChecked:get="Model.Checked" @bind-IsChecked:set="Model.SetChecked" OnClick="Model.Click" />
+</Menu></MenuBar>
+@code {
+    public sealed class State
+    {
+        public bool Checked;
+        public bool Reject;
+        public List<bool> Checks = new();
+        public int Clicks;
+        public TaskCompletionSource? Gate;
+        public Task SetChecked(bool value) { Checks.Add(value); Checked = !Reject && value; return Gate?.Task ?? Task.CompletedTask; }
+        public void Click() => Clicks++;
+    }
+    public State Model = new();
+    public string Label = "Detailed view";
+    public void ParentSet(bool value) { Model.Checked = value; StateHasChanged(); }
+    public void RenderAgain() { Label = "Detailed preview"; StateHasChanged(); }
+}

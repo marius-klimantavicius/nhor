@@ -1,0 +1,41 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@using System.Collections.Generic
+<MenuBar><Menu Title="Preview">
+    @if (Mode == "default")
+    {
+        <MenuItem Label="Detailed view" @bind-IsChecked="Checked" OnClick="Click" ResetVersion="Version" />
+    }
+    else if (Mode == "getset")
+    {
+        <MenuItem Label="Detailed view" @bind-IsChecked:get="Checked" @bind-IsChecked:set="SetChecked" OnClick="Click" ResetVersion="Version" />
+    }
+    else
+    {
+        <MenuItem Label="Detailed view" @bind-IsChecked:get="Model.Checked" @bind-IsChecked:set="Model.SetChecked" OnClick="Model.Click" ResetVersion="Version" />
+    }
+</Menu></MenuBar>
+@code {
+    [Parameter] public string Mode { get; set; } = "default";
+    public sealed class State
+    {
+        public bool Checked;
+        public List<bool> Checks = new();
+        public List<string> Trace = new();
+        public int Clicks;
+        public void SetChecked(bool value) { Checks.Add(value); Checked = value; Trace.Add($"check:{value}"); }
+        public void Click() { Clicks++; Trace.Add($"click:{Checked}"); }
+    }
+    public State Model = new();
+    public List<bool> Checks = new();
+    private bool _checked;
+    public bool Checked { get => _checked; set { Checks.Add(value); _checked = value; } }
+    private void SetChecked(bool value) => Checked = value;
+    public int Clicks;
+    private void Click() => Clicks++;
+    public void RenderAgain() => StateHasChanged();
+    public void ParentSet(bool value) { _checked = Model.Checked = value; StateHasChanged(); }
+    public long Version;
+    public void Reset() { Version++; _checked = Model.Checked = false; StateHasChanged(); }
+}

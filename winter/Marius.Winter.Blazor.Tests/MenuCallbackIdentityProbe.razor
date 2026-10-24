@@ -1,0 +1,8 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+<MenuBar><Menu Title="Preview"><MenuItem Label="Details" IsCheckedChanged="Check" OnClick="Click" /></Menu></MenuBar>
+@code {
+    [Parameter] public EventCallback<bool> Check { get; set; }
+    [Parameter] public EventCallback Click { get; set; }
+}
