@@ -1043,7 +1043,33 @@ public unsafe class Window : Element
         }
     }
 
-    private void ShowTooltip()
+    // Parameter/native updates affect only the help belonging to this hovered
+    // owner. In particular, clearing must also cancel a delayed presentation.
+    internal void RefreshTooltip(Element owner)
+    {
+        if (!ReferenceEquals(owner, _hoveredElement)) return;
+        if (owner.Tooltip == null)
+        {
+            if (ReferenceEquals(owner, _tooltipElement)) HideTooltip();
+            return;
+        }
+
+        bool visible = ReferenceEquals(owner, _tooltipElement) && _tooltipOverlay != null;
+        if (!ReferenceEquals(owner, _tooltipElement))
+        {
+            _tooltipTimer = 0;
+            _tooltipMouseX = _mouseX;
+            _tooltipMouseY = _mouseY;
+        }
+        if (visible) HideTooltip();
+        _tooltipElement = owner;
+        if (visible) PresentTooltip(fadeIn: false);
+        else _dirty = true;
+    }
+
+    private void ShowTooltip() => PresentTooltip(fadeIn: true);
+
+    private void PresentTooltip(bool fadeIn)
     {
         if (_tooltipElement == null || _tooltipElement.Tooltip == null) return;
 
@@ -1052,9 +1078,9 @@ public unsafe class Window : Element
         _tooltipOverlay.PositionNear(_tooltipMouseX, _tooltipMouseY, (uint)_logicalWidth, (uint)_logicalHeight, _theme);
 
         // Fade-in animation
-        _tooltipOverlay.Opacity = 0;
+        _tooltipOverlay.Opacity = fadeIn ? 0 : 1;
         _animator.Cancel("tooltip");
-        _animator.Start(new Animation
+        if (fadeIn) _animator.Start(new Animation
         {
             Duration = 0.15f,
             Easing = Easings.EaseOutCubic,

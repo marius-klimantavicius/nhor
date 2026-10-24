@@ -45,7 +45,7 @@ public sealed class HelpRichDisplayScenario : IDisposable
         AddAction(helpActions, "Clear help", () =>
         {
             _favorite.Tooltip = null;
-            ShowResult("Favorite help cleared. Hover Favorite to check.");
+            ShowResult("Favorite help cleared, including any help already visible.");
         });
         content.AddChild(helpActions);
         var ownerActions = Row();
@@ -81,6 +81,39 @@ public sealed class HelpRichDisplayScenario : IDisposable
             ShowResult("Preview cleared. Reset restores text and icon.");
         });
         content.AddChild(displayActions);
+        var iconActions = Row();
+        AddAction(iconActions, "Larger icon", () =>
+        {
+            _icon.RequestedWidth = _icon.RequestedHeight = 96;
+            ShowResult("Icon: 96 by 96 units. Text size stays the same.");
+        });
+        AddAction(iconActions, "Clear icon width", () =>
+        {
+            _icon.RequestedWidth = 0;
+            ShowResult("Icon width: intrinsic 24 units. Height stays the same.");
+        });
+        AddAction(iconActions, "Clear icon height", () =>
+        {
+            _icon.RequestedHeight = 0;
+            ShowResult("Icon height: intrinsic 24 units. Width stays the same.");
+        });
+        AddAction(iconActions, "Reset icon", () =>
+        {
+            _icon.Svg = Star;
+            _icon.RequestedWidth = _icon.RequestedHeight = 32;
+            ShowResult("Icon reset to 32 units. Text stays the same.");
+        });
+        content.AddChild(iconActions);
+        var opacityActions = Row();
+        AddAction(opacityActions, "Opaque text", () => SetTextAlpha(1, "Text: fully opaque."));
+        AddAction(opacityActions, "Half text", () => SetTextAlpha(.5f, "Text: half opacity."));
+        AddAction(opacityActions, "Hide text", () => SetTextAlpha(0, "Text: transparent; its space and icon stay visible."));
+        AddAction(opacityActions, "Theme color", () =>
+        {
+            _name.ResetColor();
+            ShowResult("Text color and opacity follow the theme.");
+        });
+        content.AddChild(opacityActions);
         _result = new Label();
         content.AddChild(_result);
         Reset();
@@ -92,6 +125,11 @@ public sealed class HelpRichDisplayScenario : IDisposable
     private static Panel Row() => new() { Layout = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 8, CrossAlignment = Alignment.Center } };
     private static void AddAction(Panel row, string text, Action action) => row.AddChild(new Button(text) { Clicked = action });
     private void ShowResult(string text) => _result.Text = text;
+    private void SetTextAlpha(float alpha, string result)
+    {
+        _name.Color = new Color4(.1f, .4f, .65f, alpha);
+        ShowResult(result);
+    }
     private void SetDisplay(float fontSize, Color4 color, float size)
     {
         _name.Text = "Favorite · Žvaigždė · Café";

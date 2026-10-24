@@ -191,11 +191,22 @@ public abstract class Element : IDisposable
         }
     }
 
+    private object? _tooltip;
+
     /// <summary>
     /// Tooltip content shown on hover. Set to a string for text, or a
     /// <see cref="TooltipContent"/> for text+SVG combinations.
     /// </summary>
-    public object? Tooltip { get; set; }
+    public object? Tooltip
+    {
+        get => _tooltip;
+        set
+        {
+            if (ReferenceEquals(_tooltip, value)) return;
+            _tooltip = value;
+            OwnerWindow?.RefreshTooltip(this);
+        }
+    }
 
     public Style Style
     {

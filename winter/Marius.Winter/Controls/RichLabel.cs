@@ -90,7 +90,11 @@ public class RichLabel : Element
             _colorSet = true;
             if (_color.R == value.R && _color.G == value.G && _color.B == value.B && _color.A == value.A) return;
             _color = value;
-            _textPaint?.SetFill(value.R8, value.G8, value.B8);
+            if (_textPaint != null)
+            {
+                _textPaint.SetFill(value.R8, value.G8, value.B8);
+                _textPaint.Opacity(value.A8);
+            }
             MarkDirty();
         }
     }
@@ -147,6 +151,7 @@ public class RichLabel : Element
             _textPaint!.SetFont(style.FontName);
             _textPaint.SetFontSize(EffectiveFontSize(_fontSize));
             _textPaint.SetFill(_color.R8, _color.G8, _color.B8);
+            _textPaint.Opacity(_color.A8);
             AddPaint(_textPaint);
         }
 

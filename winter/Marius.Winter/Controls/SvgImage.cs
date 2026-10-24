@@ -117,6 +117,10 @@ public class SvgImage : Element
         float scale = MathF.Min(scaleX, scaleY);
 
         _picture.SetSize(_intrinsicW * scale, _intrinsicH * scale);
+        // SetSize defers SVG resizing until the next paint update. Reapply the
+        // retained transform to mark that update even when position is unchanged.
+        var transform = _picture.Transform();
+        _picture.Transform(transform);
     }
 
     protected override void OnSizeChanged()
