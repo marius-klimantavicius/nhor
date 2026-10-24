@@ -99,6 +99,12 @@ public class DataTree<TItem> : WinterComponentBase
                 if (Expands(request.Kind)) _pendingExpansion--;
                 if (!IsDisposed && id == _requestId && generation == _generation && ReferenceEquals(controller, Control.Controller) && revision == controller?.Revision)
                     _ = Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery }));
+                else if (_configuration is { } configuration)
+                    // A data revision can invalidate the last queued action after
+                    // a parent correction was deferred behind it. Apply that
+                    // correction now, without reviving the old callback identity.
+                    Control.Synchronize(_pendingSelection > 0 ? Control.SelectedKey : configuration.Selected,
+                        _pendingExpansion > 0 ? Control.ExpandedKeys : configuration.Expanded);
             }
             if (Control.OwnerWindow is { } window) window.DispatcherQueue.Enqueue(Deliver);
             else Deliver();
@@ -135,7 +141,7 @@ public class DataTree<TItem> : WinterComponentBase
             bool reset = previous == null || replaced || next.ResetVersion != previous.ResetVersion || !ReferenceEquals(previous.Items, next.Items);
             if (reset) { _generation++; _pendingSelection = _pendingExpansion = 0; }
             if (next.Controller == null && (previous == null || replaced || !ReferenceEquals(previous.Items, next.Items) || next.ResetVersion != previous.ResetVersion))
-                Control.Controller!.SetItems(next.Items ?? Array.Empty<TItem>());
+                Control.Controller!.SetItems(next.Items ?? Array.Empty<TItem>(), next.Selected, next.Expanded);
             // A click selects and expands before either callback is drained. An
             // earlier field notification must not cancel a later queued command.
             // Explicit ResetVersion/data replacement still supersedes both fields.

@@ -10,18 +10,20 @@ namespace Marius.Winter.Playground.Scenarios;
 public sealed class ProjectBrowserScenario : IDisposable
 {
     private sealed record Item(string Key, string Name, Item[]? Children = null, bool Lazy = false);
+    private const string FolderIcon = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path d='M1 3h5l2 2h7v9H1z' fill='#d9a34a'/></svg>";
+    private const string FileIcon = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path d='M3 1h7l3 3v11H3z' fill='#718eb9'/></svg>";
     private readonly Window _window;
     private readonly Panel _root;
     private readonly TreeController<Item> _controller;
     private readonly DataTree<Item> _tree;
     private readonly Label _selection = new(), _status = new(), _result = new("Ready. Reveal the selected note or open a folder.");
     private bool _renamed, _reordered, _large, _disposed;
-    private int _attempts, _cancelled;
+    private int _attempts, _cancelled, _generation;
 
     public ProjectBrowserScenario(Window window)
     {
         _window = window;
-        _controller = new(i => i.Key, i => i.Name, i => i.Children ?? [], mayHaveChildren: i => i.Lazy, loadChildren: Load);
+        _controller = new(i => i.Key, i => i.Name, i => i.Children ?? [], iconSelector: i => i.Lazy || i.Children != null ? FolderIcon : FileIcon, mayHaveChildren: i => i.Lazy, loadChildren: Load);
         _tree = new(_controller) { LayoutData = new FlexItem { Grow = 1, Basis = 0 } };
         _root = new Panel { Layout = new FlexLayout { Direction = Orientation.Vertical, Gap = 8 }, Padding = new Thickness(8) };
         _root.AddChild(new Label("Project browser") { FontSize = 22 });
@@ -54,14 +56,26 @@ public sealed class ProjectBrowserScenario : IDisposable
     }
     private async Task<IReadOnlyList<Item>> Load(Item item, CancellationToken cancellation)
     {
+        int generation = Volatile.Read(ref _generation);
         try
         {
             await Task.Delay(1200, cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
-            if (item.Key == "retry" && Interlocked.Increment(ref _attempts) == 1) throw new InvalidOperationException("Packages temporarily unavailable");
-            return item.Key == "empty" ? [] : [new(item.Key + "/same-a", "index.cs"), new(item.Key + "/same-b", "index.cs"), new(item.Key + "/unicode", "Žąsis 👩🏽‍💻é.cs")];
+            return await _window.Dispatcher.InvokeAsync<IReadOnlyList<Item>>(() =>
+            {
+                if (_disposed || generation != _generation) throw new OperationCanceledException(cancellation);
+                if (item.Key == "retry" && ++_attempts == 1) throw new InvalidOperationException("Packages temporarily unavailable");
+                return item.Key == "empty" ? [] : [new(item.Key + "/same-a", "index.cs"), new(item.Key + "/same-b", "index.cs"), new(item.Key + "/unicode", "Žąsis 👩🏽‍💻é.cs")];
+            }).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { Interlocked.Increment(ref _cancelled); Changed(); throw; }
+        catch (OperationCanceledException)
+        {
+            await _window.Dispatcher.InvokeAsync(() =>
+            {
+                if (!_disposed && generation == _generation) { _cancelled++; UpdateStatus(); }
+            }).ConfigureAwait(false);
+            throw;
+        }
     }
     private void Requested(TreeRequest<Item> request) { _result.Text = $"{request.Kind}: {request.Item.Name} [{request.Key}]"; UpdateStatus(); }
     private void Changed()
@@ -79,15 +93,16 @@ public sealed class ProjectBrowserScenario : IDisposable
     private void Replace(string result) { _controller.SetItems(Items()); _result.Text = result; }
     private void Reset()
     {
+        Interlocked.Increment(ref _generation);
         _renamed = _reordered = _large = false; _attempts = _cancelled = 0; _tree.FontSize = 14;
-        _controller.SetItems(Items()); _controller.Synchronize("note-b", new HashSet<string> { "project" });
+        _controller.SetItems(Items(), "note-b", new HashSet<string> { "project" });
         _result.Text = "Ready. Reveal the selected note or open a folder."; UpdateStatus();
     }
     private ValueTask Closing() { Dispose(); return ValueTask.CompletedTask; }
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true; _window.Closing -= Closing;
+        _disposed = true; Interlocked.Increment(ref _generation); _window.Closing -= Closing;
         _controller.Changed -= Changed; _controller.Requested -= Requested;
         _controller.Dispose(); _root.Dispose();
     }

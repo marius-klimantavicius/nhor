@@ -81,7 +81,13 @@ public sealed class TreeController<TItem> : IDisposable
 
     /// <summary>Atomically replaces the data. Surviving keys retain selection/expansion;
     /// all old loads and lazy caches are invalidated, even for equal keys.</summary>
-    public void SetItems(IEnumerable<TItem> items)
+    public void SetItems(IEnumerable<TItem> items) => ReplaceItems(items, true, null, null);
+
+    /// <summary>Atomically replaces data and authoritative state, without briefly loading old expansion.</summary>
+    public void SetItems(IEnumerable<TItem> items, string? selectedKey, IEnumerable<string>? expandedKeys)
+        => ReplaceItems(items, false, selectedKey, expandedKeys);
+
+    private void ReplaceItems(IEnumerable<TItem> items, bool preserveState, string? selectedKey, IEnumerable<string>? expandedKeys)
     {
         ArgumentNullException.ThrowIfNull(items);
         lock (_gate)
@@ -92,6 +98,11 @@ public sealed class TreeController<TItem> : IDisposable
             foreach (var n in _nodes.Values) Cancel(n);
             _revision++;
             _nodes = map; _roots = roots;
+            if (!preserveState)
+            {
+                _selected = selectedKey;
+                _expanded = new HashSet<string>(expandedKeys ?? Array.Empty<string>(), StringComparer.Ordinal);
+            }
             _expanded.IntersectWith(map.Keys);
             if (_selected != null && !map.ContainsKey(_selected)) _selected = null;
             Changed?.Invoke();

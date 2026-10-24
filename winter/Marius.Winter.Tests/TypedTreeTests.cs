@@ -158,6 +158,30 @@ public class TypedTreeTests
         if (paint is ThorVG.Scene scene) foreach (var child in scene.Paints()) foreach (var p in Paints(child)) yield return p;
     }
 
+    [Fact]
+    public async Task DetachedViewRetainsCallerDataAndRebuildsRowsWhenReattached()
+    {
+        var result = new TaskCompletionSource<IReadOnlyList<Item>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var c = Controller((_, _) => result.Task);
+        c.SetItems([new("p", "Folder", Lazy: true)]);
+        DataTree<Item> view = null!; Panel root = null!; Task loading = Task.CompletedTask;
+        using var pump = new NativePump(w =>
+        {
+            root = new Panel { Layout = new FlexLayout() };
+            view = new(c) { LayoutData = new FlexItem { Grow = 1 } }; root.AddChild(view);
+            w.AddChild(root); w.SetAutoLayout(root);
+        });
+        await pump.Call(_ => { loading = view.ExpandAsync("p"); root.RemoveChild(view); Assert.False(view.IsDisposed); });
+        result.SetResult([new("child", "loaded while detached")]); await loading;
+        await pump.Call(_ =>
+        {
+            Assert.Equal("Loading…", view.Nodes[0].Children[0].Text);
+            root.AddChild(view);
+            Assert.Equal("loaded while detached", view.Nodes[0].Children[0].Text);
+            Assert.NotNull(c.GetNode("child"));
+        });
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -234,7 +258,36 @@ public class TypedTreeTests
             int actions = 0;
             while (window.DispatcherQueue.TryDequeue(out var action)) { Assert.True(++actions < 100); action(); }
             Assert.Equal(1, loads); Assert.False(token.IsCancellationRequested);
+            Assert.True(component.Result.SetParametersAsync(Microsoft.AspNetCore.Components.ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                ["ResetVersion"] = 1L, ["SelectedKey"] = null, ["ExpandedKeys"] = new HashSet<string>()
+            })).IsCompletedSuccessfully);
+            Assert.Equal(1, loads); // Reset must not start a transient load from old expansion.
+            Assert.True(token.IsCancellationRequested);
             result.SetResult([]);
+        });
+    }
+
+    [Fact]
+    public void ExternalDataReplacementDropsQueuedSelectionAndAppliesParentCorrection()
+    {
+        WindowRegressionOwner.Run(() =>
+        {
+            using var window = new Window(500, 320, "Tree data revision ordering");
+            using var c = Controller(); c.SetItems([new("a", "same"), new("b", "same")]);
+            int calls = 0;
+            var host = Marius.Winter.Blazor.WindowExtensions.UseBlazor(window);
+            var component = host.AddComponent<Marius.Winter.Blazor.Elements.DataTree<Item>>(new()
+            {
+                ["Controller"] = c,
+                ["SelectedKeyChanged"] = Microsoft.AspNetCore.Components.EventCallback.Factory.Create<string?>(this, _ => calls++)
+            });
+            Assert.True(component.IsCompletedSuccessfully);
+            c.Select("a"); // Undelivered old data identity.
+            c.SetItems([new("b", "new data")]);
+            Assert.True(component.Result.SetParametersAsync(Microsoft.AspNetCore.Components.ParameterView.FromDictionary(new Dictionary<string, object?> { ["SelectedKey"] = "b" })).IsCompletedSuccessfully);
+            while (window.DispatcherQueue.TryDequeue(out var action)) action();
+            Assert.Equal(0, calls); Assert.Equal("b", c.SelectedKey);
         });
     }
 }

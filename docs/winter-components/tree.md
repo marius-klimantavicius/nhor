@@ -26,6 +26,8 @@ all old loads and lazy caches, and retains selected/expanded keys still present 
 the new hierarchy, including reparented keys. Selection clears when its key is
 removed. To retain a previously loaded child during replacement, include it in
 the replacement's children. Mutating an item in place requires `SetItems` again.
+Use `SetItems(items, selectedKey, expandedKeys)` to replace data and controlled
+state atomically, including Reset without briefly reloading old expansion.
 
 `Select`, `ExpandAsync`, `Collapse`, `RetryAsync`, `RefreshAsync`, `Activate`, and
 `Reveal` operate on keys. Reveal expands ancestors and scrolls a **known** key into
