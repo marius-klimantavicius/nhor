@@ -423,7 +423,7 @@ tipBtn2.Tooltip = new TooltipContent(Svg: starSvg);
 richPanel.AddChild(tipBtn2);
 
 var tipBtn3 = new Button("Hover me — text + SVG");
-tipBtn3.Tooltip = new TooltipContent("Star icon:", starSvg);
+tipBtn3.Tooltip = new TooltipContent("Star icon", starSvg) { TrailingSvg = starSvg };
 richPanel.AddChild(tipBtn3);
 
 var tipLabel = new Label("Labels can have tooltips too");

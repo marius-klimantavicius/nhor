@@ -5,9 +5,13 @@ using ThorVG;
 namespace Marius.Winter;
 
 /// <summary>
-/// Tooltip content that can include text, SVG, or both.
+/// Tooltip content with optional SVGs before and after the text.
 /// </summary>
-public record TooltipContent(string? Text = null, string? Svg = null);
+public record TooltipContent(string? Text = null, string? Svg = null)
+{
+    /// <summary>Optional SVG displayed after the text.</summary>
+    public string? TrailingSvg { get; init; }
+}
 
 /// <summary>
 /// Internal overlay element that renders tooltip content near the cursor.
@@ -17,16 +21,18 @@ internal class TooltipOverlay : Element
     private Shape? _backgroundShape;
     private Shape? _borderShape;
     private Text? _textPaint;
-    private Picture? _svgPaint;
     private Scene? _svgScene; // wrapper for SVG positioning
+    private Scene? _trailingSvgScene;
     private bool _shapesCreated;
     private float _svgW, _svgH;
+    private float _trailingSvgW, _trailingSvgH;
     private float _contentW, _contentH;
     private float _textW, _textH;
     private float _textBx, _textBy; // text bounds origin offset
 
     private readonly string? _text;
     private readonly string? _svg;
+    private readonly string? _trailingSvg;
 
     public TooltipOverlay(object tooltipData)
     {
@@ -38,6 +44,7 @@ internal class TooltipOverlay : Element
         {
             _text = tc.Text;
             _svg = tc.Svg;
+            _trailingSvg = tc.TrailingSvg;
         }
     }
 
@@ -88,35 +95,9 @@ internal class TooltipOverlay : Element
         _borderShape.SetFill(0, 0, 0, 0);
         AddPaint(_borderShape);
 
-        // SVG content
-        if (!string.IsNullOrEmpty(_svg))
-        {
-            var picture = Picture.Gen();
-            var bytes = Encoding.UTF8.GetBytes(_svg);
-            if (picture.Load(bytes, (uint)bytes.Length, "svg", null, true) == Result.Success)
-            {
-                picture.GetSize(out float iw, out float ih);
-                // Constrain SVG height to match font-based content
-                float maxSvgH = MathF.Max(style.FontSize * 2, 48);
-                if (ih > maxSvgH && ih > 0)
-                {
-                    float scale = maxSvgH / ih;
-                    picture.SetSize(iw * scale, ih * scale);
-                    _svgW = iw * scale;
-                    _svgH = ih * scale;
-                }
-                else
-                {
-                    _svgW = iw;
-                    _svgH = ih;
-                }
-
-                _svgPaint = picture;
-                _svgScene = Scene.Gen()!;
-                _svgScene.Add(_svgPaint);
-                AddPaint(_svgScene);
-            }
-        }
+        // Each SVG gets its own picture and positioning scene, even for identical data.
+        _svgScene = LoadSvg(_svg, style.FontSize, out _svgW, out _svgH);
+        _trailingSvgScene = LoadSvg(_trailingSvg, style.FontSize, out _trailingSvgW, out _trailingSvgH);
 
         // Text content — measure with a separate temp Text to get reliable bounds
         if (!string.IsNullOrEmpty(_text))
@@ -145,10 +126,43 @@ internal class TooltipOverlay : Element
             AddPaint(_textPaint);
         }
 
-        // Layout: SVG left, text right (if both present)
-        float gap = (_svgW > 0 && _textW > 0) ? 6 : 0;
-        _contentW = _svgW + gap + _textW;
-        _contentH = MathF.Max(_svgH, _textH);
+        int parts = (_svgW > 0 ? 1 : 0) + (_textW > 0 ? 1 : 0) + (_trailingSvgW > 0 ? 1 : 0);
+        _contentW = _svgW + _textW + _trailingSvgW + Math.Max(0, parts - 1) * 6;
+        _contentH = MathF.Max(MathF.Max(_svgH, _textH), _trailingSvgH);
+    }
+
+    private Scene? LoadSvg(string? svg, float fontSize, out float width, out float height)
+    {
+        width = height = 0;
+        if (string.IsNullOrEmpty(svg)) return null;
+
+        var picture = Picture.Gen();
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(svg);
+            if (picture.Load(bytes, (uint)bytes.Length, "svg", null, true) != Result.Success)
+                return null;
+
+            picture.GetSize(out width, out height);
+            float maxSvgH = MathF.Max(fontSize * 2, 48);
+            if (height > maxSvgH)
+            {
+                width *= maxSvgH / height;
+                height = maxSvgH;
+                picture.SetSize(width, height);
+            }
+
+            var scene = Scene.Gen();
+            scene.Add(picture);
+            AddPaint(scene);
+            return scene;
+        }
+        finally
+        {
+            // A successfully loaded picture is owned by its scene; a failed
+            // load still needs to release the unowned local picture.
+            if (picture.Parent() == null) picture.Unref();
+        }
     }
 
     protected override void OnSizeChanged()
@@ -177,14 +191,23 @@ internal class TooltipOverlay : Element
         {
             float svgY = padT + (innerH - _svgH) / 2f;
             _svgScene.Translate(padL, svgY);
-            xOff += _svgW + (_textPaint != null ? 6 : 0);
+            xOff += _svgW;
         }
 
         // Text positioning — use Translate on the paint directly
         if (_textPaint != null)
         {
+            if (_svgW > 0 && _textW > 0) xOff += 6;
             float textY = padT + (innerH - _textH) / 2f - _textBy;
             _textPaint.Translate(xOff - _textBx, textY);
+            xOff += _textW;
+        }
+
+        if (_trailingSvgScene != null)
+        {
+            if ((_svgW > 0 || _textW > 0) && _trailingSvgW > 0) xOff += 6;
+            float svgY = padT + (innerH - _trailingSvgH) / 2f;
+            _trailingSvgScene.Translate(xOff, svgY);
         }
     }
 
