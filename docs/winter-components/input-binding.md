@@ -63,6 +63,11 @@ commits. TextArea Enter inserts a newline; Ctrl+Enter/keypad Enter commits. Blur
 commits remaining edits. Held Enter and blur after an Enter commit do not create a
 second commit. An unchanged/programmatically synchronized field does not commit.
 Pending text is delivered before its commit can rerender the parent.
+The commit keeps its originating callback registration across that text flush.
+If the flush replaces or clears `TextCommitted`, or removes the input, the
+already-entered commit is dropped. It is never delivered to a replacement
+callback. An unchanged registration receives the immutable final-text snapshot
+once, after `TextChanged`; awaiting callbacks keep their existing snapshot.
 
 Native `TextChanged`, Checkbox `Changed`, Slider `ValueChanged`, and ComboBox
 `SelectionChanged` retain their setter notifications. Native user-only events are

@@ -47,9 +47,12 @@ public class TextBox : InputComponentBase<string>
         private ulong _commitHandlerId;
         private void OnTextCommitted(TextCommitEventArgs args)
         {
+            // Flushing text can synchronously replace/clear this registration or
+            // unmount the input. That invalidates this action, never retargets it.
+            var handlerId = _commitHandlerId;
             _textChangedEvent.Flush();
-            if (_commitHandlerId != 0 && !IsDisposed)
-                Renderer.DispatchNativeEventAsync(_commitHandlerId, null, args);
+            if (handlerId != 0 && handlerId == _commitHandlerId && !IsDisposed)
+                Renderer.DispatchNativeEventAsync(handlerId, null, args);
         }
 
         private void OnUserChanged(string value) => _textChangedEvent.Fire(value);
