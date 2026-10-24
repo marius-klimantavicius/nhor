@@ -362,6 +362,25 @@ public class RichTextBox : Element
 
     // --- Lifecycle ---
 
+    protected override void OnDetaching()
+    {
+        StopAutoScroll();
+        StopBlinkAnimation();
+        _mouseDown = _scrollbarDragV = _scrollbarDragH = false;
+        // Formatting/restoration can grow the run pool after the last frame.
+        // Release editor-owned glyph/decorations before the parent scene asks
+        // for damage bounds: newly added text has not been prepared by a canvas.
+        // The document, history and editing state outlive these transient paints.
+        foreach (var slot in _slots)
+        {
+            _contentScene!.Remove(slot.TextPaint);
+            _contentScene.Remove(slot.Underline);
+            _contentScene.Remove(slot.Strikethrough);
+        }
+        _slots = Array.Empty<RenderSlot>();
+        base.OnDetaching();
+    }
+
     private void SplitLines()
     {
         TextEditingBoundaries.SplitLines(_text, out _lines, out _lineOffsets);

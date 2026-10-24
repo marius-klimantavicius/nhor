@@ -1,0 +1,11 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter.Blazor.Elements
+@if (Show)
+{
+    <RichTextBox @bind-Document="Document" />
+}
+@code {
+    public RichDocument Document { get; set; } = new("Review the blue horizon.");
+    private bool Show = true;
+    public void Remove() { Show = false; StateHasChanged(); }
+}
