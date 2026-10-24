@@ -13,7 +13,7 @@ public sealed class ResizableWorkspaceScenario : IDisposable
     private readonly ScrollPanel _browser;
     private readonly Panel _preview, _alternate;
     private readonly Label _selection = new("Preview: landscape.svg");
-    private readonly Label _result = new();
+    private readonly Label _result = new() { TextWrapping = ThorVG.TextWrap.Word };
     private readonly TextArea _note = new("Review the selected asset.\nKeep the horizon level.");
     private readonly LogView _log = new();
     private bool _replacement, _disposed;
