@@ -14,7 +14,7 @@ public class GifImage : WinterComponentBase
     /// <summary>Raw GIF bytes.</summary>
     [Parameter] public byte[]? Source { get; set; }
 
-    /// <summary>File path to a GIF file.</summary>
+    /// <summary>File path to a GIF file. Takes precedence over Source.</summary>
     [Parameter] public string? Path { get; set; }
 
     /// <summary>Whether the animation is playing. Default: auto-play.</summary>
@@ -40,13 +40,35 @@ public class GifImage : WinterComponentBase
 
     class Handler : WinterElementHandler
     {
-        byte[]? _lastSource;
-        string? _lastPath;
+        byte[]? _source;
+        string? _path;
+        bool _isPlaying = true;
+        bool _attributesDirty;
+        string? _loadedPath;
+        byte[]? _loadedSource;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.GifImage()) { }
 
         Marius.Winter.GifImage Control => (Marius.Winter.GifImage)ElementControl;
+
+        public override void CommitAttributes()
+        {
+            if (!_attributesDirty || IsDisposed) return;
+            _attributesDirty = false;
+
+            string? path = string.IsNullOrEmpty(_path) ? null : _path;
+            byte[]? source = path == null ? _source : null;
+            if (path != _loadedPath || source != _loadedSource)
+            {
+                if (path != null) Control.LoadFromPath(path);
+                else Control.LoadFromBytes(source);
+                _loadedPath = path;
+                _loadedSource = source;
+            }
+
+            Control.IsPlaying = _isPlaying;
+        }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName,
             object attributeValue, string attributeEventUpdatesAttributeName)
@@ -54,25 +76,16 @@ public class GifImage : WinterComponentBase
             switch (attributeName)
             {
                 case "Source":
-                    var bytes = AttributeHelper.GetByteArray(attributeValue);
-                    if (bytes != _lastSource)
-                    {
-                        _lastSource = bytes;
-                        _lastPath = null;
-                        Control.LoadFromBytes(bytes);
-                    }
+                    _source = AttributeHelper.GetByteArray(attributeValue);
+                    _attributesDirty = true;
                     break;
                 case "Path":
-                    var path = AttributeHelper.GetString(attributeValue);
-                    if (path != _lastPath)
-                    {
-                        _lastPath = path;
-                        _lastSource = null;
-                        Control.LoadFromPath(path);
-                    }
+                    _path = AttributeHelper.GetString(attributeValue);
+                    _attributesDirty = true;
                     break;
                 case "IsPlaying":
-                    Control.IsPlaying = AttributeHelper.GetBool(attributeValue);
+                    _isPlaying = attributeValue == null || AttributeHelper.GetBool(attributeValue);
+                    _attributesDirty = true;
                     break;
                 case "RequestedWidth":
                     Control.RequestedWidth = AttributeHelper.GetFloat(attributeValue);

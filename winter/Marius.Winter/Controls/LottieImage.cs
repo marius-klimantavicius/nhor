@@ -36,11 +36,19 @@ public class LottieImage : Element
         if (data == null || data.Length == 0) return;
 
         var anim = ThorVG.Animation.Gen();
-        var pic = anim.GetPicture();
-        if (pic.Load(data, (uint)data.Length, "lottie+json", null, true) != Result.Success)
-            return;
+        try
+        {
+            var pic = anim.GetPicture();
+            if (pic.Load(data, (uint)data.Length, "lottie+json", null, true) != Result.Success)
+                return;
 
-        SetupAnimation(anim, pic);
+            SetupAnimation(anim, pic);
+        }
+        finally
+        {
+            // A successful load transfers this owner to the control.
+            if (_animation != anim) anim.Dispose();
+        }
     }
 
     /// <summary>Load from file path.</summary>
@@ -50,11 +58,18 @@ public class LottieImage : Element
         if (string.IsNullOrEmpty(path)) return;
 
         var anim = ThorVG.Animation.Gen();
-        var pic = anim.GetPicture();
-        if (pic.Load(path) != Result.Success)
-            return;
+        try
+        {
+            var pic = anim.GetPicture();
+            if (pic.Load(path) != Result.Success)
+                return;
 
-        SetupAnimation(anim, pic);
+            SetupAnimation(anim, pic);
+        }
+        finally
+        {
+            if (_animation != anim) anim.Dispose();
+        }
     }
 
     /// <summary>Whether the animation is currently playing.</summary>
@@ -172,6 +187,7 @@ public class LottieImage : Element
         if (_picture != null && _shapesCreated)
             RemovePaint(_picture);
 
+        _animation?.Dispose();
         _animation = null;
         _picture = null;
         _intrinsicW = _intrinsicH = 0;
