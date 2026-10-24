@@ -1,0 +1,17 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System
+@using System.Linq
+@using System.Collections.Generic
+<ListView TItem="string" Items="_items" KeySelector="Key" @bind-SelectedKey="Selected" />
+<BasicTable TItem="string" Items="_items" KeySelector="Key" Columns="_columns" @bind-SelectedKey="TableSelected" @bind-Sort="Sort" />
+@code {
+    public string? Selected { get; set; } = "a";
+    public string? TableSelected { get; set; } = "a";
+    public TableSort? Sort { get; set; }
+    private static string Key(string value) => value;
+    private readonly string[] _items = ["c", "a", "b"];
+    private readonly BasicTableColumn<string>[] _columns = [new("name", "Name", Comparer: StringComparer.Ordinal)];
+    public void RenderAgain() => StateHasChanged();
+}

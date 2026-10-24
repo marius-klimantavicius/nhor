@@ -1,0 +1,53 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading.Tasks
+@if (Show)
+{
+    <ListView TItem="Asset" Items="Assets" KeySelector="Key" @bind-SelectedKey:get="Selected" @bind-SelectedKey:set="Select"
+              ResetVersion="Version" OnActivate="Activate">
+        <ItemTemplate Context="asset">
+            <Panel>
+                <Label Text="@asset.Name" />
+                <TextBox Text="@asset.Name" />
+                <Button Text="@("Open " + asset.Key)" OnClick="@(() => Opened.Add(asset.Key))" />
+                <ItemLifetimeProbe Key="@asset.Key" />
+            </Panel>
+        </ItemTemplate>
+        <EmptyContent><Label Text="No matching assets" /></EmptyContent>
+    </ListView>
+    <BasicTable TItem="Asset" Items="Assets" KeySelector="Key" Columns="Columns" @bind-SelectedKey:get="Selected" @bind-SelectedKey:set="Select"
+                @bind-Sort:get="Sort" @bind-Sort:set="SortBy" ResetVersion="Version" OnActivate="Activate" />
+}
+@code {
+    public sealed record Asset(string Key, string Name, int Size);
+    public Asset[] Assets { get; private set; } = [new("a", "Same", 2), new("b", "Same", 1), new("c", "Žąsis e\u0301 👩‍💻", 2)];
+    public string? Selected { get; private set; } = "b";
+    public TableSort? Sort { get; private set; }
+    public List<string?> Selections { get; } = [];
+    public List<ItemActivation<Asset>> Activations { get; } = [];
+    public List<TableSort> Sorts { get; } = [];
+    public List<string> Opened { get; } = [];
+    public Func<Task>? Wait { get; set; }
+    public bool Show { get; private set; } = true;
+    public bool Reject { get; set; }
+    public long Version { get; private set; }
+    private static string Key(Asset asset) => asset.Key;
+    private static readonly IComparer<Asset> SizeComparer = Comparer<Asset>.Create((a,b) => a.Size.CompareTo(b.Size));
+    private bool _hideSize;
+    private IReadOnlyList<BasicTableColumn<Asset>> Columns => _hideSize ? [new("name", "Name", 180, 60, 1, NameCell)] :
+        [new("name", "Name", 180, 60, 1, NameCell), new("size", "Size", 90, 45, 0, SizeCell, Comparer: SizeComparer)];
+    private RenderFragment<Asset> NameCell => asset => @<Label Text="@asset.Name" />;
+    private RenderFragment<Asset> SizeCell => asset => @<Button Text="@asset.Size.ToString()" OnClick="@(() => Opened.Add(asset.Key))" />;
+    private async Task Select(string? key) { Selections.Add(key); if (!Reject) Selected = key; if (Wait != null) await Wait(); }
+    private async Task Activate(ItemActivation<Asset> action) { Activations.Add(action); if (Wait != null) await Wait(); }
+    private async Task SortBy(TableSort? sort) { if (sort != null) Sorts.Add(sort); if (!Reject) Sort = sort; if (Wait != null) await Wait(); }
+    public void RenderAgain() => StateHasChanged();
+    public void Reset() { Selected = "b"; Sort = null; Version++; StateHasChanged(); }
+    public void Replace(params Asset[] assets) { Assets = assets; StateHasChanged(); }
+    public void Remove() { Show = false; StateHasChanged(); }
+    public void RemoveSizeColumn() { _hideSize = true; Sort = null; StateHasChanged(); }
+}
