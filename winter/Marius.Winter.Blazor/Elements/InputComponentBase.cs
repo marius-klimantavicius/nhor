@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
 
@@ -17,7 +19,7 @@ public abstract class InputComponentBase<T> : WinterComponentBase
     protected EventCallback<ChangeEventArgs> BindChange(EventCallback<T> changed, EventCallback<T> legacy, Action<T> synchronize)
     {
         var callback = changed.HasDelegate ? changed : legacy;
-        if (!_hasCallback || !callback.Equals(_applicationCallback))
+        if (!_hasCallback || !SameChangeCallback(callback, _applicationCallback))
         {
             _hasCallback = true;
             _applicationCallback = callback;
@@ -31,6 +33,27 @@ public abstract class InputComponentBase<T> : WinterComponentBase
             });
         }
         return _bindingCallback;
+    }
+
+    // Razor recreates equivalent binding delegates on ordinary parent renders.
+    // Keep the originating registration when method, target and receiver agree;
+    // a different target/receiver or clear still invalidates queued native input.
+    // This is the rich editor's existing comparison, scoped to scalar bindings.
+    protected static bool SameChangeCallback(EventCallback<T> a, EventCallback<T> b) => CallbackIdentity.Same(a, b);
+
+    private static class CallbackIdentity
+    {
+        private static readonly FieldInfo? DelegateField, ReceiverField;
+        [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, typeof(EventCallback<>))]
+        static CallbackIdentity()
+        {
+            DelegateField = typeof(EventCallback<T>).GetField("Delegate", BindingFlags.Instance | BindingFlags.NonPublic);
+            ReceiverField = typeof(EventCallback<T>).GetField("Receiver", BindingFlags.Instance | BindingFlags.NonPublic);
+        }
+        internal static bool Same(EventCallback<T> a, EventCallback<T> b) => a.Equals(b) ||
+            DelegateField != null && ReceiverField != null &&
+            ReferenceEquals(ReceiverField.GetValue(a), ReceiverField.GetValue(b)) &&
+            Equals(DelegateField.GetValue(a), DelegateField.GetValue(b));
     }
 
     protected void RenderReset(AttributesBuilder builder, T value)

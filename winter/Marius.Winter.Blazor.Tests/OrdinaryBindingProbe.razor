@@ -1,0 +1,40 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter.Blazor.Elements
+<Select TItem="string" TValue="string" Items="Options" TextSelector="Identity" ValueSelector="Identity" @bind-Value="Selected" ResetVersion="Version" />
+<Select TItem="string" TValue="string" Items="Options" TextSelector="Identity" ValueSelector="Identity" @bind-Value:get="WithSetter" @bind-Value:set="SetSelected" ResetVersion="Version" />
+<TabWidget @bind-ActiveTab="Active" ResetVersion="Version">
+    <Tab Label="General"><Label Text="General content" /></Tab>
+    <Tab Label="Details"><Label Text="Details content" /></Tab>
+</TabWidget>
+<TextBox @bind-Text="Text" ResetVersion="Version" />
+<Checkbox @bind-IsChecked="Checked" ResetVersion="Version" />
+<Slider @bind-Value="Volume" Min="0" Max="100" Step="1" ResetVersion="Version" />
+<ComboBox Items="Options" @bind-SelectedIndex="Index" ResetVersion="Version" />
+<TextArea @bind-Text="Area" ResetVersion="Version" />
+<Label Text="@($"Render {Stamp}")" />
+@code {
+    private readonly string[] Options = ["a", "b", "c"];
+    private string _selected = "a", _withSetter = "a", _text = "Note", _area = "Note";
+    private int _active, _index;
+    private float _volume = 40;
+    private bool _checked;
+    public int[] Calls { get; } = new int[8];
+    public string Selected { get => _selected; set { Calls[0]++; _selected = value; } }
+    public string WithSetter => _withSetter;
+    private void SetSelected(string value) { Calls[1]++; _withSetter = value; }
+    public int Active { get => _active; set { Calls[2]++; _active = value; } }
+    public string Text { get => _text; set { Calls[3]++; _text = value; } }
+    public bool Checked { get => _checked; set { Calls[4]++; _checked = value; } }
+    public float Volume { get => _volume; set { Calls[5]++; _volume = value; } }
+    public int Index { get => _index; set { Calls[6]++; _index = value; } }
+    public string Area { get => _area; set { Calls[7]++; _area = value; } }
+    public int Stamp;
+    public long Version;
+    private static string Identity(string value) => value;
+    public void RenderAgain() { Stamp++; StateHasChanged(); }
+    public void Reset()
+    {
+        _selected = _withSetter = "a"; _active = _index = 0; _text = _area = "Note"; _checked = false; _volume = 40;
+        Version++; StateHasChanged();
+    }
+}

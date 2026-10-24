@@ -39,7 +39,7 @@ public class Select<TItem, TValue> : InputComponentBase<TValue>
         builder.AddAttribute("SelectedIndex", index);
 
         var callback = ValueChanged.HasDelegate ? ValueChanged : OnValueChanged;
-        if (!_hasCallback || !callback.Equals(_applicationCallback))
+        if (!_hasCallback || !SameChangeCallback(callback, _applicationCallback))
         {
             _hasCallback = true; _applicationCallback = callback;
             _bindingCallback = EventCallback.Factory.Create<ChangeEventArgs>(this, args =>
