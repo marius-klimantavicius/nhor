@@ -968,7 +968,14 @@ public unsafe class Window : Element
 
                         target.OnClick();
 
-                        if (isDoubleClick)
+                        // A click may close/unmount its modal or dispose its
+                        // target. Never retain it or send it a double click afterward.
+                        if (!CanReceiveInput(target))
+                        {
+                            _lastClickElement = null;
+                            _lastClickTimestamp = 0;
+                        }
+                        else if (isDoubleClick)
                         {
                             target.OnDoubleClick();
                             _lastClickElement = null;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Marius.Winter.Blazor;
 using Xunit;
@@ -54,7 +55,11 @@ public class ModalModuleLifecycleInputTests
                 await Click(() => BackgroundButton("Edit profile"));
                 var removed = Modal();
                 await Click(() => ModalButton("Remove dialog"));
-                await window.Dispatcher.InvokeAsync(() => { Assert.True(removed.IsDisposed); Assert.DoesNotContain(All(), e => e is ModalDialog); });
+                await window.Dispatcher.InvokeAsync(() =>
+                {
+                    Assert.True(removed.IsDisposed); Assert.DoesNotContain(All(), e => e is ModalDialog);
+                    Assert.Null(typeof(Window).GetField("_lastClickElement", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window));
+                });
                 await Click(() => BackgroundButton("Recreate dialog"));
                 await Click(() => BackgroundButton("Edit profile"));
                 await window.Dispatcher.InvokeAsync(() => { Assert.True(Modal().IsOpen); Assert.NotSame(removed, Modal()); });
