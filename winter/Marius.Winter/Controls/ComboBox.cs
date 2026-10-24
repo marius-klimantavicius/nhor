@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using ThorVG;
+using static Glfw.GLFW;
 
 namespace Marius.Winter;
 
@@ -25,11 +26,13 @@ public class ComboBox : Element
 
     public Action<int>? SelectionChanged;
     public event Action<int>? UserSelectionChanged;
+    public bool IsDropDownOpen => _isOpen;
+    public int HighlightedIndex => _popup?.HighlightedIndex ?? -1;
 
     /// <summary>Commits a user selection. Programmatic SelectedIndex and item batches retain legacy notifications only.</summary>
     public void SelectFromUser(int index)
     {
-        if (!Enabled) return;
+        if (!IsEffectivelyEnabled || !IsEffectivelyVisible || IsDisposed) return;
         var previous = _selectedIndex;
         SelectedIndex = index;
         if (previous != _selectedIndex) UserSelectionChanged?.Invoke(_selectedIndex);
@@ -55,6 +58,7 @@ public class ComboBox : Element
         {
             if (value < -1 || value >= _items.Count) return;
             if (_selectedIndex == value) return;
+            ClosePopup();
             _selectedIndex = value;
             UpdateLabel();
             MarkDirty();
@@ -67,6 +71,7 @@ public class ComboBox : Element
 
     public void SetItems(string[] items)
     {
+        ClosePopup();
         _items.Clear();
         _items.AddRange(items);
         if (_selectedIndex >= _items.Count) _selectedIndex = _items.Count > 0 ? 0 : -1;
@@ -82,6 +87,8 @@ public class ComboBox : Element
     /// </summary>
     public void SetItemsAndIndex(string[] items, int selectedIndex)
     {
+        // An option batch invalidates the tentative popup snapshot, even when its index is equal.
+        ClosePopup();
         _items.Clear();
         _items.AddRange(items);
         int clamped = _items.Count > 0
@@ -180,6 +187,7 @@ public class ComboBox : Element
         // Arrow chevron on right side
         UpdateArrow();
         CenterLabel();
+        PositionPopup();
     }
 
     private void UpdateArrow()
@@ -263,6 +271,9 @@ public class ComboBox : Element
         }
 
         ApplyButtonGradient(gradTop, gradBot);
+        var border = (newState & ElementState.Focused) != 0 ? Style.BorderFocused : theme.BorderDark;
+        _borderShape?.StrokeFill(border.R8, border.G8, border.B8, border.A8);
+        _borderShape?.StrokeWidth((newState & ElementState.Focused) != 0 ? 2 : 1);
         MarkDirty();
     }
 
@@ -300,42 +311,62 @@ public class ComboBox : Element
             OpenPopup();
     }
 
+    public override void OnBlur() => ClosePopup();
+
+    public override void OnKeyDown(int key, int mods, bool repeat)
+    {
+        if (!IsEffectivelyEnabled || !IsEffectivelyVisible || IsDisposed) return;
+        if (key == GLFW_KEY_ESCAPE) { ClosePopup(); return; }
+        if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER || key == GLFW_KEY_SPACE)
+        {
+            if (repeat) return;
+            if (_popup != null) SelectFromPopup(_popup.HighlightedIndex);
+            else OpenPopup();
+            return;
+        }
+        if (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN || key == GLFW_KEY_HOME || key == GLFW_KEY_END)
+        {
+            if (_popup == null) OpenPopup();
+            _popup?.Navigate(key);
+            return;
+        }
+        base.OnKeyDown(key, mods, repeat);
+    }
+
     private void OpenPopup()
     {
         var win = OwnerWindow;
-        if (win == null || _items.Count == 0) return;
+        if (win == null || !IsActive || _items.Count == 0) return;
 
         _isOpen = true;
-
-        // Calculate popup position in window coordinates
-        float popupX = 0, popupY = 0;
-        // Walk up from this element to get absolute position
-        Element? e = this;
-        while (e != null && e != win)
-        {
-            popupX += e.Bounds.X;
-            popupY += e.Bounds.Y;
-            e = e.Parent;
-        }
-
-        _popup = new ComboBoxPopup(this, _items, _selectedIndex);
-        float itemH = Style.FontSize + 8;
-        float popupH = Math.Min(_items.Count * itemH + 4, 200);
-        _popup.Arrange(new RectF(popupX, popupY + Bounds.H + 2, Bounds.W, popupH));
-
+        _popup = new ComboBoxPopup(this, _items.ToArray(), _selectedIndex);
         win.ShowOverlay(_popup);
-
-        // Fade-in animation
-        _popup.Opacity = 0;
-        win.Animator.Cancel("combobox_popup");
-        win.Animator.Start(new Animation
-        {
-            Duration = 0.12f,
-            Easing = Easings.EaseOutCubic,
-            Tag = "combobox_popup",
-            Apply = t => { if (_popup != null) _popup.Opacity = t; }
-        });
+        PositionPopup();
+        _popup.RevealHighlight();
     }
+
+    internal void PositionPopup()
+    {
+        var popup = _popup; var win = OwnerWindow;
+        if (popup == null || win == null) return;
+        WindowToLocal(0, 0, out var nx, out var ny);
+        float x = -nx, y = -ny;
+        float vw = Math.Max(0, win.Bounds.W), vh = Math.Max(0, win.Bounds.H);
+        float below = Math.Max(0, vh - (y + Bounds.H + 2));
+        float above = Math.Max(0, y - 2);
+        float desired = Math.Min(popup.ContentHeight + 4, Math.Max(200, popup.ItemHeight * 6 + 4));
+        bool flip = below < desired && above > below;
+        float height = Math.Min(desired, Math.Min(vh, flip ? above : below));
+        // If the owner itself is outside the usable viewport, still keep the list reachable.
+        if (height < Math.Min(vh, popup.ItemHeight + 4)) height = Math.Min(vh, popup.ItemHeight + 4);
+        float width = Math.Min(vw, Math.Max(0, Bounds.W));
+        float py = flip ? y - 2 - height : y + Bounds.H + 2;
+        popup.Arrange(new RectF(Math.Clamp(x, 0, Math.Max(0, vw - width)),
+            Math.Clamp(py, 0, Math.Max(0, vh - height)), width, height));
+    }
+
+    protected override void OnPositionChanged() => PositionPopup();
+    protected override void ArrangeCore(RectF finalBounds) => PositionPopup();
 
     protected override void OnActivityChanged(bool active)
     {
@@ -352,7 +383,6 @@ public class ComboBox : Element
         {
             var popup = _popup;
             _popup = null;
-            OwnerWindow?.Animator?.Cancel("combobox_popup");
             OwnerWindow?.RemoveOverlay(popup);
             popup.Dispose();
         }
@@ -360,8 +390,9 @@ public class ComboBox : Element
 
     internal void SelectFromPopup(int index)
     {
-        SelectFromUser(index);
+        // Close the old snapshot before application callbacks can replace/unmount this control.
         ClosePopup();
+        SelectFromUser(index);
     }
 
     protected override Style GetDefaultStyle()
@@ -377,190 +408,194 @@ public class ComboBox : Element
         _borderShape?.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
         _arrowShape?.StrokeFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, theme.TextColor.A8);
         _labelText?.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
+        _labelText?.SetFont(Style.FontName);
+        _labelText?.SetFontSize(EffectiveFontSize(Style.FontSize));
+        if (_popup != null) ClosePopup();
         MarkDirty();
     }
 
 }
 
-/// <summary>
-/// The dropdown popup displayed when ComboBox is open. Rendered as an overlay.
-/// </summary>
-internal class ComboBoxPopup : Element
+/// <summary>A clipped, scrollable snapshot. Keyboard focus stays on the owning ComboBox.</summary>
+internal sealed class ComboBoxPopup : Element
 {
     private readonly ComboBox _owner;
-    private readonly List<string> _items;
-    private int _hoveredIndex = -1;
-    private Shape? _backgroundShape;
-    private Shape? _borderShape;
-    private Shape? _highlightShape;
+    private readonly string[] _items;
+    private int _highlightedIndex, _pressedIndex = -1, _clickedIndex = -1;
+    private float _scroll, _dragStartY, _dragStartScroll;
+    private bool _scrollPress, _dragging;
+    private Shape? _background, _border, _highlight, _clip, _track, _thumb;
+    private Scene? _rows;
     private readonly List<Scene> _itemScenes = new();
-    private readonly List<Text> _itemTexts = new();
-    private bool _shapesCreated;
-    private float _itemHeight;
+    private readonly List<(float X, float Y, float Height)> _textMetrics = new();
+    private bool _created;
+    internal int HighlightedIndex => _highlightedIndex;
+    internal float ItemHeight => Math.Max(1, _owner.Style.FontSize) + 8;
+    internal float ContentHeight => _items.Length * ItemHeight;
+    private float ViewHeight => Math.Max(0, Bounds.H - 4);
+    private float MaxScroll => Math.Max(0, ContentHeight - ViewHeight);
+    private bool HasScrollbar => MaxScroll > 0;
+    private float RowWidth => Math.Max(0, Bounds.W - 4 - (HasScrollbar ? 12 : 0));
+    private float ThumbHeight => Math.Min(ViewHeight, Math.Max(16, ViewHeight * ViewHeight / Math.Max(1, ContentHeight)));
+    private float ThumbY => 2 + (MaxScroll > 0 ? _scroll / MaxScroll * (ViewHeight - ThumbHeight) : 0);
 
-    public override void OnBlur()
+    public ComboBoxPopup(ComboBox owner, string[] items, int selectedIndex)
     {
-        if (!IsDisposed) _owner.ClosePopup();
+        _owner = owner; _items = items; _highlightedIndex = selectedIndex >= 0 ? selectedIndex : 0;
     }
 
-    public ComboBoxPopup(ComboBox owner, List<string> items, int selectedIndex)
-    {
-        _owner = owner;
-        _items = items;
-        _hoveredIndex = selectedIndex;
-    }
+    public override void OnBlur() { if (!IsDisposed) _owner.ClosePopup(); }
 
     protected override void OnAttached()
     {
-        // We're an overlay, so OnAttached may not be called via AddChild.
-        // Initialize shapes on first size change instead.
-    }
-
-    private void EnsureShapes()
-    {
-        if (_shapesCreated) return;
-        _shapesCreated = true;
-
+        if (_created) return;
+        _created = true;
         var theme = _owner.OwnerWindow?.Theme ?? Theme.Dark;
+        _background = Shape.Gen()!;
+        _background.SetFill(theme.WindowBackground.R8, theme.WindowBackground.G8, theme.WindowBackground.B8, 255);
+        AddPaint(_background);
+        _border = Shape.Gen()!; _border.StrokeWidth(1);
+        _border.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, 255);
+        _border.SetFill(0, 0, 0, 0); AddPaint(_border);
+        _rows = Scene.Gen()!;
+        _clip = Shape.Gen()!; _rows.Clip(_clip); AddPaint(_rows);
+        _highlight = Shape.Gen()!;
+        var selection = theme.SelectionColor;
+        _highlight.SetFill(selection.R8, selection.G8, selection.B8, selection.A8);
+        _rows.Add(_highlight);
         var style = _owner.Style;
-        _itemHeight = style.FontSize + 8;
-
-        // Background
-        _backgroundShape = Shape.Gen();
-        _backgroundShape!.SetFill(theme.WindowBackground.R8, theme.WindowBackground.G8,
-            theme.WindowBackground.B8, 245);
-        AddPaint(_backgroundShape);
-
-        // Border
-        _borderShape = Shape.Gen();
-        _borderShape!.StrokeWidth(1f);
-        _borderShape.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
-        _borderShape.SetFill(0, 0, 0, 0);
-        AddPaint(_borderShape);
-
-        // Highlight
-        _highlightShape = Shape.Gen();
-        var sel = theme.SelectionColor;
-        _highlightShape!.SetFill(sel.R8, sel.G8, sel.B8, sel.A8);
-        _highlightShape.Visible(false);
-        AddPaint(_highlightShape);
-
-        // Item texts
-        float fontSize = EffectiveFontSize(style.FontSize);
-        for (int i = 0; i < _items.Count; i++)
+        foreach (var item in _items)
         {
-            var text = ThorVG.Text.Gen();
-            text!.SetFont(style.FontName);
-            text.SetFontSize(fontSize);
-            text.SetText(_items[i]);
-            text.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
-
-            var scene = Scene.Gen()!;
-            scene.Add(text);
-            AddPaint(scene);
-
-            _itemTexts.Add(text);
-            _itemScenes.Add(scene);
+            var text = Text.Gen()!; text.SetFont(style.FontName); text.SetFontSize(EffectiveFontSize(style.FontSize));
+            text.SetText(item); text.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
+            // Measure before parenting: Paint.Bounds includes ancestor transforms after attachment.
+            text.Bounds(out var bx, out var by, out _, out var bh);
+            _textMetrics.Add((bx, by, bh));
+            var scene = Scene.Gen()!; scene.Add(text); _rows.Add(scene); _itemScenes.Add(scene);
         }
+        _track = Shape.Gen()!; _track.SetFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, 90); AddPaint(_track);
+        _thumb = Shape.Gen()!; _thumb.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, 180); AddPaint(_thumb);
     }
 
     protected override void OnSizeChanged()
     {
-        EnsureShapes();
-
-        float w = Bounds.W, h = Bounds.H;
-
-        _backgroundShape?.ResetShape();
-        _backgroundShape?.AppendRect(0, 0, w, h, 3, 3);
-
-        _borderShape?.ResetShape();
-        _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, 3, 3);
-
-        PositionItems();
+        if (!_created) OnAttached();
+        _background!.ResetShape(); _background.AppendRect(0, 0, Bounds.W, Bounds.H, 3, 3);
+        _border!.ResetShape(); _border.AppendRect(.5f, .5f, Math.Max(0, Bounds.W - 1), Math.Max(0, Bounds.H - 1), 3, 3);
+        _clip!.ResetShape(); _clip.AppendRect(2, 2, RowWidth, ViewHeight, 0, 0);
+        _scroll = Math.Clamp(_scroll, 0, MaxScroll);
+        PositionRows();
     }
 
-    private void PositionItems()
+    private void PositionRows()
     {
-        var style = _owner.Style;
-        float fontSize = EffectiveFontSize(style.FontSize);
-
-        for (int i = 0; i < _itemScenes.Count && i < _items.Count; i++)
+        if (!_created) return;
+        for (var i = 0; i < _items.Length; i++)
         {
-            // Measure for by compensation
-            var m = ThorVG.Text.Gen();
-            if (m == null) continue;
-            try
-            {
-                m.SetFont(style.FontName);
-                m.SetFontSize(fontSize);
-                m.SetText(_items[i]);
-                m.Bounds(out float bx, out float by, out _, out float bh);
-                if (bh <= 0) continue;
-
-                float x = 8 - bx;
-                float y = 2 + i * _itemHeight + (_itemHeight - bh) / 2f - by;
-                _itemScenes[i].Translate(x, y);
-            }
-            finally { m.Unref(); }
+            var metrics = _textMetrics[i];
+            _itemScenes[i].Translate(8 - metrics.X, 2 + i * ItemHeight - _scroll + (ItemHeight - metrics.Height) / 2 - metrics.Y);
+            _itemScenes[i].Visible((i + 1) * ItemHeight > _scroll && i * ItemHeight < _scroll + ViewHeight);
         }
-
-        UpdateHighlight();
-    }
-
-    private void UpdateHighlight()
-    {
-        if (_highlightShape == null) return;
-        if (_hoveredIndex < 0 || _hoveredIndex >= _items.Count)
+        _highlight!.ResetShape();
+        _highlight.Visible(_highlightedIndex >= 0);
+        if (_highlightedIndex >= 0) _highlight.AppendRect(2, 2 + _highlightedIndex * ItemHeight - _scroll, RowWidth, ItemHeight, 2, 2);
+        _track!.Visible(HasScrollbar); _thumb!.Visible(HasScrollbar);
+        _track.ResetShape(); _thumb.ResetShape();
+        if (HasScrollbar)
         {
-            _highlightShape.Visible(false);
-            return;
+            _track.AppendRect(Bounds.W - 12, 2, 10, ViewHeight, 3, 3);
+            _thumb.AppendRect(Bounds.W - 11, ThumbY, 8, ThumbHeight, 3, 3);
         }
-
-        _highlightShape.Visible(true);
-        _highlightShape.ResetShape();
-        float y = 2 + _hoveredIndex * _itemHeight;
-        _highlightShape.AppendRect(2, y, Bounds.W - 4, _itemHeight, 2, 2);
+        MarkDirty();
     }
 
-    public override Element? HitTest(float x, float y)
+    internal void RevealHighlight()
     {
-        if (!Visible) return null;
-        float localX = x - Bounds.X;
-        float localY = y - Bounds.Y;
-        if (new RectF(0, 0, Bounds.W, Bounds.H).Contains(localX, localY))
-            return this;
-        return null;
+        if (_highlightedIndex < 0) return;
+        var top = _highlightedIndex * ItemHeight;
+        if (top < _scroll) _scroll = top;
+        if (top + ItemHeight > _scroll + ViewHeight) _scroll = top + ItemHeight - ViewHeight;
+        _scroll = Math.Clamp(_scroll, 0, MaxScroll);
+        PositionRows();
+    }
+
+    internal void UpdatePlacement()
+    {
+        var previous = Bounds; _owner.PositionPopup();
+        if (previous.W != Bounds.W || previous.H != Bounds.H) RevealHighlight();
+    }
+
+    internal bool BelongsTo(Element? element) => ReferenceEquals(_owner, element);
+
+    internal void Navigate(int key)
+    {
+        _highlightedIndex = key switch
+        {
+            GLFW_KEY_HOME => 0, GLFW_KEY_END => _items.Length - 1,
+            GLFW_KEY_UP => Math.Max(0, _highlightedIndex - 1),
+            _ => Math.Min(_items.Length - 1, _highlightedIndex + 1)
+        };
+        RevealHighlight();
+    }
+
+    private int RowAt(float x, float y)
+    {
+        WindowToLocal(x, y, out var lx, out var ly);
+        if (lx < 2 || lx >= 2 + RowWidth || ly < 2 || ly >= Bounds.H - 2) return -1;
+        var row = (int)Math.Floor((ly - 2 + _scroll) / ItemHeight);
+        return row >= 0 && row < _items.Length ? row : -1;
     }
 
     public override void OnMouseMove(float x, float y)
     {
-        WindowToLocal(x, y, out _, out float ly);
-        int index = (int)((ly - 2) / _itemHeight);
-        if (index < 0 || index >= _items.Count) index = -1;
-        if (index != _hoveredIndex)
+        if (_dragging)
         {
-            _hoveredIndex = index;
-            UpdateHighlight();
-            MarkDirty();
+            WindowToLocal(x, y, out _, out var ly);
+            var travel = ViewHeight - ThumbHeight;
+            _scroll = Math.Clamp(_dragStartScroll + (travel > 0 ? (ly - _dragStartY) / travel * MaxScroll : 0), 0, MaxScroll);
+            PositionRows(); return;
         }
+        var row = RowAt(x, y);
+        if (row >= 0 && row != _highlightedIndex) { _highlightedIndex = row; PositionRows(); }
     }
 
     public override bool OnMouseDown(int button, float x, float y)
     {
-        return button == 0;
+        if (button != 0) return false;
+        WindowToLocal(x, y, out var lx, out var ly);
+        _pressedIndex = _clickedIndex = -1;
+        _scrollPress = HasScrollbar && lx >= Bounds.W - 14;
+        if (_scrollPress)
+        {
+            _dragging = ly >= ThumbY && ly < ThumbY + ThumbHeight;
+            _dragStartY = ly; _dragStartScroll = _scroll;
+            if (!_dragging) { _scroll = Math.Clamp(_scroll + (ly < ThumbY ? -ViewHeight : ViewHeight), 0, MaxScroll); PositionRows(); }
+        }
+        else
+        {
+            _pressedIndex = RowAt(x, y);
+            if (_pressedIndex >= 0) { _highlightedIndex = _pressedIndex; PositionRows(); }
+        }
+        return true;
     }
 
     public override bool OnMouseUp(int button, float x, float y)
     {
-        return button == 0;
+        if (button != 0) return false;
+        _dragging = false;
+        _clickedIndex = !_scrollPress && _pressedIndex >= 0 && RowAt(x, y) == _pressedIndex ? _pressedIndex : -1;
+        return true;
     }
 
+    public override void OnDragEnd() => _dragging = false;
     public override void OnClick()
     {
-        if (_hoveredIndex >= 0 && _hoveredIndex < _items.Count)
-            _owner.SelectFromPopup(_hoveredIndex);
-        else
-            _owner.ClosePopup();
+        var index = _clickedIndex; _clickedIndex = _pressedIndex = -1;
+        if (index >= 0) _owner.SelectFromPopup(index);
     }
 
+    public override void OnScroll(float dx, float dy)
+    {
+        _scroll = Math.Clamp(_scroll - dy * ItemHeight * 3, 0, MaxScroll); PositionRows();
+    }
 }

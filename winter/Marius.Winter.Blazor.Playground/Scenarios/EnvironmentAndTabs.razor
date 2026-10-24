@@ -1,0 +1,98 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Linq
+@using Microsoft.AspNetCore.Components
+
+<ScrollPanel Layout="@Column" Padding="@(new Thickness(8))" HorizontalScroll="ScrollMode.Never">
+    <Label Text="Environment and tabs" FontSize="22" />
+    <Label Text="Choose where to work, then review its settings. Tab reaches the chooser and tab headers; arrows explore, Enter applies, Escape cancels." TextWrapping="ThorVG.TextWrap.Word" />
+    <Label Text="Environment" />
+    <Select TItem="EnvironmentOption" TValue="string" Items="_options" TextSelector="Text" ValueSelector="Key"
+            @bind-Value:get="_selected" @bind-Value:set="Selected" ResetVersion="_version" />
+    <Label Text="@Description" TextWrapping="ThorVG.TextWrap.Word" />
+    <Panel Layout="@Actions">
+        <Button Text="Rename environment" OnClick="RenameEnvironment" />
+        <Button Text="Reorder environments" OnClick="ReorderEnvironments" />
+        <Button Text="Remove environment" OnClick="RemoveEnvironment" />
+        <Button Text="Clear selection" OnClick="Clear" />
+    </Panel>
+    <TabWidget @ref="_settings" @bind-ActiveTab:get="_active" @bind-ActiveTab:set="TabSelected" ResetVersion="_version" MinHeight="140">
+        @foreach (var settingsPage in _pages)
+        {
+            <Tab @key="settingsPage.Id" Label="@settingsPage.Name" Enabled="@settingsPage.Enabled" Visible="@settingsPage.Visible" Layout="@Column">
+                <Panel Layout="@Column" Padding="@(new Thickness(8))">
+                    <Label Text="@settingsPage.Id" TextWrapping="ThorVG.TextWrap.Word" />
+                    <Label Text="@settingsPage.Description" TextWrapping="ThorVG.TextWrap.Word" />
+                </Panel>
+            </Tab>
+        }
+    </TabWidget>
+    <Panel Layout="@Actions">
+        <Button Text="Go to details" OnClick="GoToDetails" />
+        <Button Text="Rename tab" OnClick="RenameTab" />
+        <Button Text="Reorder tabs" OnClick="ReorderTabs" />
+        <Button Text="Remove tab" OnClick="RemoveTab" />
+        <Button Text="Disable tab" OnClick="DisableTab" />
+        <Button Text="Hide tab" OnClick="HideTab" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <Label Text="@Result" TextWrapping="ThorVG.TextWrap.Word" />
+</ScrollPanel>
+
+@code {
+    public record EnvironmentOption(string Id, string Name, string Description);
+    private record Page(string Id, string Name, string Description, bool Enabled = true, bool Visible = true);
+    private static EnvironmentOption[] Defaults() => new[]
+    {
+        new EnvironmentOption("local", "Local workspace", "Work offline with your local project files."),
+        new("development", "Development", "Try configuration changes before sharing them."),
+        new("preview-eu", "Preview · Europe", "Review the next release with the European team."),
+        new("preview-us", "Preview · Americas", "Review the next release with the Americas team."),
+        new("production-eu", "Production", "Serve customers in Europe. Identity: production-eu."),
+        new("production-us", "Production", "Serve customers in the Americas. Identity: production-us.")
+    }.Concat(Enumerable.Range(1, 18).Select(i => new EnvironmentOption($"review-{i:00}", $"Review workspace {i:00}", $"Isolated review workspace {i:00} for release approval."))).ToArray();
+    private static Page[] Pages() => [
+        new("General", "General", "Use the selected environment for your next project session."),
+        new("Details", "Details", "Review the environment description and release workspace before applying changes."),
+        new("Access", "Access", "Access follows your workspace membership. No credentials are changed in this demo.")];
+    private static Marius.Winter.FlexLayout Column => new() { Direction = Orientation.Vertical, Gap = 8, AlignItems = Alignment.Stretch };
+    private static Marius.Winter.FlexLayout Actions => new() { Wrap = FlexWrap.Wrap, Gap = 8 };
+    private EnvironmentOption[] _options = Defaults();
+    private Page[] _pages = Pages();
+    private string? _selected = "local";
+    private int _active, _changes;
+    private long _version;
+    private string _message = "Ready";
+    private Marius.Winter.Blazor.Elements.TabWidget? _settings;
+    private static string Text(EnvironmentOption option) => option.Name;
+    private static string Key(EnvironmentOption option) => option.Id;
+    private string Description => _options.FirstOrDefault(o => o.Id == _selected)?.Description ?? "No matching environment selected. Choose an environment or Reset.";
+    private string Result => $"{_message}. Selected: {_selected ?? "none"} · Settings: {(_active >= 0 && _active < _pages.Length ? _pages[_active].Id : "none")} · Applied choices: {_changes}";
+    private void Selected(string? value) { _selected = value; _changes++; _message = "Environment applied"; }
+    private void TabSelected(int value) { _active = value; _message = "Settings page changed"; }
+    private void RenameEnvironment() { _options = _options.Select(o => o.Id == _selected ? o with { Name = o.Name + " · Žąsis e\u0301" } : o).ToArray(); _message = "Environment renamed"; }
+    private void ReorderEnvironments() { _options = _options.AsEnumerable().Reverse().ToArray(); _message = "Environment order reversed"; }
+    private void RemoveEnvironment() { _options = _options.Where(o => o.Id != _selected).ToArray(); _message = "Environment removed"; }
+    private void Clear() { _selected = null; _active = -1; _version++; _message = "Selection cleared"; }
+    private void GoToDetails() { var index = Array.FindIndex(_pages, p => p.Id == "Details" && p.Enabled && p.Visible); if (index >= 0) _active = index; _settings?.Focus(); _message = "Details requested"; }
+    private void RenameTab() { if (_active >= 0 && _active < _pages.Length) _pages[_active] = _pages[_active] with { Name = "Review settings" }; _message = "Tab renamed"; }
+    private void ReorderTabs()
+    {
+        var selected = _active >= 0 && _active < _pages.Length ? _pages[_active].Id : null;
+        if (_pages.Length > 1) _pages = [_pages[^1], .._pages[..^1]];
+        _active = Array.FindIndex(_pages, p => p.Id == selected); _message = "Tab order rotated";
+    }
+    private void RemoveTab()
+    {
+        if (_active >= 0 && _active < _pages.Length) { _pages = _pages.Where((_, i) => i != _active).ToArray(); Fallback(_active); }
+        _message = "Tab removed";
+    }
+    private void DisableTab() { if (_active >= 0 && _active < _pages.Length) { _pages[_active] = _pages[_active] with { Enabled = false }; Fallback(_active); } _message = "Tab disabled"; }
+    private void HideTab() { if (_active >= 0 && _active < _pages.Length) { _pages[_active] = _pages[_active] with { Visible = false }; Fallback(_active); } _message = "Tab hidden"; }
+    private void Fallback(int start)
+    {
+        _active = -1;
+        for (var i = 0; i < _pages.Length; i++) { var index = (Math.Min(start, _pages.Length - 1) + i) % _pages.Length; if (_pages[index].Enabled && _pages[index].Visible) { _active = index; break; } }
+    }
+    private void Reset() { _options = Defaults(); _pages = Pages(); _selected = "local"; _active = _changes = 0; _version++; _message = "Ready"; }
+}

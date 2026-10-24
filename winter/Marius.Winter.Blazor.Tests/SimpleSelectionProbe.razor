@@ -1,0 +1,19 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System.Collections.Generic
+@namespace Marius.Winter.Blazor.Tests
+
+<Select TItem="string" TValue="string" Items="Options" TextSelector="Identity" ValueSelector="Identity" Value="Selected" ValueChanged="StableChanged" />
+<Select TItem="string" TValue="string" Items="Options" TextSelector="Identity" ValueSelector="Identity" @bind-Value="SimpleSelected" />
+
+@code {
+    private readonly string[] Options = ["a", "b", "c"];
+    private string _selected = "b";
+    public List<string> Values { get; } = [];
+    public string SimpleSelected { get; set; } = "b";
+    public string Selected { get => _selected; set { _selected = value; Values.Add(value); } }
+    private EventCallback<string> StableChanged;
+    protected override void OnInitialized() => StableChanged = EventCallback.Factory.Create<string>(this, value => Selected = value);
+    private static string Identity(string value) => value;
+    public void RenderAgain() => StateHasChanged();
+}

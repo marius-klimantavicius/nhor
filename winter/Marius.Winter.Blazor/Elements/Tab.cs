@@ -31,6 +31,7 @@ public class Tab : WinterComponentBase
     {
         private Marius.Winter.TabWidget? _parentTabWidget;
         private string _label = "";
+        private bool _enabled = true, _visible = true;
 
         Marius.Winter.Panel InnerPanel { get; }
 
@@ -45,6 +46,15 @@ public class Tab : WinterComponentBase
         {
             switch (attributeName)
             {
+                case "Enabled":
+                    _enabled = AttributeHelper.GetBool(attributeValue, true);
+                    InnerPanel.Enabled = _enabled;
+                    _parentTabWidget?.SetTabEnabled(InnerPanel, _enabled);
+                    break;
+                case "Visible":
+                    _visible = AttributeHelper.GetBool(attributeValue, true);
+                    _parentTabWidget?.SetTabVisible(InnerPanel, _visible);
+                    break;
                 case "Label":
                     _label = AttributeHelper.GetString(attributeValue) ?? "";
                     _parentTabWidget?.UpdateTab(InnerPanel, _label);
@@ -64,6 +74,8 @@ public class Tab : WinterComponentBase
             {
                 _parentTabWidget = tabWidget;
                 _parentTabWidget.AddTab(_label, InnerPanel);
+                _parentTabWidget.SetTabEnabled(InnerPanel, _enabled);
+                _parentTabWidget.SetTabVisible(InnerPanel, _visible);
             }
         }
 

@@ -1,0 +1,60 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading.Tasks
+@namespace Marius.Winter.Blazor.Tests
+
+@if (Show)
+{
+    <Select TItem="Choice" TValue="string" Items="Options" TextSelector="Text" ValueSelector="Key"
+            @bind-Value:get="Selected" @bind-Value:set="SetValue" ResetVersion="Version" />
+    <TabWidget @bind-ActiveTab:get="Active" @bind-ActiveTab:set="SetTab" ResetVersion="Version">
+        @foreach (var tab in Tabs)
+        {
+            <Tab @key="tab.Id" Label="@tab.Name" Enabled="@tab.Enabled" Visible="@tab.Visible">
+                <Label Text="@tab.Id" />
+            </Tab>
+        }
+    </TabWidget>
+}
+
+@code {
+    public record Choice(string Id, string Name);
+    public record Page(string Id, string Name, bool Enabled = true, bool Visible = true);
+    public Choice[] Options { get; private set; } = [new("a", "Same"), new("b", "Same"), new("c", "Žąsis e\u0301")];
+    public Page[] Tabs { get; private set; } = [new("general", "General"), new("details", "Details"), new("advanced", "Advanced")];
+    public string? Selected { get; private set; } = "b";
+    public int Active { get; private set; } = 1;
+    public bool Show { get; private set; } = true;
+    public bool Reject { get; set; }
+    public long Version { get; private set; }
+    public List<string?> Values { get; } = [];
+    public List<int> Activations { get; } = [];
+    public Func<string?, Task>? AfterValue { get; set; }
+    public Func<int, Task>? AfterTab { get; set; }
+    private static string Text(Choice item) => item.Name;
+    private static string Key(Choice item) => item.Id;
+    private async Task SetValue(string? value)
+    {
+        Values.Add(value); if (!Reject) Selected = value;
+        if (AfterValue != null) await AfterValue(value);
+    }
+    private async Task SetTab(int value)
+    {
+        Activations.Add(value); if (!Reject) Active = value;
+        if (AfterTab != null) await AfterTab(value);
+    }
+    public void Reorder()
+    {
+        Options = [new("c", "Žąsis renamed"), new("b", "Same"), new("a", "Same")];
+        Tabs = [Tabs[2], Tabs[0], Tabs[1]]; StateHasChanged();
+    }
+    public void ReplaceOptions(params Choice[] options) { Options = options; StateHasChanged(); }
+    public void ReplaceTabs(params Page[] pages) { Tabs = pages; StateHasChanged(); }
+    public void Reset() { Selected = "b"; Active = 1; Version++; StateHasChanged(); }
+    public void Clear() { Selected = null; Active = -1; Version++; StateHasChanged(); }
+    public void Remove() { Show = false; StateHasChanged(); }
+    public void RenderAgain() => StateHasChanged();
+}

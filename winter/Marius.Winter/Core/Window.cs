@@ -389,7 +389,11 @@ public unsafe class Window : Element
             if (!root.HasLayoutBounds && root is ILayoutContainer { Layout: not null }) root.AutoArrangeRoot = true;
             FlushElement(root, root.AutoArrangeRoot);
         }
-        foreach (var overlay in _overlays.ToArray()) FlushElement(overlay, false);
+        foreach (var overlay in _overlays.ToArray())
+        {
+            if (overlay is ComboBoxPopup choices) choices.UpdatePlacement();
+            FlushElement(overlay, false);
+        }
     }
 
     private void FlushElement(Element element, bool autoRoot)
@@ -794,8 +798,15 @@ public unsafe class Window : Element
                 // Click outside overlays dismisses them
                 if (_overlays.Count > 0)
                 {
+                    // A second press on the chooser closes its list. Do not send that same
+                    // press through as a fresh click that would immediately reopen it.
+                    var hit = button == 0 ? HitTest(_mouseX, _mouseY) : null;
+                    var toggledOwner = false;
+                    foreach (var overlay in _overlays)
+                        if (overlay is ComboBoxPopup choices && choices.BelongsTo(hit)) toggledOwner = true;
                     DismissAllOverlays();
                     _dirty = true;
+                    if (toggledOwner) return;
                 }
 
                 // Right-click: show context menu instead of normal capture

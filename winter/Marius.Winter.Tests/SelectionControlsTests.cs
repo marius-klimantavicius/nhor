@@ -77,4 +77,38 @@ public class SelectionControlsTests
         tabs.Enabled = false; Assert.Null(window.FocusedElement);
         foreach (var detached in new[] { b }) detached.Dispose();
     });
+
+    [Theory]
+    [InlineData("hide")]
+    [InlineData("disable")]
+    [InlineData("detach")]
+    public void InactiveOwner_CancelsTentativePopupAndReleasesFocusWithoutCommit(string transition) => WindowRegressionOwner.Run(() =>
+    {
+        using var window = new Window(320, 240, "C02 activity");
+        var combo = new ComboBox(["One", "Two"]) { Bounds = new RectF(10, 10, 220, 32) };
+        window.AddChild(combo); window.SetFocus(combo); var changes = 0; combo.UserSelectionChanged += _ => changes++;
+        combo.OnKeyDown(257, 0, false); combo.OnKeyDown(269, 0, false);
+        var popup = Popup(combo);
+        if (transition == "hide") combo.Visible = false;
+        else if (transition == "disable") combo.Enabled = false;
+        else window.RemoveChild(combo);
+        Assert.Null(window.FocusedElement); Assert.Null(Popup(combo)); Assert.True(popup.IsDisposed);
+        Assert.Equal(0, combo.SelectedIndex); Assert.Equal(0, changes);
+        combo.Dispose();
+    });
+
+    [Fact]
+    public void Popup_ScrollbarChangesViewportWithoutCommittingAndWheelDoesNotSnapBack() => WindowRegressionOwner.Run(() =>
+    {
+        using var window = new Window(320, 240, "C02 scrolling");
+        var combo = new ComboBox(Enumerable.Range(0, 40).Select(i => $"Environment {i}").ToArray()) { Bounds = new RectF(10, 10, 260, 32) };
+        window.AddChild(combo); combo.OnClick(); var popup = Popup(combo);
+        var x = popup.Bounds.Right - 6; var y = popup.Bounds.Bottom - 12;
+        popup.OnMouseDown(0, x, y); popup.OnMouseUp(0, x, y); popup.OnClick();
+        Assert.True(combo.IsDropDownOpen); Assert.Equal(0, combo.SelectedIndex);
+        popup.OnScroll(0, -2); WindowRegressionOwner.Flush(window);
+        x = popup.Bounds.X + 12; y = popup.Bounds.Y + 14;
+        popup.OnMouseDown(0, x, y); popup.OnMouseUp(0, x, y); popup.OnClick();
+        Assert.True(combo.SelectedIndex > 6);
+    });
 }
