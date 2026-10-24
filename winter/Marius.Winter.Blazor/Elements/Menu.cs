@@ -1,91 +1,65 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
 
+/// <summary>A nonphysical top-level menu in a MenuBar.</summary>
 public class Menu : WinterComponentBase
 {
-    static Menu()
-    {
-        ElementHandlerRegistry.RegisterElementHandler<Menu>(renderer => new Handler(renderer));
-    }
-
-    /// <summary>
-    /// Maps the Handler's dummy ElementControl to the native Menu object,
-    /// so that child MenuItem handlers can find their parent Menu.
-    /// </summary>
+    static Menu() => ElementHandlerRegistry.RegisterElementHandler<Menu>(r => new MenuContainerHandler(r, MenuContainerKind.Bar));
     internal static readonly Dictionary<Element, Marius.Winter.Menu> ElementToMenu = new();
-
+    internal static readonly Dictionary<Element, MenuBinding> Bindings = new();
     [Parameter] public string? Title { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
-
-    protected override void RenderAttributes(AttributesBuilder builder)
-    {
-        base.RenderAttributes(builder);
-
-        if (Title != null)
-            builder.AddAttribute(nameof(Title), Title);
-    }
-
     protected override RenderFragment? GetChildContent() => ChildContent;
+    protected override void RenderAttributes(AttributesBuilder builder)
+    { base.RenderAttributes(builder); builder.AddAttribute("Title", Title ?? ""); }
+}
 
-    class Handler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
+internal enum MenuContainerKind { Bar, Context }
+internal sealed record MenuBinding(Marius.Winter.Menu Menu, Func<Element?> Owner);
+
+internal sealed class MenuContainerHandler : WinterElementHandler, IIndexedNonPhysicalChild, IWinterContainerElementHandler
+{
+    private readonly MenuContainerKind _kind;
+    private Marius.Winter.MenuBar? _bar;
+    private Marius.Winter.Menu? _menu, _previousContext;
+    private Element? _contextOwner;
+    private string _title = "";
+    public MenuContainerHandler(NativeComponentRenderer renderer, MenuContainerKind kind) : base(renderer, new Marius.Winter.Panel()) => _kind = kind;
+    public override void ApplyAttribute(ulong id, string name, object value, string updates)
     {
-        private Marius.Winter.MenuBar? _parentMenuBar;
-        private Marius.Winter.Menu? _menu;
-        private string _title = "";
-
-        public Handler(NativeComponentRenderer renderer)
-            : base(renderer, new Marius.Winter.Panel()) { }
-
-        public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
+        if (name is "Title" or "Label")
         {
-            switch (attributeName)
-            {
-                case "Title":
-                    _title = AttributeHelper.GetString(attributeValue) ?? "";
-                    if (_menu != null) _parentMenuBar?.UpdateMenu(_menu, _title);
-                    break;
-                default:
-                    base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
-                    break;
-            }
+            _title = AttributeHelper.GetString(value) ?? "";
+            if (_menu != null) _bar?.UpdateMenu(_menu, _title);
         }
-
-        public void SetParent(object parentElement)
-        {
-            if (parentElement is Marius.Winter.MenuBar menuBar)
-            {
-                _parentMenuBar = menuBar;
-                _menu = _parentMenuBar.AddMenu(_title);
-                ElementToMenu[ElementControl] = _menu;
-            }
-        }
-
-        public void Remove()
-        {
-            ElementToMenu.Remove(ElementControl);
-            if (_menu != null) _parentMenuBar?.RemoveMenu(_menu);
-            _menu = null;
-            _parentMenuBar = null;
-        }
-
-        public void MoveTo(int index)
-        {
-            if (_menu != null) _parentMenuBar?.MoveMenu(_menu, index);
-        }
-
-        public override void Dispose()
-        {
-            if (IsDisposed) return;
-            Remove();
-            base.Dispose();
-        }
-
-        public void AddChild(Element child, int physicalSiblingIndex) { }
-        public void RemoveChild(Element child) { }
-        public void ReorderChildren(List<Element> newOrder) { }
-        public int GetChildIndex(Element child) => -1;
+        else base.ApplyAttribute(id, name, value, updates);
     }
+    public void SetParent(object parentElement)
+    {
+        Func<Element?> owner;
+        if (_kind == MenuContainerKind.Bar && parentElement is Marius.Winter.MenuBar bar)
+        { _bar = bar; _menu = bar.AddMenu(_title); owner = () => bar; }
+        else if (_kind == MenuContainerKind.Context && parentElement is Element contextOwner)
+        { _contextOwner = contextOwner; _previousContext = contextOwner.ContextMenu; _menu = new Marius.Winter.Menu(); contextOwner.ContextMenu = _menu; owner = () => contextOwner; }
+        else throw new InvalidOperationException("Menu requires MenuBar; ContextMenu requires a physical owner.");
+        Menu.ElementToMenu.Add(ElementControl, _menu); Menu.Bindings.Add(ElementControl, new MenuBinding(_menu, owner));
+    }
+    public void Remove()
+    {
+        Menu.ElementToMenu.Remove(ElementControl); Menu.Bindings.Remove(ElementControl);
+        if (_menu != null) _bar?.RemoveMenu(_menu);
+        if (_contextOwner != null && ReferenceEquals(_contextOwner.ContextMenu, _menu)) _contextOwner.ContextMenu = _previousContext;
+        _bar = null; _menu = _previousContext = null; _contextOwner = null;
+    }
+    public void MoveTo(int index)
+    { if (_menu != null) _bar?.MoveMenu(_menu, index); }
+    public override void Dispose() { if (IsDisposed) return; Remove(); base.Dispose(); }
+    public void AddChild(Element child, int index) { }
+    public void RemoveChild(Element child) { }
+    public void ReorderChildren(List<Element> order) { }
+    public int GetChildIndex(Element child) => -1;
 }

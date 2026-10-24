@@ -1,0 +1,7 @@
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+<MenuBar><Menu Title="Preview"><MenuItem Label="Detailed view" IsChecked="false" IsCheckedChanged="Reject" /></Menu></MenuBar>
+@code {
+    public int Calls { get; private set; }
+    private void Reject(bool value) { Calls++; }
+}
