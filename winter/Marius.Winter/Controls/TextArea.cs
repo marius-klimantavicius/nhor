@@ -7,6 +7,14 @@ namespace Marius.Winter;
 
 public class TextArea : Element
 {
+    public bool ReadOnly { get; set; }
+    private bool _invalid;
+    /// <summary>Explicit validation state, independent of text contents.</summary>
+    public bool Invalid
+    {
+        get => _invalid;
+        set { if (_invalid == value) return; _invalid = value; UpdateBorderColor(); MarkDirty(); }
+    }
     private const float Padding = 8f;
     private const float ScrollbarWidth = 8f;
     private const float ScrollbarMargin = 2f;
@@ -186,6 +194,7 @@ public class TextArea : Element
             _borderShape.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
             _borderShape.SetFill(0, 0, 0, 0);
             AddPaint(_borderShape);
+            UpdateBorderColor();
 
             _contentScene = Scene.Gen()!;
             AddPaint(_contentScene);
@@ -257,8 +266,16 @@ public class TextArea : Element
 
     protected override void OnStateChanged(ElementState oldState, ElementState newState)
     {
+        UpdateBorderColor();
+        MarkDirty();
+    }
+
+    private void UpdateBorderColor()
+    {
         var style = Style;
-        if ((newState & ElementState.Focused) != 0)
+        if (_invalid)
+            _borderShape?.StrokeFill(217, 51, 51, 255);
+        else if ((State & ElementState.Focused) != 0)
             _borderShape?.StrokeFill(style.BorderFocused.R8, style.BorderFocused.G8, style.BorderFocused.B8, style.BorderFocused.A8);
         else
             _borderShape?.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
@@ -633,6 +650,7 @@ public class TextArea : Element
 
     private void DeleteSelection()
     {
+        if (ReadOnly || !IsEffectivelyEnabled) return;
         if (!HasSelection()) return;
         int start = Math.Min(_selectionStart, _cursorPos);
         int end = Math.Max(_selectionStart, _cursorPos);
@@ -661,6 +679,7 @@ public class TextArea : Element
 
     private void PasteFromClipboard()
     {
+        if (ReadOnly || !IsEffectivelyEnabled) return;
         var clip = Glfw.Glfw.glfwGetClipboardString(null);
         if (string.IsNullOrEmpty(clip)) return;
         DeleteSelection();
@@ -902,7 +921,7 @@ public class TextArea : Element
 
     public override void OnTextInput(string text)
     {
-        if (!Enabled) return;
+        if (!IsEffectivelyEnabled || ReadOnly) return;
 
         DeleteSelection();
         _text = _text.Insert(_cursorPos, text);
@@ -917,7 +936,7 @@ public class TextArea : Element
 
     public override void OnKeyDown(int key, int mods, bool repeat)
     {
-        if (!Enabled) return;
+        if (!IsEffectivelyEnabled) return;
 
         bool shift = (mods & GLFW_MOD_SHIFT) != 0;
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
@@ -927,6 +946,9 @@ public class TextArea : Element
             if (!repeat) CommitEdit(TextCommitReason.Enter);
             return;
         }
+
+        if (ReadOnly && (key == GLFW_KEY_BACKSPACE || key == GLFW_KEY_DELETE ||
+            (ctrl && (key == GLFW_KEY_X || key == GLFW_KEY_V)) || key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER)) return;
 
         switch (key)
         {
@@ -1173,7 +1195,7 @@ public class TextArea : Element
         _placeholderPaint?.SetFontSize(_effectiveFontSize);
 
         _backgroundShape?.SetFill(style.Background.R8, style.Background.G8, style.Background.B8, style.Background.A8);
-        _borderShape?.StrokeFill(style.Border.R8, style.Border.G8, style.Border.B8, style.Border.A8);
+        UpdateBorderColor();
         _cursorShape?.SetFill(theme.CursorColor.R8, theme.CursorColor.G8, theme.CursorColor.B8, theme.CursorColor.A8);
 
         var selColor = theme.SelectionColor;
@@ -1197,8 +1219,9 @@ public class TextArea : Element
     {
         if (HasSelection())
         {
-            menu.AddItem("Cut", () =>
+            if (!ReadOnly) menu.AddItem("Cut", () =>
             {
+                if (ReadOnly || !IsEffectivelyEnabled) return;
                 CopyToClipboard();
                 DeleteSelection();
                 SplitLines();
@@ -1208,7 +1231,7 @@ public class TextArea : Element
             });
             menu.AddItem("Copy", CopyToClipboard);
         }
-        menu.AddItem("Paste", PasteFromClipboard);
+        if (!ReadOnly) menu.AddItem("Paste", PasteFromClipboard);
         if (_text.Length > 0)
         {
             menu.AddSeparator();

@@ -14,6 +14,8 @@ public class TextBox : InputComponentBase<string>
     [Parameter] public string? Text { get; set; }
     [Parameter] public string? Placeholder { get; set; }
     [Parameter] public bool Required { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Invalid { get; set; }
     [Parameter] public EventCallback<string> TextChanged { get; set; }
     [Parameter] public EventCallback<string> OnTextChanged { get; set; }
 
@@ -27,6 +29,8 @@ public class TextBox : InputComponentBase<string>
         builder.AddAttribute("Text", Text ?? "");
         builder.AddAttribute("Placeholder", Placeholder ?? "");
         builder.AddAttribute("Required", Required);
+        builder.AddAttribute("ReadOnly", ReadOnly);
+        builder.AddAttribute("Invalid", Invalid);
 
         builder.AddAttribute("ontextchanged", BindChange(TextChanged, OnTextChanged, value => Text = value), "Text");
         builder.AddAttribute("ontextcommitted", TextCommitted);
@@ -86,6 +90,8 @@ public class TextBox : InputComponentBase<string>
                 case "Required":
                     TextBoxControl.Required = AttributeHelper.GetBool(attributeValue);
                     break;
+                case "ReadOnly": TextBoxControl.ReadOnly = AttributeHelper.GetBool(attributeValue); break;
+                case "Invalid": TextBoxControl.Invalid = AttributeHelper.GetBool(attributeValue); break;
                 case "ontextcommitted":
                     RegisterEvent(attributeEventHandlerId, id => { if (_commitHandlerId == id) _commitHandlerId = 0; });
                     _commitHandlerId = attributeEventHandlerId;

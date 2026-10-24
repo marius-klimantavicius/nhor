@@ -7,6 +7,14 @@ namespace Marius.Winter;
 
 public class TextBox : Element
 {
+    public bool ReadOnly { get; set; }
+    private bool _invalid;
+    /// <summary>Explicit validation state, independent of text contents.</summary>
+    public bool Invalid
+    {
+        get => _invalid;
+        set { if (_invalid == value) return; _invalid = value; UpdateBorderColor(); MarkDirty(); }
+    }
     private Shape? _backgroundShape;
     private Shape? _borderShape;
     private Shape? _cursorShape;
@@ -57,6 +65,7 @@ public class TextBox : Element
         var changed = _notifiedText != text;
         _notifiedText = text;
         if (changed) _hasUncommittedEdit = true;
+        if (_required) UpdateBorderColor();
         TextChanged?.Invoke(text);
         if (changed) UserTextChanged?.Invoke(text);
     }
@@ -194,6 +203,7 @@ public class TextBox : Element
             _cursorShape!.SetFill(theme.CursorColor.R8, theme.CursorColor.G8, theme.CursorColor.B8, theme.CursorColor.A8);
             _cursorShape.Visible(false);
             AddPaint(_cursorShape);
+            UpdateBorderColor();
         }
     }
 
@@ -237,7 +247,7 @@ public class TextBox : Element
         if (_borderShape == null) return;
         var style = Style;
 
-        if (_required && string.IsNullOrEmpty(_text))
+        if (_invalid || (_required && string.IsNullOrEmpty(_text)))
             _borderShape.StrokeFill(ErrorBorder.R8, ErrorBorder.G8, ErrorBorder.B8, ErrorBorder.A8);
         else if ((State & ElementState.Focused) != 0)
             _borderShape.StrokeFill(style.BorderFocused.R8, style.BorderFocused.G8, style.BorderFocused.B8, style.BorderFocused.A8);
@@ -306,7 +316,7 @@ public class TextBox : Element
 
     public override void OnTextInput(string text)
     {
-        if (!Enabled) return;
+        if (!IsEffectivelyEnabled || ReadOnly) return;
 
         DeleteSelection();
         _text = _text.Insert(_cursorPos, text);
@@ -320,16 +330,23 @@ public class TextBox : Element
 
     public override void OnKeyDown(int key, int mods, bool repeat)
     {
-        if (!Enabled) return;
+        if (!IsEffectivelyEnabled) return;
 
         bool shift = (mods & GLFW_MOD_SHIFT) != 0;
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
 
         if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER)
         {
-            if (!repeat) CommitEdit(TextCommitReason.Enter);
+            if (!repeat)
+            {
+                CommitEdit(TextCommitReason.Enter);
+                base.OnKeyDown(key, mods, repeat);
+            }
             return;
         }
+
+        if (ReadOnly && (key == GLFW_KEY_BACKSPACE || key == GLFW_KEY_DELETE ||
+            (ctrl && (key == GLFW_KEY_X || key == GLFW_KEY_V)))) return;
 
         switch (key)
         {
@@ -652,6 +669,7 @@ public class TextBox : Element
 
     private void DeleteSelection()
     {
+        if (ReadOnly || !IsEffectivelyEnabled) return;
         if (!HasSelection()) return;
         int start = Math.Min(_selectionStart, _cursorPos);
         int end = Math.Max(_selectionStart, _cursorPos);
@@ -680,6 +698,7 @@ public class TextBox : Element
 
     private void PasteFromClipboard()
     {
+        if (ReadOnly || !IsEffectivelyEnabled) return;
         var clip = Glfw.Glfw.glfwGetClipboardString(null);
         if (string.IsNullOrEmpty(clip)) return;
         DeleteSelection();
@@ -767,6 +786,7 @@ public class TextBox : Element
         _selectionShape?.SetFill(selColor.R8, selColor.G8, selColor.B8, selColor.A8);
 
         EnsureCursorVisible();
+        UpdateBorderColor();
         MarkDirty();
     }
 
@@ -774,8 +794,9 @@ public class TextBox : Element
     {
         if (HasSelection())
         {
-            menu.AddItem("Cut", () =>
+            if (!ReadOnly) menu.AddItem("Cut", () =>
             {
+                if (ReadOnly || !IsEffectivelyEnabled) return;
                 CopyToClipboard();
                 DeleteSelection();
                 EnsureCursorVisible();
@@ -785,7 +806,7 @@ public class TextBox : Element
             });
             menu.AddItem("Copy", CopyToClipboard);
         }
-        menu.AddItem("Paste", PasteFromClipboard);
+        if (!ReadOnly) menu.AddItem("Paste", PasteFromClipboard);
         if (_text.Length > 0)
         {
             menu.AddSeparator();

@@ -1,42 +1,34 @@
-@* ── Page 1: Configuration ── *@
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Threading
+@implements IAsyncDisposable
+@* Configuration is validated without touching the filesystem. *@
 @if (_page == Page.Configure && !_browsing)
 {
-    <Panel>
-        <FlexLayout Direction="Orientation.Vertical" Gap="12" />
-
+    <ScrollPanel HorizontalScroll="ScrollMode.Never" Padding="@(new Thickness(12))">
+        <FlexLayout Direction="Orientation.Vertical" Gap="10" />
         <Label Text="Install MyApp" FontSize="22" />
-        <Separator />
-
-        <Label Text="Installation Directory" />
-        <Panel>
-            <FlexLayout Gap="6" />
-            <TextBox Text="@_installPath" Placeholder="/opt/myapp"
-                     OnTextChanged="@(v => _installPath = v)"
-                     LayoutData="@(new FlexItem { Grow = 1 })" />
-            <Button Text="Browse..." OnClick="OpenBrowser" />
-        </Panel>
-
-        <Separator />
-        <Label Text="Configuration" FontSize="16" />
-
-        <Label Text="Application Name" />
-        <TextBox Text="@_appName" Placeholder="MyApp"
-                 OnTextChanged="@(v => _appName = v)" />
-
-        <Label Text="Environment" />
-        <ComboBox Items="@_environments" SelectedIndex="@_envIndex"
-                  OnSelectionChanged="@(i => _envIndex = i)" />
-
-        <Checkbox Text="Create desktop shortcut" IsChecked="@_createShortcut"
-                  OnChanged="@(v => _createShortcut = v)" />
-        <Checkbox Text="Launch at startup" IsChecked="@_launchAtStartup"
-                  OnChanged="@(v => _launchAtStartup = v)" />
-
-        <Panel>
-            <FlexLayout JustifyContent="JustifyContent.End" Gap="8" />
-            <Button Text="Install" OnClick="StartInstall" />
-        </Panel>
-    </Panel>
+        <Label Text="Configuration simulation only. No files are installed." TextWrapping="ThorVG.TextWrap.Word" />
+        <WinterForm @ref="_form" Model="_configuration" OnValidSubmit="StartInstall" OnInvalidSubmit="Invalid" OnReset="ResetConfiguration">
+            <TextField Label="Application name" @bind-Value="_configuration.Name" HelpText="Name shown in the launcher." />
+            <TextField Label="Destination" @bind-Value="_configuration.Destination" ReadOnly="_readOnly" HelpText="Use an absolute destination beginning with /. Browse previews the existing sample folders." />
+            <Panel>
+                <FlexLayout Wrap="FlexWrap.Wrap" Gap="10" />
+                <Button Text="Browse..." OnClick="OpenBrowser" />
+                <Checkbox Text="Read-only destination" @bind-IsChecked="_readOnly" />
+            </Panel>
+            <SelectField TItem="EnvironmentOption" TValue="string" Label="Environment" Items="_environments"
+                         TextSelector="@(e => e.Name)" ValueSelector="@(e => e.Id)" @bind-Value="_configuration.Environment" />
+            <CheckboxField Label="Shortcut" Text="Create desktop shortcut" @bind-Value="_configuration.Shortcut" />
+            <CheckboxField Label="Startup" Text="Launch at startup" @bind-Value="_configuration.LaunchAtStartup" />
+            <Panel>
+                <FlexLayout Wrap="FlexWrap.Wrap" Gap="8" />
+                <Button Text="Install" OnClick="Submit" />
+                <Button Text="Reset" OnClick="Reset" />
+                <Button Text="New configuration" OnClick="NewConfiguration" />
+            </Panel>
+        </WinterForm>
+        <Label Text="@_configurationResult" TextWrapping="ThorVG.TextWrap.Word" />
+    </ScrollPanel>
 }
 
 @* ── Folder Browser ── *@
@@ -118,21 +110,21 @@
     <Panel>
         <FlexLayout Direction="Orientation.Vertical" Gap="12" />
 
-        <Label Text="Installation Complete" FontSize="22" />
+        <Label Text="Installation Simulation Complete" FontSize="22" />
         <Separator />
 
-        <Label Text="@($"{_appName} has been successfully installed to:")" />
-        <Label Text="@_installPath" FontSize="14" />
+        <Label Text="@($"{_configuration.Name} was simulated with destination:")" />
+        <Label Text="@_configuration.Destination" FontSize="14" />
 
         <Separator />
-        <Label Text="@($"Environment: {_environments[_envIndex]}")" />
-        @if (_createShortcut)
+        <Label Text="@($"Environment: {EnvironmentName}")" />
+        @if (_configuration.Shortcut)
         {
-            <Label Text="Desktop shortcut created." />
+            <Label Text="Desktop shortcut selected." />
         }
-        @if (_launchAtStartup)
+        @if (_configuration.LaunchAtStartup)
         {
-            <Label Text="Registered to launch at startup." />
+            <Label Text="Launch at startup selected." />
         }
 
         <Panel>
@@ -165,12 +157,16 @@
     // ── State ──
     Page _page = Page.Configure;
 
-    string _installPath = "/opt/myapp";
-    string _appName = "MyApp";
-    int _envIndex;
-    bool _createShortcut = true;
-    bool _launchAtStartup;
-    readonly string[] _environments = ["Production", "Staging", "Development"];
+    InstallerConfiguration _configuration = new();
+    WinterForm _form = null!;
+    bool _readOnly, _disposed;
+    string _configurationResult = "Ready to validate a simulated configuration.";
+    record EnvironmentOption(string Id, string Name);
+    readonly EnvironmentOption[] _environments = [new("production", "Production"), new("staging", "Staging"), new("development", "Development")];
+    string EnvironmentName => _environments.First(e => e.Id == _configuration.Environment).Name;
+    CancellationTokenSource? _installationCancellation;
+    Task _installationTask = Task.CompletedTask;
+    long _generation;
 
     float _progress;
     string _log = "";
@@ -181,14 +177,14 @@
 
     void OpenBrowser()
     {
-        _browseSelected = _installPath;
+        _browseSelected = _configuration.Destination;
         _browsing = true;
     }
 
     void BrowseSelect()
     {
         if (_browseSelected != null)
-            _installPath = _browseSelected;
+            _configuration.Destination = _browseSelected;
         _browsing = false;
     }
 
@@ -223,27 +219,58 @@
         ("Installation complete.", 100),
     ];
 
-    async void StartInstall()
+    Task Submit() => _form.SubmitAsync();
+    Task Reset() => _form.ResetAsync();
+    void Invalid(EditContext _) => _configurationResult = "Correct the highlighted configuration before starting the simulation.";
+    void ResetConfiguration(EditContext _)
     {
-        _page = Page.Progress;
-        _progress = 0;
-        _log = "";
-
-        for (int i = 0; i < _steps.Length; i++)
+        _configuration.Name = "MyApp"; _configuration.Destination = "/opt/myapp";
+        _configuration.Environment = "production"; _configuration.Shortcut = true; _configuration.LaunchAtStartup = false;
+        _readOnly = false; _configurationResult = "Configuration reset.";
+    }
+    void NewConfiguration() { _configuration = new(); _readOnly = false; _configurationResult = "New configuration ready."; }
+    Task StartInstall(EditContext context)
+    {
+        if (_disposed || _page != Page.Configure || !ReferenceEquals(context.Model, _configuration)) return Task.CompletedTask;
+        _installationCancellation?.Cancel(); _installationCancellation?.Dispose();
+        _installationCancellation = new CancellationTokenSource();
+        _installationTask = SimulateAsync(++_generation, _installationCancellation.Token);
+        return _installationTask;
+    }
+    async Task SimulateAsync(long generation, CancellationToken token)
+    {
+        _page = Page.Progress; _progress = 0; _log = "Simulation only: no filesystem changes.\n";
+        try
         {
-            var (message, duration) = _steps[i];
-            _log += message + "\n";
-            _progress = (float)(i + 1) / _steps.Length;
-            await InvokeAsync(StateHasChanged);
-            await Task.Delay(duration);
+            for (int i = 0; i < _steps.Length; i++)
+            {
+                if (_disposed || token.IsCancellationRequested || generation != _generation) return;
+                var (message, duration) = _steps[i];
+                await InvokeAsync(() =>
+                {
+                    if (_disposed || token.IsCancellationRequested || generation != _generation) return;
+                    _log += message + "\n"; _progress = (float)(i + 1) / _steps.Length;
+                    StateHasChanged();
+                });
+                await Task.Delay(duration, token).ConfigureAwait(false);
+            }
+            await InvokeAsync(() =>
+            {
+                if (!_disposed && generation == _generation && !token.IsCancellationRequested) { _page = Page.Complete; StateHasChanged(); }
+            });
         }
-
-        _page = Page.Complete;
-        await InvokeAsync(StateHasChanged);
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return; _disposed = true; _generation++; _installationCancellation?.Cancel();
+        try { await _installationTask.ConfigureAwait(false); }
+        finally { _installationCancellation?.Dispose(); }
     }
 
     void LaunchApp()
     {
         _page = Page.Configure;
+        _configurationResult = "Simulation complete. Review or reset the configuration.";
     }
 }

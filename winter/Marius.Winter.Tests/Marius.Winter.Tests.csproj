@@ -11,6 +11,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <ProjectReference Include="../Marius.Winter/Marius.Winter.csproj" />
     <ProjectReference Include="../Marius.Winter.Blazor/Marius.Winter.Blazor.csproj" />
+    <ProjectReference Include="../Marius.Winter.Blazor.InstallerExample/Marius.Winter.Blazor.InstallerExample.csproj" />
     <ProjectReference Include="../Marius.Winter.Blazor.Converter/Marius.Winter.Blazor.Converter.csproj" />
     <ProjectReference Include="../Marius.Winter.Blazor.Playground/Marius.Winter.Blazor.Playground.csproj" />
     <ProjectReference Include="../Marius.Winter.Playground/Marius.Winter.Playground.csproj" />

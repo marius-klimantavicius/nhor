@@ -1,0 +1,54 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components
+@using System.Threading.Tasks
+@using System.ComponentModel.DataAnnotations
+@using Marius.Winter.Blazor.Elements
+<WinterForm @ref="Form" Model="@(UseContext ? null : Model)" EditContext="@(UseContext ? Context : null)"
+            OnValidSubmit="Valid" OnInvalidSubmit="Invalid" OnReset="ResetModel" Validation="CustomValidation">
+    <TextField Label="Application name" Value="@Model.Name" ValueChanged="SetName" ValueExpression="@(() => Model.Name)" />
+    @if (ShowDestination)
+    {
+        <TextField Label="Destination" @bind-Value="Model.Destination" ReadOnly="ReadOnly" />
+    }
+    <SelectField TItem="Choice" TValue="string" Label="Environment" Items="Options"
+                 TextSelector="@(c => c.Name)" ValueSelector="@(c => c.Id)" @bind-Value="Model.Environment" />
+    <CheckboxField Label="Shortcut" Text="Create desktop shortcut" @bind-Value="Model.Shortcut" />
+</WinterForm>
+@code {
+    public sealed class Configuration
+    {
+        [Required(ErrorMessage = "Enter an application name.")] public string Name { get; set; } = "MyApp";
+        [Required, RegularExpression(@"/.*", ErrorMessage = "Enter an absolute destination beginning with /.")]
+        public string Destination { get; set; } = "/opt/myapp";
+        public string Environment { get; set; } = "production";
+        public bool Shortcut { get; set; } = true;
+    }
+    public record Choice(string Id, string Name);
+    public readonly Choice[] Options = [new("production", "Production"), new("development", "Development")];
+    public Configuration Model = new();
+    public EditContext Context = null!;
+    public WinterForm Form = null!;
+    public int ValidCalls, InvalidCalls;
+    public bool ShowDestination = true, ReadOnly, UseContext;
+    public TaskCompletionSource? ResetGate;
+    public TaskCompletionSource? ChangeGate;
+    public bool RejectName, CustomRule;
+    async Task SetName(string value) { if (!RejectName) Model.Name = value; if (ChangeGate != null) await ChangeGate.Task; }
+    void CustomValidation(EditContext context, ValidationMessageStore messages)
+    {
+        if (CustomRule && ((Configuration)context.Model).Name == "Reserved") messages.Add(new FieldIdentifier(context.Model, "Name"), "Choose another application name.");
+    }
+    protected override void OnInitialized() => Context = new EditContext(Model);
+    void Valid(EditContext _) => ValidCalls++;
+    void Invalid(EditContext _) => InvalidCalls++;
+    async Task ResetModel(EditContext context)
+    {
+        if (ResetGate != null) await ResetGate.Task;
+        ((Configuration)context.Model).Name = "MyApp";
+        ((Configuration)context.Model).Destination = "/opt/myapp";
+        ((Configuration)context.Model).Environment = "production";
+        ((Configuration)context.Model).Shortcut = true;
+    }
+    public void Refresh() => StateHasChanged();
+    public void Replace(bool supplied = false) { Model = new Configuration { Name = "Replacement" }; Context = new EditContext(Model); UseContext = supplied; StateHasChanged(); }
+}

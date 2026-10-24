@@ -1,0 +1,66 @@
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Forms
+<ScrollPanel Padding="@(new Thickness(8))" HorizontalScroll="ScrollMode.Never">
+    <FlexLayout Direction="Orientation.Vertical" Gap="8" />
+    <Label Text="Installer setup" FontSize="22" />
+    <Label Text="Prepare a simulated installation. Enter submits text fields; notes keep newlines. No files are created." TextWrapping="ThorVG.TextWrap.Word" />
+    <WinterForm @ref="_form" Model="_model" OnValidSubmit="Submitted" OnInvalidSubmit="Invalid" OnReset="ResetModel">
+        <TextField Label="Application name" Value="@_model.Name" ValueChanged="NameChanged" ValueExpression="@(() => _model.Name)" HelpText="Name shown in the launcher." />
+        <TextField Label="Destination" @bind-Value="_model.Destination" ReadOnly="_readOnly"
+                   HelpText="Use an absolute destination beginning with /. This is configuration only; the destination is never created or changed." />
+        <SelectField TItem="EnvironmentOption" TValue="string" Label="Environment" Items="_environments"
+                     TextSelector="@(e => e.Name)" ValueSelector="@(e => e.Id)" @bind-Value="_model.Environment" />
+        <CheckboxField Label="Shortcut" Text="Create desktop shortcut" @bind-Value="_model.Shortcut" />
+        @if (_showNotes)
+        {
+            <TextField Label="Notes (optional)" @bind-Value="_model.Notes" Multiline="true" MultilineHeight="64" Enabled="@(!_disableNotes)" />
+        }
+        <Panel>
+            <FlexLayout Wrap="FlexWrap.Wrap" Gap="10" />
+            <Checkbox Text="Read-only destination" @bind-IsChecked="_readOnly" />
+            <Checkbox Text="Keep application name" @bind-IsChecked="_protect" />
+            <Checkbox Text="Disable notes" @bind-IsChecked="_disableNotes" />
+        </Panel>
+        <Panel>
+            <FlexLayout Wrap="FlexWrap.Wrap" Gap="10" />
+            <Button Text="Submit" OnClick="Submit" />
+            <Button Text="Reset" OnClick="Reset" />
+            <Button Text="Replace configuration" OnClick="Replace" />
+            <Button Text="Toggle notes" OnClick="ToggleNotes" />
+        </Panel>
+    </WinterForm>
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+</ScrollPanel>
+@code {
+    public sealed class Configuration
+    {
+        [Required(ErrorMessage = "Enter an application name.")] public string Name { get; set; } = "MyApp";
+        [Required(ErrorMessage = "Enter an absolute destination beginning with /.")]
+        [RegularExpression(@"/.*", ErrorMessage = "Enter an absolute destination beginning with /, for example /opt/myapp. Choose a location that your team can recognize when reviewing this simulated configuration.")]
+        public string Destination { get; set; } = "/opt/myapp";
+        public string Environment { get; set; } = "production";
+        public bool Shortcut { get; set; } = true;
+        public string Notes { get; set; } = "Configuration notes";
+    }
+    public record EnvironmentOption(string Id, string Name);
+    private readonly EnvironmentOption[] _environments = [new("production", "Production"), new("staging", "Staging"), new("development", "Development")];
+    private Configuration _model = new();
+    private WinterForm _form = null!;
+    private bool _readOnly, _protect, _disableNotes, _showNotes = true;
+    private int _submissions, _modelNumber = 1;
+    private string _result = "No configuration submitted.";
+    private void NameChanged(string value) { if (!_protect) _model.Name = value; }
+    private Task Submit() => _form.SubmitAsync();
+    private Task Reset() => _form.ResetAsync();
+    private void Submitted(EditContext _) => _result = $"Configuration {_modelNumber} submitted #{++_submissions}: {_model.Name} to {_model.Destination} · {_model.Environment} · shortcut {(_model.Shortcut ? "on" : "off")}. Simulation only.";
+    private void Invalid(EditContext _) => _result = "Review the messages, correct the configuration, then Submit.";
+    private void ResetModel(EditContext _)
+    {
+        _model.Name = "MyApp"; _model.Destination = "/opt/myapp"; _model.Environment = "production";
+        _model.Shortcut = true; _model.Notes = "Configuration notes"; _readOnly = false; _protect = false;
+        _disableNotes = false;
+        _showNotes = true; _submissions = 0; _result = "Configuration reset. No configuration submitted.";
+    }
+    private void Replace() { _model = new Configuration { Name = "Replacement app" }; _modelNumber++; _result = $"Configuration {_modelNumber} is a new draft."; }
+    private void ToggleNotes() => _showNotes = !_showNotes;
+}

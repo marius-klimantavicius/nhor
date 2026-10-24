@@ -12,6 +12,8 @@ public class TextArea : InputComponentBase<string>
     }
 
     [Parameter] public string? Text { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Invalid { get; set; }
     [Parameter] public string? Placeholder { get; set; }
     [Parameter] public EventCallback<string> TextChanged { get; set; }
     [Parameter] public EventCallback<string> OnTextChanged { get; set; }
@@ -24,6 +26,8 @@ public class TextArea : InputComponentBase<string>
         RenderReset(builder, Text ?? "");
 
         builder.AddAttribute("Text", Text ?? "");
+        builder.AddAttribute("ReadOnly", ReadOnly);
+        builder.AddAttribute("Invalid", Invalid);
         builder.AddAttribute("Placeholder", Placeholder ?? "");
 
         builder.AddAttribute("ontextchanged", BindChange(TextChanged, OnTextChanged, value => Text = value), "Text");
@@ -69,6 +73,8 @@ public class TextArea : InputComponentBase<string>
         {
             switch (attributeName)
             {
+                case "ReadOnly": TextAreaControl.ReadOnly = AttributeHelper.GetBool(attributeValue); break;
+                case "Invalid": TextAreaControl.Invalid = AttributeHelper.GetBool(attributeValue); break;
                 case "InputReset":
                     var reset = AttributeHelper.GetObject<InputReset<string>>(attributeValue);
                     if (reset == null) break;
