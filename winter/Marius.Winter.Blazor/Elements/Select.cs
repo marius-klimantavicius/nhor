@@ -19,6 +19,7 @@ public class Select<TItem, TValue> : InputComponentBase<TValue>
     [Parameter] public TValue Value { get; set; } = default!;
     [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
     [Parameter] public EventCallback<TValue> OnValueChanged { get; set; }
+    public bool Focus() => TryFocus();
     private Configuration? _configuration;
     private EventCallback<TValue> _applicationCallback;
     private EventCallback<ChangeEventArgs> _bindingCallback;

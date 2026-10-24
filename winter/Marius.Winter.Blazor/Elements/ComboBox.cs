@@ -16,6 +16,7 @@ public class ComboBox : InputComponentBase<int>
     [Parameter] public int SelectedIndex { get; set; }
     [Parameter] public EventCallback<int> SelectedIndexChanged { get; set; }
     [Parameter] public EventCallback<int> OnSelectionChanged { get; set; }
+    public bool Focus() => TryFocus();
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {

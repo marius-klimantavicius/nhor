@@ -6,7 +6,7 @@ namespace Marius.Winter.Blazor.Elements;
 public abstract class WinterComponentBase : NativeControlComponentBase
 {
     /// <summary>Focus an attached, active native control on its owning UI thread. False after removal or for non-focusable controls.</summary>
-    public bool Focus()
+    public bool TryFocus()
     {
         if (ElementHandler is not IWinterElementHandler handler) return false;
         var element = handler.ElementControl; var window = element.OwnerWindow;

@@ -25,6 +25,7 @@ public class TabWidget : Element
     private readonly List<Scene> _headerScenes = new();
     private readonly List<Text> _headerTexts = new();
     private int _activeTab = -1;
+    private Element? _selectedContent;
     private bool _explicitClear;
     private bool _shapesCreated;
     private float _tabHeaderHeight;
@@ -57,7 +58,7 @@ public class TabWidget : Element
     }
 
     public int TabCount => _tabs.Count;
-    public Element? ActiveContent => _activeTab >= 0 ? _tabs[_activeTab].Content : null;
+    public Element? ActiveContent => _selectedContent;
 
     private bool Available(int index) => _tabs[index].Enabled && _tabs[index].Visible;
 
@@ -173,12 +174,14 @@ public class TabWidget : Element
     private void SetSelection(int index)
     {
         var previous = _activeTab;
+        var previousContent = _selectedContent;
         _activeTab = index;
+        _selectedContent = index >= 0 ? _tabs[index].Content : null;
         for (var i = 0; i < _tabs.Count; i++) _tabs[i].Content.Visible = i == _activeTab;
         _activeTabShape?.Visible(_activeTab >= 0);
         UpdateActiveTabHighlight();
         InvalidateMeasure(); MarkDirty();
-        if (previous != _activeTab) ActiveTabChanged?.Invoke(_activeTab);
+        if (previous != _activeTab || !ReferenceEquals(previousContent, _selectedContent)) ActiveTabChanged?.Invoke(_activeTab);
     }
 
     protected override void OnAttached()

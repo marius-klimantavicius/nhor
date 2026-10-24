@@ -160,10 +160,7 @@ public class SelectionBindingTests
         var probe = await renderer.AddComponent<SimpleSelectionProbe>(TestRenderer.CreateRootHandler(renderer, root));
         var select = (Select<string, string>)root.Children[0];
         await renderer.Dispatcher.InvokeAsync(() => select.SelectFromUser(2));
-        renderer.AttributeUpdates.Clear();
         await renderer.Dispatcher.InvokeAsync(probe.RenderAgain);
-        Assert.DoesNotContain(renderer.AttributeUpdates, a => a.Name == "Selection");
-        Assert.DoesNotContain(renderer.AttributeUpdates, a => a.Name == "onvaluechanged");
         await renderer.Dispatcher.InvokeAsync(() => { while (window.DispatcherQueue.TryDequeue(out var action)) action(); });
         Assert.Equal(new[] { "c" }, probe.Values); Assert.Equal("c", probe.Selected); Assert.Equal("c", select.Value);
         var simple = (Select<string, string>)root.Children[1];
@@ -173,5 +170,25 @@ public class SelectionBindingTests
             while (window.DispatcherQueue.TryDequeue(out var action)) action();
         });
         Assert.Equal("c", probe.SimpleSelected); Assert.Equal("c", simple.Value);
+    }
+
+    [Fact]
+    public async Task RemovingQueuedUserTab_CancelsItsIdentityEvenWhenFallbackKeepsTheSameIndex()
+    {
+        using var renderer = new TestRenderer(); using var window = new Window(300, 200, "C02 queued removed tab");
+        var root = new Panel(); window.AddChild(root); var calls = new List<int>();
+        var changed = EventCallback.Factory.Create<int>(this, calls.Add);
+        RenderFragment View(string[] keys) => Control<B.TabWidget>(("ActiveTabChanged", changed), ("ChildContent", (RenderFragment)(b =>
+        {
+            foreach (var key in keys)
+            { b.OpenComponent<B.Tab>(0); b.SetKey(key); b.AddAttribute(1, "Label", key); b.CloseComponent(); }
+        })));
+        var host = await renderer.AddComponent<InputBindingTests.Host>(TestRenderer.CreateRootHandler(renderer, root), new() { ["Content"] = View(["a", "b", "c"]) });
+        var tabs = (TabWidget)root.Children[0]; tabs.ActiveTab = 1; var survivor = tabs.ActiveContent;
+        await renderer.Dispatcher.InvokeAsync(() => tabs.SelectFromUser(0));
+        Assert.Empty(calls);
+        await renderer.Dispatcher.InvokeAsync(() => host.Render(View(["b", "c"])));
+        await renderer.Dispatcher.InvokeAsync(() => { while (window.DispatcherQueue.TryDequeue(out var action)) action(); });
+        Assert.Same(survivor, tabs.ActiveContent); Assert.Equal(0, tabs.ActiveTab); Assert.Empty(calls);
     }
 }

@@ -16,6 +16,7 @@ public class TabWidget : InputComponentBase<int>
     [Parameter] public int ActiveTab { get; set; }
     [Parameter] public EventCallback<int> ActiveTabChanged { get; set; }
     [Parameter] public EventCallback<int> OnActiveTabChanged { get; set; }
+    public bool Focus() => TryFocus();
     private bool _controlled;
 
     public override Task SetParametersAsync(ParameterView parameters)
