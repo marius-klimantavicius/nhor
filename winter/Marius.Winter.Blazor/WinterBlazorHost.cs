@@ -45,18 +45,35 @@ public class WinterBlazorHost : IAsyncDisposable
     {
         if (_disposeTask != null) return new ValueTask(_disposeTask);
         if (!_window.Dispatcher.CheckAccess())
-            return new ValueTask(_window.Dispatcher.InvokeAsync(() => DisposeAsync().AsTask()));
-        return new ValueTask(_disposeTask ??= DisposeCoreAsync());
+            // Marshal only the start. The disposal task itself belongs to
+            // teardown and must not be canceled with application invocations.
+            return new ValueTask(_window.Dispatcher.InvokeAsync<Task>(StartDisposal).Unwrap());
+        return new ValueTask(StartDisposal());
+    }
+
+    private Task StartDisposal()
+    {
+        if (_disposeTask != null) return _disposeTask;
+        // Capture the cleanup context even when explicitly disposed before
+        // Window shutdown. Closing retains ownership until this task ends.
+        using var scope = _window.Dispatcher.EnterScope(cleanup: true);
+        return _disposeTask = DisposeCoreAsync();
     }
 
     private async Task DisposeCoreAsync()
     {
-        _window.Closing -= DisposeAsync;
-        try { await _renderer.DisposeAsync(); }
+        try
+        {
+            try { await _renderer.DisposeAsync(); }
+            finally
+            {
+                if (_services is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
+                else if (_services is IDisposable disposable) disposable.Dispose();
+            }
+        }
         finally
         {
-            if (_services is IAsyncDisposable asyncDisposable) await asyncDisposable.DisposeAsync();
-            else if (_services is IDisposable disposable) disposable.Dispose();
+            _window.Closing -= DisposeAsync;
         }
     }
 }

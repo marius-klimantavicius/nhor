@@ -579,6 +579,8 @@ cooperatively and avoid touching disposed UI. Async `Closing` handlers run on th
 UI thread while its native context is alive; a dedicated disposal context keeps
 their continuations pumping. Disposers must finish or cancel their external work.
 The Blazor host disposes its renderer/components before its owned services.
+Explicit host disposal captures that cleanup context when it starts and remains
+owned by Window closing until it finishes, including disposal already in progress.
 Canvas Sync/Dispose runs before native GL context destruction. Worker graphics
 operations must balance their own ThorVG Init/Term and dispose canvases before
 releasing that acquire; the Converter follows this contract.

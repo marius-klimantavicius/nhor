@@ -11,14 +11,17 @@ namespace Marius.Winter;
 /// after shutdown starts. Prefer Window.Dispatcher for observable completion.</summary>
 public sealed class WindowDispatcherQueue : IReadOnlyCollection<Action>
 {
-    private readonly ConcurrentQueue<Action> _queue = new();
+    private readonly ConcurrentQueue<(Action Action, bool Cleanup)> _queue = new();
     private readonly object _gate = new();
     private readonly Action _wake;
     private bool _stopping, _closed;
     internal WindowDispatcherQueue(Action wake) => _wake = wake;
     public bool IsEmpty => _queue.IsEmpty;
     public int Count => _queue.Count;
-    public IEnumerator<Action> GetEnumerator() => _queue.GetEnumerator();
+    public IEnumerator<Action> GetEnumerator()
+    {
+        foreach (var work in _queue) yield return work.Action;
+    }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     public void Enqueue(Action action)
     {
@@ -30,13 +33,29 @@ public sealed class WindowDispatcherQueue : IReadOnlyCollection<Action>
         lock (_gate)
         {
             if (_closed || (_stopping && !cleanup)) return false;
-            _queue.Enqueue(action);
+            _queue.Enqueue((action, cleanup));
             _wake();
             return true;
         }
     }
-    public bool TryDequeue(out Action action) => _queue.TryDequeue(out action!);
-    internal void StopAccepting() { lock (_gate) { _stopping = true; _queue.Clear(); } }
+    public bool TryDequeue(out Action action)
+    {
+        bool found = _queue.TryDequeue(out var work);
+        action = work.Action!;
+        return found;
+    }
+    internal void StopAccepting()
+    {
+        lock (_gate)
+        {
+            _stopping = true;
+            // Disposal can start before shutdown. Keep its already queued
+            // continuations in FIFO order while dropping application work.
+            int count = _queue.Count;
+            for (int i = 0; i < count && _queue.TryDequeue(out var work); i++)
+                if (work.Cleanup) _queue.Enqueue(work);
+        }
+    }
     internal void Close() { lock (_gate) { _closed = true; _queue.Clear(); } }
 }
 
@@ -48,7 +67,7 @@ public sealed class WindowDispatcher
     private readonly int _owner = Environment.CurrentManagedThreadId;
     private readonly WindowDispatcherQueue _queue;
     private readonly object _gate = new();
-    private readonly Dictionary<Task, Action> _pending = new();
+    private readonly Dictionary<Task, (Action Cancel, bool Cleanup)> _pending = new();
     private readonly PumpContext _context, _cleanupContext;
     private bool _stopping, _closed;
     internal WindowDispatcher(WindowDispatcherQueue queue)
@@ -117,7 +136,7 @@ public sealed class WindowDispatcher
         lock (_gate)
         {
             if (_closed || (_stopping && !cleanup)) return Task.FromCanceled<T>(new CancellationToken(true));
-            _pending.Add(completion.Task, () => completion.TrySetCanceled());
+            _pending.Add(completion.Task, (() => completion.TrySetCanceled(), cleanup));
         }
         void Finish(Task<T> task)
         {
@@ -148,8 +167,12 @@ public sealed class WindowDispatcher
         lock (_gate)
         {
             _stopping = true;
-            foreach (var cancel in _pending.Values) cancel();
-            _pending.Clear();
+            foreach (var task in new List<Task>(_pending.Keys))
+                if (!_pending[task].Cleanup)
+                {
+                    _pending[task].Cancel();
+                    _pending.Remove(task);
+                }
             _queue.StopAccepting();
         }
     }
@@ -158,7 +181,7 @@ public sealed class WindowDispatcher
         lock (_gate)
         {
             _closed = true;
-            foreach (var cancel in _pending.Values) cancel();
+            foreach (var pending in _pending.Values) pending.Cancel();
             _pending.Clear();
             _queue.Close();
         }
