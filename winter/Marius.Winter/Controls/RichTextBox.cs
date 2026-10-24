@@ -797,6 +797,7 @@ public class RichTextBox : Element
 
                 var color = run.Color ?? defaultTextColor;
                 slot.TextPaint.SetFill(color.R8, color.G8, color.B8);
+                slot.TextPaint.Opacity(color.A8);
 
                 // ThorVG's text origin is the font top, with the baseline at
                 // its ascent. Glyph ink bounds (for example "M") are not an
