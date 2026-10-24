@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace Marius.Winter.Playground.Scenarios;
 
@@ -117,6 +118,7 @@ public sealed class HelpRichDisplayScenario : IDisposable
         _result = new Label();
         content.AddChild(_result);
         Reset();
+        _window.Closing += Closing;
     }
 
     public Element Content { get; }
@@ -150,7 +152,10 @@ public sealed class HelpRichDisplayScenario : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _window.Closing -= Closing;
         if (_favorite.Parent == null) _favorite.Dispose();
         Content.Dispose();
     }
+
+    private ValueTask Closing() { Dispose(); return ValueTask.CompletedTask; }
 }

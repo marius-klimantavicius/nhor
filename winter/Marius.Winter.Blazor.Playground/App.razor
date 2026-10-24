@@ -17,6 +17,18 @@
         </Panel>
         <Panel Visible="@(_scenario == 1)" LayoutData="@(new GridItem())">
             <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
+            <HelpRichDisplay />
+        </Panel>
+        <Panel Visible="@(_scenario == 2)" LayoutData="@(new GridItem())">
+            <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
+            <ResizableWorkspace />
+        </Panel>
+        <Panel Visible="@(_scenario == 3)" LayoutData="@(new GridItem())">
+            <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
+            <OperationFeedback />
+        </Panel>
+        <Panel Visible="@(_scenario == 4)" LayoutData="@(new GridItem())">
+            <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
             <LegacyGallery OnToggleTheme="ToggleTheme" />
         </Panel>
     </Panel>
@@ -25,7 +37,7 @@
 @code {
     [Parameter] public Window? OwnerWindow { get; set; }
     private Marius.Winter.Blazor.Elements.Panel? _root;
-    private readonly string[] _scenarioNames = ["Profile and volume", "Existing demos"];
+    private readonly string[] _scenarioNames = ["Profile and volume", "Help and rich display", "Resizable workspace", "Operation feedback", "Existing demos"];
     private int _scenario;
     private bool _dark, _large;
     private void ToggleTheme() { _dark = !_dark; ApplyAppearance(); }

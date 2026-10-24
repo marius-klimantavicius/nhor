@@ -47,3 +47,7 @@ removal, independent icon sizing/width and height clears/reset, text opacity
 (opaque, half, transparent, theme), visible results, and Reset. The native module
 owns only its Content subtree and its temporarily detached Favorite button. The
 host owns the Window and registers the module in its navigation.
+The module releases its detached Favorite during `Window.Closing`, before the
+graphics runtime closes; explicit disposal is also supported and idempotent.
+Both actual hosts register this page beside Profile and volume, Resizable
+workspace, Operation feedback and Existing demos in their compact selector.
