@@ -214,13 +214,20 @@ public class NativeSchedulingIntegrationTests
     }
 
     [Fact]
-    public async Task ActualRendererDefersBatchGeneratedNativeEventsAndKeepsAsyncEventOnUi()
+    public async Task ActualRendererDoesNotEchoBatchAndKeepsAsyncUserEventOnUi()
     {
         WinterBlazorHost host = null!; int owner = 0;
         using var pump = new NativePump(w => { owner = Environment.CurrentManagedThreadId; host = w.UseBlazor(); });
         var observed = new TaskCompletionSource<(float value, int thread)>(TaskCreationOptions.RunContinuationsAsynchronously);
         await host.AddComponent<DeferredSliderComponent>(new Dictionary<string, object> { ["Changed"] = (Action<float, int>)((value, id) => observed.TrySetResult((value, id))) });
-        var result = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5)); Assert.Equal(55, result.value); Assert.Equal(owner, result.thread);
+        await pump.Call(w =>
+        {
+            var slider = Assert.IsType<Slider>(Assert.Single(w.Children));
+            Assert.Equal(55, slider.Value);
+            Assert.False(observed.Task.IsCompleted); // Parameter batches synchronize without a user-change echo.
+            slider.SetValueFromUser(65);
+        });
+        var result = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5)); Assert.Equal(65, result.value); Assert.Equal(owner, result.thread);
         await pump.Call(w => Assert.Single(w.Children));
     }
 

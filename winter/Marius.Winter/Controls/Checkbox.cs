@@ -16,6 +16,8 @@ public class Checkbox : Element
     private bool _shapesCreated;
 
     public Action<bool>? Changed;
+    /// <summary>Raised only for pointer/keyboard toggles, not IsChecked synchronization.</summary>
+    public event Action<bool>? UserChanged;
 
     public Checkbox(string text = "", bool isChecked = false)
     {
@@ -188,6 +190,7 @@ public class Checkbox : Element
     {
         if (!Enabled) return;
         IsChecked = !_isChecked;
+        UserChanged?.Invoke(_isChecked);
     }
 
     public override void OnKeyDown(int key, int mods, bool repeat)

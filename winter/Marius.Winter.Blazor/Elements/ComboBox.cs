@@ -4,7 +4,7 @@ using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
 
-public class ComboBox : WinterComponentBase
+public class ComboBox : InputComponentBase<int>
 {
     static ComboBox()
     {
@@ -14,17 +14,18 @@ public class ComboBox : WinterComponentBase
 
     [Parameter] public string[]? Items { get; set; }
     [Parameter] public int SelectedIndex { get; set; }
+    [Parameter] public EventCallback<int> SelectedIndexChanged { get; set; }
     [Parameter] public EventCallback<int> OnSelectionChanged { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
+        RenderReset(builder, SelectedIndex);
 
-        if (Items != null)
-            builder.AddAttribute("Items", Items);
+        builder.AddAttribute("Items", (object)(Items ?? Array.Empty<string>()));
 
         builder.AddAttribute("SelectedIndex", SelectedIndex);
-        builder.AddAttribute("onselectionchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnSelectionChanged.InvokeAsync((int)value.Value!)));
+        builder.AddAttribute("onselectionchanged", BindChange(SelectedIndexChanged, OnSelectionChanged, value => SelectedIndex = value), "SelectedIndex");
     }
 
     class Handler : WinterElementHandler
@@ -39,7 +40,19 @@ public class ComboBox : WinterComponentBase
             : base(renderer, new Marius.Winter.ComboBox())
         {
             _selectionChangedEvent = new CoalescedEvent(this);
-            ComboBoxControl.SelectionChanged = index => _selectionChangedEvent.Fire(index);
+            ComboBoxControl.UserSelectionChanged += OnUserChanged;
+        }
+
+        private void OnUserChanged(int value)
+        {
+            _selectedIndex = value;
+            _selectionChangedEvent.Fire(value);
+        }
+
+        public override void Dispose()
+        {
+            ComboBoxControl.UserSelectionChanged -= OnUserChanged;
+            base.Dispose();
         }
 
         Marius.Winter.ComboBox ComboBoxControl => (Marius.Winter.ComboBox)ElementControl;
@@ -55,8 +68,15 @@ public class ComboBox : WinterComponentBase
         {
             switch (attributeName)
             {
+                case "InputReset":
+                    var reset = AttributeHelper.GetObject<InputReset<int>>(attributeValue);
+                    if (reset == null) break;
+                    _selectionChangedEvent.CancelPending();
+                    _selectedIndex = reset.Value;
+                    _selectionDirty = true;
+                    break;
                 case "Items":
-                    _items = AttributeHelper.GetStringArray(attributeValue) ?? Array.Empty<string>();
+                    _items = AttributeHelper.GetObject<string[]>(attributeValue) ?? AttributeHelper.GetStringArray(attributeValue) ?? Array.Empty<string>();
                     _selectionDirty = true;
                     break;
                 case "SelectedIndex":

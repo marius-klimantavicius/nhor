@@ -146,7 +146,7 @@ public class NativeWaitContextTests(ITestOutputHelper output)
             if (coalesced)
             {
                 var slider = Assert.IsType<Slider>(Assert.Single(window.Children));
-                slider.Value = 0.2f; slider.Value = 0.4f; slider.Value = 0.8f;
+                slider.SetValueFromUser(0.2f); slider.SetValueFromUser(0.4f); slider.SetValueFromUser(0.8f);
             }
             else Assert.IsType<Button>(Assert.Single(window.Children)).OnClick();
         });

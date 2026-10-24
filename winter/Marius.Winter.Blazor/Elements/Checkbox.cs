@@ -3,7 +3,7 @@ using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
 
-public class Checkbox : WinterComponentBase
+public class Checkbox : InputComponentBase<bool>
 {
     static Checkbox()
     {
@@ -12,33 +12,37 @@ public class Checkbox : WinterComponentBase
 
     [Parameter] public string? Text { get; set; }
     [Parameter] public bool IsChecked { get; set; }
+    [Parameter] public EventCallback<bool> IsCheckedChanged { get; set; }
     [Parameter] public EventCallback<bool> OnChanged { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
+        RenderReset(builder, IsChecked);
 
-        if (Text != null)
-            builder.AddAttribute("Text", Text);
+        builder.AddAttribute("Text", Text ?? "");
 
         builder.AddAttribute("IsChecked", IsChecked);
-        builder.AddAttribute("onchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, (value) => OnChanged.InvokeAsync((bool)value.Value!)));
+        builder.AddAttribute("onchanged", BindChange(IsCheckedChanged, OnChanged, value => IsChecked = value), "IsChecked");
     }
 
     class Handler : WinterElementHandler
     {
         readonly CoalescedEvent _changedEvent;
-        bool _pendingUserChange;
 
         public Handler(NativeComponentRenderer renderer)
             : base(renderer, new Marius.Winter.Checkbox())
         {
             _changedEvent = new CoalescedEvent(this);
-            CheckboxControl.Changed = value =>
-            {
-                _pendingUserChange = true;
-                _changedEvent.Fire(value);
-            };
+            CheckboxControl.UserChanged += OnUserChanged;
+        }
+
+        private void OnUserChanged(bool value) => _changedEvent.Fire(value);
+
+        public override void Dispose()
+        {
+            CheckboxControl.UserChanged -= OnUserChanged;
+            base.Dispose();
         }
 
         Marius.Winter.Checkbox CheckboxControl => (Marius.Winter.Checkbox)ElementControl;
@@ -47,23 +51,17 @@ public class Checkbox : WinterComponentBase
         {
             switch (attributeName)
             {
+                case "InputReset":
+                    var reset = AttributeHelper.GetObject<InputReset<bool>>(attributeValue);
+                    if (reset == null) break;
+                    _changedEvent.CancelPending();
+                    CheckboxControl.IsChecked = reset.Value;
+                    break;
                 case "Text":
                     CheckboxControl.Text = AttributeHelper.GetString(attributeValue) ?? "";
                     break;
                 case "IsChecked":
-                    var val = AttributeHelper.GetBool(attributeValue);
-                    if (_pendingUserChange)
-                    {
-                        // Blazor re-rendered before async event processed —
-                        // accept only if it matches native state (confirms the change),
-                        // otherwise skip stale value
-                        if (val == CheckboxControl.IsChecked)
-                            _pendingUserChange = false;
-                    }
-                    else
-                    {
-                        CheckboxControl.IsChecked = val;
-                    }
+                    CheckboxControl.IsChecked = AttributeHelper.GetBool(attributeValue);
                     break;
                 case "onchanged":
                     RegisterEvent(attributeEventHandlerId, _changedEvent.Unregister);

@@ -3,7 +3,7 @@ using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
 
-public class Slider : WinterComponentBase
+public class Slider : InputComponentBase<float>
 {
     static Slider()
     {
@@ -16,18 +16,20 @@ public class Slider : WinterComponentBase
     [Parameter] public float Max { get; set; } = 1f;
     [Parameter] public float Step { get; set; }
     [Parameter] public bool ShowValue { get; set; }
+    [Parameter] public EventCallback<float> ValueChanged { get; set; }
     [Parameter] public EventCallback<float> OnValueChanged { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
+        RenderReset(builder, Value);
 
         builder.AddAttribute("Value", Value);
         builder.AddAttribute("Min", Min);
         builder.AddAttribute("Max", Max);
         builder.AddAttribute("Step", Step);
         builder.AddAttribute("ShowValue", ShowValue);
-        builder.AddAttribute("onvaluechanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnValueChanged.InvokeAsync((float)value.Value!)));
+        builder.AddAttribute("onvaluechanged", BindChange(ValueChanged, OnValueChanged, value => Value = value), "Value");
     }
 
     class Handler : WinterElementHandler
@@ -41,7 +43,19 @@ public class Slider : WinterComponentBase
             : base(renderer, new Marius.Winter.Slider())
         {
             _valueChangedEvent = new CoalescedEvent(this);
-            SliderControl.ValueChanged = value => _valueChangedEvent.Fire(value);
+            SliderControl.UserValueChanged += OnUserChanged;
+        }
+
+        private void OnUserChanged(float value)
+        {
+            _value = value;
+            _valueChangedEvent.Fire(value);
+        }
+
+        public override void Dispose()
+        {
+            SliderControl.UserValueChanged -= OnUserChanged;
+            base.Dispose();
         }
 
         Marius.Winter.Slider SliderControl => (Marius.Winter.Slider)ElementControl;
@@ -57,6 +71,13 @@ public class Slider : WinterComponentBase
         {
             switch (attributeName)
             {
+                case "InputReset":
+                    var reset = AttributeHelper.GetObject<InputReset<float>>(attributeValue);
+                    if (reset == null) break;
+                    _valueChangedEvent.CancelPending();
+                    _value = reset.Value;
+                    _rangeDirty = true;
+                    break;
                 case "Value":
                     _value = AttributeHelper.GetFloat(attributeValue);
                     _rangeDirty = true;

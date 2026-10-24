@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Globalization;
 using System.Threading.Tasks;
 
 namespace Marius.Winter.Blazor.Core
@@ -15,7 +16,9 @@ namespace Marius.Winter.Blazor.Core
         private ElementManager? _elementManager;
         private readonly Dictionary<ulong, Action<ulong>> _eventRegistrations = new Dictionary<ulong, Action<ulong>>();
         private readonly HashSet<IHandleAttributeBatch> _pendingAttributes = new();
-        private readonly Queue<(ulong id, EventArgs args)> _nativeEvents = new();
+        private readonly Queue<(ulong id, EventFieldInfo? field, EventArgs args)> _nativeEvents = new();
+        private readonly Dictionary<ulong, int> _eventFields = new();
+        private bool _nativeDisposed;
         private bool _applyingBatch;
         private bool _dispatchScheduled;
         internal Task NativeEvents { get; private set; } = Task.CompletedTask;
@@ -150,9 +153,20 @@ namespace Marius.Winter.Blazor.Core
 
         internal Task DispatchNativeEventAsync(ulong id, EventFieldInfo? fieldInfo, EventArgs args)
         {
+            if (_nativeDisposed || !_eventRegistrations.ContainsKey(id)) return Task.CompletedTask;
+            if (fieldInfo == null && args is ChangeEventArgs change && _eventFields.TryGetValue(id, out var componentId))
+            {
+                // Winter element attributes are transported as strings, including booleans and numbers.
+                // Match that representation when updating Blazor's retained field before the callback.
+                fieldInfo = new EventFieldInfo
+                {
+                    ComponentId = componentId,
+                    FieldValue = change.Value is bool flag ? (flag ? "1" : "0") : Convert.ToString(change.Value, CultureInfo.InvariantCulture) ?? ""
+                };
+            }
             if (_applyingBatch)
             {
-                _nativeEvents.Enqueue((id, args));
+                _nativeEvents.Enqueue((id, fieldInfo, args));
                 return Task.CompletedTask;
             }
             return DispatchEventAsync(id, fieldInfo, args);
@@ -170,7 +184,7 @@ namespace Marius.Winter.Blazor.Core
                 {
                     while (_nativeEvents.TryDequeue(out var pending))
                         if (_eventRegistrations.ContainsKey(pending.id))
-                            tasks.Add(DispatchEventAsync(pending.id, null, pending.args));
+                            tasks.Add(DispatchEventAsync(pending.id, pending.field, pending.args));
                 }
                 finally { _dispatchScheduled = false; }
                 await Task.WhenAll(tasks);
@@ -186,10 +200,12 @@ namespace Marius.Winter.Blazor.Core
         {
             if (disposing)
             {
+                _nativeDisposed = true;
                 foreach (var adapter in _componentIdToAdapter.Values) adapter.Dispose();
                 _componentIdToAdapter.Clear();
                 _pendingAttributes.Clear();
                 _nativeEvents.Clear();
+                _eventFields.Clear();
                 foreach (var id in new List<ulong>(_eventRegistrations.Keys)) UnregisterEvent(id);
             }
             base.Dispose(disposing);
@@ -210,6 +226,7 @@ namespace Marius.Winter.Blazor.Core
 
         internal void UnregisterEvent(ulong eventHandlerId)
         {
+            _eventFields.Remove(eventHandlerId);
             if (_eventRegistrations.TryGetValue(eventHandlerId, out var unregisterCallback))
             {
                 _eventRegistrations.Remove(eventHandlerId);
@@ -220,6 +237,8 @@ namespace Marius.Winter.Blazor.Core
         }
 
         private void DisposeEvent(ulong eventHandlerId) => UnregisterEvent(eventHandlerId);
+
+        internal void RegisterEventField(ulong id, int componentId) => _eventFields[id] = componentId;
 
         internal NativeComponentAdapter CreateAdapterForChildComponent(IElementHandler physicalParent, int componentId)
         {

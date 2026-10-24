@@ -24,6 +24,16 @@ public class ComboBox : Element
     private ComboBoxPopup? _popup;
 
     public Action<int>? SelectionChanged;
+    public event Action<int>? UserSelectionChanged;
+
+    /// <summary>Commits a user selection. Programmatic SelectedIndex and item batches retain legacy notifications only.</summary>
+    public void SelectFromUser(int index)
+    {
+        if (!Enabled) return;
+        var previous = _selectedIndex;
+        SelectedIndex = index;
+        if (previous != _selectedIndex) UserSelectionChanged?.Invoke(_selectedIndex);
+    }
 
     public ComboBox(string[] items = null!)
     {
@@ -350,7 +360,7 @@ public class ComboBox : Element
 
     internal void SelectFromPopup(int index)
     {
-        SelectedIndex = index;
+        SelectFromUser(index);
         ClosePopup();
     }
 

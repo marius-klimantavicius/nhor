@@ -21,6 +21,16 @@ public class Slider : Element
     private bool _dragging;
 
     public Action<float>? ValueChanged;
+    public event Action<float>? UserValueChanged;
+
+    /// <summary>Applies a user value with the same clamping/step rules as Value.</summary>
+    public void SetValueFromUser(float value)
+    {
+        if (!Enabled) return;
+        var previous = _value;
+        Value = value;
+        if (previous != _value) UserValueChanged?.Invoke(_value);
+    }
 
     public Slider(float min = 0f, float max = 1f, float value = 0f)
     {
@@ -240,16 +250,16 @@ public class Slider : Element
         if (trackW <= 0) return;
 
         float ratio = Math.Clamp((localX - startX) / trackW, 0f, 1f);
-        Value = _min + ratio * (_max - _min);
+        SetValueFromUser(_min + ratio * (_max - _min));
     }
 
     public override void OnKeyDown(int key, int mods, bool repeat)
     {
         float step = _step > 0 ? _step : (_max - _min) * 0.01f;
         if (key == 263 /* GLFW_KEY_LEFT */)
-            Value = _value - step;
+            SetValueFromUser(_value - step);
         else if (key == 262 /* GLFW_KEY_RIGHT */)
-            Value = _value + step;
+            SetValueFromUser(_value + step);
         else
             base.OnKeyDown(key, mods, repeat);
     }

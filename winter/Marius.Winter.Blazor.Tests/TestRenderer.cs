@@ -34,13 +34,21 @@ internal class TestRenderer : NativeComponentRenderer
     }
 
     public int SourceAttributeUpdates { get; private set; }
+    public List<(string Name, object? Value)> AttributeUpdates { get; } = new();
 
     protected override Task UpdateDisplayAsync(in RenderBatch batch)
     {
         for (var i = 0; i < batch.UpdatedComponents.Count; i++)
             foreach (var edit in batch.UpdatedComponents.Array[i].Edits)
+            {
+                if (edit.Type == RenderTreeEditType.SetAttribute)
+                {
+                    var frame = batch.ReferenceFrames.Array[edit.ReferenceFrameIndex];
+                    AttributeUpdates.Add((frame.AttributeName, frame.AttributeValue));
+                }
                 if (edit.Type == RenderTreeEditType.SetAttribute && batch.ReferenceFrames.Array[edit.ReferenceFrameIndex].AttributeName == "Source")
                     SourceAttributeUpdates++;
+            }
         return base.UpdateDisplayAsync(batch);
     }
 

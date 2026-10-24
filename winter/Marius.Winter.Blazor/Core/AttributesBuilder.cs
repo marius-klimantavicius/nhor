@@ -108,6 +108,13 @@ namespace Marius.Winter.Blazor.Core
             _underlyingBuilder.AddAttribute(0, name, value);
         }
 
+        /// <summary>Records the native field changed by this event, allowing an unchanged parent value to reject an edit.</summary>
+        public void AddAttribute<T>(string name, EventCallback<T> value, string updatesAttributeName)
+        {
+            _underlyingBuilder.AddAttribute(0, name, value);
+            _underlyingBuilder.SetUpdatesAttributeName(updatesAttributeName);
+        }
+
         /// <summary>
         /// Fallback for reference types that need to go through WeakObjectStore.
         /// </summary>

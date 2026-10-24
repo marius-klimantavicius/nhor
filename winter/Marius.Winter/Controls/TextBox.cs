@@ -45,14 +45,46 @@ public class TextBox : Element
     private static readonly Color4 ErrorBorder = new(0.85f, 0.20f, 0.20f, 1f);
 
     public Action<string>? TextChanged;
+    /// <summary>User edits only; Text assignments continue to notify the legacy TextChanged delegate.</summary>
+    public event Action<string>? UserTextChanged;
+    public event Action<TextCommitEventArgs>? TextCommitted;
+    private string _notifiedText = "";
+    private bool _hasUncommittedEdit;
+
+    private void NotifyUserEdit()
+    {
+        var text = _text;
+        var changed = _notifiedText != text;
+        _notifiedText = text;
+        if (changed) _hasUncommittedEdit = true;
+        TextChanged?.Invoke(text);
+        if (changed) UserTextChanged?.Invoke(text);
+    }
+
+    /// <summary>Commits once per edited value; synchronization and repeated Enter/blur do not commit.</summary>
+    public void CommitEdit(TextCommitReason reason)
+    {
+        if (!_hasUncommittedEdit) return;
+        _hasUncommittedEdit = false;
+        TextCommitted?.Invoke(new TextCommitEventArgs(_text, reason));
+    }
 
     public TextBox(string text = "", string placeholder = "")
     {
         _text = text;
+        _notifiedText = text;
         _placeholder = placeholder;
         _cursorPos = text.Length;
         Cursor = CursorType.IBeam;
         Focusable = true;
+    }
+
+    /// <summary>Intentional replacement that also clears an uncommitted edit when the text is unchanged.</summary>
+    public void ResetText(string text)
+    {
+        Text = text;
+        _hasUncommittedEdit = false;
+        _notifiedText = _text;
     }
 
     public string Text
@@ -62,6 +94,8 @@ public class TextBox : Element
         {
             if (_text == value) return;
             _text = value;
+            _notifiedText = value;
+            _hasUncommittedEdit = false;
             _cursorPos = Boundaries.Floor(_cursorPos);
             _selectionStart = -1;
             UpdateVisibleText();
@@ -228,6 +262,7 @@ public class TextBox : Element
         _mouseDown = false;
         StopBlinkAnimation();
         MarkDirty();
+        CommitEdit(TextCommitReason.Blur);
     }
 
     public override bool OnMouseDown(int button, float x, float y)
@@ -280,7 +315,7 @@ public class TextBox : Element
         EnsureCursorVisible();
         RestartBlink();
         MarkDirty();
-        TextChanged?.Invoke(_text);
+        NotifyUserEdit();
     }
 
     public override void OnKeyDown(int key, int mods, bool repeat)
@@ -289,6 +324,12 @@ public class TextBox : Element
 
         bool shift = (mods & GLFW_MOD_SHIFT) != 0;
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+
+        if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER)
+        {
+            if (!repeat) CommitEdit(TextCommitReason.Enter);
+            return;
+        }
 
         switch (key)
         {
@@ -361,7 +402,7 @@ public class TextBox : Element
                 }
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                NotifyUserEdit();
                 break;
 
             case GLFW_KEY_DELETE:
@@ -374,7 +415,7 @@ public class TextBox : Element
                 }
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                NotifyUserEdit();
                 break;
 
             case GLFW_KEY_A when ctrl:
@@ -394,7 +435,7 @@ public class TextBox : Element
                 DeleteSelection();
                 EnsureCursorVisible();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                NotifyUserEdit();
                 break;
 
             case GLFW_KEY_V when ctrl:
@@ -647,7 +688,7 @@ public class TextBox : Element
         _selectionStart = -1;
         EnsureCursorVisible();
         MarkDirty();
-        TextChanged?.Invoke(_text);
+        NotifyUserEdit();
     }
 
     // --- Word boundaries ---
@@ -740,7 +781,7 @@ public class TextBox : Element
                 EnsureCursorVisible();
                 UpdateVisibleText();
                 MarkDirty();
-                TextChanged?.Invoke(_text);
+                NotifyUserEdit();
             });
             menu.AddItem("Copy", CopyToClipboard);
         }

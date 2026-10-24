@@ -1,0 +1,48 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@namespace Marius.Winter.Blazor.Tests
+
+@if (Show)
+{
+    <TextBox @bind-Text:get="Name" @bind-Text:set="SetName" TextCommitted="Commit" />
+    <TextArea @bind-Text="Notes" TextCommitted="Commit" />
+    <Checkbox @bind-IsChecked="Shortcut" Text="Create shortcut" />
+    <Slider @bind-Value="Volume" Min="@Min" Max="@Max" Step="1" />
+    <ComboBox Items="@Choices" @bind-SelectedIndex="Choice" />
+}
+
+@code {
+    public string Name { get; private set; } = "Milda";
+    public string Notes { get; private set; } = "Studio profile";
+    public bool Shortcut { get; private set; }
+    public float Volume { get; private set; } = 40;
+    public float Min { get; private set; }
+    public float Max { get; private set; } = 100;
+    public int Choice { get; private set; } = 0;
+    public string[]? Choices { get; private set; } = ["Personal", "Studio"];
+    public bool Show { get; private set; } = true;
+    public bool RejectName { get; set; }
+    public System.Func<string, Task>? AfterNameSet { get; set; }
+    public List<string> Edits { get; } = [];
+    public List<TextCommitEventArgs> Commits { get; } = [];
+
+    private async Task SetName(string name)
+    {
+        Edits.Add(name);
+        if (!RejectName) Name = name;
+        if (AfterNameSet != null) await AfterNameSet(name);
+    }
+    private void Commit(TextCommitEventArgs args) => Commits.Add(args);
+    public void Reset()
+    {
+        Name = "Milda"; Notes = "Studio profile"; Shortcut = false; Volume = 40; Choice = 0;
+        StateHasChanged();
+    }
+    public void RenderAgain() => StateHasChanged();
+    public void Remove() { Show = false; StateHasChanged(); }
+    public void Clamp() { Min = 60; Max = 80; StateHasChanged(); }
+    public void Expand() { Min = 0; Max = 100; Choices = ["Private", "Workspace", "Other"]; StateHasChanged(); }
+    public void ClearChoices() { Choices = null; Choice = -1; StateHasChanged(); }
+}

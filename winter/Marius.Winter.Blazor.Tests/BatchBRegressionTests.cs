@@ -180,14 +180,14 @@ public class BatchBRegressionTests
             new[] { A("onvaluechanged", callback) }.Concat(order.Split(',').Select(n => A(n, n switch { "Min" => min, "Max" => max, "Value" => value, _ => step }))).ToArray();
         var host = await MountAttributes(renderer, typeof(B.Slider), Attributes(10, 100, 50, 3));
         var slider = host.Native<Slider>();
-        Assert.Equal(49, slider.Value); Assert.Equal(new[] { 49f }, changes);
+        Assert.Equal(49, slider.Value); Assert.Empty(changes);
         changes.Clear();
         await renderer.Dispatcher.InvokeAsync(() => host.Render(Attributes(-100, -10, -43, 4)));
-        Assert.Equal(-44, slider.Value); Assert.Equal(new[] { -44f }, changes);
+        Assert.Equal(-44, slider.Value); Assert.Empty(changes);
         changes.Clear();
         await renderer.Dispatcher.InvokeAsync(() => host.Render(A("onvaluechanged", callback)));
         Assert.Equal(0, slider.Min); Assert.Equal(1, slider.Max); Assert.Equal(0, slider.Step); Assert.Equal(0, slider.Value);
-        Assert.Equal(new[] { 0f }, changes);
+        Assert.Empty(changes);
     }
 
     [Theory]
@@ -202,10 +202,10 @@ public class BatchBRegressionTests
             ? new[] { A("SelectedIndex", index), A("Items", items) } : new[] { A("Items", items), A("SelectedIndex", index) }).ToArray();
         var host = await MountAttributes(renderer, typeof(B.ComboBox), Attributes(["A", "B", "C"], 2));
         var combo = host.Native<ComboBox>();
-        Assert.Equal(2, combo.SelectedIndex); Assert.Equal(new[] { 2 }, changes);
+        Assert.Equal(2, combo.SelectedIndex); Assert.Empty(changes);
         changes.Clear();
         await renderer.Dispatcher.InvokeAsync(() => host.Render(Attributes(["D"], -1)));
-        Assert.Equal(-1, combo.SelectedIndex); Assert.Equal(new[] { -1 }, changes);
+        Assert.Equal(-1, combo.SelectedIndex); Assert.Empty(changes);
         changes.Clear();
         await renderer.Dispatcher.InvokeAsync(() => host.Render(A("onselectionchanged", callback)));
         Assert.Empty(combo.Items); Assert.Equal(-1, combo.SelectedIndex); Assert.Empty(changes);
@@ -432,12 +432,12 @@ public class BatchBRegressionTests
             var nextCallback = EventCallback.Factory.Create<ChangeEventArgs>(this, e => newValues.Add((float)e.Value!));
             var host = await MountAttributes(renderer, typeof(B.Slider), [A("onvaluechanged", oldCallback)]);
             var slider = host.Native<Slider>(); window.AddChild(slider.Parent!);
-            slider.Value = .25f;
+            slider.SetValueFromUser(.25f);
             Assert.Single(window.DispatcherQueue);
             await host.Render(clear ? [] : [A("onvaluechanged", nextCallback)]);
             while (window.DispatcherQueue.TryDequeue(out var action)) action();
             Assert.Empty(oldValues); Assert.Empty(newValues);
-            slider.Value = .75f;
+            slider.SetValueFromUser(.75f);
             while (window.DispatcherQueue.TryDequeue(out var action)) action();
             Assert.Empty(oldValues); Assert.Equal(clear ? [] : new[] { .75f }, newValues);
             }
@@ -560,13 +560,13 @@ public class BatchBRegressionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Slider_OrdinaryWrapperInitialRangeUsesOnlyEffectiveFinalCallback(bool negative)
+    public async Task Slider_OrdinaryWrapperInitialRangeDoesNotEchoSynchronization(bool negative)
     {
         using var renderer = new TestRenderer();
         var changes = new List<float>();
         var value = negative ? -43f : 50f;
         var (_, root) = await Mount(renderer, Control<B.Slider>(A("Min", negative ? -100f : 10f), A("Max", negative ? -10f : 100f), A("Value", value), A("OnValueChanged", EventCallback.Factory.Create<float>(this, changes.Add))));
-        Assert.Equal(value, ((Slider)root.Children[0]).Value); Assert.Equal(new[] { value }, changes);
+        Assert.Equal(value, ((Slider)root.Children[0]).Value); Assert.Empty(changes);
     }
 
     [Fact]
@@ -600,7 +600,7 @@ public class BatchBRegressionTests
         });
         var host = await MountAttributes(renderer, typeof(B.Slider), [A("onvaluechanged", callback)]);
         var slider = host.Native<Slider>();
-        await renderer.Dispatcher.InvokeAsync(() => { slider.Value = .25f; slider.Value = .75f; });
+        await renderer.Dispatcher.InvokeAsync(() => { slider.SetValueFromUser(.25f); slider.SetValueFromUser(.75f); });
         Assert.Equal(new[] { .25f, .75f }, before);
         release.SetResult(); await done.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(new[] { .25f, .75f }, after.Order());

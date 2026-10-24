@@ -3,7 +3,7 @@ using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
 
-public class TextBox : WinterComponentBase
+public class TextBox : InputComponentBase<string>
 {
     static TextBox()
     {
@@ -14,19 +14,22 @@ public class TextBox : WinterComponentBase
     [Parameter] public string? Text { get; set; }
     [Parameter] public string? Placeholder { get; set; }
     [Parameter] public bool Required { get; set; }
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
     [Parameter] public EventCallback<string> OnTextChanged { get; set; }
+
+    [Parameter] public EventCallback<TextCommitEventArgs> TextCommitted { get; set; }
 
     protected override void RenderAttributes(AttributesBuilder builder)
     {
         base.RenderAttributes(builder);
+        RenderReset(builder, Text ?? "");
 
-        if (Text != null)
-            builder.AddAttribute("Text", Text);
-        if (Placeholder != null)
-            builder.AddAttribute("Placeholder", Placeholder);
+        builder.AddAttribute("Text", Text ?? "");
+        builder.AddAttribute("Placeholder", Placeholder ?? "");
         builder.AddAttribute("Required", Required);
 
-        builder.AddAttribute("ontextchanged", EventCallback.Factory.Create<ChangeEventArgs>(this, value => OnTextChanged.InvokeAsync((string)value.Value!)));
+        builder.AddAttribute("ontextchanged", BindChange(TextChanged, OnTextChanged, value => Text = value), "Text");
+        builder.AddAttribute("ontextcommitted", TextCommitted);
     }
 
     class Handler : WinterElementHandler
@@ -37,7 +40,26 @@ public class TextBox : WinterComponentBase
             : base(renderer, new Marius.Winter.TextBox())
         {
             _textChangedEvent = new CoalescedEvent(this);
-            TextBoxControl.TextChanged = value => _textChangedEvent.Fire(value);
+            TextBoxControl.UserTextChanged += OnUserChanged;
+            TextBoxControl.TextCommitted += OnTextCommitted;
+        }
+
+        private ulong _commitHandlerId;
+        private void OnTextCommitted(TextCommitEventArgs args)
+        {
+            _textChangedEvent.Flush();
+            if (_commitHandlerId != 0 && !IsDisposed)
+                Renderer.DispatchNativeEventAsync(_commitHandlerId, null, args);
+        }
+
+        private void OnUserChanged(string value) => _textChangedEvent.Fire(value);
+
+        public override void Dispose()
+        {
+            TextBoxControl.UserTextChanged -= OnUserChanged;
+            TextBoxControl.TextCommitted -= OnTextCommitted;
+            _commitHandlerId = 0;
+            base.Dispose();
         }
 
         Marius.Winter.TextBox TextBoxControl => (Marius.Winter.TextBox)ElementControl;
@@ -46,6 +68,12 @@ public class TextBox : WinterComponentBase
         {
             switch (attributeName)
             {
+                case "InputReset":
+                    var reset = AttributeHelper.GetObject<InputReset<string>>(attributeValue);
+                    if (reset == null) break;
+                    _textChangedEvent.CancelPending();
+                    TextBoxControl.ResetText(reset.Value);
+                    break;
                 case "Text":
                     TextBoxControl.Text = AttributeHelper.GetString(attributeValue) ?? "";
                     break;
@@ -54,6 +82,10 @@ public class TextBox : WinterComponentBase
                     break;
                 case "Required":
                     TextBoxControl.Required = AttributeHelper.GetBool(attributeValue);
+                    break;
+                case "ontextcommitted":
+                    RegisterEvent(attributeEventHandlerId, id => { if (_commitHandlerId == id) _commitHandlerId = 0; });
+                    _commitHandlerId = attributeEventHandlerId;
                     break;
                 case "ontextchanged":
                     RegisterEvent(attributeEventHandlerId, _textChangedEvent.Unregister);

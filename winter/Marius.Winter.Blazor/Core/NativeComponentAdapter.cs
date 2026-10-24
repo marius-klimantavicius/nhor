@@ -91,7 +91,7 @@ namespace Marius.Winter.Blazor.Core
                         currentAdapter.ApplyRemoveFrame(edit.SiblingIndex);
                         break;
                     case RenderTreeEditType.SetAttribute:
-                        currentAdapter.ApplySetAttribute(ref referenceFrames.Array[edit.ReferenceFrameIndex]);
+                        currentAdapter.ApplySetAttribute(componentId, ref referenceFrames.Array[edit.ReferenceFrameIndex]);
                         break;
                     case RenderTreeEditType.RemoveAttribute:
                         currentAdapter.ApplyRemoveAttribute(edit.RemovedAttributeName!);
@@ -191,7 +191,7 @@ namespace Marius.Winter.Blazor.Core
             Dispose();
         }
 
-        private void ApplySetAttribute(ref RenderTreeFrame attributeFrame)
+        private void ApplySetAttribute(int componentId, ref RenderTreeFrame attributeFrame)
         {
             if (_targetElement == null)
             {
@@ -203,6 +203,8 @@ namespace Marius.Winter.Blazor.Core
                 attributeFrame.AttributeName,
                 attributeFrame.AttributeValue,
                 attributeFrame.AttributeEventUpdatesAttributeName);
+            if (attributeFrame.AttributeEventHandlerId != 0 && attributeFrame.AttributeEventUpdatesAttributeName != null)
+                Renderer.RegisterEventField(attributeFrame.AttributeEventHandlerId, componentId);
             Renderer.AttributesChanged(_targetElement);
         }
 
@@ -329,7 +331,7 @@ namespace Marius.Winter.Blazor.Core
                 var candidateFrame = frames[descendantIndex];
                 if (candidateFrame.FrameType == RenderTreeFrameType.Attribute)
                 {
-                    ApplySetAttribute(ref candidateFrame);
+                    ApplySetAttribute(componentId, ref candidateFrame);
                 }
                 else
                 {
