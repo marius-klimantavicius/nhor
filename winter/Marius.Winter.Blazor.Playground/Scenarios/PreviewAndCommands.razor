@@ -1,0 +1,105 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading
+@using System.Threading.Tasks
+@inject Window Owner
+@implements IAsyncDisposable
+
+<ScrollPanel Padding="@(new Thickness(8))">
+    <StackLayout Spacing="8" CrossAlignment="Alignment.Stretch" />
+    <Label Text="Preview and commands" FontSize="22" />
+    <Label Text="Convert Harbor.svg, then save the simulated result. F10 enters Preview; arrows, Enter and Escape navigate. Menu or Shift+F10 opens commands at the preview button." TextWrapping="ThorVG.TextWrap.Word" />
+    @if (_commandsAttached)
+    {
+        <MenuBar>
+            <Menu Title="Preview">
+                <MenuItem Label="Save preview" Enabled="_ready" Shortcut="Ctrl+S" OnClick="Save" ResetVersion="_reset" />
+                <MenuItem Label="Detailed view" @bind-IsChecked="_detailed" OnClick="ViewResult" ResetVersion="_reset" />
+                <MenuSeparator />
+                <SubMenu Label="Zoom">
+                    @foreach (var key in ZoomKeys)
+                    {
+                        <MenuItem @key="key" Label="@key" IsChecked="@(key == _zoomValue)" OnClick="@ZoomAction(key)" ResetVersion="_reset" />
+                    }
+                </SubMenu>
+            </Menu>
+        </MenuBar>
+    }
+    <Panel Layout="@Row">
+        <Button Text="Convert (simulated)" OnClick="Convert" />
+        <Button Text="Save preview" Enabled="_ready" OnClick="Save" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <Panel Layout="@Row">
+        <Button Text="Reverse zoom" OnClick="@(() => _reverse = !_reverse)" />
+        <Button Text="Toggle 150%" OnClick="@(() => _include150 = !_include150)" />
+        <Button Text="Toggle preview" OnClick="@(() => _previewAttached = !_previewAttached)" />
+        <Button Text="Toggle commands" OnClick="@(() => _commandsAttached = !_commandsAttached)" />
+    </Panel>
+    @if (_previewAttached)
+    {
+        <Button Text="Harbor.svg preview" OnClick="Inspect">
+            <ContextMenu>
+                <MenuItem Label="Inspect source" OnClick="Inspect" ResetVersion="_reset" />
+                <MenuSeparator />
+                <MenuItem Label="Save preview" Enabled="_ready" Shortcut="Ctrl+S" OnClick="Save" ResetVersion="_reset" />
+            </ContextMenu>
+        </Button>
+    }
+    <SvgImage Svg="@Harbor" RequestedWidth="@(240 * Zoom / 100f)" RequestedHeight="@(110 * Zoom / 100f)" />
+    <Label Text="@(_detailed ? $"Harbor.svg · vector source · {_zoomValue} · detailed view" : $"Harbor.svg · {_zoomValue}")" TextWrapping="ThorVG.TextWrap.Word" />
+    <Label Text="@_status" TextWrapping="ThorVG.TextWrap.Word" />
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+</ScrollPanel>
+
+@code {
+    private const string Harbor = "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='110'><rect width='240' height='110' fill='#79c3e3'/><circle cx='191' cy='25' r='14' fill='#ffdc78'/><path d='M0 75L65 30L119 75L167 44L240 82V110H0Z' fill='#286a72'/><path d='M0 87Q60 76 120 90T240 85V110H0Z' fill='#2066a0'/><path d='M95 78V43L122 75Z' fill='#f8f5d7'/></svg>";
+    private static readonly Marius.Winter.FlexLayout Row = new() { Gap = 6, Wrap = FlexWrap.Wrap };
+    private readonly Dictionary<string, Action> _zoomActions = new();
+    private CancellationTokenSource? _conversion;
+    private Task _work = Task.CompletedTask;
+    private long _generation, _reset;
+    private bool _ready, _detailed = true, _reverse, _include150 = true, _previewAttached = true, _commandsAttached = true, _disposed;
+    private string _zoomValue = "100%", _status = "Ready: convert Harbor.svg to enable Save.", _result = "No saved preview.";
+    private int Zoom => int.Parse(_zoomValue.TrimEnd('%'));
+    private IEnumerable<string> ZoomKeys
+    {
+        get { string[] keys = _include150 ? ["100%", "125%", "150%"] : ["100%", "125%"]; return _reverse ? keys.AsEnumerable().Reverse() : keys; }
+    }
+    private Action ZoomAction(string key)
+    {
+        if (!_zoomActions.TryGetValue(key, out var action)) _zoomActions[key] = action = () => { _zoomValue = key; _result = "Zoom: " + key + "."; };
+        return action;
+    }
+    private void Inspect() => _result = "Source: Harbor.svg · 240 × 110 · vector preview.";
+    private void Save() { if (_ready) _result = "Saved: Harbor.png (simulated; no file written)."; }
+    private void ViewResult() => _result = _detailed ? "View: detailed." : "View: compact.";
+    private Task Convert() => _work = ConvertAsync();
+    private async Task ConvertAsync()
+    {
+        _conversion?.Cancel(); _conversion?.Dispose(); var source = new CancellationTokenSource(); _conversion = source;
+        long generation = ++_generation; _ready = false; _status = "Converting Harbor.svg (simulated)…";
+        try
+        {
+            await Task.Delay(450, source.Token).ConfigureAwait(false);
+            await Owner.Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed || source.IsCancellationRequested || generation != _generation) return;
+                _ready = true; _status = "Converted: Harbor.svg to Harbor.png (simulated)."; StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private void Reset()
+    {
+        _generation++; _reset++; _conversion?.Cancel(); _ready = false; _detailed = true; _reverse = false; _include150 = true; _zoomValue = "100%";
+        _previewAttached = _commandsAttached = true; _status = "Ready: convert Harbor.svg to enable Save."; _result = "No saved preview.";
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return; _disposed = true; _generation++; _conversion?.Cancel();
+        await _work.ConfigureAwait(false); _conversion?.Dispose();
+    }
+}
