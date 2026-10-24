@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Marius.Winter.Blazor;
@@ -59,6 +60,42 @@ internal sealed class NativePump : IDisposable
 
 public class DispatcherRuntimeTests
 {
+    [Fact]
+    public async Task LateFaultInReturnedTaskIsObservedEvenAfterWindowShutdown()
+    {
+        WinterRenderer renderer = null!;
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var pump = new NativePump(w => renderer = new WinterRenderer(w, services, NullLoggerFactory.Instance));
+        TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task invocation = renderer.Dispatcher.InvokeAsync(() => { entered.SetResult(); return gate.Task; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5)); await pump.Close(); await pump.Ended;
+        Assert.True(invocation.IsCanceled);
+        bool unobserved = false;
+        EventHandler<UnobservedTaskExceptionEventArgs> handler = (_, e) =>
+        {
+            if (e.Exception.InnerExceptions.Any(ex => ex.Message == "late dispatcher fault")) { unobserved = true; e.SetObserved(); }
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += handler;
+        try
+        {
+            var weak = FaultAndForget(ref gate);
+            await Task.Delay(40);
+            for (int i = 0; i < 4; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
+            Assert.False(weak.IsAlive, "Completed external Task should not be retained by the closed pump");
+            Assert.False(unobserved, "The dispatcher must observe late faults in returned tasks");
+        }
+        finally { System.Threading.Tasks.TaskScheduler.UnobservedTaskException -= handler; }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference FaultAndForget(ref TaskCompletionSource gate)
+    {
+        var weak = new WeakReference(gate.Task);
+        gate.SetException(new InvalidOperationException("late dispatcher fault")); gate = null!;
+        return weak;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -167,10 +204,16 @@ public class WindowRuntimeTests
         using var pump = new NativePump(); await Task.Delay(150);
         using var process = Process.GetCurrentProcess(); var cpu = process.TotalProcessorTime; var wall = Stopwatch.StartNew();
         await Task.Delay(550);
-        double ratio = (process.TotalProcessorTime - cpu).TotalMilliseconds / wall.Elapsed.TotalMilliseconds;
+        double cpuMilliseconds = (process.TotalProcessorTime - cpu).TotalMilliseconds;
+        double wallMilliseconds = wall.Elapsed.TotalMilliseconds;
+        double ratio = cpuMilliseconds / wallMilliseconds;
+        var latencies = new List<double>();
+        string sample = System.IO.Path.Combine(WorkerGraphicsLifetimeTests.Artifacts, "idle-and-wakeup.json");
+        System.IO.File.WriteAllText(sample, System.Text.Json.JsonSerializer.Serialize(new { ratio, cpuMilliseconds, wallMilliseconds }));
         Console.WriteLine($"Idle CPU fraction: {ratio:F4}");
         Assert.True(ratio < 0.35, $"Idle CPU fraction was {ratio:F3}");
-        for (int i = 0; i < 12; i++) { var watch = Stopwatch.StartNew(); await pump.Call(_ => { }); Assert.True(watch.ElapsedMilliseconds < 400); await Task.Delay(5); }
+        for (int i = 0; i < 12; i++) { var watch = Stopwatch.StartNew(); await pump.Call(_ => { }); latencies.Add(watch.Elapsed.TotalMilliseconds); Assert.True(watch.ElapsedMilliseconds < 400); await Task.Delay(5); }
+        System.IO.File.WriteAllText(sample, System.Text.Json.JsonSerializer.Serialize(new { ratio, cpuMilliseconds, wallMilliseconds, postMilliseconds = latencies }));
     }
 
     [Fact]

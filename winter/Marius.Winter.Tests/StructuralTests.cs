@@ -59,7 +59,7 @@ public class SceneOwnershipTests
         {
             var pixels = new uint[32 * 32];
             Assert.Equal(Result.Success, canvas.Target(pixels, 32, 32, 32, ColorSpace.ABGR8888));
-            var root = new Panel(); var left = new Panel(); var right = new Panel();
+            using var root = new Panel(); var left = new Panel(); var right = new Panel();
             var subtree = new Panel(); var shape = new Box();
             subtree.AddChild(shape); left.AddChild(subtree); root.AddChild(left); root.AddChild(right);
             Assert.Equal(Result.Success, canvas.Add(root.Scene));
@@ -72,7 +72,7 @@ public class SceneOwnershipTests
             Assert.Single(subtree.Children); Assert.Equal(2, subtree.Scene.Paints().Count);
             canvas.Remove(root.Scene);
         }
-        finally { canvas.Dispose(); Initializer.Term(); }
+        finally { canvas.Dispose(); Assert.Equal(Result.Success, Initializer.Term()); }
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class SceneOwnershipTests
         try
         {
             var pixels = new uint[32 * 32]; canvas.Target(pixels, 32, 32, 32, ColorSpace.ABGR8888);
-            var parent = new Panel(); var red = new Box(); var blue = new Box(0, 255);
+            using var parent = new Panel(); var red = new Box(); var blue = new Box(0, 255);
             parent.AddChild(red); parent.AddChild(blue); canvas.Add(parent.Scene);
             Contracts.Draw(canvas, true); uint original = pixels[12 * 32 + 12];
             parent.ReorderChildren(new[] { blue, red }); Contracts.Draw(canvas);
@@ -95,7 +95,7 @@ public class SceneOwnershipTests
             Assert.Same(parent.Scene, red.Scene.Parent()); Assert.Equal(0, red.Detachments);
             canvas.Remove(parent.Scene);
         }
-        finally { canvas.Dispose(); Initializer.Term(); }
+        finally { canvas.Dispose(); Assert.Equal(Result.Success, Initializer.Term()); }
     }
 
     [Theory]

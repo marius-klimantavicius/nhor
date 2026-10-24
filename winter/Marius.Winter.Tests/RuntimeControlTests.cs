@@ -54,9 +54,10 @@ public class ClipPixelTests
     [InlineData(true)]
     public void RealNestedScrollMovesChildClipWithItsBounds(bool tree)
     {
-        Initializer.Init(); using var canvas = SwCanvas.Gen()!; using var root = new Panel();
+        Initializer.Init(); using var canvas = SwCanvas.Gen()!;
         try
         {
+            using var root = new Panel();
             var outer = new ScrollPanel { Layout = new StackLayout { Spacing = 0 }, HorizontalScroll = ScrollMode.Never };
             Element clipped = tree ? new TreeView() : new ScrollPanel { VerticalScroll = ScrollMode.Never, HorizontalScroll = ScrollMode.Never };
             clipped.Style = new Style { Background = new Color4(1, 0, 0), CornerRadius = 0 }; clipped.MinHeight = 100; clipped.MaxHeight = 100;
@@ -69,7 +70,7 @@ public class ClipPixelTests
             Contracts.Draw(canvas, true); Assert.Equal(before, pixels[20 * 120 + 20]);
             Assert.Equal(0u, pixels[5 * 120 + 20]); canvas.Remove(root.Scene);
         }
-        finally { canvas.Dispose(); Initializer.Term(); }
+        finally { canvas.Dispose(); Assert.Equal(Result.Success, Initializer.Term()); }
     }
 
     [Theory]
@@ -85,9 +86,9 @@ public class ClipPixelTests
     {
         Initializer.Init();
         using var canvas = SwCanvas.Gen()!;
-        using var root = new Panel();
         try
         {
+            using var root = new Panel();
             var pixels = new uint[240 * 120]; canvas.Target(pixels, 240, 240, 120, ColorSpace.ARGB8888);
             var ancestor = new Panel(); root.AddChild(ancestor);
             Element clipped = tree ? new TreeView() : new ScrollPanel { VerticalScroll = ScrollMode.Never, HorizontalScroll = ScrollMode.Never };
@@ -110,7 +111,7 @@ public class ClipPixelTests
             Assert.Equal(0u, pixels[20 * 240 + (operation == "size" ? 85 : 20)]);
             canvas.Remove(root.Scene);
         }
-        finally { canvas.Dispose(); Initializer.Term(); }
+        finally { canvas.Dispose(); Assert.Equal(Result.Success, Initializer.Term()); }
     }
 }
 

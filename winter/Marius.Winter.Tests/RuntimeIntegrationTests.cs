@@ -70,6 +70,28 @@ public class WorkerGraphicsLifetimeTests
 
 public class NativeSchedulingIntegrationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NewAnimationAndTooltipDeadlinesDoNotInheritEarlierIdleTime(bool tooltip)
+    {
+        var box = new Box { Tooltip = "Details" }; using var pump = new NativePump(w => w.AddChild(box));
+        await Task.Delay(650);
+        if (!tooltip)
+        {
+            var first = new TaskCompletionSource<float>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await pump.Call(w => w.Animator.Start(new Marius.Winter.Animation { Duration = 0.3f, Apply = t => first.TrySetResult(t) }));
+            float firstFrame = await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(firstFrame < 0.4f, $"New animation inherited idle time: first frame {firstFrame}");
+            return;
+        }
+        await pump.Call(w => typeof(Window).GetMethod("UpdateTooltipTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(w, new object[] { box, 10f, 10f }));
+        await Task.Delay(60);
+        await pump.Call(w => Assert.Null(typeof(Window).GetField("_tooltipOverlay", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(w)));
+        await Task.Delay(520);
+        await pump.Call(w => Assert.NotNull(typeof(Window).GetField("_tooltipOverlay", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(w)));
+    }
+
     [Fact]
     public async Task RepostingQueueCannotStarveFinalPaintAndConcurrentCloseSettlesAllTasks()
     {
