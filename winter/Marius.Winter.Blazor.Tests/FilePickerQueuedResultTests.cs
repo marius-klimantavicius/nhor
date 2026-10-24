@@ -162,8 +162,8 @@ public class FilePickerQueuedResultTests
             case "reset": probe.Version++; break;
             case "close": probe.Model.Open = false; break;
             case "reopen": probe.Model.Open = false; probe.Refresh(); probe.Model.Open = true; break;
-            case "controller": probe.Controller = new(probe.Provider); break;
-            case "provider": probe.Provider = new(); break;
+            case "controller": probe.ReplaceController(); break;
+            case "provider": probe.ReplaceProvider(); break;
             case "mode": probe.Mode = FilePickerMode.SaveFile; break;
             case "directory": probe.Directory = "/folder"; break;
             case "name": probe.Name = "other.svg"; break;

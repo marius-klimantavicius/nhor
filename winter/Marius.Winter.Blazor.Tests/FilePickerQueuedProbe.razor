@@ -66,6 +66,8 @@
     public long Version;
     public bool Show = true;
     public int Tick, LegacyChanges;
+    public void ReplaceController() => Controller = new(Provider);
+    public void ReplaceProvider() => Provider = new();
     private void Legacy(bool value) { LegacyChanges++; Model.Change(value); }
     public void Refresh() { Tick++; StateHasChanged(); }
 }
