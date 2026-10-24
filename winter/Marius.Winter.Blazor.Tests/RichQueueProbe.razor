@@ -1,0 +1,14 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Marius.Winter.Blazor.Elements
+<RichTextBox @bind-Text="Text" ResetVersion="ResetVersion" />
+<RichTextBox @bind-Document="Document" ResetVersion="ResetVersion" />
+@code {
+    private string _text = "Winter note";
+    private RichDocument _document = new("Winter note");
+    public string Text { get => _text; set { TextEdits++; _text = value; } }
+    public RichDocument Document { get => _document; set { DocumentEdits++; _document = value; } }
+    public int TextEdits, DocumentEdits;
+    public long ResetVersion;
+    public void RenderAgain() => StateHasChanged();
+    public void Reset() { _text = "Winter note"; _document = new("Winter note"); ResetVersion++; StateHasChanged(); }
+}

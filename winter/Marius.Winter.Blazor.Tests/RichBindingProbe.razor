@@ -1,0 +1,25 @@
+@namespace Marius.Winter.Blazor.Tests
+@using System
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@if (Show)
+{
+    <RichTextBox @ref="PlainEditor" @bind-Text:get="Text" @bind-Text:set="AcceptText" ResetVersion="ResetVersion" />
+    <RichTextBox @ref="RichEditor" @bind-Document:get="Document" @bind-Document:set="AcceptDocument" ResetVersion="ResetVersion" />
+}
+@code {
+    public RichTextBox? PlainEditor, RichEditor;
+    public string Text = "Winter note";
+    public RichDocument Document = new("Winter note");
+    public bool Show = true, Reject;
+    public long ResetVersion;
+    public int TextEdits, DocumentEdits;
+    public Func<RichDocument, Task>? AfterDocument;
+    private void AcceptText(string value) { TextEdits++; if (!Reject) Text = value; }
+    private Task AcceptDocument(RichDocument value) { DocumentEdits++; if (!Reject) Document = value; return AfterDocument?.Invoke(value) ?? Task.CompletedTask; }
+    public void RenderAgain() => StateHasChanged();
+    public void Reset() { Text = "Winter note"; Document = new("Winter note"); ResetVersion++; StateHasChanged(); }
+    public void Remove() { Show = false; StateHasChanged(); }
+    public void ReplaceRich(RichDocument value) { Document = value; StateHasChanged(); }
+}
