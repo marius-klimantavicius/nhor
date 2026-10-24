@@ -52,8 +52,8 @@
     private bool _table;
     private static readonly Marius.Winter.FlexLayout Column = new() { Direction = Orientation.Vertical, Gap = 7 };
     private static readonly Marius.Winter.FlexLayout Actions = new() { Wrap = FlexWrap.Wrap, Gap = 5 };
-    private static readonly Marius.Winter.FlexLayout AssetRowLayout = new() { Gap = 7, AlignItems = Alignment.Center };
-    private static readonly Marius.Winter.FlexLayout NameLayout = new() { Gap = 5, AlignItems = Alignment.Center };
+    private static readonly ILayout AssetRowLayout = new AssetCatalogRowLayout();
+    private static readonly ILayout NameLayout = new AssetCatalogNameLayout();
     private static readonly FlexItem Grow = new() { Grow = 1, Basis = 0 };
     private CatalogAsset[] VisibleItems => AssetCatalogData.Order(AssetCatalogData.Filter(_all, _filter), _sort);
     private CatalogAsset? Target => VisibleItems.FirstOrDefault(a => a.Key == _selected) ?? VisibleItems.FirstOrDefault();

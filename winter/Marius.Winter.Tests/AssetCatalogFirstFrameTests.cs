@@ -13,6 +13,26 @@ public class AssetCatalogFirstFrameTests
 {
     [Theory]
     [InlineData(false)] [InlineData(true)]
+    public void NarrowCatalogMeasuresRowsAtTheActualTemplateTextWidth(bool razor) => WindowRegressionOwner.Run(() =>
+    {
+        var theme = Theme.Dark; theme.Label.FontSize = theme.Panel.FontSize = theme.Button.FontSize = theme.TextBox.FontSize = 22;
+        using var window = new Window(440, 620, "C12 narrow catalog text", theme, RenderBackend.SW);
+        using var scenario = razor ? null : new Playground.Scenarios.AssetCatalogScenario(window);
+        if (razor) Assert.True(window.UseBlazor().AddComponent<Blazor.Playground.Scenarios.AssetCatalog>().IsCompletedSuccessfully);
+        else { window.AddChild(scenario!.Content); window.SetAutoLayout(scenario.Content); }
+        Draw(window);
+        var table = AssetCatalogInteractionTests.Walk(window).OfType<BasicTable<Asset>>().Single();
+        var list = AssetCatalogInteractionTests.Walk(window).OfType<ListView<Asset>>().Single(l => l != table.Body);
+        var row = list.FindRow("wide")!;
+        var label = AssetCatalogInteractionTests.Walk(row).OfType<Label>().Single(l => l.Text.StartsWith("Presentation", StringComparison.Ordinal));
+        float expected = label.Measure(label.Bounds.W, float.PositiveInfinity).Y;
+        Assert.True(label.Bounds.H >= expected, $"Wrapped row text needs {expected} logical units at {label.Bounds.W} width, but received {label.Bounds.H}.");
+        Assert.True(label.Bounds.H >= 44, "At 22-unit text, this long name needs multiple complete lines in a narrow row.");
+        Assert.True(row.Bounds.H >= label.Bounds.H + 10, "The row must reserve the complete wrapped label height plus row padding, without clipping its lines.");
+        list.FocusRow("wide"); Draw(window); Save(window, $"catalog-{razor}-narrow-long-name");
+    });
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
     public void ActualModuleFirstDrawPaintsRowsThumbnailsAndTableHeadersWithoutScrolling(bool razor) => WindowRegressionOwner.Run(() =>
     {
         using var window = new Window(800, 650, "C12 first-frame pixels", Theme.Light, RenderBackend.SW);

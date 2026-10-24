@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="../Marius.Winter/Marius.Winter.csproj" />
     <Compile Include="../Marius.Winter.Playground/Scenarios/AssetCatalogData.cs" Link="Scenarios/AssetCatalogData.cs" />
+    <Compile Include="../Marius.Winter.Playground/Scenarios/AssetCatalogLayouts.cs" Link="Scenarios/AssetCatalogLayouts.cs" />
   </ItemGroup>
 </Project>

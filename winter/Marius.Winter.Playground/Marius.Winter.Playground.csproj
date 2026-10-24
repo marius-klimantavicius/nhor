@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Marius.Winter\Marius.Winter.csproj" />
     <ProjectReference Include="../Marius.Winter.Playground.Scenarios/Marius.Winter.Playground.Scenarios.csproj" />
     <Compile Remove="Scenarios/AssetCatalogData.cs" />
+    <Compile Remove="Scenarios/AssetCatalogLayouts.cs" />
   </ItemGroup>
 
 </Project>

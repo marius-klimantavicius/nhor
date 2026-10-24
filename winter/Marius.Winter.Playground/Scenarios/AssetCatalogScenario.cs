@@ -104,7 +104,7 @@ public sealed class AssetCatalogScenario : IDisposable
         private readonly Label _name = new() { TextWrapping = ThorVG.TextWrap.Word, LayoutData = new FlexItem { Grow = 1, Basis = 80 } };
         internal AssetName(CatalogAsset asset)
         {
-            Layout = new FlexLayout { Gap = 5, AlignItems = Alignment.Center }; Padding = new Thickness(0);
+            Layout = new AssetCatalogNameLayout(); Padding = new Thickness(0);
             AddChild(_image); AddChild(_name); Update(asset);
         }
         internal void Update(CatalogAsset asset) { _image.Svg = asset.Thumbnail; _name.Text = asset.Name; }
@@ -122,7 +122,7 @@ public sealed class AssetCatalogScenario : IDisposable
         private readonly PreviewButton _preview;
         internal AssetRow(CatalogAsset asset, Action<CatalogAsset> preview)
         {
-            Layout = new FlexLayout { Gap = 7, AlignItems = Alignment.Center }; Padding = new Thickness(0);
+            Layout = new AssetCatalogRowLayout(); Padding = new Thickness(0);
             _name = new AssetName(asset) { LayoutData = new FlexItem { Grow = 1, Basis = 120 } };
             _preview = new PreviewButton(asset, preview);
             AddChild(_name); AddChild(_metadata); AddChild(_preview); Update(asset);
