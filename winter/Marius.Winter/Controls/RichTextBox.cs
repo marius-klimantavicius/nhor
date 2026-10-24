@@ -91,6 +91,8 @@ public class RichTextBox : Element
     private float _effectiveBoldFontSize;
     private float _ascent;
     private float _descent;
+    private float _regularAscent;
+    private float _boldAscent;
     private object? _blinkTag;
     private object? _autoScrollTag;
     private bool _mouseDown;
@@ -270,21 +272,6 @@ public class RichTextBox : Element
             _blinkTag = new object();
             _autoScrollTag = new object();
 
-            // Compute font metrics for line height
-            var mt = ThorVG.Text.Gen()!;
-            try
-            {
-                mt.SetFont(style.FontName);
-                mt.SetFontSize(_effectiveFontSize);
-                mt.SetText("Mg");
-                mt.GetMetrics(out var metrics);
-                _ascent = metrics.ascent;
-                _descent = metrics.descent;
-            }
-            finally { mt.Unref(); }
-            _lineHeight = (_ascent - _descent) * 1.35f;
-            if (_lineHeight <= 0) _lineHeight = _effectiveFontSize * 1.35f;
-
             // Create cached measurement texts
             _measureText = ThorVG.Text.Gen()!;
             _measureText.SetFont(style.FontName);
@@ -293,6 +280,7 @@ public class RichTextBox : Element
             _measureTextBold = ThorVG.Text.Gen()!;
             _measureTextBold.SetFont("default-bold");
             _measureTextBold.SetFontSize(_effectiveBoldFontSize);
+            UpdateFontMetrics();
 
             // Background
             _backgroundShape = Shape.Gen();
@@ -682,6 +670,23 @@ public class RichTextBox : Element
 
     // --- Content rendering ---
 
+    private void UpdateFontMetrics()
+    {
+        _measureText!.GetMetrics(out var regular);
+        _measureTextBold!.GetMetrics(out var bold);
+        _regularAscent = regular.ascent;
+        _boldAscent = bold.ascent;
+        // Both fonts share a baseline; reserve room for either font's extents.
+        _ascent = Math.Max(regular.ascent, bold.ascent);
+        _descent = Math.Min(regular.descent, bold.descent);
+        _lineHeight = (_ascent - _descent) * 1.35f;
+        if (_lineHeight <= 0) _lineHeight = _effectiveFontSize * 1.35f;
+    }
+
+    private float LineLeading => (_lineHeight - (_ascent - _descent)) / 2f;
+
+    private float LineBaseline(float lineY) => Padding + lineY + LineLeading + _ascent;
+
     private bool NeedsScrollbarV()
     {
         float viewportH = Bounds.H - 2 * Padding;
@@ -730,8 +735,7 @@ public class RichTextBox : Element
 
         if (!string.IsNullOrEmpty(_placeholder))
         {
-            MeasureLineBounds(_placeholder, false, out _, out float pby, out _, out _);
-            _placeholderScene?.Translate(Padding - _scrollX, Padding - pby);
+            _placeholderScene?.Translate(Padding - _scrollX, LineBaseline(0) - _regularAscent);
         }
 
         float viewportH = ViewportH();
@@ -761,8 +765,7 @@ public class RichTextBox : Element
             int lineStart = _lineOffsets[lineIdx];
             float lineY = lineIdx * _lineHeight - _scrollY;
 
-            MeasureLineBounds("M", false, out _, out float by, out _, out float bh);
-            float baselineY = Padding + lineY - by;
+            float baselineY = LineBaseline(lineY);
 
             float x = 0;
 
@@ -793,14 +796,18 @@ public class RichTextBox : Element
                 var color = run.Color ?? defaultTextColor;
                 slot.TextPaint.SetFill(color.R8, color.G8, color.B8);
 
-                slot.TextPaint.Translate(Padding + x - _scrollX, baselineY);
+                // ThorVG's text origin is the font top, with the baseline at
+                // its ascent. Glyph ink bounds (for example "M") are not an
+                // origin: subtracting them shifts text above its selection cell.
+                slot.TextPaint.Translate(Padding + x - _scrollX,
+                    baselineY - (bold ? _boldAscent : _regularAscent));
 
                 float segWidth = MeasureRunWidth(segText, bold);
 
                 // Underline decoration
                 if (underline)
                 {
-                    float ulY = Padding + lineY + (_ascent - _descent) * 1.1f;
+                    float ulY = baselineY - _descent * 0.5f;
                     slot.Underline!.ResetShape();
                     slot.Underline.AppendRect(Padding + x - _scrollX, ulY, segWidth, 1f, 0, 0);
                     slot.Underline.SetFill(color.R8, color.G8, color.B8, color.A8);
@@ -814,7 +821,7 @@ public class RichTextBox : Element
                 // Strikethrough decoration
                 if (strikethrough)
                 {
-                    float stY = Padding + lineY + (_ascent - _descent) * 0.55f;
+                    float stY = baselineY - _ascent * 0.4f;
                     slot.Strikethrough!.ResetShape();
                     slot.Strikethrough.AppendRect(Padding + x - _scrollX, stY, segWidth, 1f, 0, 0);
                     slot.Strikethrough.SetFill(color.R8, color.G8, color.B8, color.A8);
@@ -1094,9 +1101,9 @@ public class RichTextBox : Element
         float cursorX = GetXOffsetInLine(line, col);
         float cursorY = line * _lineHeight - _scrollY;
 
-        MeasureLineBounds("M", false, out _, out _, out _, out float bh);
         _cursorShape.ResetShape();
-        _cursorShape.AppendRect(Padding + cursorX - _scrollX, Padding + cursorY, 1f, bh, 0, 0);
+        _cursorShape.AppendRect(Padding + cursorX - _scrollX, Padding + cursorY + LineLeading,
+            1f, _ascent - _descent, 0, 0);
     }
 
     private void EnsureCursorVisible()
@@ -1804,12 +1811,7 @@ public class RichTextBox : Element
         _measureText!.SetFont(style.FontName);
         _measureText.SetFontSize(_effectiveFontSize);
         _measureTextBold!.SetFontSize(_effectiveBoldFontSize);
-        _measureText.SetText("Mg");
-        _measureText.GetMetrics(out var metrics);
-        _ascent = metrics.ascent;
-        _descent = metrics.descent;
-        _lineHeight = (_ascent - _descent) * 1.35f;
-        if (_lineHeight <= 0) _lineHeight = _effectiveFontSize * 1.35f;
+        UpdateFontMetrics();
         _placeholderPaint?.SetFont(style.FontName);
         _placeholderPaint?.SetFontSize(_effectiveFontSize);
 
