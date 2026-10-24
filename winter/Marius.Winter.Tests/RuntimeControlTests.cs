@@ -50,6 +50,29 @@ public class AnimationContractTests
 public class ClipPixelTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RealNestedScrollMovesChildClipWithItsBounds(bool tree)
+    {
+        Initializer.Init(); using var canvas = SwCanvas.Gen()!; using var root = new Panel();
+        try
+        {
+            var outer = new ScrollPanel { Layout = new StackLayout { Spacing = 0 }, HorizontalScroll = ScrollMode.Never };
+            Element clipped = tree ? new TreeView() : new ScrollPanel { VerticalScroll = ScrollMode.Never, HorizontalScroll = ScrollMode.Never };
+            clipped.Style = new Style { Background = new Color4(1, 0, 0), CornerRadius = 0 }; clipped.MinHeight = 100; clipped.MaxHeight = 100;
+            var spacer = new Panel { MinHeight = 100, MaxHeight = 100 };
+            outer.AddChild(clipped); outer.AddChild(spacer); root.AddChild(outer);
+            outer.Measure(80, 60); outer.Arrange(new RectF(10, 10, 80, 60));
+            var pixels = new uint[120 * 100]; canvas.Target(pixels, 120, 120, 100, ColorSpace.ARGB8888); canvas.Add(root.Scene);
+            Contracts.Draw(canvas, true); uint before = pixels[20 * 120 + 20]; Assert.Equal(0xffff0000u, before);
+            outer.Scroll = 0.3f; Assert.True(clipped.Bounds.Y < 0);
+            Contracts.Draw(canvas, true); Assert.Equal(before, pixels[20 * 120 + 20]);
+            Assert.Equal(0u, pixels[5 * 120 + 20]); canvas.Remove(root.Scene);
+        }
+        finally { canvas.Dispose(); Initializer.Term(); }
+    }
+
+    [Theory]
     [InlineData(false, "position")]
     [InlineData(true, "position")]
     [InlineData(false, "size")]
@@ -117,6 +140,17 @@ public class ImageInvalidationTests
 
 public class EditorStyleIntegrationTests
 {
+    [Fact]
+    public void RichEditorDisposalReleasesItsPrivateMeasurementPaints()
+    {
+        using var window = new Window(300, 120, "Editor measurement ownership");
+        var editor = new RichTextBox("Winter"); window.AddChild(editor); editor.Arrange(new RectF(0, 0, 280, 100));
+        var regular = typeof(RichTextBox).GetField("_measureText", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var bold = typeof(RichTextBox).GetField("_measureTextBold", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.NotNull(regular.GetValue(editor)); Assert.NotNull(bold.GetValue(editor));
+        editor.Dispose(); Assert.Null(regular.GetValue(editor)); Assert.Null(bold.GetValue(editor));
+    }
+
     [Theory]
     [InlineData("TextBox", false)]
     [InlineData("TextBox", true)]
