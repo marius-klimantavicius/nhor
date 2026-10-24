@@ -1,0 +1,71 @@
+@using System
+@using System.Collections.Generic
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@namespace Marius.Winter.Blazor.Tests
+@if (Show)
+{
+    @if (Binding == "default")
+    {
+        <FilePicker @bind-IsOpen="BoundOpen" Selected="Model.Pick" Canceled="Model.Cancel"
+                    Controller="Controller" Provider="Provider" Mode="Mode" InitialDirectory="@Directory"
+                    FileName="@Name" Filters="Filters" ResetVersion="Version" OnIsOpenChanged="Legacy" />
+    }
+    else if (Binding == "method")
+    {
+        <FilePicker @bind-IsOpen:get="Model.Open" @bind-IsOpen:set="Model.Set" Selected="Model.Pick" Canceled="Model.Cancel"
+                    Controller="Controller" Provider="Provider" Mode="Mode" InitialDirectory="@Directory"
+                    FileName="@Name" Filters="Filters" ResetVersion="Version" OnIsOpenChanged="Legacy" />
+    }
+    else
+    {
+        <FilePicker IsOpen="Model.Open" IsOpenChanged="OpenCallback" Selected="SelectedCallback" Canceled="CanceledCallback"
+                    Controller="Controller" Provider="Provider" Mode="Mode" InitialDirectory="@Directory"
+                    FileName="@Name" Filters="Filters" ResetVersion="Version" OnIsOpenChanged="Legacy" />
+    }
+}
+<Label Text="@($"Unrelated label {Tick}")" />
+@code {
+    public sealed class PickerModel
+    {
+        public bool Open = true;
+        public bool Reject;
+        public List<string> Order = new();
+        public List<FilePickerResult> Results = new();
+        public Action? DuringOpen;
+        public TaskCompletionSource? Gate;
+        public TaskCompletionSource Finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Change(bool value) { if (!Reject) Open = value; Order.Add("open:" + value); DuringOpen?.Invoke(); }
+        public async Task Set(bool value) { Change(value); if (Gate != null) await Gate.Task; }
+        public Task OtherSet(bool value) => Set(value);
+        public Task Pick(FilePickerResult result) => Result("selected", result);
+        public Task Cancel(FilePickerResult result) => Result("canceled", result);
+        private async Task Result(string kind, FilePickerResult result)
+        { Order.Add(kind); Results.Add(result); if (Gate != null) await Gate.Task; Finished.TrySetResult(); }
+    }
+    public PickerModel Model = new();
+    public string Binding = "method";
+    public bool BoundOpen { get => Model.Open; set => Model.Change(value); }
+    public sealed class CallbackReceiver(Action render) : IHandleEvent
+    {
+        public Task HandleEventAsync(EventCallbackWorkItem callback, object? arg)
+        { var task = callback.InvokeAsync(arg); render(); return task; }
+    }
+    public CallbackReceiver Receiver;
+    public FilePickerQueuedProbe() => Receiver = new(Refresh);
+    public bool OtherMethod, Clear;
+    public EventCallback<bool> OpenCallback => Clear ? default : new(Receiver, OtherMethod ? new Func<bool, Task>(Model.OtherSet) : new Func<bool, Task>(Model.Set));
+    public EventCallback<FilePickerResult> SelectedCallback => Clear ? default : new(Receiver, new Func<FilePickerResult, Task>(Model.Pick));
+    public EventCallback<FilePickerResult> CanceledCallback => Clear ? default : new(Receiver, new Func<FilePickerResult, Task>(Model.Cancel));
+    [Parameter] public FilePickerController? Controller { get; set; }
+    [Parameter] public QueuedPickerProvider Provider { get; set; } = new();
+    public FilePickerMode Mode;
+    public string Directory = "/", Name = "";
+    public IReadOnlyList<FilePickerFilter> Filters = Array.Empty<FilePickerFilter>();
+    public long Version;
+    public bool Show = true;
+    public int Tick, LegacyChanges;
+    private void Legacy(bool value) { LegacyChanges++; Model.Change(value); }
+    public void Refresh() { Tick++; StateHasChanged(); }
+}

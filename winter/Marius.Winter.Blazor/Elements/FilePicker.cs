@@ -34,14 +34,20 @@ public sealed class FilePicker : WinterComponentBase
     }
     private sealed record Configuration(FilePickerController? Controller, IFilePickerProvider? Provider, bool Open, FilePickerMode Mode,
         string Directory, string Name, IReadOnlyList<FilePickerFilter> Filters, long Reset, float Width, float Height, Callbacks Callbacks);
-    private sealed record Delivery(FilePickerResult Result, Callbacks Callbacks, Func<bool> Current);
+    private sealed record Delivery(FilePickerResult Result, Callbacks Callbacks, Func<bool> Current, Action Acknowledge, Func<bool> Continue);
     public FilePicker() => _completed = EventCallback.Factory.Create<ChangeEventArgs>(this, args =>
     {
         var delivery = (Delivery)args.Value!;
         if (!delivery.Current()) return Task.CompletedTask;
+        delivery.Acknowledge();
         IsOpen = false;
         var change = delivery.Callbacks.Open.InvokeAsync(false);
-        var result = (delivery.Result.Accepted ? delivery.Callbacks.Selected : delivery.Callbacks.Canceled).InvokeAsync(delivery.Result);
+        // Close feedback may synchronously reset/replace/unmount the picker. A
+        // simple rejection can reopen, while an explicit new identity cancels
+        // the remaining callback. Neither callback mutates the view after await.
+        var result = delivery.Continue()
+            ? (delivery.Result.Accepted ? delivery.Callbacks.Selected : delivery.Callbacks.Canceled).InvokeAsync(delivery.Result)
+            : Task.CompletedTask;
         return Task.WhenAll(change, result);
     });
     protected override void RenderAttributes(AttributesBuilder b)
@@ -58,15 +64,19 @@ public sealed class FilePicker : WinterComponentBase
         private FilePickerController? _owned;
         private Configuration? _configuration, _pending;
         private long _generation, _subscriptions;
+        private long _acknowledgedSession = -1;
         private ulong _completed;
         internal Handler(NativeComponentRenderer renderer) : base(renderer, new Marius.Winter.FilePicker()) => Control.Completed += Complete;
         private void Complete(FilePickerResult result)
         {
             if (_configuration == null || _completed == 0 || IsDisposed) return;
             var id = _completed; var generation = _generation; var subscription = _subscriptions;
+            var controller = Control.Controller!; var revision = controller.Revision;
             var callbacks = _configuration.Callbacks;
-            bool Current() => !IsDisposed && id == _completed && generation == _generation && subscription == _subscriptions;
-            var delivery = new Delivery(result, callbacks, Current);
+            bool Continue() => !IsDisposed && id == _completed && generation == _generation && subscription == _subscriptions;
+            bool Current() => Continue() && ReferenceEquals(controller, Control.Controller) && controller.Revision == revision &&
+                controller.State.SessionId == result.SessionId && _acknowledgedSession != result.SessionId;
+            var delivery = new Delivery(result, callbacks, Current, () => _acknowledgedSession = result.SessionId, Continue);
             _ = Renderer.Dispatcher.InvokeAsync(() => Current() ? Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery }) : Task.CompletedTask);
         }
         public override void ApplyAttribute(ulong id, string name, object value, string updates)
@@ -79,7 +89,8 @@ public sealed class FilePicker : WinterComponentBase
         {
             if (IsDisposed || _pending is not { } next) return;
             _pending = null; var previous = _configuration; _configuration = next;
-            if (previous == null || !previous.Callbacks.Same(next.Callbacks)) _subscriptions++;
+            bool subscriptionsChanged = previous != null && !previous.Callbacks.Same(next.Callbacks);
+            if (previous == null || subscriptionsChanged) _subscriptions++;
             bool replace = previous == null || !ReferenceEquals(previous.Controller, next.Controller);
             if (replace)
             {
@@ -88,12 +99,25 @@ public sealed class FilePicker : WinterComponentBase
             }
             var controller = Control.Controller!;
             bool restart = replace || previous!.Reset != next.Reset || previous.Mode != next.Mode || previous.Directory != next.Directory || previous.Name != next.Name ||
-                !ReferenceEquals(previous.Filters, next.Filters) || !ReferenceEquals(previous.Provider, next.Provider);
-            if (restart) { _generation++; controller.Reset(); }
+                !ReferenceEquals(previous.Filters, next.Filters) || !ReferenceEquals(previous.Provider, next.Provider) || subscriptionsChanged;
+            bool openEdge = previous is { Open: false } && next.Open;
+            bool acknowledgedClose = _acknowledgedSession == controller.State.SessionId && !controller.State.IsOpen;
+            bool closeEdge = previous is { Open: true } && !next.Open && !acknowledgedClose;
+            if (restart || openEdge || closeEdge)
+            { _generation++; _acknowledgedSession = -1; controller.Reset(); }
             if (next.Controller == null && !ReferenceEquals(controller.Provider, next.Provider ?? _local)) _ = controller.ReplaceProviderAsync(next.Provider ?? _local);
             Control.Filters = next.Filters; Control.DialogWidth = next.Width; Control.DialogHeight = next.Height;
-            if (next.Open && !controller.State.IsOpen) _ = controller.OpenAsync(next.Mode, next.Directory, next.Filters.Count > 0 ? next.Filters[0] : null, next.Name);
-            else if (!next.Open && controller.State.IsOpen) { _generation++; controller.Reset(); }
+            // A completed controller can still have an immutable result queued
+            // on its Window. Unchanged declared true is not a new open request.
+            // Once delivery begins, a parent's true feedback rejects the close
+            // and may reopen without invalidating that originating result.
+            if (next.Open && !controller.State.IsOpen && (restart || openEdge || acknowledgedClose))
+            {
+                _acknowledgedSession = -1;
+                _ = controller.OpenAsync(next.Mode, next.Directory, next.Filters.Count > 0 ? next.Filters[0] : null, next.Name);
+            }
+            else if (!next.Open && controller.State.IsOpen)
+            { _generation++; _acknowledgedSession = -1; controller.Reset(); }
         }
         public override void Dispose()
         {
