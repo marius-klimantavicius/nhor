@@ -236,7 +236,7 @@ public class TextBox : Element
             _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
         }
 
-        UpdateVisibleText();
+        if (_textPaint != null) EnsureCursorVisible();
     }
 
     protected override void OnStateChanged(ElementState oldState, ElementState newState)
@@ -536,6 +536,12 @@ public class TextBox : Element
             UpdateCursorPosition(); UpdateSelection();
             return;
         }
+        float visibleWidth = Bounds.W - 2 * XSpacing;
+        float totalWidth = _advances.Advance(_text.Length);
+        // Attachment/theme work may run before layout restores a viewport.
+        // Once it returns, retain only scroll that the current text can use.
+        _scrollOffset = Math.Clamp(_scrollOffset, 0,
+            totalWidth <= visibleWidth ? 0 : Math.Max(0, totalWidth - visibleWidth + 2));
         if (string.IsNullOrEmpty(_text))
         {
             _textPaint.SetText("");
@@ -553,14 +559,6 @@ public class TextBox : Element
         }
 
         float xSpacing = XSpacing;
-        float visibleWidth = Bounds.W - 2 * xSpacing;
-        if (visibleWidth <= 0)
-        {
-            _textPaint.SetText("");
-            return;
-        }
-
-        float totalWidth = _advances.Advance(_text.Length);
 
         // Measure text for vertical centering with by offset compensation
         float textY = TextSceneY(_advances.BoundsY, _advances.BoundsHeight);
@@ -631,8 +629,13 @@ public class TextBox : Element
     {
         _cursorPos = Boundaries.Floor(_cursorPos);
         float xSpacing = XSpacing;
-        float cursorX = GetCursorX();
         float visibleWidth = Bounds.W - 2 * xSpacing;
+        if (visibleWidth <= 0 || Bounds.H <= 0)
+        {
+            UpdateVisibleText();
+            return;
+        }
+        float cursorX = GetCursorX();
 
         if (cursorX - _scrollOffset > visibleWidth - 2)
             _scrollOffset = cursorX - visibleWidth + 2;
