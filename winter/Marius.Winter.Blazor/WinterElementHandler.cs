@@ -114,9 +114,7 @@ public class WinterElementHandler : IWinterElementHandler, IHandleAttributeBatch
     /// <summary>
     /// Coalesces rapid-fire native events so that at most one Blazor
     /// DispatchEventAsync call happens per frame (per event slot).
-    /// Safe for both high-frequency (mouse drag, key repeat) and
-    /// low-frequency (click) events — low-frequency events pass through
-    /// without coalescing since no second fire arrives before the queue drains.
+    /// Use only for scalar state. Discrete commits/actions must dispatch their own immutable snapshot.
     /// </summary>
     protected class CoalescedEvent
     {
@@ -165,6 +163,14 @@ public class WinterElementHandler : IWinterElementHandler, IHandleAttributeBatch
         public void Unregister(ulong id)
         {
             if (HandlerId == id) HandlerId = 0;
+        }
+
+        /// <summary>Invalidates queued values when an explicit parent reset supersedes a native edit.</summary>
+        public void CancelPending()
+        {
+            _version++;
+            _pendingVersion = -1;
+            _value = null;
         }
     }
 
