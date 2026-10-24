@@ -1,0 +1,87 @@
+@namespace Marius.Winter.Blazor.Tests
+@using System
+@using System.Linq.Expressions
+@using System.Threading.Tasks
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Marius.Winter.Blazor.Elements
+<WinterForm @ref="Form" Model="@(UseContext ? null : Model)" EditContext="@(UseContext ? Context : null)">
+    @if (Mounted)
+    {
+        <TextField Label="Name" Value="@Model.Name" ValueExpression="NameExpression" ValueChanged="NameChanged" OnValueChanged="NameLegacy" ResetVersion="ResetVersion" />
+        <TextField Label="Biography" Value="@Model.Biography" ValueExpression="BiographyExpression" ValueChanged="BiographyChanged" OnValueChanged="BiographyLegacy" Multiline="true" ResetVersion="ResetVersion" />
+        <SelectField TItem="string" TValue="string" Label="Environment" Items="Options" TextSelector="@(s => s)" ValueSelector="@(s => s)"
+                     Value="@Model.Environment" ValueExpression="EnvironmentExpression" ValueChanged="EnvironmentChanged" OnValueChanged="EnvironmentLegacy" ResetVersion="ResetVersion" />
+        <CheckboxField Label="Shortcut" Value="Model.Shortcut" ValueExpression="ShortcutExpression" ValueChanged="ShortcutChanged" OnValueChanged="ShortcutLegacy" ResetVersion="ResetVersion" />
+    }
+</WinterForm>
+<Label Text="@($"Render {Renders}")" />
+@code {
+    public FieldQueueProbe.Draft Model = new(), Other = new();
+    public EditContext Context = null!;
+    public WinterForm Form = null!;
+    public bool Mounted = true, UseContext, OtherExpression;
+    public int Renders;
+    public long ResetVersion;
+    public string[] Options = ["a", "b"];
+    public Target Original = null!, Replacement = null!, Fallback = null!;
+    public Receiver FirstReceiver = new(), SecondReceiver = new();
+    public EventCallback<string> NameChanged, BiographyChanged, EnvironmentChanged;
+    public EventCallback<bool> ShortcutChanged;
+    public EventCallback<string> NameLegacy, BiographyLegacy, EnvironmentLegacy;
+    public EventCallback<bool> ShortcutLegacy;
+    Expression<Func<string>> NameExpression => OtherExpression ? () => Other.Name : () => Model.Name;
+    Expression<Func<string>> BiographyExpression => OtherExpression ? () => Other.Biography : () => Model.Biography;
+    Expression<Func<string>> EnvironmentExpression => OtherExpression ? () => Other.Environment : () => Model.Environment;
+    Expression<Func<bool>> ShortcutExpression => OtherExpression ? () => Other.Shortcut : () => Model.Shortcut;
+    protected override void OnInitialized()
+    {
+        Context = new EditContext(Model);
+        Original = new Target(Model); Replacement = new Target(Model); Fallback = new Target(Model);
+        SetCallbacks(Original, FirstReceiver);
+    }
+    public void SetCallbacks(Target? target, Receiver receiver)
+    {
+        NameChanged = target == null ? default : EventCallback.Factory.Create<string>(receiver, new Func<string, Task>(target.Name));
+        BiographyChanged = target == null ? default : EventCallback.Factory.Create<string>(receiver, new Func<string, Task>(target.Biography));
+        EnvironmentChanged = target == null ? default : EventCallback.Factory.Create<string>(receiver, new Func<string, Task>(target.Environment));
+        ShortcutChanged = target == null ? default : EventCallback.Factory.Create<bool>(receiver, new Func<bool, Task>(target.Shortcut));
+    }
+    public void SetFallback()
+    {
+        NameLegacy = EventCallback.Factory.Create<string>(FirstReceiver, Fallback.Name);
+        BiographyLegacy = EventCallback.Factory.Create<string>(FirstReceiver, Fallback.Biography);
+        EnvironmentLegacy = EventCallback.Factory.Create<string>(FirstReceiver, Fallback.Environment);
+        ShortcutLegacy = EventCallback.Factory.Create<bool>(FirstReceiver, Fallback.Shortcut);
+    }
+    public void ReplaceMethods()
+    {
+        NameChanged = EventCallback.Factory.Create<string>(FirstReceiver, Original.OtherName);
+        BiographyChanged = EventCallback.Factory.Create<string>(FirstReceiver, Original.OtherBiography);
+        EnvironmentChanged = EventCallback.Factory.Create<string>(FirstReceiver, Original.OtherEnvironment);
+        ShortcutChanged = EventCallback.Factory.Create<bool>(FirstReceiver, Original.OtherShortcut);
+    }
+    public void Refresh() { Renders++; StateHasChanged(); }
+    public sealed class Receiver : IHandleEvent
+    {
+        public int Calls;
+        public Task Pending = Task.CompletedTask;
+        public Task HandleEventAsync(EventCallbackWorkItem callback, object? arg) { Calls++; return Pending = callback.InvokeAsync(arg); }
+    }
+    public sealed class Target(FieldQueueProbe.Draft model)
+    {
+        public int Calls;
+        public bool Reject;
+        public Action? DuringCallback;
+        public TaskCompletionSource? Gate;
+        Task Finish() { Calls++; DuringCallback?.Invoke(); return Gate?.Task ?? Task.CompletedTask; }
+        public Task Name(string value) { if (!Reject) model.Name = value; return Finish(); }
+        public Task Biography(string value) { if (!Reject) model.Biography = value; return Finish(); }
+        public Task Environment(string value) { if (!Reject) model.Environment = value; return Finish(); }
+        public Task Shortcut(bool value) { if (!Reject) model.Shortcut = value; return Finish(); }
+        public Task OtherName(string value) => Name(value);
+        public Task OtherBiography(string value) => Biography(value);
+        public Task OtherEnvironment(string value) => Environment(value);
+        public Task OtherShortcut(bool value) => Shortcut(value);
+    }
+}

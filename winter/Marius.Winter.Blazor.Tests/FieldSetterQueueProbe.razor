@@ -1,0 +1,17 @@
+@namespace Marius.Winter.Blazor.Tests
+@inherits FieldQueueProbe
+@using Marius.Winter.Blazor.Elements
+<WinterForm @ref="Form" Model="Model">
+    <TextField Label="Name" @bind-Value:get="Model.Name" @bind-Value:set="SetName" />
+    <TextField Label="Biography" @bind-Value:get="Model.Biography" @bind-Value:set="SetBiography" Multiline="true" />
+    <SelectField TItem="string" TValue="string" Label="Environment" Items="Options" TextSelector="@(s => s)" ValueSelector="@(s => s)"
+                 @bind-Value:get="Model.Environment" @bind-Value:set="SetEnvironment" />
+    <CheckboxField Label="Shortcut" @bind-Value:get="Model.Shortcut" @bind-Value:set="SetShortcut" />
+</WinterForm>
+<Label Text="@($"Render {Renders}")" />
+@code {
+    void SetName(string value) => Model.Name = value;
+    void SetBiography(string value) => Model.Biography = value;
+    void SetEnvironment(string value) => Model.Environment = value;
+    void SetShortcut(bool value) => Model.Shortcut = value;
+}

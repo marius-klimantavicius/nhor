@@ -1,0 +1,25 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using System.ComponentModel.DataAnnotations
+@using Marius.Winter.Blazor.Elements
+<WinterForm Model="Model" @ref="Form">
+    <TextField Label="First" Value="@Model.First" ValueExpression="@(() => Model.First)" ValueChanged="@(Alternate ? Replacement : Original)" />
+    <TextField Label="Second" Value="@Model.Second" ValueExpression="@(() => Model.Second)" ValueChanged="SecondChanged" />
+    <Button Text="Replace first callback" OnClick="ReplaceCallback" />
+</WinterForm>
+@code {
+    public class Draft { [Required] public string First { get; set; } = ""; [Required] public string Second { get; set; } = ""; }
+    public Draft Model = new();
+    public WinterForm Form = null!;
+    EventCallback<string> Original, Replacement, SecondChanged;
+    public bool Alternate;
+    protected override void OnInitialized() {
+        Original = EventCallback.Factory.Create<string>(this, First);
+        Replacement = EventCallback.Factory.Create<string>(this, FirstAlternative);
+        SecondChanged = EventCallback.Factory.Create<string>(this, Second);
+    }
+    void First(string value) => Model.First = value;
+    void FirstAlternative(string value) => Model.First = value;
+    void Second(string value) => Model.Second = value;
+    public void ReplaceCallback() { Alternate=true; StateHasChanged(); }
+}

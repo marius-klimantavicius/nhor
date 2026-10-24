@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
@@ -58,11 +60,18 @@ public abstract class FormFieldBase<TValue> : ComponentBase, IDisposable, IWinte
         if (context != null && ValueExpression == null) throw new InvalidOperationException($"{GetType().Name} requires ValueExpression (normally supplied by @bind-Value) inside an EditContext.");
         var identifier = ValueExpression == null ? default : FieldIdentifier.Create(ValueExpression);
         var callback = ValueChanged.HasDelegate ? ValueChanged : OnValueChanged;
-        if (!ReferenceEquals(context, _context) || !_identifier.Equals(identifier) || !ReferenceEquals(Scope, _scope) || !_hasCallback || !callback.Equals(_application))
+        var membershipChanged = !ReferenceEquals(context, _context) || !_identifier.Equals(identifier) || !ReferenceEquals(Scope, _scope);
+        if (membershipChanged)
         {
-            Detach(); _identity++; _context = context; _identifier = identifier; _scope = Scope;
+            Detach(); _context = context; _identifier = identifier; _scope = Scope;
             if (_context != null) _context.OnValidationStateChanged += ValidationStateChanged;
             _scope?.Form.Register(this);
+        }
+        // A callback subscription can change without moving the mounted field's
+        // validation/focus priority or detaching its context subscription.
+        if (membershipChanged || !_hasCallback || !CallbackIdentity.Same(callback, _application))
+        {
+            _identity++;
             _application = callback; _hasCallback = true;
             var identity = _identity; var capturedContext = _context; var capturedField = _identifier;
             _changed = EventCallback.Factory.Create<TValue>(this, value =>
@@ -77,6 +86,25 @@ public abstract class FormFieldBase<TValue> : ComponentBase, IDisposable, IWinte
             });
         }
         ReadMessages();
+    }
+
+    // Components 8 uses delegate reference identity in EventCallback.Equals.
+    // Compiled Razor recreates equivalent delegates on ordinary parent renders.
+    // Keep their registration, but invalidate different methods, targets, receivers
+    // and cleared callbacks. Unfamiliar framework layouts fall back conservatively.
+    private static class CallbackIdentity
+    {
+        private static readonly FieldInfo? DelegateField, ReceiverField;
+        [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, typeof(EventCallback<>))]
+        static CallbackIdentity()
+        {
+            DelegateField = typeof(EventCallback<TValue>).GetField("Delegate", BindingFlags.Instance | BindingFlags.NonPublic);
+            ReceiverField = typeof(EventCallback<TValue>).GetField("Receiver", BindingFlags.Instance | BindingFlags.NonPublic);
+        }
+        internal static bool Same(EventCallback<TValue> a, EventCallback<TValue> b) => a.Equals(b) ||
+            DelegateField != null && ReceiverField != null &&
+            ReferenceEquals(ReceiverField.GetValue(a), ReceiverField.GetValue(b)) &&
+            Equals(DelegateField.GetValue(a), DelegateField.GetValue(b));
     }
     private void ReadMessages() => _messages = _context?.GetValidationMessages(_identifier).ToArray() ?? Array.Empty<string>();
     private void ValidationStateChanged(object? sender, ValidationStateChangedEventArgs args)

@@ -1,0 +1,26 @@
+@namespace Marius.Winter.Blazor.Tests
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Marius.Winter.Blazor.Elements
+<WinterForm @ref="Form" Model="Model">
+    <TextField Label="Name" @bind-Value="Model.Name" />
+    <TextField Label="Biography" @bind-Value="Model.Biography" Multiline="true" />
+    <SelectField TItem="string" TValue="string" Label="Environment" Items="Options" TextSelector="@(s => s)" ValueSelector="@(s => s)" @bind-Value="Model.Environment" />
+    <CheckboxField Label="Shortcut" @bind-Value="Model.Shortcut" />
+</WinterForm>
+<Label Text="@($"Render {Renders}")" />
+@code {
+    public class Draft {
+        public int[] Calls = new int[4];
+        string name = "Note", biography = "Note", environment = "a"; bool shortcut;
+        public string Name { get => name; set { name = value; Calls[0]++; } }
+        public string Biography { get => biography; set { biography = value; Calls[1]++; } }
+        public string Environment { get => environment; set { environment = value; Calls[2]++; } }
+        public bool Shortcut { get => shortcut; set { shortcut = value; Calls[3]++; } }
+    }
+    public Draft Model = new();
+    public string[] Options = ["a", "b"];
+    public WinterForm Form = null!;
+    public int Renders;
+    public void RenderAgain() { Renders++; StateHasChanged(); }
+}
