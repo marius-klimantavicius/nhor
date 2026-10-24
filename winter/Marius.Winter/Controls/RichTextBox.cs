@@ -272,13 +272,16 @@ public class RichTextBox : Element
 
             // Compute font metrics for line height
             var mt = ThorVG.Text.Gen()!;
-            mt.SetFont(style.FontName);
-            mt.SetFontSize(_effectiveFontSize);
-            mt.SetText("Mg");
-            mt.GetMetrics(out var metrics);
-            mt.Unref();
-            _ascent = metrics.ascent;
-            _descent = metrics.descent;
+            try
+            {
+                mt.SetFont(style.FontName);
+                mt.SetFontSize(_effectiveFontSize);
+                mt.SetText("Mg");
+                mt.GetMetrics(out var metrics);
+                _ascent = metrics.ascent;
+                _descent = metrics.descent;
+            }
+            finally { mt.Unref(); }
             _lineHeight = (_ascent - _descent) * 1.35f;
             if (_lineHeight <= 0) _lineHeight = _effectiveFontSize * 1.35f;
 
@@ -965,12 +968,16 @@ public class RichTextBox : Element
         {
             // Fallback before OnAttached
             var t = ThorVG.Text.Gen()!;
-            t.SetFont(bold ? "default-bold" : Style.FontName);
-            t.SetFontSize(bold ? _effectiveBoldFontSize : _effectiveFontSize);
-            t.SetText(text);
-            if (t.GetTextSize(out float fw, out _) == Result.Success)
-                return fw;
-            return 0;
+            try
+            {
+                t.SetFont(bold ? "default-bold" : Style.FontName);
+                t.SetFontSize(bold ? _effectiveBoldFontSize : _effectiveFontSize);
+                t.SetText(text);
+                if (t.GetTextSize(out float fw, out _) == Result.Success)
+                    return fw;
+                return 0;
+            }
+            finally { t.Unref(); }
         }
         mt.SetText(text);
         if (mt.GetTextSize(out float w, out _) == Result.Success)
@@ -986,11 +993,15 @@ public class RichTextBox : Element
         if (string.IsNullOrEmpty(text)) text = "M";
         var t = ThorVG.Text.Gen();
         if (t == null) return;
-        t.SetFont(bold ? "default-bold" : Style.FontName);
-        t.SetFontSize(bold ? _effectiveBoldFontSize : _effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out bx, out by, out bw, out bh);
-        if (bh <= 0) bh = _effectiveFontSize;
+        try
+        {
+            t.SetFont(bold ? "default-bold" : Style.FontName);
+            t.SetFontSize(bold ? _effectiveBoldFontSize : _effectiveFontSize);
+            t.SetText(text);
+            t.Bounds(out bx, out by, out bw, out bh);
+            if (bh <= 0) bh = _effectiveFontSize;
+        }
+        finally { t.Unref(); }
     }
 
     private float EffectiveBoldFontSize(float requestedSize)

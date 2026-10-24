@@ -418,11 +418,15 @@ public class TextArea : Element
         if (string.IsNullOrEmpty(text)) return 0;
         var t = ThorVG.Text.Gen();
         if (t == null) return 0;
-        t.SetFont(Style.FontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out _, out _, out float bw, out _);
-        return bw;
+        try
+        {
+            t.SetFont(Style.FontName);
+            t.SetFontSize(_effectiveFontSize);
+            t.SetText(text);
+            t.Bounds(out _, out _, out float bw, out _);
+            return bw;
+        }
+        finally { t.Unref(); }
     }
 
     private void MeasureLineBounds(string text, out float bx, out float by, out float bw, out float bh)
@@ -433,11 +437,15 @@ public class TextArea : Element
         if (string.IsNullOrEmpty(text)) text = "M";
         var t = ThorVG.Text.Gen();
         if (t == null) return;
-        t.SetFont(Style.FontName);
-        t.SetFontSize(_effectiveFontSize);
-        t.SetText(text);
-        t.Bounds(out bx, out by, out bw, out bh);
-        if (bh <= 0) bh = _effectiveFontSize;
+        try
+        {
+            t.SetFont(Style.FontName);
+            t.SetFontSize(_effectiveFontSize);
+            t.SetText(text);
+            t.Bounds(out bx, out by, out bw, out bh);
+            if (bh <= 0) bh = _effectiveFontSize;
+        }
+        finally { t.Unref(); }
     }
 
     private float GetCursorX()
