@@ -447,6 +447,19 @@ public class Button : Element
         if (!_shapesCreated) return;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
+        // Attachment and observable style changes can replace the effective
+        // font after these paints were created. SetText rebuilds retained glyph
+        // paths as well as metrics; positioning must use those same metrics.
+        var style = Style;
+        _labelText?.SetFont(style.FontName);
+        _shadowText?.SetFont(style.FontName);
+        float fontSize = EffectiveFontSize(style.FontSize);
+        _labelText?.SetFontSize(fontSize);
+        _shadowText?.SetFontSize(fontSize);
+        _labelText?.SetText(_text);
+        _shadowText?.SetText(_text);
+        InvalidateMeasure();
+
         // Cancel in-flight gradient animation
         OwnerWindow?.Animator?.Cancel(this);
 
