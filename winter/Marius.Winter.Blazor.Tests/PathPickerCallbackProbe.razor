@@ -1,0 +1,28 @@
+@using Marius.Winter.Blazor.Elements
+@using Microsoft.AspNetCore.Components
+@namespace Marius.Winter.Blazor.Tests
+<Panel>
+    <FlexLayout Direction="Orientation.Vertical" Gap="10" />
+    <Label Text="@($"Parent render: {Tick}; Model: {Model.Path}; Calls: {Model.Calls}")" />
+    @if (Show)
+    {
+        <WinterForm @ref="Form" Model="Model">
+            <PathPicker @bind-Value:get="Model.Path" @bind-Value:set="Model.Set" InitialDirectory="/" Provider="Provider" />
+        </WinterForm>
+    }
+</Panel>
+@code {
+    public sealed class PathModel
+    {
+        public PickerPath? Path = new PickerPath("/original");
+        public int Calls;
+        public void Set(PickerPath? value) { Calls++; Path = value; }
+    }
+    public PathModel Model = new();
+    public WinterForm Form = null!;
+    public IFilePickerProvider Provider = new PickerBindingProvider();
+    public int Tick;
+    public bool Show = true;
+    public void Refresh() { Tick++; StateHasChanged(); }
+    public void Remove() { Show = false; StateHasChanged(); }
+}

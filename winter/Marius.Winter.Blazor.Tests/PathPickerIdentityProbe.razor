@@ -1,0 +1,31 @@
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Marius.Winter.Blazor.Elements
+@namespace Marius.Winter.Blazor.Tests
+@if (Show)
+{
+    <WinterForm @ref="Form" EditContext="Context">
+        <PathPicker Value="Model.Path" ValueChanged="Callback" ValueExpression="@(() => Model.Path)"
+                    Provider="Provider" InitialDirectory="/" ResetVersion="Version" />
+    </WinterForm>
+}
+@code {
+    public sealed class PathModel
+    {
+        public PickerPath? Path = new("/original");
+        public int Calls;
+        public void Set(PickerPath? value) { Calls++; Path = value; }
+        public void Other(PickerPath? value) { Calls++; Path = value; }
+    }
+    public PathModel Model = new(), Target;
+    public EditContext Context;
+    public WinterForm Form = null!;
+    public PickerBindingProvider Provider = new();
+    public object Receiver;
+    public bool OtherMethod, Clear, Show = true;
+    public long Version;
+    public PathPickerIdentityProbe() { Target = Model; Context = new(Model); Receiver = this; }
+    EventCallback<PickerPath?> Callback => Clear ? default : EventCallback.Factory.Create<PickerPath?>(Receiver,
+        OtherMethod ? new Action<PickerPath?>(Target.Other) : new Action<PickerPath?>(Target.Set));
+    public void Refresh() => StateHasChanged();
+}

@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
 using Marius.Winter.Blazor.Core;
 
 namespace Marius.Winter.Blazor.Elements;
@@ -104,11 +105,24 @@ public sealed class FilePicker : WinterComponentBase
 
 internal static class PickerCallbackIdentity
 {
-    internal static bool Same<T>(EventCallback<T> a, EventCallback<T> b) => Equals(Identity(a), Identity(b));
-    private static object? Identity<T>(EventCallback<T> callback)
+    internal static bool Same<T>(EventCallback<T> a, EventCallback<T> b) => Identity<T>.Same(a, b);
+
+    // Components 8 retains an explicit receiver when a compiled binding targets
+    // a model method. Render-frame equality then uses delegate reference identity.
+    // Match method/target AND receiver, as the existing scalar/form adapters do;
+    // unfamiliar framework layouts retain conservative EventCallback equality.
+    private static class Identity<T>
     {
-        if (!callback.HasDelegate) return null;
-        using var b = new RenderTreeBuilder(); b.OpenElement(0, "picker-action"); b.AddAttribute(1, "onaction", callback); b.CloseElement();
-        return b.GetFrames().Array[1].AttributeValue;
+        private static readonly FieldInfo? DelegateField, ReceiverField;
+        [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, typeof(EventCallback<>))]
+        static Identity()
+        {
+            DelegateField = typeof(EventCallback<T>).GetField("Delegate", BindingFlags.Instance | BindingFlags.NonPublic);
+            ReceiverField = typeof(EventCallback<T>).GetField("Receiver", BindingFlags.Instance | BindingFlags.NonPublic);
+        }
+        internal static bool Same(EventCallback<T> a, EventCallback<T> b) => a.Equals(b) ||
+            DelegateField != null && ReceiverField != null &&
+            ReferenceEquals(ReceiverField.GetValue(a), ReceiverField.GetValue(b)) &&
+            Equals(DelegateField.GetValue(a), DelegateField.GetValue(b));
     }
 }

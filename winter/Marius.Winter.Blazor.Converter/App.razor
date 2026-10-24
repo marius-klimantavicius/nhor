@@ -5,7 +5,7 @@
     <GridLayout Columns="@(new[] { TrackSize.Px(220), TrackSize.Fr(1) })" Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(1), TrackSize.Auto() })" />
     <PathPicker Label="Source file" Value="_selectedPath" ValueChanged="PathEdited" Provider="_provider"
                 Mode="FilePickerMode.OpenFile" InitialDirectory="@_directory" Filters="_sourceFilters" Selected="SourcePicked"
-                TextCommitted="SourceCommitted" HelpText="Browse for a source, or type a path and press Enter."
+                TextCommitted="SourceCommitted" ReadOnly="_converting" HelpText="Browse for a source, or type a path and press Enter or Convert to load it."
                 LayoutData="@(new GridItem { Column = 0, Row = 0, ColumnSpan = 2 })" />
     <Panel LayoutData="@(new GridItem { Column = 0, Row = 1 })">
         <FlexLayout Direction="Orientation.Vertical" Gap="6" />
@@ -36,7 +36,7 @@
         <Panel>
             <FlexLayout Wrap="FlexWrap.Wrap" Gap="8" />
             <Button Text="Reload source" OnClick="ReloadSource" Enabled="@(!_converting && _selectedPath != null)" />
-            <Button Text="Convert" OnClick="DoConvert" Enabled="@(_fileKind != FileKind.Unknown && !_converting)" />
+            <Button Text="Convert" OnClick="DoConvert" Enabled="@(_selectedPath != null && !_converting)" />
             <Button Text="Save As…" OnClick="OpenSave" Enabled="@(_convertedSaveData != null && !_converting)" />
         </Panel>
     </Panel>
@@ -61,7 +61,7 @@
     IReadOnlySet<string> _expanded = new HashSet<string>();
     string? _sidebarSelected;
     string _directory = "", _saveName = "";
-    PickerPath? _selectedPath;
+    PickerPath? _selectedPath, _loadedPath;
     FileKind _fileKind;
     string? _sourceSvg, _lottiePath;
     byte[]? _convertedSaveData;
@@ -94,16 +94,21 @@
         return items.Where(i => i.IsDirectory || _sourceFilters[0].Accepts(i.Name)).OrderByDescending(i => i.IsDirectory).ThenBy(i => i.Name).ToArray();
     }
     void RefreshBrowser() => SetBrowser();
-    void PathEdited(PickerPath? path) { _selectedPath = path; }
+    void PathEdited(PickerPath? path)
+    {
+        if (_disposed || _converting || _selectedPath == path) return;
+        _selectedPath = path; _generation++; _saveOpen = false; _saveVersion++;
+        _convertedSaveData = null;
+    }
     void SourceCommitted(TextCommitEventArgs args) { if (args.Reason == TextCommitReason.Enter) ReloadSource(); }
     void SourcePicked(FilePickerResult result) { if (result.Path is { } path) LoadFile(path); }
-    void SidebarActivate(FilePickerEntry item) { if (!item.IsDirectory) { _selectedPath = item.Path; LoadFile(item.Path); } }
+    void SidebarActivate(FilePickerEntry item) { if (!item.IsDirectory) LoadFile(item.Path); }
     void ReloadSource() { if (_selectedPath is { } path) LoadFile(path); }
     void LoadFile(PickerPath path)
     {
         if (_converting || _disposed) return;
         _generation++; _saveOpen = false; _saveVersion++; _lastAction = ActionKind.Load;
-        _convertedSaveData = null; _sourceSvg = _lottiePath = null; _fileKind = FileKind.Unknown;
+        _convertedSaveData = null; _sourceSvg = _lottiePath = null; _loadedPath = null; _fileKind = FileKind.Unknown;
         try
         {
             var normalized = _provider.Normalize(path.Value); _selectedPath = normalized;
@@ -111,7 +116,7 @@
             if (kind == FileKind.Unknown) throw new IOException("Choose an SVG or Lottie source file.");
             var contents = File.ReadAllText(normalized.Value);
             if (kind == FileKind.Svg) _sourceSvg = contents; else _lottiePath = normalized.Value;
-            _fileKind = kind; _directory = _provider.Parent(normalized)?.Value ?? _directory; SetBrowser();
+            _loadedPath = normalized; _fileKind = kind; _directory = _provider.Parent(normalized)?.Value ?? _directory; SetBrowser();
             SetStatus("Loaded " + System.IO.Path.GetFileName(normalized.Value), OperationState.Completed);
             try { Directory.CreateDirectory(System.IO.Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, _directory); }
             catch (Exception error) { Failed("Source loaded; could not save browser location: " + error.Message); }
@@ -120,18 +125,24 @@
     }
     Task DoConvert()
     {
-        if (_converting || _selectedPath == null || _fileKind == FileKind.Unknown || _disposed) return Task.CompletedTask;
+        if (_converting || _selectedPath == null || _disposed) return Task.CompletedTask;
+        // The field is a draft until Enter/Browse/Convert accepts it. Never pair
+        // that draft with a previous source preview, detected kind or save name.
+        if (_loadedPath != _selectedPath) LoadFile(_selectedPath.Value);
+        if (_loadedPath == null || _fileKind == FileKind.Unknown) return Task.CompletedTask;
         return _conversionTask = ConvertAsync();
     }
     async Task ConvertAsync()
     {
-        if (_selectedPath is not { } source) return;
+        if (_loadedPath is not { } source) return;
         var path = source.Value; var kind = _fileKind; var generation = ++_generation;
+        var owner = OwnerWindow; var token = _lifetime.Token;
         _lastAction = ActionKind.Convert; _converting = true; _convertedSaveData = null;
         SetStatus("Converting… This conversion cannot be interrupted.", OperationState.Working);
         void ConvertOnOwner()
         {
-            if (_disposed || generation != _generation) return;
+            owner?.Dispatcher.VerifyAccess();
+            if (_disposed || generation != _generation || token.IsCancellationRequested || owner?.ShutdownToken.IsCancellationRequested == true) return;
             try
             {
                 _convertedSaveData = kind == FileKind.Svg ? ConverterService.ConvertSvgToPng(path) : ConverterService.ConvertLottieToGif(path);
@@ -140,15 +151,29 @@
                 SetStatus($"Converted to {(kind == FileKind.Svg ? "PNG" : "GIF")} ({_convertedSaveData.Length} bytes). Save As chooses the destination.", OperationState.Completed);
             }
             catch (Exception error) { Failed("Conversion error: " + error.Message); }
+            finally
+            {
+                if (!_disposed && generation == _generation)
+                { _converting = false; StateHasChanged(); }
+            }
         }
         try
         {
-            await InvokeAsync(StateHasChanged);
-            await Task.Delay(20, _lifetime.Token);
-            if (OwnerWindow != null) await OwnerWindow.Dispatcher.InvokeAsync(ConvertOnOwner); else ConvertOnOwner();
+            StateHasChanged();
+            // This tracked presentation wait must finish cancellation after the
+            // ordinary application context stops. Graphics and all later UI state
+            // stay in one explicit owner invocation, whose queued task is canceled
+            // by Window shutdown if it has not started.
+            await Task.Delay(20, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var execution = owner != null ? owner.Dispatcher.InvokeAsync(ConvertOnOwner) : InvokeAsync(ConvertOnOwner);
+            try { await execution.ConfigureAwait(false); }
+            // BeginShutdown cancels queued application invocations before it
+            // signals ShutdownToken or starts component disposal. Observe that
+            // invocation's cancellation even in this short ordering boundary.
+            catch (OperationCanceledException) when (execution.IsCanceled) { }
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested || OwnerWindow?.ShutdownToken.IsCancellationRequested == true) { }
-        finally { if (!_disposed && generation == _generation) { _converting = false; await InvokeAsync(StateHasChanged); } }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || owner?.ShutdownToken.IsCancellationRequested == true) { }
     }
     void OpenSave() { if (_convertedSaveData != null) { _saveVersion++; _saveOpen = true; } }
     void SaveCanceled(FilePickerResult _) => _logs.AppendLine("Save canceled; converted output retained.");

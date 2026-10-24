@@ -1,0 +1,27 @@
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@namespace Marius.Winter.Blazor.Tests
+@if (Show)
+{
+    <FilePicker @bind-IsOpen:get="Model.Open" @bind-IsOpen:set="Model.Set" Selected="Model.Pick"
+                OnIsOpenChanged="Legacy" Provider="Provider" InitialDirectory="/" ResetVersion="Version" />
+}
+@code {
+    public sealed class PickerModel
+    {
+        public bool Open = true;
+        public int Changes;
+        public List<FilePickerResult> Results = new();
+        public TaskCompletionSource Gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task Set(bool value) { Open = value; Changes++; await Gate.Task; }
+        public async Task Pick(FilePickerResult result) { Results.Add(result); await Gate.Task; Finished.SetResult(); }
+    }
+    public PickerModel Model = new();
+    public PickerBindingProvider Provider = new();
+    public bool Show = true;
+    public long Version;
+    public int LegacyChanges;
+    void Legacy(bool _) => LegacyChanges++;
+    public void Refresh() => StateHasChanged();
+}
