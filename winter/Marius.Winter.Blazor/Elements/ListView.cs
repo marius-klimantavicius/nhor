@@ -45,14 +45,17 @@ public class ListView<TItem> : WinterComponentBase
         return builder.GetFrames().Array[1].AttributeValue;
     }
     private enum ActionKind { Select, Activate, Sort }
-    private sealed record Delivery(ActionKind Kind, object Value, Callbacks Callbacks, Func<bool> IsCurrent);
-    private sealed record Configuration(TItem[] Source, TItem[] Ordered, Func<TItem, string> Key, string? Selected, long Reset,
+    private sealed record Delivery(ActionKind Kind, object Value, Callbacks Callbacks, Func<bool> IsCurrent, Action Acknowledge);
+    private sealed record Configuration(Dictionary<string, TItem> Source, TItem[] Ordered, Func<TItem, string> Key, string? Selected, long Reset,
         TableColumn<TItem>[] Columns, TableSort? Sort, Callbacks Callbacks);
 
     private Task Accept(ChangeEventArgs args)
     {
         var delivery = (Delivery)args.Value!;
         if (!delivery.IsCurrent()) return Task.CompletedTask;
+        // Establish the accepted value before application code can render. Its
+        // feedback is then distinguishable from an authoritative parent change.
+        delivery.Acknowledge();
         // No continuation writes component state or starts another application callback.
         switch (delivery.Kind)
         {
@@ -71,11 +74,11 @@ public class ListView<TItem> : WinterComponentBase
         base.RenderAttributes(builder);
         ArgumentNullException.ThrowIfNull(KeySelector);
         var source = Items?.ToArray() ?? [];
-        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var keyed = new Dictionary<string, TItem>(StringComparer.Ordinal);
         foreach (var item in source)
         {
             var key = KeySelector(item);
-            if (string.IsNullOrEmpty(key) || !keys.Add(key)) throw new ArgumentException("List item keys must be nonempty and unique.", nameof(Items));
+            if (string.IsNullOrEmpty(key) || !keyed.TryAdd(key, item)) throw new ArgumentException("List item keys must be nonempty and unique.", nameof(Items));
         }
         var columns = GetColumns();
         _renderItems = source;
@@ -87,7 +90,7 @@ public class ListView<TItem> : WinterComponentBase
                 ? source.OrderBy(i => i, column.Comparer) : source.OrderByDescending(i => i, column.Comparer)).ToArray();
         }
         var callbacks = new Callbacks(SelectedKeyChanged.HasDelegate ? SelectedKeyChanged : OnSelectionChanged, OnActivate, SortCallback);
-        builder.AddAttribute("Configuration", new Configuration(source, _renderItems, KeySelector, SelectedKey, ResetVersion, columns, CurrentSort, callbacks));
+        builder.AddAttribute("Configuration", new Configuration(keyed, _renderItems, KeySelector, SelectedKey, ResetVersion, columns, CurrentSort, callbacks));
         builder.AddAttribute("ondelivery", _delivery);
     }
     protected virtual RenderFragment RenderItem(TItem item) => ItemTemplate?.Invoke(item) ?? (b =>
@@ -115,7 +118,7 @@ public class ListView<TItem> : WinterComponentBase
         private Marius.Winter.BasicTable<TItem>? Table => ElementControl as Marius.Winter.BasicTable<TItem>;
         private Configuration? _configuration, _pending;
         private ulong _deliveryId;
-        private long _generation, _subscriptions;
+        private long _generation, _subscriptions, _selectionGeneration, _sortGeneration;
         private int _pendingSelection, _pendingSort;
         public Handler(NativeComponentRenderer renderer, bool table) : base(renderer, table
             ? new Marius.Winter.BasicTable<TItem>(new ItemController<TItem>(_ => ""), templated: true)
@@ -131,23 +134,37 @@ public class ListView<TItem> : WinterComponentBase
         {
             if (IsDisposed || _deliveryId == 0 || _configuration == null) return;
             var id = _deliveryId; var generation = _generation; var subscription = _subscriptions;
+            var selectionGeneration = _selectionGeneration; var sortGeneration = _sortGeneration;
             var controller = List.Controller; var row = key == null ? null : controller.Find(key);
             var sortColumn = value is TableSort sort ? Table?.Columns.FirstOrDefault(c => c.Key == sort.Column) : null;
-            bool Current() => !IsDisposed && id == _deliveryId && generation == _generation && subscription == _subscriptions &&
+            bool PendingCurrent() => generation == _generation &&
+                (kind != ActionKind.Select || selectionGeneration == _selectionGeneration) &&
+                (kind != ActionKind.Sort || sortGeneration == _sortGeneration);
+            bool Current() => !IsDisposed && id == _deliveryId && PendingCurrent() && subscription == _subscriptions &&
                 ReferenceEquals(controller, List.Controller) && (key == null || controller.Find(key) == row) &&
                 (kind != ActionKind.Sort || (sortColumn != null && Table!.Columns.Contains(sortColumn)));
-            var delivery = new Delivery(kind, value, _configuration.Callbacks, Current);
+            var delivery = new Delivery(kind, value, _configuration.Callbacks, Current, () => Acknowledge(kind, value));
             if (kind == ActionKind.Select) _pendingSelection++;
             if (kind == ActionKind.Sort) _pendingSort++;
             void Deliver()
             {
-                if (IsDisposed || generation != _generation) return;
+                if (IsDisposed || !PendingCurrent()) return;
                 if (kind == ActionKind.Select) _pendingSelection--;
                 if (kind == ActionKind.Sort) _pendingSort--;
                 if (Current()) _ = Renderer.Dispatcher.InvokeAsync(() => Renderer.DispatchNativeEventAsync(id, null, new ChangeEventArgs { Value = delivery }));
                 else Synchronize();
             }
             if (List.OwnerWindow is { } window) window.DispatcherQueue.Enqueue(Deliver); else Deliver();
+        }
+        private void Acknowledge(ActionKind kind, object value)
+        {
+            if (_configuration is not { } current) return;
+            _configuration = kind switch
+            {
+                ActionKind.Select => current with { Selected = ((ItemSelection<TItem>)value).Key },
+                ActionKind.Sort => current with { Sort = (TableSort)value },
+                _ => current
+            };
         }
         public override void ApplyAttribute(ulong id, string name, object value, string updates)
         {
@@ -160,10 +177,17 @@ public class ListView<TItem> : WinterComponentBase
             if (IsDisposed || _pending is not { } next) return;
             _pending = null; var previous = _configuration;
             bool replaced = previous == null || previous.Key != next.Key;
-            bool dataChanged = previous == null || !previous.Source.SequenceEqual(next.Source);
+            // A source-order change (including accepted sort feedback) retains
+            // key/item identities. Insert/remove/update still invalidate actions.
+            bool dataChanged = previous == null || previous.Source.Count != next.Source.Count ||
+                previous.Source.Any(pair => !next.Source.TryGetValue(pair.Key, out var item) || !EqualityComparer<TItem>.Default.Equals(pair.Value, item));
             bool reset = replaced || dataChanged || previous!.Reset != next.Reset;
             if (previous == null || !previous.Callbacks.Same(next.Callbacks)) _subscriptions++;
             if (reset) { _generation++; _pendingSelection = _pendingSort = 0; }
+            // A parent scalar override leaves independent activation/other-state
+            // actions valid. Accepted callback feedback was acknowledged above.
+            if (previous != null && previous.Selected != next.Selected) { _selectionGeneration++; _pendingSelection = 0; }
+            if (previous != null && previous.Sort != next.Sort) { _sortGeneration++; _pendingSort = 0; }
             if (previous != null && previous.Reset != next.Reset) List.Viewport.Scroll = 0;
             if (replaced) List.SetController(new ItemController<TItem>(next.Key));
             _configuration = next;

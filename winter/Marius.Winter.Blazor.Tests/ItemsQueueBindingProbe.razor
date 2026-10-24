@@ -1,0 +1,70 @@
+@namespace Marius.Winter.Blazor.Tests
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using Microsoft.AspNetCore.Components
+@using Marius.Winter.Blazor.Elements
+@if (Show)
+{
+    @if (TableMode && DefaultBinding)
+    {
+        <BasicTable TItem="Asset" Items="Source" KeySelector="Selector" Columns="Columns"
+                    @bind-SelectedKey="Selected" @bind-Sort="Sort" OnActivate="Activate" ResetVersion="Version" />
+    }
+    else if (TableMode)
+    {
+        <BasicTable TItem="Asset" Items="Source" KeySelector="Selector" Columns="Columns"
+                    @bind-SelectedKey:get="Selected" @bind-SelectedKey:set="Select"
+                    @bind-Sort:get="Sort" @bind-Sort:set="SortBy" OnActivate="Activate" ResetVersion="Version" />
+    }
+    else if (DefaultBinding)
+    {
+        <ListView TItem="Asset" Items="Source" KeySelector="Selector" @bind-SelectedKey="Selected" OnActivate="Activate" ResetVersion="Version" />
+    }
+    else
+    {
+        <ListView TItem="Asset" Items="Source" KeySelector="Selector"
+                  @bind-SelectedKey:get="Selected" @bind-SelectedKey:set="Select" OnActivate="Activate" ResetVersion="Version" />
+    }
+}
+@code {
+    public sealed record Asset(string Key, string Name);
+    [Parameter] public bool TableMode { get; set; }
+    [Parameter] public bool DefaultBinding { get; set; }
+    [Parameter] public bool SortedSource { get; set; }
+    public List<string?> Selections { get; } = [];
+    public List<TableSort?> Sorts { get; } = [];
+    public List<ItemActivation<Asset>> Activations { get; } = [];
+    private string? _selected = "a";
+    private TableSort? _sort;
+    public string? Selected { get => _selected; set { Selections.Add(value); _selected = value; } }
+    public TableSort? Sort { get => _sort; set { Sorts.Add(value); _sort = value; } }
+    private Asset[] _items = [new("c", "Third"), new("a", "First"), new("b", "Second")];
+    private static string Key(Asset asset) => asset.Key;
+    private Func<Asset, string> Selector = Key;
+    private static readonly IComparer<Asset> Comparer = System.Collections.Generic.Comparer<Asset>.Create((a,b) => StringComparer.Ordinal.Compare(a.Key,b.Key));
+    private IReadOnlyList<BasicTableColumn<Asset>> Columns => [new("name", "Name", Comparer: Comparer)];
+    private IEnumerable<Asset> Source => !SortedSource || Sort == null ? _items : Sort.Direction == SortDirection.Ascending
+        ? _items.OrderBy(x => x, Comparer) : _items.OrderByDescending(x => x, Comparer);
+    private void Select(string? key) => Selected = key;
+    private void SortBy(TableSort? sort) => Sort = sort;
+    private void Activate(ItemActivation<Asset> action) => Activations.Add(action);
+    public void ParentSelect(string? value) { _selected = value; StateHasChanged(); }
+    public void ParentSort(TableSort? value) { _sort = value; StateHasChanged(); }
+    public void RenderAgain() => StateHasChanged();
+    public void Invalidate(string reason)
+    {
+        switch (reason)
+        {
+            case "item": _items = _items.Select(a => a.Key == "b" ? a with { Name = "Updated é" } : a).ToArray(); break;
+            case "source": _items = [.._items, new("d", "Fourth")]; break;
+            case "selector": Selector = a => a.Key; break;
+            case "reset": Version++; break;
+            case "unmount": Show = false; break;
+        }
+        StateHasChanged();
+    }
+    public void Reorder() { _items = _items.AsEnumerable().Reverse().ToArray(); StateHasChanged(); }
+    private bool Show = true;
+    private long Version;
+}
