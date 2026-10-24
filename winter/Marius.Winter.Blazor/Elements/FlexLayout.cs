@@ -28,51 +28,33 @@ public class FlexLayout : WinterComponentBase
         builder.AddAttribute(nameof(Gap), Gap);
     }
 
-    class Handler : WinterElementHandler, INonPhysicalChild
+    class Handler : LayoutHandler<Marius.Winter.FlexLayout>
     {
-        private readonly Marius.Winter.FlexLayout _layout = new();
-        private ILayoutContainer? _parentContainer;
-
         public Handler(NativeComponentRenderer renderer)
-            : base(renderer, new Marius.Winter.Panel()) { }
+            : base(renderer) { }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
             switch (attributeName)
             {
                 case "Direction":
-                    _layout.Direction = AttributeHelper.GetEnum<Orientation>(attributeValue);
+                    SetLayoutValue(Layout.Direction, AttributeHelper.GetEnum<Orientation>(attributeValue), value => Layout.Direction = value);
                     break;
                 case "Wrap":
-                    _layout.Wrap = AttributeHelper.GetEnum<FlexWrap>(attributeValue);
+                    SetLayoutValue(Layout.Wrap, AttributeHelper.GetEnum<FlexWrap>(attributeValue), value => Layout.Wrap = value);
                     break;
                 case "JustifyContent":
-                    _layout.JustifyContent = AttributeHelper.GetEnum<JustifyContent>(attributeValue);
+                    SetLayoutValue(Layout.JustifyContent, AttributeHelper.GetEnum<JustifyContent>(attributeValue), value => Layout.JustifyContent = value);
                     break;
                 case "AlignItems":
-                    _layout.AlignItems = AttributeHelper.GetEnum<Alignment>(attributeValue);
+                    SetLayoutValue(Layout.AlignItems, AttributeHelper.GetEnum<Alignment>(attributeValue), value => Layout.AlignItems = value);
                     break;
                 case "Gap":
-                    _layout.Gap = AttributeHelper.GetFloat(attributeValue, 4f);
+                    SetLayoutValue(Layout.Gap, AttributeHelper.GetFloat(attributeValue, 4f), value => Layout.Gap = value);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
-            }
-        }
-
-        public void SetParent(object parentElement)
-        {
-            _parentContainer = parentElement as ILayoutContainer;
-            SetLayoutOn(parentElement, _layout);
-        }
-
-        public void Remove()
-        {
-            if (_parentContainer != null)
-            {
-                _parentContainer.Layout = null;
-                _parentContainer = null;
             }
         }
     }

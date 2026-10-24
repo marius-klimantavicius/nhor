@@ -192,6 +192,13 @@ invalidate measurement and schedule the next flush. Renderer batches and
 UseBlazor resize hooks do not perform competing whole-window layouts. Custom
 Panel layouts use their `ILayout` implementation when no built-in bridge exists.
 
+Changes to `<StackLayout>`, `<FlexLayout>` and `<GridLayout>` parameters notify
+their owning container once at the end of the attribute batch, so a clean tree
+is arranged on the next flush. Unchanged values do not invalidate measurement.
+For native layout objects or child hints passed as parameters, in-place edits
+need explicit notification as described in [runtime contracts](GUI.md#runtime-contracts).
+Rerendering with the same object reference does not provide that notification.
+
 ### Event Mapping
 
 Winter uses `Action`/`Action<T>` delegates. Each handler assigns the delegate in its

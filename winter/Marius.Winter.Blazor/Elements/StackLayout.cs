@@ -24,45 +24,27 @@ public class StackLayout : WinterComponentBase
         builder.AddAttribute(nameof(CrossAlignment), CrossAlignment);
     }
 
-    class Handler : WinterElementHandler, INonPhysicalChild
+    class Handler : LayoutHandler<Marius.Winter.StackLayout>
     {
-        private readonly Marius.Winter.StackLayout _layout = new();
-        private ILayoutContainer? _parentContainer;
-
         public Handler(NativeComponentRenderer renderer)
-            : base(renderer, new Marius.Winter.Panel()) { }
+            : base(renderer) { }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
             switch (attributeName)
             {
                 case "Orientation":
-                    _layout.Orientation = AttributeHelper.GetEnum<Orientation>(attributeValue);
+                    SetLayoutValue(Layout.Orientation, AttributeHelper.GetEnum<Orientation>(attributeValue), value => Layout.Orientation = value);
                     break;
                 case "Spacing":
-                    _layout.Spacing = AttributeHelper.GetFloat(attributeValue, 4f);
+                    SetLayoutValue(Layout.Spacing, AttributeHelper.GetFloat(attributeValue, 4f), value => Layout.Spacing = value);
                     break;
                 case "CrossAlignment":
-                    _layout.CrossAlignment = AttributeHelper.GetEnum<Alignment>(attributeValue);
+                    SetLayoutValue(Layout.CrossAlignment, AttributeHelper.GetEnum<Alignment>(attributeValue), value => Layout.CrossAlignment = value);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
-            }
-        }
-
-        public void SetParent(object parentElement)
-        {
-            _parentContainer = parentElement as ILayoutContainer;
-            SetLayoutOn(parentElement, _layout);
-        }
-
-        public void Remove()
-        {
-            if (_parentContainer != null)
-            {
-                _parentContainer.Layout = null;
-                _parentContainer = null;
             }
         }
     }

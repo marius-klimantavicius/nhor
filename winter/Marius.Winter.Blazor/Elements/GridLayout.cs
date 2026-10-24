@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Marius.Winter.Blazor.Core;
+using System.Linq;
 
 namespace Marius.Winter.Blazor.Elements;
 
@@ -28,48 +29,34 @@ public class GridLayout : WinterComponentBase
         builder.AddAttribute(nameof(RowGap), RowGap);
     }
 
-    class Handler : WinterElementHandler, INonPhysicalChild
+    class Handler : LayoutHandler<Marius.Winter.GridLayout>
     {
-        private readonly Marius.Winter.GridLayout _layout = new();
-        private ILayoutContainer? _parentContainer;
-
         public Handler(NativeComponentRenderer renderer)
-            : base(renderer, new Marius.Winter.Panel()) { }
+            : base(renderer) { }
 
         public override void ApplyAttribute(ulong attributeEventHandlerId, string attributeName, object attributeValue, string attributeEventUpdatesAttributeName)
         {
             switch (attributeName)
             {
                 case "Columns":
-                    _layout.Columns = AttributeHelper.GetTrackSizeArray(attributeValue)!;
+                    var columns = AttributeHelper.GetTrackSizeArray(attributeValue) ?? [];
+                    if (!Layout.Columns.SequenceEqual(columns))
+                        SetLayoutValue(Layout.Columns, columns, value => Layout.Columns = value);
                     break;
                 case "Rows":
-                    _layout.Rows = AttributeHelper.GetTrackSizeArray(attributeValue)!;
+                    var rows = AttributeHelper.GetTrackSizeArray(attributeValue) ?? [];
+                    if (!Layout.Rows.SequenceEqual(rows))
+                        SetLayoutValue(Layout.Rows, rows, value => Layout.Rows = value);
                     break;
                 case "ColumnGap":
-                    _layout.ColumnGap = AttributeHelper.GetFloat(attributeValue, 4f);
+                    SetLayoutValue(Layout.ColumnGap, AttributeHelper.GetFloat(attributeValue, 4f), value => Layout.ColumnGap = value);
                     break;
                 case "RowGap":
-                    _layout.RowGap = AttributeHelper.GetFloat(attributeValue, 4f);
+                    SetLayoutValue(Layout.RowGap, AttributeHelper.GetFloat(attributeValue, 4f), value => Layout.RowGap = value);
                     break;
                 default:
                     base.ApplyAttribute(attributeEventHandlerId, attributeName, attributeValue, attributeEventUpdatesAttributeName);
                     break;
-            }
-        }
-
-        public void SetParent(object parentElement)
-        {
-            _parentContainer = parentElement as ILayoutContainer;
-            SetLayoutOn(parentElement, _layout);
-        }
-
-        public void Remove()
-        {
-            if (_parentContainer != null)
-            {
-                _parentContainer.Layout = null;
-                _parentContainer = null;
             }
         }
     }

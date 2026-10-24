@@ -562,6 +562,14 @@ implementations on Panel use manual measure/arrange, including when attached.
 Changes made in one dispatcher action are batched into the next layout flush.
 `Visible=false` collapses layout and makes the subtree ineligible for input.
 
+Native layout objects and child hints are mutable and do not observe in-place
+edits. After changing a Panel's existing layout (including Grid track arrays),
+call `panel.InvalidateMeasure()` or reassign `panel.Layout`, even to the same
+object. After mutating an existing `FlexItem` or `GridItem`, call
+`child.InvalidateMeasure()` to refresh its bridge style and its parent's layout;
+assigning that same hint object back to `child.LayoutData` skips notification.
+Replacing `LayoutData` with a different value also notifies layout.
+
 Layout, pointer, popup and font sizes use logical client units. The runtime
 queries initial logical and framebuffer sizes independently. Framebuffer ratios
 scale both the root and overlay scenes; cursor coordinates stay logical.
