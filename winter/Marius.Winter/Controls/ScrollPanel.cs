@@ -295,6 +295,10 @@ public class ScrollPanel : Element, ILayoutContainer
 
         _clipShape?.ResetShape();
         _clipShape?.AppendRect(Bounds.X, Bounds.Y, w, h, 0, 0);
+        // The viewport can change while a child's geometry stays identical.
+        // Re-prepare that subtree with the new clip, including paints cached
+        // while this panel was collapsed in an inactive tab.
+        Scene.pImpl.Mark(RenderUpdateFlag.Clip);
 
         if (_layout != null)
         {
