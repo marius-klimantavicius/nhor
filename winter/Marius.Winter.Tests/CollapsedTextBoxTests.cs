@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using ThorVG;
 using Xunit;
@@ -53,6 +54,13 @@ public class CollapsedTextBoxTests
             try
             {
                 using var x = new FormX11(Glfw.Glfw.glfwGetX11Window(window.GlfwWindow!)); await Task.Delay(160); x.Focus(); x.Move(40, 35); x.Click(); x.Chord(0xffe3, 0x61); x.Chord(0xffe3, 0x63); await Task.Delay(50);
+                async Task SettledText(string stage)
+                {
+                    var until = DateTime.UtcNow.AddSeconds(2); int ink;
+                    while ((ink = FrontInk(window)) < 90 && DateTime.UtcNow < until) await Task.Delay(25);
+                    Assert.True(ink >= 90, $"{stage} must paint actual glyph ink in the settled front buffer; observed {ink} dark pixels.");
+                }
+                await SettledText("Initial selection");
                 await window.Dispatcher.InvokeAsync(() =>
                 {
                     Assert.Equal(Value, Glfw.Glfw.glfwGetClipboardString(null));
@@ -60,10 +68,12 @@ public class CollapsedTextBoxTests
                 });
                 await Task.Delay(40);
                 await window.Dispatcher.InvokeAsync(() => { box.Arrange(new RectF(20, 20, 380, 36)); panel.Visible = true; window.SetFocus(box); Assert.Equal(Value, Selected(box)); Assert.Equal(0, edits); Assert.Equal(0, commits); });
+                await SettledText("Restored selection");
                 x.Capture($"collapsed-{backend}-selection-restored", 480, 220); x.Key(0xff53); x.TypeAscii("X"); x.Key(0xff0d); await Task.Delay(60);
                 await window.Dispatcher.InvokeAsync(() => { Assert.Equal(Value + "x", box.Text); Assert.Equal(1, edits); Assert.Equal(1, commits); box.ReadOnly = true; });
                 x.Chord(0xffe3, 0x61); x.Chord(0xffe3, 0x63); x.TypeAscii("blocked"); x.Key(0xffff); await Task.Delay(50);
                 await window.Dispatcher.InvokeAsync(() => { Assert.Equal(Value + "x", box.Text); Assert.Equal(Value + "x", Glfw.Glfw.glfwGetClipboardString(null)); Assert.Equal(1, edits); Assert.Equal(1, commits); });
+                await SettledText("Read-only selection");
                 x.Capture($"collapsed-{backend}-readonly-restored", 480, 220); x.CloseNormally();
             }
             catch { window.Close(); throw; }
@@ -74,4 +84,25 @@ public class CollapsedTextBoxTests
     private static string Selected(TextBox box) => (string)typeof(TextBox).GetMethod("GetSelectedText", Private)!.Invoke(box, null)!;
     private static uint[] Pixels(Window window) => Enumerable.Range(20, 36).SelectMany(y => WindowRuntimeTests.Buffer(window).Skip(y * 480 + 20).Take(380)).ToArray();
     private static void Draw(Window window) { WindowRegressionOwner.Flush(window); Contracts.Draw((Canvas)typeof(Window).GetField("_canvas", Private)!.GetValue(window)!, true); }
+    private static int FrontInk(Window window)
+    {
+        var display = XOpenDisplay(Environment.GetEnvironmentVariable("DISPLAY")!); Assert.NotEqual(0, display);
+        try
+        {
+            var image = XGetImage(display, Glfw.Glfw.glfwGetX11Window(window.GlfwWindow!), 20, 20, 380, 36, nuint.MaxValue, 2); Assert.NotEqual(0, image);
+            try
+            {
+                var info = Marshal.PtrToStructure<XImage>(image); Assert.Equal(32, info.BitsPerPixel); var bytes = new byte[info.BytesPerLine * 36]; Marshal.Copy(info.Data, bytes, 0, bytes.Length); int count = 0;
+                for (int y = 0; y < 36; y++) for (int x = 0; x < 380; x++) { int i = y * info.BytesPerLine + x * 4; if (bytes[i] < 100 && bytes[i+1] < 100 && bytes[i+2] < 100) count++; }
+                return count;
+            }
+            finally { XDestroyImage(image); }
+        }
+        finally { XCloseDisplay(display); }
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct XImage { internal int Width, Height, XOffset, Format; internal nint Data; internal int ByteOrder, BitmapUnit, BitmapBitOrder, BitmapPad, Depth, BytesPerLine, BitsPerPixel; }
+    [DllImport("libX11.so.6")] private static extern nint XOpenDisplay(string name);
+    [DllImport("libX11.so.6")] private static extern int XCloseDisplay(nint display);
+    [DllImport("libX11.so.6")] private static extern nint XGetImage(nint display, nuint window, int x, int y, uint width, uint height, nuint mask, int format);
+    [DllImport("libX11.so.6")] private static extern int XDestroyImage(nint image);
 }

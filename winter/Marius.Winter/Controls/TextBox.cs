@@ -230,8 +230,11 @@ public class TextBox : Element
         // Update text clip to content area (coordinates are in _textScene local space,
         // which is already translated by (xSpacing, textY), so x starts at 0)
         float xSp = XSpacing;
-        _textClipShape?.ResetShape();
-        if (w > 2 * xSp && h > 0) _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
+        if (w > 2 * xSp && h > 0)
+        {
+            _textClipShape?.ResetShape();
+            _textClipShape?.AppendRect(0, 0, w - 2 * xSp, h, 0, 0);
+        }
 
         UpdateVisibleText();
     }
@@ -521,10 +524,19 @@ public class TextBox : Element
         EnsureTextMetrics();
 
         bool hasTextViewport = Bounds.W > 2 * XSpacing && Bounds.H > 0;
+        // Retain prepared glyphs/clip geometry through a collapsed viewport.
+        // Hiding the scene avoids preparing an empty GL clip, which would lose
+        // the retained text on return even though its editing state survived.
+        _textScene?.Visible(hasTextViewport);
         _placeholderScene?.Visible(string.IsNullOrEmpty(_text) && hasTextViewport);
         if (_required) UpdateBorderColor();
 
-        if (string.IsNullOrEmpty(_text) || !hasTextViewport)
+        if (!hasTextViewport)
+        {
+            UpdateCursorPosition(); UpdateSelection();
+            return;
+        }
+        if (string.IsNullOrEmpty(_text))
         {
             _textPaint.SetText("");
             _visibleStart = 0;
