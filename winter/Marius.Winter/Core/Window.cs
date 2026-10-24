@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -400,6 +401,7 @@ public unsafe class Window : Element
         foreach (var overlay in _overlays.ToArray())
         {
             if (overlay is ComboBoxPopup choices) choices.UpdatePlacement();
+            if (overlay is MenuPopup menu && menu.IsRoot) menu.UpdatePlacement();
             FlushElement(overlay, false);
         }
     }
@@ -616,6 +618,7 @@ public unsafe class Window : Element
 
     private static void ClearTransientState(Element element)
     {
+        element.MenuInputVersion++;
         element.State &= ~(ElementState.Focused | ElementState.Hovered | ElementState.Pressed);
         foreach (var child in element.Children) ClearTransientState(child);
     }
@@ -673,8 +676,13 @@ public unsafe class Window : Element
 
     // --- Context menu ---
 
+    private Menu? _contextMenuSource;
+    private Action? _contextMenuRefresh;
+    internal void ContextMenuChanged(Element owner) { if (ReferenceEquals(owner, _contextMenuTarget)) DismissContextMenu(); }
+
     private void ShowContextMenu(Element target, float x, float y)
     {
+        if (!CanReceiveInput(target)) return;
         var menu = new Menu();
         target.OnBuildContextMenu(menu);
         if (menu.Items.Count == 0) return;
@@ -682,38 +690,27 @@ public unsafe class Window : Element
         DismissContextMenu();
         _contextMenuTarget = target;
 
-        _contextMenuPopup = new MenuPopup(this, menu.Items,
+        _contextMenuSource = target.ContextMenu;
+        if (_contextMenuSource != null)
+        {
+            _contextMenuRefresh = () =>
+            {
+                menu.Items.Clear(); target.OnBuildContextMenu(menu); menu.NotifyChanged();
+            };
+            _contextMenuSource.Changed += _contextMenuRefresh;
+        }
+        _contextMenuPopup = new MenuPopup(this, menu,
             onItemSelected: item => { DismissContextMenu(); item.Action?.Invoke(); },
             onDismiss: DismissContextMenu);
 
-        var popupSize = _contextMenuPopup.MeasurePopup();
-
-        // Position at cursor, clamped to window bounds
-        float px = x, py = y;
-        if (px + popupSize.X > Bounds.W - 4)
-            px = Bounds.W - 4 - popupSize.X;
-        if (py + popupSize.Y > Bounds.H - 4)
-            py = Bounds.H - 4 - popupSize.Y;
-        if (px < 4) px = 4;
-        if (py < 4) py = 4;
-
-        _contextMenuPopup.Arrange(new RectF(px, py, popupSize.X, popupSize.Y));
+        _contextMenuPopup.PositionAt(x, y);
         ShowOverlay(_contextMenuPopup, target);
-
-        // Fade-in animation
-        _contextMenuPopup.Opacity = 0;
-        Animator.Cancel("context_menu");
-        Animator.Start(new Animation
-        {
-            Duration = 0.10f,
-            Easing = Easings.EaseOutCubic,
-            Tag = "context_menu",
-            Apply = t => { if (_contextMenuPopup != null) _contextMenuPopup.Opacity = t; }
-        });
     }
 
     private void DismissContextMenu()
     {
+        if (_contextMenuSource != null && _contextMenuRefresh != null) _contextMenuSource.Changed -= _contextMenuRefresh;
+        _contextMenuSource = null; _contextMenuRefresh = null;
         _contextMenuTarget = null;
         if (_contextMenuPopup != null)
         {
@@ -724,6 +721,46 @@ public unsafe class Window : Element
             RemoveOverlay(popup);
             popup.Dispose();
         }
+    }
+
+    // Menus keep focus at their entry owner. Route their transient keyboard
+    // scope before ordinary controls and before a modal's Escape/default action.
+    private bool RouteMenuKey(int key, int mods, bool repeat)
+    {
+        if (repeat && key is GLFW_KEY_F10 or GLFW_KEY_MENU) return true;
+        var popup = _overlays.OfType<MenuPopup>().FirstOrDefault(p => p.IsRoot);
+        if (popup != null)
+        {
+            if (key == GLFW_KEY_TAB) { popup.OnBlur(); return false; }
+            if (key == GLFW_KEY_F10) popup.OnBlur(); else popup.OnKeyDown(key, mods, repeat);
+            return true;
+        }
+        if (key == GLFW_KEY_MENU || (key == GLFW_KEY_F10 && (mods & GLFW_MOD_SHIFT) != 0))
+        {
+            var owner = FocusedInput();
+            if (owner != null)
+            {
+                DismissAllOverlays();
+                owner.WindowToLocal(0, 0, out var nx, out var ny);
+                ShowContextMenu(owner, -nx, -ny + owner.Bounds.H);
+                _contextMenuPopup?.MoveFocus(1);
+            }
+            return true;
+        }
+        if (key == GLFW_KEY_F10)
+        {
+            MenuBar? Find(Element element)
+            {
+                if (!CanReceiveInput(element)) return null;
+                if (element is MenuBar bar && bar.Menus.Count > 0) return bar;
+                foreach (var child in element.Children) if (Find(child) is { } found) return found;
+                return null;
+            }
+            var root = _modal?.ModalRoot ?? (Element)this;
+            var bar = Find(root);
+            if (bar != null) { DismissAllOverlays(); bar.EnterKeyboard(); return true; }
+        }
+        return false;
     }
 
     private Element? HitTestOverlays(float x, float y)
@@ -820,6 +857,7 @@ public unsafe class Window : Element
         {
             if (action == GLFW_PRESS || action == GLFW_REPEAT)
             {
+                if (RouteMenuKey(key, mods, action == GLFW_REPEAT)) { _dirty = true; return; }
                 // Tab / Shift+Tab cycles focus
                 if (key == GLFW_KEY_TAB)
                 {
@@ -862,6 +900,7 @@ public unsafe class Window : Element
 
         Glfw.Glfw.glfwSetCharCallback(_window!, (w, codepoint) =>
         {
+            if (_overlays.Exists(o => o is MenuPopup)) return;
             FocusedInput()?.OnTextInput(char.ConvertFromUtf32((int)codepoint));
             _dirty = true;
         });

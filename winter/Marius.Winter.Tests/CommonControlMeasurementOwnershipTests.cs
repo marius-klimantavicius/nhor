@@ -317,7 +317,7 @@ public class CommonControlMeasurementOwnershipTests(ITestOutputHelper output)
         var menu = new Menu();
         menu.AddItem("").AddItem(" ").AddSeparator();
         menu.AddSubMenu("Winter").AddItem("Recent");
-        return new MenuPopup(window, menu.Items);
+        return new MenuPopup(window, menu);
     }
 
     private static void WithFont(string name, Action<FontLoader> action)

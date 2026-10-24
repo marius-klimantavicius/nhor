@@ -63,6 +63,8 @@ public abstract class Element : IDisposable
     public bool IsEffectivelyVisible => !_disposed && _visible && ((_parent ?? _overlayOwner)?.IsEffectivelyVisible ?? true);
     public bool IsEffectivelyEnabled => !_disposed && !_detaching && _enabled && ((_parent ?? _overlayOwner)?.IsEffectivelyEnabled ?? true);
     public bool IsActive => OwnerWindow != null && IsEffectivelyVisible && IsEffectivelyEnabled;
+    // Queued menu commands must not revive after an owner detaches/reinserts.
+    internal long MenuInputVersion;
 
     public RectF Bounds
     {
@@ -649,7 +651,12 @@ public abstract class Element : IDisposable
     /// to show it on right-click. For dynamic menus, override
     /// <see cref="OnBuildContextMenu"/> instead.
     /// </summary>
-    public Menu? ContextMenu { get; set; }
+    private Menu? _contextMenu;
+    public Menu? ContextMenu
+    {
+        get => _contextMenu;
+        set { if (ReferenceEquals(_contextMenu, value)) return; OwnerWindow?.ContextMenuChanged(this); _contextMenu = value; }
+    }
 
     /// <summary>
     /// Called when a context menu is about to be shown. Override to populate
