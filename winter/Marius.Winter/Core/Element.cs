@@ -12,6 +12,7 @@ public abstract class Element : IDisposable
     private readonly Scene _paintScene; // own paints — always renders below children
     private Element? _parent;
     private readonly List<Element> _children = new();
+    private int _outOfFlowDescendantCount;
     private RectF _bounds;
     private RectF _layoutBounds; // requested rectangle, before visibility/constraints
     private bool _visible = true;
@@ -263,6 +264,7 @@ public abstract class Element : IDisposable
 
         _children.Add(child);
         child._parent = this;
+        AdjustOutOfFlowDescendantCount(child.OutOfFlowSubtreeCount);
         _scene.Add(child._scene);
         child.NotifyAttached();
 
@@ -290,6 +292,7 @@ public abstract class Element : IDisposable
 
         _children.Insert(index, child);
         child._parent = this;
+        AdjustOutOfFlowDescendantCount(child.OutOfFlowSubtreeCount);
 
         // Insert the new child's scene at the correct z-order position.
         // Scene.Add(target, at) inserts target before at in the paints list,
@@ -318,6 +321,7 @@ public abstract class Element : IDisposable
     {
         if (child._parent != this || child._detaching) return;
         child.DetachSubtree();
+        AdjustOutOfFlowDescendantCount(-child.OutOfFlowSubtreeCount);
         _children.Remove(child);
         _scene.Remove(child._scene);
         child._parent = null;
@@ -401,6 +405,7 @@ public abstract class Element : IDisposable
         {
             var child = _children[i];
             child.DetachSubtree();
+            AdjustOutOfFlowDescendantCount(-child.OutOfFlowSubtreeCount);
             _scene.Remove(child._scene);
             child._parent = null;
         }
@@ -411,6 +416,15 @@ public abstract class Element : IDisposable
 
         InvalidateMeasure();
         MarkDirty();
+    }
+
+    private int OutOfFlowSubtreeCount => _outOfFlowDescendantCount + (IgnoresParentArrange ? 1 : 0);
+
+    private void AdjustOutOfFlowDescendantCount(int delta)
+    {
+        if (delta == 0) return;
+        for (Element? element = this; element != null; element = element._parent)
+            element._outOfFlowDescendantCount += delta;
     }
 
     // --- Layout ---
@@ -702,12 +716,25 @@ public abstract class Element : IDisposable
         // Check children in reverse order (front-to-back)
         for (int i = _children.Count - 1; i >= 0; i--)
         {
-            if (!inside && !_children[i].IgnoresParentArrange) continue;
-            var hit = _children[i].HitTest(localX, localY);
-            if (hit != null) return hit;
+            var child = _children[i];
+            // Ordinary ancestors do not clip the painted modeless subtree.
+            // Prune unrelated branches, but keep virtual HitTest dispatch so
+            // explicit viewports retain their own clipping and input policy.
+            if (!inside && child.OutOfFlowSubtreeCount == 0) continue;
+            var hit = child.HitTest(localX, localY);
+            if (hit != null && (inside || IsOutOfFlowHit(hit))) return hit;
         }
 
         return inside ? this : null;
+    }
+
+    private bool IsOutOfFlowHit(Element hit)
+    {
+        // Traversing an ancestor for a modeless window must not also expose
+        // that ancestor's ordinary overflowing controls or background.
+        for (Element? element = hit; element != null && element != this; element = element._parent)
+            if (element.IgnoresParentArrange) return true;
+        return false;
     }
 
     // --- Coordinate conversion ---
