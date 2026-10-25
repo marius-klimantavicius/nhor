@@ -336,7 +336,6 @@ public class LogView : Element
                 else
                 {
                     measure ??= new LogFontMeasure(_fontName, _effectiveFontSize);
-                    _baselineY = measure.BaselineY;
                     _lineLayouts[i] = new LogTextLayout(_lines[i], measure);
                 }
                 _totalContentWidth = Math.Max(_totalContentWidth, _lineLayouts[i].Width);
@@ -489,6 +488,7 @@ public class LogView : Element
 
             // Position: relative to content scene origin
             float y = lineIdx * _lineHeight - _scrollY;
+            _baselineY = layout.InkTop;
             t.Translate(Padding + origin - _scrollX, Padding + y - _baselineY);
         }
 
@@ -605,6 +605,7 @@ public class LogView : Element
     private void ClampScroll()
     {
         if (_shapesCreated) EnsureLineLayouts();
+        float oldViewportW = _viewportW, oldViewportH = _viewportH;
         bool horizontal = false, vertical = false;
         // Reserving one bar can make the other necessary.
         for (int i = 0; i < 3; i++)
@@ -619,6 +620,10 @@ public class LogView : Element
         _scrollY = Math.Clamp(_scrollY, 0, Math.Max(0, _totalContentHeight - _viewportH));
         _clipShape?.ResetShape();
         _clipShape?.AppendRect(Padding, Padding, _viewportW, _viewportH, 0, 0);
+        // Unchanged glyphs still need their renderer clip refreshed on resize
+        // or scrollbar changes; the rectangular fast clip is cached per paint.
+        if (_viewportW != oldViewportW || _viewportH != oldViewportH)
+            _contentScene?.pImpl.Mark(RenderUpdateFlag.Clip);
     }
 
     private void RefreshScroll()
@@ -756,8 +761,9 @@ public class LogView : Element
 
             case GLFW_KEY_END:
                 MoveSelection(_text.Length, shift);
-                _scrollX = float.MaxValue;
+                _scrollX = 0;
                 JumpToLatest();
+                EnsureSelectionVisible();
                 break;
 
             case GLFW_KEY_LEFT:

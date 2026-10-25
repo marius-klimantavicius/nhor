@@ -18,6 +18,7 @@ internal sealed class LogTextLayout
     private readonly float[] _advances;
     private readonly float[] _origins;
     internal float Width => _advances[^1];
+    internal float InkTop { get; }
 
     internal LogTextLayout(string text, LogFontMeasure measure)
     {
@@ -41,6 +42,10 @@ internal sealed class LogTextLayout
             if (offset == _offsets[cluster + 1]) _advances[++cluster] = (float)advance;
         }
         _origins[^1] = (float)advance;
+        // Preserve full-line vertical placement even when an accented glyph
+        // is outside the horizontal viewport. Measure once per cached layout,
+        // never during warm input or for successively longer prefixes.
+        InkTop = measure.MeasureInkTop(text);
     }
 
     internal float Advance(int offset)
@@ -82,14 +87,17 @@ internal sealed class LogFontMeasure : IDisposable
 {
     private readonly Text _paint = Text.Gen();
     private readonly Dictionary<(int, int), float> _advances = new();
-    internal float BaselineY { get; }
-
     internal LogFontMeasure(string font, float size)
     {
         _paint.SetFont(font); _paint.SetFontSize(size);
-        _paint.SetText("Mg");
+    }
+
+    internal float MeasureInkTop(string text)
+    {
+        if (text.Length == 0) return 0;
+        _paint.SetText(text);
         _paint.Bounds(out _, out float y, out _, out _);
-        BaselineY = y;
+        return y;
     }
 
     internal float Advance(int previous, int scalar)
