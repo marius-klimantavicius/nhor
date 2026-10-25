@@ -63,13 +63,17 @@
             <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
             <Files OwnerWindow="OwnerWindow" />
         </Panel>
+        <Panel Visible="@(_scenario == 13)" LayoutData="@(new GridItem())">
+            <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Fr() })" />
+            <Markdown />
+        </Panel>
     </Panel>
 </Panel>
 
 @code {
     [Parameter] public Window? OwnerWindow { get; set; }
     private Marius.Winter.Blazor.Elements.Panel? _root;
-    private readonly string[] _scenarioNames = ["Profile and volume", "Help and rich display", "Resizable workspace", "Operation feedback", "Existing demos", "Project browser", "Environment and tabs", "Notes", "Installer setup", "Windows and dialogs", "Asset catalog", "Preview and commands", "Files"];
+    private readonly string[] _scenarioNames = ["Profile and volume", "Help and rich display", "Resizable workspace", "Operation feedback", "Existing demos", "Project browser", "Environment and tabs", "Notes", "Installer setup", "Windows and dialogs", "Asset catalog", "Preview and commands", "Files", "Markdown"];
     private int _scenario;
     private bool _large;
     private void ToggleTheme() => ApplyAppearance(toggleTheme: true);

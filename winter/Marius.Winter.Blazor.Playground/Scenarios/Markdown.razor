@@ -1,0 +1,25 @@
+@namespace Marius.Winter.Blazor.Playground.Scenarios
+@using Marius.Winter.Scenarios
+
+<Panel>
+    <GridLayout Columns="@(new[] { TrackSize.Fr() })" Rows="@(new[] { TrackSize.Auto(), TrackSize.Fr(), TrackSize.Auto() })" RowGap="8" />
+    <Panel>
+        <FlexLayout Wrap="FlexWrap.Wrap" Gap="8" />
+        <Button Text="Update Markdown" OnClick="Update" />
+        <Button Text="Toggle width" OnClick="@(() => _narrow = !_narrow)" />
+        <Button Text="Long document" OnClick="LongDocument" />
+        <Button Text="Reset" OnClick="Reset" />
+    </Panel>
+    <MarkdownView Markdown="@_source" ImageResolver="MarkdownScenarioData.ResolveImage" LinkClicked="Clicked" MaxWidth="@(_narrow ? 460f : (float?)null)" MinHeight="180" />
+    <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
+</Panel>
+
+@code {
+    private string _source = MarkdownScenarioData.Document;
+    private string _result = "Links stay here. Tab to the viewer; Left/Right selects a link, Enter activates it. Ctrl+A/C copies Markdown source.";
+    private bool _narrow, _updated;
+    private void Clicked(string destination) => _result = "Destination: " + destination;
+    private void Update() { _updated = !_updated; _source = _updated ? MarkdownScenarioData.Updated : MarkdownScenarioData.Document; }
+    private void LongDocument() { _source = MarkdownScenarioData.Moderate(); _result = "24 sections loaded. Scroll or press End to reach the last section."; }
+    private void Reset() { _source = MarkdownScenarioData.Document; _narrow = _updated = false; _result = "Reset field notes."; }
+}
