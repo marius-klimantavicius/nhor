@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.IO;
 using System.Reflection;
 using Task = System.Threading.Tasks.Task;
 using ThorVG;
@@ -10,6 +11,68 @@ namespace Marius.Winter.Tests;
 
 public class LogViewScrollingTests
 {
+    [Fact]
+    public void WheelWithoutOverflowKeepsFollowingTheBuffer() => WindowRegressionOwner.Run(() =>
+    {
+        using var window = new Window(400, 200, "Log no-op wheel");
+        var buffer = new LogBuffer(); buffer.Append("ready");
+        using var log = new LogView { Buffer = buffer };
+        window.AddChild(log); log.Arrange(new RectF(0, 0, 350, 100));
+        int callbacks = 0; log.FollowTailChanged += _ => callbacks++;
+        log.OnScroll(0, -1);
+        Assert.True(log.FollowTail); Assert.Equal(0, callbacks);
+        buffer.Append(string.Concat(Enumerable.Repeat("\nnext", 20)));
+        Assert.True(log.ScrollOffset > 0);
+    });
+
+    [Fact]
+    public void ScrolledProportionalGlyphPixelsMatchTheCompleteLine() => WindowRegressionOwner.Run(() =>
+    {
+        using var window = new Window(500, 220, "Log viewport renderer", Theme.Light, RenderBackend.SW);
+        using var log = new LogView { Text = string.Concat(Enumerable.Repeat("AVATAR To e\u0301 Ž ", 25)), FontName = "default" };
+        window.AddChild(log); log.Arrange(new RectF(0, 0, 460, 100));
+        log.OnKeyDown(GLFW_KEY_END, 0, false);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var canvas = (Canvas)typeof(Window).GetField("_canvas", flags)!.GetValue(window)!;
+        Contracts.Draw(canvas, true);
+        var visible = (uint[])WindowRuntimeTests.Buffer(window).Clone();
+        var scene = (Scene)typeof(LogView).GetField("_contentScene", flags)!.GetValue(log)!;
+        var paint = scene.Paints().OfType<Text>().Single();
+        Console.WriteLine($"visible text={paint.GetText()} transform={paint.Transform().e13} scroll={log.HorizontalScrollOffset}");
+        float baseline = (float)typeof(LogView).GetField("_baselineY", flags)!.GetValue(log)!;
+        // Independent reference: send the exact complete line to ThorVG with
+        // the same clip and font, as before viewport rendering was introduced.
+        paint.SetText(log.Text); paint.Translate(8 - log.HorizontalScrollOffset, 8 - baseline);
+        Contracts.Draw(canvas, true);
+        var complete = WindowRuntimeTests.Buffer(window);
+        int differing = visible.Zip(complete).Count(pair => pair.First != pair.Second);
+        int maxDelta = visible.Zip(complete).Max(pair => Math.Max(
+            Math.Abs((int)(pair.First & 255) - (int)(pair.Second & 255)), Math.Max(
+            Math.Abs((int)((pair.First >> 8) & 255) - (int)((pair.Second >> 8) & 255)),
+            Math.Abs((int)((pair.First >> 16) & 255) - (int)((pair.Second >> 16) & 255)))));
+        long error = visible.Zip(complete).Sum(pair => (long)
+            Math.Abs((int)(pair.First & 255) - (int)(pair.Second & 255)) +
+            Math.Abs((int)((pair.First >> 8) & 255) - (int)((pair.Second >> 8) & 255)) +
+            Math.Abs((int)((pair.First >> 16) & 255) - (int)((pair.Second >> 16) & 255)));
+        Console.WriteLine($"viewport vs full renderer: differing={differing}, maximum channel delta={maxDelta}, total RGB error={error}");
+        if (Environment.GetEnvironmentVariable("WINTER_LOGVIEW_EVIDENCE") is { } folder)
+        {
+            Save(Path.Combine(folder, "visible.ppm"), visible);
+            Save(Path.Combine(folder, "complete.ppm"), complete);
+        }
+        // Rebasing font-unit paths changes floating-point rounding at a few
+        // antialiased edges. Bound both the worst sample and total error (less
+        // than one black/white RGB pixel), rather than require bitwise identity.
+        Assert.InRange(maxDelta, 0, 32);
+        Assert.InRange(error, 0, 3 * 255);
+        static void Save(string path, uint[] pixels)
+        {
+            using var stream = File.Create(path);
+            stream.Write(System.Text.Encoding.ASCII.GetBytes("P6\n500 220\n255\n"));
+            foreach (uint pixel in pixels) { stream.WriteByte((byte)(pixel >> 16)); stream.WriteByte((byte)(pixel >> 8)); stream.WriteByte((byte)pixel); }
+        }
+    });
+
     [Fact]
     public void AppendThatCompletesAGraphemeKeepsSelectionOnLegalBoundaries() => WindowRegressionOwner.Run(() =>
     {
