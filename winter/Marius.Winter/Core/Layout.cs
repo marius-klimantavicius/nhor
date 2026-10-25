@@ -35,7 +35,7 @@ public class StackLayout : ILayout
 
         for (int i = 0; i < children.Count; i++)
         {
-            if (!children[i].Visible) continue;
+            if (!children[i].Visible || children[i].IgnoresParentArrange) continue;
 
             var childSize = children[i].Measure(innerW, innerH);
 
@@ -73,6 +73,11 @@ public class StackLayout : ILayout
         {
             var child = children[i];
             if (!child.Visible) continue;
+            if (child.IgnoresParentArrange)
+            {
+                child.Arrange(child.Bounds);
+                continue;
+            }
 
             var desired = child.DesiredSize;
 

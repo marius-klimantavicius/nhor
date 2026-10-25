@@ -159,24 +159,33 @@ internal class TaffyLayoutEngine
         var children = element.ChildrenMutable;
         var taffyChildren = _tree.Children(element._taffyNode);
 
-        // Every child must belong to this engine before any IDs are compared or
+        // Every in-flow child must belong to this engine before IDs are compared or
         // published. A mismatch near the front must not skip initialization later.
-        bool childrenMatch = children.Count == taffyChildren.Count;
+        bool childrenMatch = true;
+        int layoutChildCount = 0;
         for (int i = 0; i < children.Count; i++)
         {
-            EnsureNode(children[i]);
-            if (childrenMatch && children[i]._taffyNode != taffyChildren[i])
+            var child = children[i];
+            // Manual windows remain owned/painted/hit-tested in the Element
+            // tree, but must not create flex gaps, grid cells or intrinsics.
+            if (child.IgnoresParentArrange) continue;
+            EnsureNode(child);
+            if (layoutChildCount >= taffyChildren.Count || child._taffyNode != taffyChildren[layoutChildCount])
                 childrenMatch = false;
+            layoutChildCount++;
         }
+        childrenMatch &= layoutChildCount == taffyChildren.Count;
 
         if (!childrenMatch)
         {
-            Span<NodeId> childNodes = children.Count <= 16
-                ? stackalloc NodeId[children.Count]
-                : new NodeId[children.Count];
+            Span<NodeId> childNodes = layoutChildCount <= 16
+                ? stackalloc NodeId[layoutChildCount]
+                : new NodeId[layoutChildCount];
 
+            int index = 0;
             for (int i = 0; i < children.Count; i++)
-                childNodes[i] = children[i]._taffyNode;
+                if (!children[i].IgnoresParentArrange)
+                    childNodes[index++] = children[i]._taffyNode;
 
             _tree.SetChildren(element._taffyNode, childNodes);
         }
@@ -191,7 +200,8 @@ internal class TaffyLayoutEngine
 
         // Recurse into children
         for (int i = 0; i < children.Count; i++)
-            SyncChildren(children[i]);
+            if (!children[i].IgnoresParentArrange)
+                SyncChildren(children[i]);
     }
 
     private static Taffy.Style BuildStyle(Element element)
@@ -357,6 +367,12 @@ internal class TaffyLayoutEngine
         for (int i = 0; i < children.Count; i++)
         {
             var child = children[i];
+            if (child.IgnoresParentArrange)
+            {
+                // Exclusion from Taffy must still lay out the window's body.
+                child.Arrange(child.Bounds);
+                continue;
+            }
             if (!ReferenceEquals(child._taffyOwner, this)) continue;
 
             var layout = _tree.GetLayout(child._taffyNode);

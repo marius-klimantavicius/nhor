@@ -486,6 +486,8 @@ public abstract class Element : IDisposable
     /// <summary>
     /// If true, Arrange() preserves the element's current Bounds instead of applying the parent's
     /// finalBounds. Used by DialogWindow which manages its own position via dragging/resizing.
+    /// Built-in layouts exclude it from normal flow and parent measurement. Its owned scene and
+    /// hit testing remain in sibling order, including overflow beyond the parent's layout bounds.
     /// </summary>
     internal virtual bool IgnoresParentArrange => false;
 
@@ -695,17 +697,17 @@ public abstract class Element : IDisposable
         float localX = x - _bounds.X;
         float localY = y - _bounds.Y;
 
-        if (!new RectF(0, 0, _bounds.W, _bounds.H).Contains(localX, localY))
-            return null;
+        bool inside = new RectF(0, 0, _bounds.W, _bounds.H).Contains(localX, localY);
 
         // Check children in reverse order (front-to-back)
         for (int i = _children.Count - 1; i >= 0; i--)
         {
+            if (!inside && !_children[i].IgnoresParentArrange) continue;
             var hit = _children[i].HitTest(localX, localY);
             if (hit != null) return hit;
         }
 
-        return this;
+        return inside ? this : null;
     }
 
     // --- Coordinate conversion ---

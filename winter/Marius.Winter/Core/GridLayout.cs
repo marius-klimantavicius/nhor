@@ -94,6 +94,10 @@ public class GridLayout : ILayout
 
     public void Arrange(Element container, RectF bounds)
     {
+        foreach (var child in container.Children)
+            if (child.Visible && child.IgnoresParentArrange)
+                child.Arrange(child.Bounds);
+
         var padding = container.Style.Padding;
         float startX = bounds.X + padding.Left;
         float startY = bounds.Y + padding.Top;
@@ -178,7 +182,7 @@ public class GridLayout : ILayout
 
         for (int i = 0; i < children.Count; i++)
         {
-            if (!children[i].Visible) continue;
+            if (!children[i].Visible || children[i].IgnoresParentArrange) continue;
             var child = children[i];
             var hint = child.LayoutData as GridItem;
 

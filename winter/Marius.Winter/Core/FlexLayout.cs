@@ -80,7 +80,7 @@ public class FlexLayout : ILayout
         var items = new List<FlexChild>();
         for (int i = 0; i < children.Count; i++)
         {
-            if (!children[i].Visible) continue;
+            if (!children[i].Visible || children[i].IgnoresParentArrange) continue;
             var child = children[i];
             var hint = child.LayoutData as FlexItem;
             var sz = child.Measure(innerW, innerH);
@@ -138,6 +138,11 @@ public class FlexLayout : ILayout
         {
             if (!children[i].Visible) continue;
             var child = children[i];
+            if (child.IgnoresParentArrange)
+            {
+                child.Arrange(child.Bounds);
+                continue;
+            }
             var hint = child.LayoutData as FlexItem;
             var sz = child.DesiredSize;
 
