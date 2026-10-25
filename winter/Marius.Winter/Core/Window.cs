@@ -268,7 +268,9 @@ public unsafe class Window : Element
         try
         {
             Glfw.Glfw.glfwMakeContextCurrent(_window);
-            Glfw.Glfw.glfwShowWindow(_window);
+            bool shown = Glfw.Glfw.glfwGetWindowAttrib(_window, GLFW_VISIBLE) != 0;
+            if (shown) Glfw.Glfw.glfwShowWindow(_window);
+            _dirty = true;
             _lastFrameTime = _clock.Elapsed.TotalSeconds;
             while (!_closeRequested && Glfw.Glfw.glfwWindowShouldClose(_window) == 0)
             {
@@ -296,7 +298,16 @@ public unsafe class Window : Element
                         Check(_canvas.Draw(true), "draw canvas");
                         Check(_canvas.Sync(), "synchronize canvas");
                         if (_backend == RenderBackend.SW) BlitToScreen();
-                        else Glfw.Glfw.glfwSwapBuffers(_window);
+                        // X11 can discard an unmapped drawable's front buffer.
+                        // Seed its map background from this frame as well as
+                        // swapping before show on every platform.
+                        using var startup = !shown ? X11StartupBackground.Prepare(_window, (int)_width, (int)_height) : null;
+                        Glfw.Glfw.glfwSwapBuffers(_window);
+                        if (!shown)
+                        {
+                            shown = true;
+                            Glfw.Glfw.glfwShowWindow(_window);
+                        }
                     }
                 }
                 if (!_closeRequested && !IsDisposed && Glfw.Glfw.glfwWindowShouldClose(_window) == 0) WaitForWork();
@@ -1445,8 +1456,6 @@ public unsafe class Window : Element
         _glUseProgram(_shaderProgram);
         _glBindVertexArray(_vao);
         _glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        Glfw.Glfw.glfwSwapBuffers(_window);
     }
 
     // --- Override Element for Window-specific behavior ---

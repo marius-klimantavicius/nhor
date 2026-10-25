@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Xunit;
 namespace Marius.Winter.Blazor.Tests;
 internal sealed class C07X11 : IDisposable
@@ -62,7 +63,15 @@ internal sealed class C07SelectionX11 : IDisposable
         _window = window; _display = XOpenDisplay(Environment.GetEnvironmentVariable("DISPLAY")!);
         Assert.NotEqual(0, _display);
     }
-    internal void Focus() { XSetInputFocus(_display, _window, 1, 0); XSync(_display, 0); }
+    internal void Focus()
+    {
+        // Input starts on a worker before Run. Native focus requires a mapped
+        // window; observe that prerequisite instead of racing first rendering.
+        Assert.True(SpinWait.SpinUntil(() =>
+            XGetWindowAttributes(_display, _window, out var attributes) != 0 && attributes.map_state == 2,
+            TimeSpan.FromSeconds(3)), "Input window was not mapped.");
+        XSetInputFocus(_display, _window, 1, 0); XSync(_display, 0);
+    }
     internal void Move(int x, int y) { XWarpPointer(_display, 0, _window, 0, 0, 0, 0, x, y); XSync(_display, 0); }
     internal void Click() { XTestFakeButtonEvent(_display, 1, 1, 0); XTestFakeButtonEvent(_display, 1, 0, 20); XSync(_display, 0); }
     internal void Key(nuint symbol)
@@ -97,6 +106,7 @@ internal sealed class C07SelectionX11 : IDisposable
     [DllImport("libX11.so.6")] private static extern int XCloseDisplay(nint display);
     [DllImport("libX11.so.6")] private static extern int XSync(nint display, int discard);
     [DllImport("libX11.so.6")] private static extern int XSetInputFocus(nint display, nuint window, int revert, nuint time);
+    [DllImport("libX11.so.6")] private static extern int XGetWindowAttributes(nint display, nuint window, out Glfw.XWindowAttributes attributes);
     [DllImport("libX11.so.6")] private static extern int XWarpPointer(nint display, nuint source, nuint dest, int sx, int sy, uint sw, uint sh, int x, int y);
     [DllImport("libX11.so.6")] private static extern byte XKeysymToKeycode(nint display, nuint symbol);
     [DllImport("libX11.so.6")] private static extern int XResizeWindow(nint display, nuint window, uint width, uint height);
