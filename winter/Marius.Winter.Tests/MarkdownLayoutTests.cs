@@ -12,6 +12,56 @@ public class MarkdownLayoutTests
     private static MarkdownTextMetrics Measure(string text, MarkdownFont font) => new(new StringInfo(text).LengthInTextElements * font.Size * .5f, font.Size * .8f, font.Size * .2f);
     private static MarkdownLayout Layout(string source, float width = 220) => MarkdownLayout.Build(MarkdownContent.Parse(source), width, 16, Measure);
 
+    [Theory]
+    [InlineData("A inter**national**.")]
+    [InlineData("A inter[national](action:word).")]
+    [InlineData("A [international](action:word).")]
+    public void LogicalWordsAndPunctuationStayTogetherAcrossInlineStylesAndLinks(string source)
+    {
+        var layout = Layout(source, 120);
+        var lines = layout.Drawings.Where(d => d.Kind == MarkdownDrawingKind.Text).GroupBy(d => d.Bounds.Y)
+            .Select(line => string.Concat(line.Select(d => d.Text)).Trim()).ToArray();
+        Assert.Equal(new[] { "A", "international." }, lines);
+        Assert.All(layout.Drawings.Where(d => d.Text.Contains("national") || d.Text == "."), d => Assert.Equal(24, d.Bounds.Y));
+    }
+
+    [Theory]
+    [InlineData(100)]
+    [InlineData(1000)]
+    [InlineData(999)]
+    public void OrderedMarkersUseTheWidestLabelAndStayBesideTheirFirstBodyLine(int start)
+    {
+        string nestedIndent = new(' ', (start + 1).ToString().Length + 2);
+        var layout = Layout($"{start}. First item\n{start + 1}. Second item\n{nestedIndent}- nested", 500);
+        var firstMarker = Assert.Single(layout.Drawings, d => d.Text == $"{start}.");
+        var secondMarker = Assert.Single(layout.Drawings, d => d.Text == $"{start + 1}.");
+        var firstBody = layout.Drawings.Single(d => d.Text == "First item");
+        var secondBody = layout.Drawings.Single(d => d.Text == "Second item");
+        Assert.Equal(firstBody.Baseline, firstMarker.Baseline);
+        Assert.Equal(secondBody.Baseline, secondMarker.Baseline);
+        Assert.Equal(firstBody.Bounds.X, secondBody.Bounds.X);
+        Assert.True(firstBody.Bounds.X >= Math.Max(firstMarker.Bounds.Right, secondMarker.Bounds.Right) + 4);
+        Assert.True(layout.Drawings.Single(d => d.Text == "nested").Bounds.X > secondBody.Bounds.X);
+    }
+
+    [Fact]
+    public void OrderedTasksKeepTheirNumbersWhileUnorderedTasksReplaceOnlyTheBullet()
+    {
+        var ordered = Layout("3. [x] Complete first\n4. [ ] Complete second", 500);
+        var firstMarker = Assert.Single(ordered.Drawings, d => d.Text == "3.");
+        var secondMarker = Assert.Single(ordered.Drawings, d => d.Text == "4.");
+        var tasks = ordered.Drawings.Where(d => d.Kind == MarkdownDrawingKind.Task).ToArray();
+        Assert.Equal(2, tasks.Length);
+        Assert.Equal(firstMarker.Baseline, tasks[0].Baseline);
+        Assert.Equal(secondMarker.Baseline, tasks[1].Baseline);
+        Assert.True(firstMarker.Bounds.Right < tasks[0].Bounds.X);
+        Assert.True(secondMarker.Bounds.Right < tasks[1].Bounds.X);
+        Assert.True(tasks[0].Span!.Task); Assert.False(tasks[1].Span!.Task);
+        var unordered = Layout("- [x] Complete first\n- [ ] Complete second", 500);
+        Assert.Equal(2, unordered.Drawings.Count(d => d.Kind == MarkdownDrawingKind.Task));
+        Assert.DoesNotContain(unordered.Drawings, d => d.Text == "•");
+    }
+
     [Fact]
     public void MultilineRawHtmlIsLiteralWithSeparateLinesAndNoMarkdownInterpretation()
     {
@@ -75,11 +125,14 @@ public class MarkdownLayoutTests
         Assert.All(cells.Take(3), d => Assert.True(d.Header));
     }
 
-    [Fact]
-    public void VeryLongWordsWrapOnGraphemesWithLinearMeasurementWork()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void VeryLongWordsWrapOnGraphemesWithLinearMeasurementWork(bool styled)
     {
         const string grapheme = "👩🏽‍💻";
-        var source = string.Concat(Enumerable.Repeat(grapheme, 1000));
+        var half = string.Concat(Enumerable.Repeat(grapheme, 500));
+        var source = styled ? half + "**" + half + "**" : half + half;
         int calls = 0;
         var layout = MarkdownLayout.Build(MarkdownContent.Parse(source), 120, 16, (s, f) => { calls++; return Measure(s, f); });
         Assert.True(layout.Height > 100);

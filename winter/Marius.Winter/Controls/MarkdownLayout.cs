@@ -83,11 +83,18 @@ internal sealed class MarkdownLayout
                         _layout.Drawings[bar] = new(MarkdownDrawingKind.QuoteBar, new(x, start, 3, y - start));
                         y += _size * .35f; break;
                     case MarkdownBlockKind.List:
-                        float indent = _size * 1.8f;
+                        var markerFont = new MarkdownFont(_size, bold ? TextFormat.Bold : TextFormat.None);
+                        float markerWidth = 0;
+                        foreach (var item in block.Children)
+                            markerWidth = Math.Max(markerWidth, Metrics(item.Marker ?? "•", markerFont).Width);
+                        float indent = Math.Max(_size * 1.8f, markerWidth + _size * .5f);
                         foreach (var item in block.Children)
                         {
                             bool task = item.Children.FirstOrDefault()?.Spans.FirstOrDefault()?.Task != null;
-                            if (!task) Flow(new[] { new MarkdownSpan(item.Marker ?? "•") }, x, y, indent - 4, _size, bold);
+                            bool ordered = item.Marker != null && item.Marker != "•";
+                            // A task checkbox replaces an unordered bullet, not
+                            // its ordered label. Markers never wrap independently.
+                            if (!task || ordered) Flow(new[] { new MarkdownSpan(item.Marker ?? "•") }, x, y, float.PositiveInfinity, _size, bold);
                             y = Blocks(item.Children, x + indent, y, Math.Max(1, width - indent), bold);
                             if (block.Level == 1) y += _size * .35f;
                         }
@@ -135,6 +142,8 @@ internal sealed class MarkdownLayout
         private float Flow(IReadOnlyList<MarkdownSpan> spans, float left, float top, float width, float size, bool bold, int alignment = -1)
         {
             var line = new List<Piece>();
+            var word = new List<Piece>();
+            float wordWidth = 0;
             float used = 0, y = top;
             void Flush(bool force = false)
             {
@@ -166,13 +175,40 @@ internal sealed class MarkdownLayout
                 if (whitespace && line.Count == 0 && !preserve) return;
                 line.Add(piece); used += piece.Width;
             }
+            void EndWord()
+            {
+                if (word.Count == 0) return;
+                if (wordWidth <= width)
+                {
+                    // Style/link boundaries are not break opportunities. Move
+                    // the complete logical word before appending its fragments.
+                    if (used + wordWidth > width && line.Count > 0) Flush();
+                    line.AddRange(word); used += wordWidth;
+                }
+                else
+                {
+                    // Only a genuinely overlong word falls back to graphemes.
+                    // Each fragment is visited once; no growing-prefix measures.
+                    foreach (var piece in word)
+                    {
+                        var elements = StringInfo.GetTextElementEnumerator(piece.Text);
+                        while (elements.MoveNext())
+                        {
+                            string unit = elements.GetTextElement(); var m = Metrics(unit, piece.Font);
+                            Add(piece with { Text = unit, Width = m.Width, Ascent = m.Ascent, Descent = m.Descent });
+                        }
+                    }
+                }
+                word.Clear(); wordWidth = 0;
+            }
 
             foreach (var span in spans)
             {
                 var font = new MarkdownFont(size, span.Format | (bold ? TextFormat.Bold : TextFormat.None), span.Code);
-                if (span.Break) { Flush(true); continue; }
+                if (span.Break) { EndWord(); Flush(true); continue; }
                 if (span.Image != null && _images != null && _images.TryGetValue(span.Image, out var image) && image.X > 0 && image.Y > 0)
                 {
+                    EndWord();
                     float imageWidth = Math.Min(width, image.X);
                     float imageHeight = (float)((double)image.Y * imageWidth / image.X);
                     Add(new("", span, font, imageWidth, imageHeight, 0, MarkdownDrawingKind.Image, imageHeight));
@@ -180,6 +216,7 @@ internal sealed class MarkdownLayout
                 }
                 if (span.Task != null)
                 {
+                    EndWord();
                     Add(new("", span, font, size * 1.4f, size * .8f, size * .2f, MarkdownDrawingKind.Task, size));
                     continue;
                 }
@@ -192,21 +229,14 @@ internal sealed class MarkdownLayout
                     while (end < value.Length && char.IsWhiteSpace(value[end]) == space) end++;
                     string token = value[offset..end]; offset = end;
                     var metrics = Metrics(token, font);
-                    if (metrics.Width <= width || space)
-                        Add(new(token, span, font, metrics.Width, metrics.Ascent, metrics.Descent), space, span.Code);
+                    var piece = new Piece(token, span, font, metrics.Width, metrics.Ascent, metrics.Descent);
+                    if (space)
+                    { EndWord(); Add(piece, whitespace: true, preserve: span.Code); }
                     else
-                    {
-                        // An overlong token is split once into graphemes. Measuring
-                        // successively longer prefixes here would be quadratic.
-                        var elements = StringInfo.GetTextElementEnumerator(token);
-                        while (elements.MoveNext())
-                        {
-                            string unit = elements.GetTextElement(); var m = Metrics(unit, font);
-                            Add(new(unit, span, font, m.Width, m.Ascent, m.Descent));
-                        }
-                    }
+                    { word.Add(piece); wordWidth += piece.Width; }
                 }
             }
+            EndWord();
             Flush();
             return y;
         }
