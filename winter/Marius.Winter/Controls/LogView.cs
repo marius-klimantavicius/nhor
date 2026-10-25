@@ -1,5 +1,5 @@
 using System;
-using System.Globalization;
+using System.Collections.Generic;
 using System.Threading;
 using System.Numerics;
 
@@ -9,8 +9,8 @@ using static Glfw.GLFW;
 namespace Marius.Winter;
 
 /// <summary>
-/// A multiline, read-only, selectable text control with built-in vertical scrolling.
-/// Designed for log display. Supports mouse selection, Ctrl+A, Ctrl+C, and mouse wheel scrolling.
+/// A multiline, read-only, selectable log with horizontal and vertical scrolling.
+/// Supports pointer/keyboard selection, copy, scrollbars and drag autoscrolling.
 /// </summary>
 public class LogView : Element
 {
@@ -43,6 +43,7 @@ public class LogView : Element
     public int SelectionLength => _selAnchor < 0 ? 0 : Math.Abs(_selAnchor - _selEnd);
     public string SelectedText => GetSelectedText();
     public float ScrollOffset => _scrollY;
+    public float HorizontalScrollOffset => _scrollX;
 
     /// <summary>UI-thread convenience. Worker producers should append to Buffer.</summary>
     public void Append(string text)
@@ -77,6 +78,7 @@ public class LogView : Element
     private void Unsubscribe() { _subscription?.Dispose(); _subscription = null; }
     protected override void OnDetaching()
     {
+        StopAutoScroll();
         Unsubscribe();
         // Appends can add glyph paints after the last canvas update. Release
         // these owned paints before parent removal asks the rendered scene for
@@ -85,7 +87,11 @@ public class LogView : Element
         _mouseDown = _scrollbarDrag = false;
         base.OnDetaching();
     }
-    protected override void OnDisposed() { Unsubscribe(); FollowTailChanged = null; }
+    protected override void OnDisposed() { StopAutoScroll(); Unsubscribe(); FollowTailChanged = null; }
+    protected override void OnActivityChanged(bool active)
+    {
+        if (!active) { _mouseDown = _scrollbarDrag = false; StopAutoScroll(); }
+    }
 
     private sealed class Subscription : IDisposable
     {
@@ -115,7 +121,11 @@ public class LogView : Element
         if (!replace && _snapshot?.Version == snapshot.Version) return;
         bool reset = replace || _snapshot == null || _snapshot.ResetId != snapshot.ResetId;
         long removed = reset ? 0 : snapshot.StartOffset - _snapshot!.StartOffset;
-        if (reset) { _selAnchor = _selEnd = -1; _scrollY = 0; }
+        if (reset)
+        {
+            _selAnchor = _selEnd = -1; _scrollX = _scrollY = 0;
+            _mouseDown = _scrollbarDrag = false; StopAutoScroll();
+        }
         else if (removed > 0)
         {
             int count = (int)Math.Min(removed, _text.Length);
@@ -130,6 +140,17 @@ public class LogView : Element
         }
         _snapshot = snapshot;
         _text = snapshot.Text;
+        _boundaries.SetText(_text);
+        if (_selAnchor >= 0)
+        {
+            // An append may complete the final combining/emoji grapheme.
+            // Retain the selected range while keeping both endpoints legal.
+            if (_selAnchor == _selEnd) _selAnchor = _selEnd = _boundaries.Ceiling(_selEnd);
+            else if (_selAnchor < _selEnd)
+            { _selAnchor = _boundaries.Floor(_selAnchor); _selEnd = _boundaries.Ceiling(_selEnd); }
+            else
+            { _selEnd = _boundaries.Floor(_selEnd); _selAnchor = _boundaries.Ceiling(_selAnchor); }
+        }
         RebuildLines();
         _totalContentHeight = _lines.Length * _lineHeight;
         if (_followTail) _scrollY = float.MaxValue;
@@ -143,11 +164,20 @@ public class LogView : Element
     private Shape? _selectionShape;
     private Shape? _scrollTrack;
     private Shape? _scrollThumb;
+    private Shape? _horizontalTrack;
+    private Shape? _horizontalThumb;
     private Scene? _contentScene;
 
     private string _text = "";
     private string[] _lines = Array.Empty<string>();
     private int[] _lineOffsets = Array.Empty<int>(); // char offset of each line start in _text
+    private readonly TextEditingBoundaries _boundaries = new();
+    private LogTextLayout[] _lineLayouts = Array.Empty<LogTextLayout>();
+    private bool _lineLayoutsValid;
+    private Dictionary<string, LogTextLayout>? _previousLayouts;
+    private float _totalContentWidth, _baselineY;
+    private float _viewportW, _viewportH;
+    private bool _horizontalNeeded, _verticalNeeded;
 
     private float _fontSize = 14f;
     private float _effectiveFontSize;
@@ -157,6 +187,7 @@ public class LogView : Element
 
     private float _lineHeight = 18.9f;
     private float _scrollY;
+    private float _scrollX;
     private float _totalContentHeight;
     private bool _shapesCreated;
 
@@ -167,6 +198,9 @@ public class LogView : Element
     private bool _scrollbarDrag;
     private float _scrollbarDragStartY;
     private float _scrollbarDragStartScroll;
+    private bool _horizontalDrag;
+    private float _lastMouseX, _lastMouseY;
+    private readonly object _autoScrollTag = new();
 
     // Visible line rendering
     private Text?[] _lineTexts = Array.Empty<Text?>();
@@ -208,6 +242,7 @@ public class LogView : Element
             _fontSize = value;
             _effectiveFontSize = EffectiveFontSize(value);
             _lineHeight = _effectiveFontSize * 1.35f;
+            InvalidateLineLayouts();
             _scrollY = oldHeight > 0 ? _scrollY / oldHeight * _lineHeight : 0;
             _totalContentHeight = _lines.Length * _lineHeight;
             if (_followTail) _scrollY = float.MaxValue;
@@ -233,10 +268,13 @@ public class LogView : Element
         {
             if (_fontName == value) return;
             _fontName = value;
+            InvalidateLineLayouts();
+            ClampScroll();
             if (_shapesCreated)
             {
                 RebuildLineTexts();
                 UpdateContent();
+                UpdateScrollbar();
             }
             InvalidateMeasure();
             MarkDirty();
@@ -258,6 +296,14 @@ public class LogView : Element
 
     private void RebuildLines()
     {
+        Dictionary<string, LogTextLayout>? previous = null;
+        if (_lineLayoutsValid)
+        {
+            previous = new(StringComparer.Ordinal);
+            for (int i = 0; i < _lines.Length; i++) previous[_lines[i]] = _lineLayouts[i];
+        }
+        InvalidateLineLayouts();
+        _previousLayouts = previous;
         if (string.IsNullOrEmpty(_text))
         {
             _lines = Array.Empty<string>();
@@ -265,15 +311,39 @@ public class LogView : Element
             return;
         }
 
-        var lines = _text.Split('\n');
-        _lines = lines;
-        _lineOffsets = new int[lines.Length];
-        int offset = 0;
-        for (int i = 0; i < lines.Length; i++)
+        TextEditingBoundaries.SplitLines(_text, out _lines, out _lineOffsets);
+    }
+
+    private void InvalidateLineLayouts()
+    {
+        _lineLayoutsValid = false;
+        _lineLayouts = Array.Empty<LogTextLayout>();
+        _previousLayouts = null;
+    }
+
+    private void EnsureLineLayouts()
+    {
+        if (_lineLayoutsValid) return;
+        _lineLayouts = new LogTextLayout[_lines.Length];
+        _totalContentWidth = 0;
+        LogFontMeasure? measure = null;
+        try
         {
-            _lineOffsets[i] = offset;
-            offset += lines[i].Length + 1; // +1 for the \n
+            for (int i = 0; i < _lines.Length; i++)
+            {
+                if (_previousLayouts != null && _previousLayouts.TryGetValue(_lines[i], out var cached))
+                    _lineLayouts[i] = cached;
+                else
+                {
+                    measure ??= new LogFontMeasure(_fontName, _effectiveFontSize);
+                    _baselineY = measure.BaselineY;
+                    _lineLayouts[i] = new LogTextLayout(_lines[i], measure);
+                }
+                _totalContentWidth = Math.Max(_totalContentWidth, _lineLayouts[i].Width);
+            }
         }
+        finally { measure?.Dispose(); _previousLayouts = null; }
+        _lineLayoutsValid = true;
     }
 
     protected override void OnAttached()
@@ -318,6 +388,12 @@ public class LogView : Element
             _scrollThumb = Shape.Gen();
             _scrollThumb!.SetFill(128, 128, 128, 100);
             Scene.Add(_scrollThumb);
+            _horizontalTrack = Shape.Gen();
+            _horizontalTrack.SetFill(128, 128, 128, 40);
+            Scene.Add(_horizontalTrack);
+            _horizontalThumb = Shape.Gen();
+            _horizontalThumb.SetFill(128, 128, 128, 100);
+            Scene.Add(_horizontalThumb);
 
             RebuildLines();
             RebuildLineTexts();
@@ -382,10 +458,10 @@ public class LogView : Element
     private void UpdateContent()
     {
         if (!_shapesCreated || Bounds.W <= 0 || Bounds.H <= 0) return;
-
+        ClampScroll();
         _totalContentHeight = _lines.Length * _lineHeight;
 
-        float viewportH = Bounds.H - 2 * Padding;
+        float viewportH = _viewportH;
         int firstVisible = Math.Max(0, (int)(_scrollY / _lineHeight));
         int lastVisible = Math.Min(_lines.Length - 1, (int)((_scrollY + viewportH) / _lineHeight));
         int visibleCount = lastVisible >= firstVisible ? lastVisible - firstVisible + 1 : 0;
@@ -406,13 +482,14 @@ public class LogView : Element
             var t = _lineTexts[i];
             if (t == null) continue;
 
-            t.SetText(_lines[lineIdx]);
+            var layout = _lineLayouts[lineIdx];
+            layout.VisibleRange(_scrollX, _scrollX + _viewportW, out int start, out int end, out float origin);
+            string visible = _lines[lineIdx][start..end];
+            if (t.GetText() != visible) t.SetText(visible);
 
             // Position: relative to content scene origin
             float y = lineIdx * _lineHeight - _scrollY;
-            // Get baseline offset for this text
-            MeasureLineBounds(_lines[lineIdx], out _, out float by, out _, out _);
-            t.Translate(Padding, Padding + y - by);
+            t.Translate(Padding + origin - _scrollX, Padding + y - _baselineY);
         }
 
         UpdateSelection();
@@ -466,9 +543,6 @@ public class LogView : Element
         _backgroundShape?.ResetShape();
         _backgroundShape?.AppendRect(0, 0, w, h, 3, 3);
 
-        _clipShape?.ResetShape();
-        _clipShape?.AppendRect(Padding, Padding, Math.Max(0, w - 2 * Padding), Math.Max(0, h - 2 * Padding), 0, 0);
-
         // Re-add scrollbar shapes to stay on top
         if (_scrollTrack != null)
         {
@@ -478,6 +552,8 @@ public class LogView : Element
         {
             BringPaintToFront(_scrollThumb);
         }
+        if (_horizontalTrack != null) BringPaintToFront(_horizontalTrack);
+        if (_horizontalThumb != null) BringPaintToFront(_horizontalThumb);
 
         ClampScroll();
         if (_followTail) { _scrollY = float.MaxValue; ClampScroll(); }
@@ -487,51 +563,87 @@ public class LogView : Element
 
     private void UpdateScrollbar()
     {
-        float viewportH = Bounds.H - 2 * Padding;
-        bool needed = _totalContentHeight > viewportH && viewportH > 0;
+        PaintScrollbar(_scrollTrack, _scrollThumb, false, _verticalNeeded);
+        PaintScrollbar(_horizontalTrack, _horizontalThumb, true, _horizontalNeeded);
+    }
 
-        _scrollTrack?.Visible(needed);
-        _scrollThumb?.Visible(needed);
+    private float ThumbSize(bool horizontal)
+    {
+        float viewport = horizontal ? _viewportW : _viewportH;
+        float content = horizontal ? _totalContentWidth : _totalContentHeight;
+        return Math.Min(viewport, Math.Max(20, content > 0 ? viewport * viewport / content : viewport));
+    }
 
+    private float ThumbPosition(bool horizontal)
+    {
+        float viewport = horizontal ? _viewportW : _viewportH;
+        float content = horizontal ? _totalContentWidth : _totalContentHeight;
+        float scroll = horizontal ? _scrollX : _scrollY;
+        return Padding + (content > viewport ? scroll / (content - viewport) * (viewport - ThumbSize(horizontal)) : 0);
+    }
+
+    private void PaintScrollbar(Shape? track, Shape? thumb, bool horizontal, bool needed)
+    {
+        track?.Visible(needed); thumb?.Visible(needed);
         if (!needed) return;
-
-        float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin;
-        float trackY = Padding;
-        float trackH = viewportH;
-
-        _scrollTrack?.ResetShape();
-        _scrollTrack?.AppendRect(trackX, trackY, ScrollbarWidth, trackH, ScrollbarWidth / 2, ScrollbarWidth / 2);
-
-        float thumbRatio = viewportH / _totalContentHeight;
-        float thumbH = MathF.Max(20f, trackH * thumbRatio);
-        float scrollRange = _totalContentHeight - viewportH;
-        float thumbY = trackY + (scrollRange > 0 ? (_scrollY / scrollRange) * (trackH - thumbH) : 0);
-
-        _scrollThumb?.ResetShape();
-        _scrollThumb?.AppendRect(trackX, thumbY, ScrollbarWidth, thumbH, ScrollbarWidth / 2, ScrollbarWidth / 2);
+        float cross = horizontal ? Bounds.H - Padding - ScrollbarWidth : Bounds.W - Padding - ScrollbarWidth;
+        float viewport = horizontal ? _viewportW : _viewportH;
+        float position = ThumbPosition(horizontal), size = ThumbSize(horizontal);
+        track?.ResetShape(); thumb?.ResetShape();
+        if (horizontal)
+        {
+            track?.AppendRect(Padding, cross, viewport, ScrollbarWidth, 4, 4);
+            thumb?.AppendRect(position, cross, size, ScrollbarWidth, 4, 4);
+        }
+        else
+        {
+            track?.AppendRect(cross, Padding, ScrollbarWidth, viewport, 4, 4);
+            thumb?.AppendRect(cross, position, ScrollbarWidth, size, 4, 4);
+        }
     }
 
     private void ClampScroll()
     {
-        float viewportH = Bounds.H - 2 * Padding;
-        float maxScroll = MathF.Max(0, _totalContentHeight - viewportH);
-        _scrollY = Math.Clamp(_scrollY, 0, maxScroll);
+        if (_shapesCreated) EnsureLineLayouts();
+        bool horizontal = false, vertical = false;
+        // Reserving one bar can make the other necessary.
+        for (int i = 0; i < 3; i++)
+        {
+            _viewportW = Math.Max(0, Bounds.W - 2 * Padding - (vertical ? ScrollbarWidth + ScrollbarMargin : 0));
+            _viewportH = Math.Max(0, Bounds.H - 2 * Padding - (horizontal ? ScrollbarWidth + ScrollbarMargin : 0));
+            horizontal = _totalContentWidth > _viewportW && _viewportW > 0;
+            vertical = _totalContentHeight > _viewportH && _viewportH > 0;
+        }
+        _horizontalNeeded = horizontal; _verticalNeeded = vertical;
+        _scrollX = Math.Clamp(_scrollX, 0, Math.Max(0, _totalContentWidth - _viewportW));
+        _scrollY = Math.Clamp(_scrollY, 0, Math.Max(0, _totalContentHeight - _viewportH));
+        _clipShape?.ResetShape();
+        _clipShape?.AppendRect(Padding, Padding, _viewportW, _viewportH, 0, 0);
+    }
+
+    private void RefreshScroll()
+    {
+        ClampScroll(); UpdateContent(); UpdateScrollbar(); MarkDirty();
     }
 
     // --- Input handling ---
 
     public override void OnScroll(float dx, float dy)
     {
-        float viewportH = Bounds.H - 2 * Padding;
-        if (_totalContentHeight <= viewportH) return;
-
-        _scrollY -= dy * _lineHeight * 3;
+        if (!_horizontalNeeded && !_verticalNeeded) return;
+        bool shift = OwnerWindow?.GlfwWindow is { } native &&
+            (Glfw.Glfw.glfwGetKey(native, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+             Glfw.Glfw.glfwGetKey(native, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+        if (shift || (!_verticalNeeded && _horizontalNeeded)) dx += dy;
+        else _scrollY -= dy * _lineHeight * 3;
+        _scrollX -= dx * _lineHeight * 3;
         SetFollowTail(false, true);
-        ClampScroll();
-        UpdateContent();
-        UpdateScrollbar();
-        MarkDirty();
+        RefreshScroll();
     }
+
+    private bool OverScrollbar(float x, float y, bool horizontal) => horizontal
+        ? _horizontalNeeded && y >= Bounds.H - Padding - ScrollbarWidth && y <= Bounds.H - Padding && x >= Padding && x <= Padding + _viewportW
+        : _verticalNeeded && x >= Bounds.W - Padding - ScrollbarWidth && x <= Bounds.W - Padding && y >= Padding && y <= Padding + _viewportH;
 
     public override bool OnMouseDown(int button, float x, float y)
     {
@@ -540,13 +652,24 @@ public class LogView : Element
         WindowToLocal(x, y, out float lx, out float ly);
 
         // Check scrollbar
-        float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin * 2;
-        if (lx >= trackX)
+        bool horizontal = OverScrollbar(lx, ly, true);
+        if (horizontal || OverScrollbar(lx, ly, false))
         {
             SetFollowTail(false, true);
+            StopAutoScroll(); _mouseDown = false;
+            float pointer = horizontal ? lx : ly;
+            float position = ThumbPosition(horizontal), size = ThumbSize(horizontal);
+            if (pointer < position || pointer > position + size)
+            {
+                float delta = pointer < position ? -1 : 1;
+                if (horizontal) _scrollX += delta * _viewportW;
+                else _scrollY += delta * _viewportH;
+                RefreshScroll();
+            }
             _scrollbarDrag = true;
-            _scrollbarDragStartY = ly;
-            _scrollbarDragStartScroll = _scrollY;
+            _horizontalDrag = horizontal;
+            _scrollbarDragStartY = pointer;
+            _scrollbarDragStartScroll = horizontal ? _scrollX : _scrollY;
             return true;
         }
 
@@ -556,6 +679,7 @@ public class LogView : Element
         _selAnchor = charIdx;
         _selEnd = charIdx;
         _mouseDown = true;
+        _lastMouseX = lx; _lastMouseY = ly;
         UpdateSelection();
         MarkDirty();
         return true;
@@ -566,6 +690,7 @@ public class LogView : Element
         if (button != 0) return false;
         _mouseDown = false;
         _scrollbarDrag = false;
+        StopAutoScroll();
         return true;
     }
 
@@ -574,41 +699,39 @@ public class LogView : Element
         WindowToLocal(x, y, out float lx, out float ly);
 
         // Change cursor: default arrow over scrollbar, IBeam over text
-        float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin * 2;
-        Cursor = lx >= trackX ? CursorType.Arrow : CursorType.IBeam;
+        Cursor = OverScrollbar(lx, ly, true) || OverScrollbar(lx, ly, false) ? CursorType.Arrow : CursorType.IBeam;
 
         if (_scrollbarDrag)
         {
-            float viewportH = Bounds.H - 2 * Padding;
-            float scrollRange = _totalContentHeight - viewportH;
+            float viewport = _horizontalDrag ? _viewportW : _viewportH;
+            float scrollRange = (_horizontalDrag ? _totalContentWidth : _totalContentHeight) - viewport;
             if (scrollRange <= 0) return;
 
-            float thumbRatio = viewportH / _totalContentHeight;
-            float thumbH = MathF.Max(20f, viewportH * thumbRatio);
-            float trackH = viewportH - thumbH;
+            float trackH = viewport - ThumbSize(_horizontalDrag);
             if (trackH <= 0) return;
 
-            float deltaY = ly - _scrollbarDragStartY;
-            _scrollY = _scrollbarDragStartScroll + (deltaY / trackH) * scrollRange;
-            ClampScroll();
-            UpdateContent();
-            UpdateScrollbar();
-            MarkDirty();
+            float deltaY = (_horizontalDrag ? lx : ly) - _scrollbarDragStartY;
+            float scroll = _scrollbarDragStartScroll + deltaY / trackH * scrollRange;
+            if (_horizontalDrag) _scrollX = scroll; else _scrollY = scroll;
+            RefreshScroll();
             return;
         }
 
         if (_mouseDown)
         {
+            _lastMouseX = lx; _lastMouseY = ly;
             int charIdx = GetCharIndexAtPosition(lx, ly);
             _selEnd = charIdx;
             UpdateSelection();
             MarkDirty();
+            StartAutoScroll();
         }
     }
 
     public override void OnKeyDown(int key, int mods, bool repeat)
     {
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+        bool shift = (mods & GLFW_MOD_SHIFT) != 0;
 
         switch (key)
         {
@@ -626,38 +749,59 @@ public class LogView : Element
 
             case GLFW_KEY_HOME:
                 SetFollowTail(false, true);
-                _scrollY = 0;
-                ClampScroll();
-                UpdateContent();
-                UpdateScrollbar();
-                MarkDirty();
+                MoveSelection(0, shift);
+                _scrollX = _scrollY = 0;
+                RefreshScroll();
                 break;
 
             case GLFW_KEY_END:
+                MoveSelection(_text.Length, shift);
+                _scrollX = float.MaxValue;
                 JumpToLatest();
                 break;
+
+            case GLFW_KEY_LEFT:
+            case GLFW_KEY_RIGHT:
+            {
+                int position = _selEnd < 0 ? 0 : _selEnd;
+                if (!shift && HasSelection()) position = key == GLFW_KEY_LEFT ? SelectionStart : SelectionStart + SelectionLength;
+                else if (key == GLFW_KEY_LEFT) position = ctrl ? _boundaries.WordLeft(position) : _boundaries.Previous(position);
+                else position = ctrl ? _boundaries.WordRight(position) : _boundaries.Next(position);
+                SetFollowTail(false, true);
+                MoveSelection(position, shift);
+                EnsureSelectionVisible();
+                break;
+            }
+
+            case GLFW_KEY_UP:
+            case GLFW_KEY_DOWN:
+            {
+                int position = _selEnd < 0 ? 0 : _selEnd;
+                int line = GetLineAtCharIndex(position);
+                if (_lines.Length == 0) break;
+                int target = Math.Clamp(line + (key == GLFW_KEY_UP ? -1 : 1), 0, _lines.Length - 1);
+                float x = _lineLayouts[line].Advance(position - _lineOffsets[line]);
+                SetFollowTail(false, true);
+                MoveSelection(_lineOffsets[target] + _lineLayouts[target].HitTest(x), shift);
+                EnsureSelectionVisible();
+                break;
+            }
 
             case GLFW_KEY_PAGE_UP:
             {
                 SetFollowTail(false, true);
-                float viewportH = Bounds.H - 2 * Padding;
-                _scrollY -= viewportH;
-                ClampScroll();
-                UpdateContent();
-                UpdateScrollbar();
-                MarkDirty();
+                _scrollY -= _viewportH;
+                RefreshScroll();
+                if (shift) SelectAtViewportEdge(false);
                 break;
             }
 
             case GLFW_KEY_PAGE_DOWN:
             {
                 SetFollowTail(false, true);
-                float viewportH = Bounds.H - 2 * Padding;
-                _scrollY += viewportH;
-                ClampScroll();
-                UpdateContent();
-                UpdateScrollbar();
-                MarkDirty();
+                _scrollY += _viewportH;
+                RefreshScroll();
+                if (shift) SelectAtViewportEdge(true);
                 break;
             }
 
@@ -677,6 +821,8 @@ public class LogView : Element
     {
         State = State & ~ElementState.Focused;
         _mouseDown = false;
+        _scrollbarDrag = false;
+        StopAutoScroll();
         MarkDirty();
     }
 
@@ -684,9 +830,65 @@ public class LogView : Element
 
     private bool HasSelection() => _selAnchor >= 0 && _selAnchor != _selEnd;
 
+    private void MoveSelection(int position, bool extend)
+    {
+        if (!extend || _selAnchor < 0) _selAnchor = extend ? Math.Max(0, _selEnd) : position;
+        _selEnd = position;
+        UpdateSelection(); MarkDirty();
+    }
+
+    private void EnsureSelectionVisible()
+    {
+        if (_lines.Length == 0) return;
+        int line = GetLineAtCharIndex(_selEnd);
+        float x = _lineLayouts[line].Advance(_selEnd - _lineOffsets[line]);
+        if (x < _scrollX) _scrollX = x;
+        if (x > _scrollX + _viewportW) _scrollX = x - _viewportW;
+        float y = line * _lineHeight;
+        if (y < _scrollY) _scrollY = y;
+        if (y + _lineHeight > _scrollY + _viewportH) _scrollY = y + _lineHeight - _viewportH;
+        RefreshScroll();
+    }
+
+    private void SelectAtViewportEdge(bool bottom)
+    {
+        MoveSelection(GetCharIndexAtPosition(Padding + _viewportW, Padding + (bottom ? _viewportH - 1 : 0)), true);
+        UpdateSelection(); MarkDirty();
+    }
+
+    private static float AutoScrollStep(float pointer, float viewport) => pointer < Padding
+        ? -Math.Min(64, Padding - pointer + 8)
+        : pointer > Padding + viewport ? Math.Min(64, pointer - Padding - viewport + 8) : 0;
+
+    private void StartAutoScroll()
+    {
+        StopAutoScroll();
+        if (!_mouseDown || !IsActive || OwnerWindow is not { } window) return;
+        float dx = AutoScrollStep(_lastMouseX, _viewportW), dy = AutoScrollStep(_lastMouseY, _viewportH);
+        if (dx == 0 && dy == 0) return;
+        bool moved = false;
+        window.Animator.Start(new Animation
+        {
+            Duration = .016f, Tag = _autoScrollTag,
+            Apply = _ =>
+            {
+                if (!_mouseDown) return;
+                float x = _scrollX, y = _scrollY;
+                _scrollX += dx; _scrollY += dy; ClampScroll();
+                moved = x != _scrollX || y != _scrollY;
+                if (!moved) return;
+                _selEnd = GetCharIndexAtPosition(_lastMouseX, _lastMouseY);
+                RefreshScroll();
+            },
+            OnComplete = () => { if (moved) StartAutoScroll(); }
+        });
+    }
+
+    private void StopAutoScroll() => OwnerWindow?.Animator.Cancel(_autoScrollTag);
+
     private void UpdateSelection()
     {
-        if (!HasSelection())
+        if (!HasSelection() || _lines.Length == 0 || !_lineLayoutsValid)
         {
             _selectionShape?.Visible(false);
             return;
@@ -702,13 +904,12 @@ public class LogView : Element
         _selectionShape?.ResetShape();
         bool anyRect = false;
 
-        float viewportH = Bounds.H - 2 * Padding;
-        float contentWidth = Bounds.W - 2 * Padding - ScrollbarWidth - ScrollbarMargin;
-
-        for (int line = startLine; line <= endLine; line++)
+        int first = Math.Max(startLine, (int)(_scrollY / _lineHeight));
+        int last = Math.Min(endLine, Math.Min(_lines.Length - 1, (int)((_scrollY + _viewportH) / _lineHeight)));
+        for (int line = first; line <= last; line++)
         {
             float lineY = Padding + line * _lineHeight - _scrollY;
-            if (lineY + _lineHeight < Padding || lineY > Bounds.H - Padding)
+            if (lineY + _lineHeight < Padding || lineY > Padding + _viewportH)
                 continue;
 
             float selX1, selX2;
@@ -716,7 +917,7 @@ public class LogView : Element
             if (line == startLine)
             {
                 int colStart = start - _lineOffsets[line];
-                selX1 = Padding + MeasureTextWidth(_lines[line][..colStart]);
+                selX1 = Padding + _lineLayouts[line].Advance(colStart) - _scrollX;
             }
             else
             {
@@ -727,19 +928,19 @@ public class LogView : Element
             {
                 int colEnd = end - _lineOffsets[line];
                 colEnd = Math.Min(colEnd, _lines[line].Length);
-                selX2 = Padding + MeasureTextWidth(_lines[line][..colEnd]);
+                selX2 = Padding + _lineLayouts[line].Advance(colEnd) - _scrollX;
             }
             else
             {
-                selX2 = Padding + contentWidth;
+                selX2 = Padding + _viewportW;
             }
 
             if (selX2 > selX1)
             {
                 float top = Math.Max(Padding, lineY);
-                float bottom = Math.Min(Bounds.H - Padding, lineY + _lineHeight);
-                float left = Math.Clamp(selX1, Padding, Math.Max(Padding, Bounds.W - Padding));
-                float right = Math.Clamp(selX2, left, Math.Max(left, Bounds.W - Padding));
+                float bottom = Math.Min(Padding + _viewportH, lineY + _lineHeight);
+                float left = Math.Clamp(selX1, Padding, Padding + _viewportW);
+                float right = Math.Clamp(selX2, left, Padding + _viewportW);
                 _selectionShape?.AppendRect(left, top, right - left, Math.Max(0, bottom - top), 0, 0);
                 anyRect = true;
             }
@@ -750,12 +951,8 @@ public class LogView : Element
 
     private int GetLineAtCharIndex(int charIdx)
     {
-        for (int i = _lineOffsets.Length - 1; i >= 0; i--)
-        {
-            if (charIdx >= _lineOffsets[i])
-                return i;
-        }
-        return 0;
+        int index = Array.BinarySearch(_lineOffsets, charIdx);
+        return index >= 0 ? index : Math.Max(0, ~index - 1);
     }
 
     private int GetCharIndexAtPosition(float lx, float ly)
@@ -765,24 +962,11 @@ public class LogView : Element
 
         if (_lines.Length == 0) return 0;
 
-        float textX = lx - Padding;
+        float textX = lx - Padding + _scrollX;
         if (textX <= 0) return _lineOffsets[line];
 
-        string lineText = _lines[line];
-        if (string.IsNullOrEmpty(lineText)) return _lineOffsets[line];
-
-        // Binary-ish search for character position
-        float prevWidth = 0;
-        var boundaries = StringInfo.ParseCombiningCharacters(lineText);
-        for (int cluster = 0; cluster < boundaries.Length; cluster++)
-        {
-            int i = cluster + 1 < boundaries.Length ? boundaries[cluster + 1] : lineText.Length;
-            float width = MeasureTextWidth(lineText[..i]);
-            float midpoint = (prevWidth + width) / 2f;
-            if (textX < midpoint) return _lineOffsets[line] + boundaries[cluster];
-            prevWidth = width;
-        }
-        return _lineOffsets[line] + lineText.Length;
+        EnsureLineLayouts();
+        return _lineOffsets[line] + _lineLayouts[line].HitTest(textX);
     }
 
     private string GetSelectedText()
@@ -821,6 +1005,7 @@ public class LogView : Element
         _lineHeight = _effectiveFontSize * 1.35f;
         if (_lineHeight != oldLineHeight)
         {
+            InvalidateLineLayouts();
             _scrollY = oldLineHeight > 0 ? _scrollY / oldLineHeight * _lineHeight : 0;
             _totalContentHeight = _lines.Length * _lineHeight;
             RebuildLineTexts();
