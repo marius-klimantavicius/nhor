@@ -65,12 +65,18 @@ public class LogViewSnapshotTests(ITestOutputHelper output)
         var measure = Text.Gen();
         try
         {
-            measure.SetFont(font); measure.SetFontSize(16);
+            measure.SetFont(font);
+            measure.SetFontSize((float)typeof(LogView).GetField("_effectiveFontSize", Private)!.GetValue(log)!);
             var boundaries = StringInfo.ParseCombiningCharacters(log.Text).Append(log.Text.Length).ToArray();
+            float previousWidth = 0;
             for (int i = 1; i < boundaries.Length; i++)
             {
                 measure.SetText(log.Text[..boundaries[i]]); measure.GetTextSize(out float width, out _);
-                Assert.Equal(boundaries[i], Hit(log, 8 + width - .1f, 18));
+                // Missing/zero-advance glyphs can share the same visible caret.
+                // A pointer cannot distinguish two carets at the same position.
+                if (width > previousWidth + .2f)
+                    Assert.Equal(boundaries[i], Hit(log, 8 + width - .1f, 18));
+                previousWidth = width;
             }
         }
         finally { measure.Unref(); }
