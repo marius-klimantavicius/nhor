@@ -42,7 +42,8 @@ public class ModalFirstFrameTests
         Assert.Equal("Marius", editor.Text);
         Assert.True(Ink(ModalScenarioInputTests.Absolute(editor)) > 60, "Current text and caret must paint in the initial editor frame.");
         Assert.True(Ink(ModalScenarioInputTests.Absolute(save)) > 25, "Save action text must paint in the initial footer frame.");
-        Assert.True(Ink(new RectF(modal.DialogBounds.X + 12, modal.DialogBounds.Y + 12, 180, 36)) > 60, "The title must paint in the first modal frame.");
+        var title = ModalScenarioInputTests.Walk(modal.ModalRoot).OfType<Label>().Single(l => l.Text == "Edit profile");
+        Assert.True(Ink(ModalScenarioInputTests.Absolute(title)) > 60, "The complete centered title must paint in the first modal frame.");
         var viewport = editor.Parent!; while (viewport is not ScrollPanel) viewport = viewport.Parent!;
         Assert.Equal(0, ((ScrollPanel)viewport).Scroll);
     });

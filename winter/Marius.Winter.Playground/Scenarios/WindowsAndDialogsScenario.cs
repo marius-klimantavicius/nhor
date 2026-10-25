@@ -43,8 +43,8 @@ public sealed class WindowsAndDialogsScenario : IDisposable
         actions.AddChild(Action("Reset", Reset)); _root.AddChild(actions);
         _root.AddChild(_backdrop); _root.AddChild(_profile); _root.AddChild(_result);
         var view = Row();
-        view.AddChild(Action("Light", () => window.Theme = Theme.Light));
-        view.AddChild(Action("Dark", () => window.Theme = Theme.Dark));
+        view.AddChild(Action("Light", () => SetTheme(false)));
+        view.AddChild(Action("Dark", () => SetTheme(true)));
         view.AddChild(Action("Larger text", () => { _large = !_large; SetSize(); })); _root.AddChild(view);
         _backdrop.Changed = value => { if (_modal != null) _modal.CloseOnBackdrop = value; };
         window.Closing += Closing;
@@ -100,6 +100,7 @@ public sealed class WindowsAndDialogsScenario : IDisposable
         Update();
     }
     private void Update() => _profile.Text = $"Profile: {_savedName} · Background counter: {_counter}";
+    private void SetTheme(bool dark) { _window.Theme = dark ? Theme.Dark : Theme.Light; SetSize(); }
     private void SetSize()
     {
         if (_modal == null) return;

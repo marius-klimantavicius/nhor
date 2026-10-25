@@ -22,8 +22,9 @@ public sealed class DialogResult(long sessionId, DialogCloseReason reason) : Eve
 public sealed class ModalDialog : Element
 {
     private readonly Surface _surface;
-    private readonly Panel _card, _header;
-    private readonly Label _title;
+    private readonly Card _card;
+    private readonly Header _header;
+    private readonly ClippedTitle _title;
     private readonly Button _close;
     private readonly ScrollPanel _bodyViewport, _footerViewport;
     private Element? _body, _footer;
@@ -39,11 +40,10 @@ public sealed class ModalDialog : Element
     public ModalDialog()
     {
         _surface = new Surface(this) { Background = new Color4(0, 0, 0, .48f), Padding = new Thickness(0), Focusable = true };
-        _card = new Panel { Layout = new CardLayout(this), Padding = new Thickness(0), CornerRadius = new CornerRadius(6) };
-        _header = new Panel { Layout = new FlexLayout { Gap = 8, AlignItems = Alignment.Center }, Padding = new Thickness(0) };
-        _title = new Label(_caption) { TextWrapping = ThorVG.TextWrap.Word, LayoutData = new FlexItem { Grow = 1, Shrink = 1, Basis = 0 } };
-        _close = new Button("×") { Clicked = () => _ = RequestCloseAsync(DialogCloseReason.CloseButton) };
-        _header.AddChild(_title); _header.AddChild(_close);
+        _card = new Card { Layout = new CardLayout(this), Padding = new Thickness(0) };
+        _title = new ClippedTitle(_caption) { TextWrapping = ThorVG.TextWrap.Word, CenterText = true };
+        _close = new FrameCloseButton { Clicked = () => _ = RequestCloseAsync(DialogCloseReason.CloseButton) };
+        _header = new Header(_title, _close);
         _bodyViewport = new ScrollPanel { Layout = new FillLayout(), HorizontalScroll = ScrollMode.Never, Padding = new Thickness(0) };
         _footerViewport = new ScrollPanel { Layout = new FillLayout(), HorizontalScroll = ScrollMode.Never, Padding = new Thickness(0) };
         _card.AddChild(_header); _card.AddChild(_bodyViewport); _card.AddChild(_footerViewport);
@@ -225,8 +225,6 @@ public sealed class ModalDialog : Element
         _surface.Arrange(new RectF(0, 0, w, h));
         var cw = Math.Min(Math.Max(0, Width), Math.Max(0, w - 16));
         var ch = Math.Min(Math.Max(0, Height), Math.Max(0, h - 16));
-        _card.Background = _window.Theme.WindowBackground;
-        _card.BorderColor = _window.Theme.BorderDark;
         _card.Measure(cw, ch);
         _card.Arrange(new RectF((w - cw) / 2, (h - ch) / 2, cw, ch));
     }
@@ -262,11 +260,142 @@ public sealed class ModalDialog : Element
         public Vector2 Measure(Element container, float width, float height) => container.Children.Count == 0 ? Vector2.Zero : container.Children[0].Measure(width, height);
         public void Arrange(Element container, RectF bounds) { if (container.Children.Count != 0) container.Children[0].Arrange(bounds); }
     }
+
+    private sealed class Card : Panel
+    {
+        private DialogFrame? _frame;
+        private float _headerHeight = DialogWindow.HeaderHeight;
+        private float _width = float.NaN, _height = float.NaN;
+        internal void ArrangeFrame(float headerHeight)
+        {
+            if (_width == Bounds.W && _height == Bounds.H && _headerHeight == headerHeight) return;
+            _width = Bounds.W; _height = Bounds.H; _headerHeight = headerHeight;
+            _frame?.ApplyTheme(OwnerWindow?.Theme ?? Theme.Dark, _headerHeight);
+            _frame?.Arrange(Bounds.W, Bounds.H, headerHeight);
+        }
+        protected override void OnAttached()
+        {
+            _frame ??= new DialogFrame(AddPaint);
+            OnThemeChanged();
+        }
+        protected override void OnThemeChanged()
+        {
+            _frame?.ApplyTheme(OwnerWindow?.Theme ?? Theme.Dark, _headerHeight);
+            MarkDirty();
+        }
+    }
+
+    // This is only presentation: the title never handles drag or resize input.
+    private sealed class Header : Panel
+    {
+        private const float CloseSize = 28, Edge = 2, Gap = 6;
+        private readonly ClippedTitle _title;
+        private readonly Button _close;
+        internal override bool ManagesOwnChildLayout => true;
+        internal Header(ClippedTitle title, Button close)
+        {
+            _title = title; _close = close;
+            AddChild(title); AddChild(close);
+        }
+        private float TitleInset(float width) => Math.Min(width / 2, _close.Visible ? Edge + CloseSize + Gap : 12);
+        protected override Vector2 MeasureCore(float width, float height)
+        {
+            float textWidth = Math.Max(0, width - 2 * TitleInset(width));
+            float textHeight = _title.Measure(textWidth, float.PositiveInfinity).Y;
+            // At most two lines; leave the remaining short-window space for content.
+            return new Vector2(width, Math.Max(DialogWindow.HeaderHeight, Math.Min(textHeight, _title.TwoLineHeight) + 12));
+        }
+        protected override void ArrangeCore(RectF bounds)
+        {
+            float inset = TitleInset(bounds.W), width = Math.Max(0, bounds.W - 2 * inset);
+            float height = Math.Min(Math.Max(0, bounds.H - 12), _title.Measure(width, float.PositiveInfinity).Y);
+            _title.Arrange(new RectF(inset, (bounds.H - height) / 2, width, height));
+            float size = Math.Min(CloseSize, Math.Min(bounds.W, bounds.H));
+            _close.Arrange(new RectF(Math.Max(0, bounds.W - Edge - size), (bounds.H - size) / 2, size, size));
+        }
+    }
+
+    private sealed class ClippedTitle(string text) : Label(text)
+    {
+        private ThorVG.Shape? _clip;
+        internal float TwoLineHeight
+        {
+            get
+            {
+                var measure = ThorVG.Text.Gen()!;
+                try
+                {
+                    measure.SetFont(Style.FontName);
+                    measure.SetFontSize(EffectiveFontSize(FontSize));
+                    measure.SetText("Mg\nMg");
+                    measure.GetTextSize(out _, out float height);
+                    return height;
+                }
+                finally { measure.Unref(); }
+            }
+        }
+        protected override void OnAttached()
+        {
+            base.OnAttached();
+            if (_clip != null) return;
+            _clip = ThorVG.Shape.Gen()!;
+            Scene.Clip(_clip);
+        }
+        protected override void OnSizeChanged()
+        {
+            base.OnSizeChanged();
+            UpdateClip();
+        }
+        protected override void OnPositionChanged() => UpdateClip();
+        private void UpdateClip()
+        {
+            _clip?.ResetShape();
+            _clip?.AppendRect(Bounds.X, Bounds.Y, Bounds.W, Bounds.H, 0, 0);
+            Scene.pImpl.Mark(ThorVG.RenderUpdateFlag.Clip | ThorVG.RenderUpdateFlag.Transform);
+        }
+    }
+
+    private sealed class FrameCloseButton : Button
+    {
+        private ThorVG.Shape? _cross, _feedback;
+        protected override void OnAttached()
+        {
+            if (_cross != null) return;
+            _feedback = ThorVG.Shape.Gen()!; AddPaint(_feedback);
+            _cross = ThorVG.Shape.Gen()!; AddPaint(_cross);
+            _cross.StrokeWidth(1.5f);
+            _cross.StrokeCap(ThorVG.StrokeCap.Round);
+            _cross.SetFill(0, 0, 0, 0);
+            OnStateChanged(State, State);
+        }
+        protected override Vector2 MeasureCore(float width, float height) => new(28, 28);
+        protected override void OnSizeChanged()
+        {
+            if (_cross == null) return;
+            DialogFrame.DrawClose(_cross, Bounds.W / 2, Bounds.H / 2);
+            _feedback?.ResetShape();
+            _feedback?.AppendRect(1.5f, 1.5f, Math.Max(0, Bounds.W - 3), Math.Max(0, Bounds.H - 3), 4, 4);
+        }
+        protected override void OnThemeChanged() => OnStateChanged(State, State);
+        protected override void OnStateChanged(ElementState oldState, ElementState state)
+        {
+            var theme = OwnerWindow?.Theme ?? Theme.Dark;
+            var text = theme.TextColor;
+            _cross?.StrokeFill(text.R8, text.G8, text.B8, text.A8);
+            bool hover = (state & (ElementState.Hovered | ElementState.Pressed)) != 0;
+            _feedback?.SetFill(text.R8, text.G8, text.B8, (byte)(hover ? (state.HasFlag(ElementState.Pressed) ? 45 : 24) : 0));
+            var focus = Style.BorderFocused;
+            _feedback?.StrokeWidth(1);
+            _feedback?.StrokeFill(focus.R8, focus.G8, focus.B8, (byte)(state.HasFlag(ElementState.Focused) ? focus.A8 : 0));
+            MarkDirty();
+        }
+    }
+
     private sealed class CardLayout(ModalDialog owner) : ILayout
     {
         public Vector2 Measure(Element container, float width, float height)
         {
-            owner._header.Measure(Math.Max(0, width - 24), height);
+            owner._header.Measure(width, height);
             owner._bodyViewport.Measure(Math.Max(0, width - 24), height);
             owner._footerViewport.Measure(Math.Max(0, width - 24), height);
             return new Vector2(width, height);
@@ -274,10 +403,11 @@ public sealed class ModalDialog : Element
         public void Arrange(Element container, RectF bounds)
         {
             float w = Math.Max(0, bounds.W - 24), h = Math.Max(0, bounds.H - 24);
-            float header = Math.Min(h / 3, Math.Max(36, owner._header.Measure(w, h).Y));
+            float header = Math.Min(bounds.H / 3, owner._header.Measure(bounds.W, bounds.H).Y);
             float footer = owner._footer == null ? 0 : Math.Min(h / 3, Math.Max(36, owner._footer.Measure(w, h).Y));
-            owner._header.Arrange(new RectF(12, 12, w, header));
-            owner._bodyViewport.Arrange(new RectF(12, 12 + header + 8, w, Math.Max(0, h - header - footer - 16)));
+            owner._header.Arrange(new RectF(0, 0, bounds.W, header));
+            owner._card.ArrangeFrame(header);
+            owner._bodyViewport.Arrange(new RectF(12, header + 12, w, Math.Max(0, h - header - footer - 8)));
             owner._footerViewport.Arrange(new RectF(12, 12 + h - footer, w, footer));
         }
     }

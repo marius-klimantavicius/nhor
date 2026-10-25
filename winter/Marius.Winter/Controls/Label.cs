@@ -18,6 +18,9 @@ public class Label : Element
     private bool _subpixel;
     private bool _shapesCreated;
 
+    // Frame captions use centered lines without changing ordinary label layout.
+    internal bool CenterText { get; set; }
+
     public Label(string text = "")
     {
         _text = text;
@@ -33,6 +36,7 @@ public class Label : Element
             if (_textPaint != null)
             {
                 _textPaint.SetText(value);
+                if (CenterText) OnSizeChanged();
                 InvalidateMeasure();
                 MarkDirty();
             }
@@ -185,6 +189,8 @@ public class Label : Element
     {
         if (_textPaint == null || string.IsNullOrEmpty(_text)) return;
 
+        if (CenterText) _textPaint.SetAlign(.5f, 0);
+
         if (_textWrapping != TextWrap.None)
         {
             _textPaint.SetLayout(Bounds.W, Bounds.H);
@@ -200,14 +206,15 @@ public class Label : Element
         {
             m.SetFont(_bold ? "default-bold" : Style.FontName);
             m.SetFontSize(EffectiveFontSize(_fontSize));
+            if (CenterText) m.SetAlign(.5f, 0);
             if (_textWrapping != TextWrap.None)
             {
                 m.SetWrapping(_textWrapping);
                 m.SetLayout(Bounds.W, Bounds.H);
             }
             m.SetText(_text);
-            m.Bounds(out float bx, out float by, out _, out _);
-            _textScene?.Translate(-bx, -by);
+            m.Bounds(out float bx, out float by, out float bw, out _);
+            _textScene?.Translate((CenterText ? (Bounds.W - bw) / 2 : 0) - bx, -by);
         }
         finally { m.Unref(); }
     }

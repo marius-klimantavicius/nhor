@@ -10,11 +10,7 @@ namespace Marius.Winter;
 /// </summary>
 public class DialogWindow : Element, ILayoutContainer
 {
-    private Shape? _shadowShape;
-    private Shape? _backgroundShape;
-    private Shape? _borderShape;
-    private Shape? _headerShape;
-    private Shape? _headerBorder;
+    private DialogFrame? _frame;
     private Scene? _titleScene;
     private Text? _titleText;
     private Shape? _closeShape;
@@ -74,35 +70,8 @@ public class DialogWindow : Element, ILayoutContainer
             var style = Style;
             var theme = OwnerWindow?.Theme ?? Theme.Dark;
 
-            // Drop shadow
-            _shadowShape = Shape.Gen();
-            _shadowShape!.SetFill(theme.DropShadow.R8, theme.DropShadow.G8, theme.DropShadow.B8, theme.DropShadow.A8);
-            AddPaint(_shadowShape);
-
-            // Background
-            _backgroundShape = Shape.Gen();
-            var bg = theme.WindowBackground;
-            _backgroundShape!.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
-            AddPaint(_backgroundShape);
-
-            // Outer border
-            _borderShape = Shape.Gen();
-            _borderShape!.StrokeWidth(1f);
-            _borderShape.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
-            _borderShape.SetFill(0, 0, 0, 0);
-            AddPaint(_borderShape);
-
-            // Header gradient
-            _headerShape = Shape.Gen();
-            ApplyHeaderGradient(theme);
-            AddPaint(_headerShape!);
-
-            // Header border (bottom line)
-            _headerBorder = Shape.Gen();
-            _headerBorder!.StrokeWidth(1f);
-            _headerBorder.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
-            _headerBorder.SetFill(0, 0, 0, 0);
-            AddPaint(_headerBorder);
+            _frame = new DialogFrame(AddPaint);
+            _frame.ApplyTheme(theme, HeaderHeight);
 
             // Title
             _titleText = ThorVG.Text.Gen();
@@ -123,21 +92,6 @@ public class DialogWindow : Element, ILayoutContainer
             _closeShape.SetFill(0, 0, 0, 0);
             AddPaint(_closeShape);
         }
-    }
-
-    private void ApplyHeaderGradient(Theme theme)
-    {
-        if (_headerShape == null) return;
-        var grad = LinearGradient.Gen();
-        grad.Linear(0, 0, 0, HeaderHeight);
-        grad.SetColorStops(new Fill.ColorStop[]
-        {
-            new(0, theme.ButtonGradientTopFocused.R8, theme.ButtonGradientTopFocused.G8,
-                theme.ButtonGradientTopFocused.B8, theme.ButtonGradientTopFocused.A8),
-            new(1, theme.ButtonGradientBotFocused.R8, theme.ButtonGradientBotFocused.G8,
-                theme.ButtonGradientBotFocused.B8, theme.ButtonGradientBotFocused.A8)
-        }, 2);
-        _headerShape.SetFill(grad);
     }
 
     protected override Vector2 MeasureCore(float availableWidth, float availableHeight)
@@ -167,28 +121,7 @@ public class DialogWindow : Element, ILayoutContainer
     protected override void OnSizeChanged()
     {
         float w = Bounds.W, h = Bounds.H;
-        float cr = 6;
-
-        // Shadow (offset by 2px)
-        _shadowShape?.ResetShape();
-        _shadowShape?.AppendRect(2, 2, w, h, cr, cr);
-
-        // Background
-        _backgroundShape?.ResetShape();
-        _backgroundShape?.AppendRect(0, 0, w, h, cr, cr);
-
-        // Outer border
-        _borderShape?.ResetShape();
-        _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, cr, cr);
-
-        // Header
-        _headerShape?.ResetShape();
-        _headerShape?.AppendRect(1, 1, w - 2, HeaderHeight - 1, cr - 1, cr - 1);
-
-        // Header bottom border
-        _headerBorder?.ResetShape();
-        _headerBorder?.MoveTo(0, HeaderHeight);
-        _headerBorder?.LineTo(w, HeaderHeight);
+        _frame?.Arrange(w, h, HeaderHeight);
 
         CenterTitle();
         UpdateCloseButton();
@@ -227,14 +160,9 @@ public class DialogWindow : Element, ILayoutContainer
     private void UpdateCloseButton()
     {
         if (_closeShape == null) return;
-        _closeShape.ResetShape();
         float cx = Bounds.W - CloseButtonMargin - CloseButtonSize / 2f;
         float cy = HeaderHeight / 2f;
-        float half = CloseButtonSize / 2f - 2f;
-        _closeShape.MoveTo(cx - half, cy - half);
-        _closeShape.LineTo(cx + half, cy + half);
-        _closeShape.MoveTo(cx + half, cy - half);
-        _closeShape.LineTo(cx - half, cy + half);
+        DialogFrame.DrawClose(_closeShape, cx, cy);
     }
 
     private bool HitCloseButton(float lx, float ly)
@@ -406,12 +334,7 @@ public class DialogWindow : Element, ILayoutContainer
     {
         if (!_shapesCreated) return;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
-        _shadowShape?.SetFill(theme.DropShadow.R8, theme.DropShadow.G8, theme.DropShadow.B8, theme.DropShadow.A8);
-        var bg = theme.WindowBackground;
-        _backgroundShape?.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
-        _borderShape?.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
-        ApplyHeaderGradient(theme);
-        _headerBorder?.StrokeFill(theme.BorderDark.R8, theme.BorderDark.G8, theme.BorderDark.B8, theme.BorderDark.A8);
+        _frame?.ApplyTheme(theme, HeaderHeight);
         _titleText?.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8);
         _closeShape?.StrokeFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, theme.TextColor.A8);
         MarkDirty();

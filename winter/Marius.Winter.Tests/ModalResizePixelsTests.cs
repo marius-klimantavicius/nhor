@@ -40,7 +40,7 @@ public class ModalResizePixelsTests
                 var tag = $"resize-{razor}-{backend}-{dark}";
                 await Task.Delay(170); x.Focus(); x.Key(0xff09); x.Key(0xff0d); await Task.Delay(80);
                 ModalDialog modal = null!; Label title = null!; Button save = null!, cancel = null!;
-                RectF titleBig = default, saveBig = default, cancelBig = default;
+                RectF titleBig = default, cardBig = default, saveBig = default, cancelBig = default;
                 await window.Dispatcher.InvokeAsync(() =>
                 {
                     modal = ModalScenarioInputTests.Walk(window).OfType<ModalDialog>().Single();
@@ -48,21 +48,27 @@ public class ModalResizePixelsTests
                     title = elements.OfType<Label>().Single(l => l.Text == "Edit profile");
                     save = elements.OfType<Button>().Single(b => b.Text == "Save"); cancel = elements.OfType<Button>().Single(b => b.Text == "Cancel");
                     titleBig = ModalScenarioInputTests.Absolute(title); saveBig = ModalScenarioInputTests.Absolute(save); cancelBig = ModalScenarioInputTests.Absolute(cancel);
+                    cardBig = modal.DialogBounds;
                 });
                 var baseline = screen.Read(800, 620);
                 int titleInk = baseline.Ink(titleBig, theme.WindowBackground), saveInk = baseline.Ink(saveBig, theme.WindowBackground), cancelInk = baseline.Ink(cancelBig, theme.WindowBackground);
                 Assert.True(titleInk > 80 && saveInk > 30 && cancelInk > 30, "The large-frame reference must contain actual title and action glyphs.");
+                // Translate the observed title slot into the centered 324-wide
+                // card. Font and caption are unchanged, so its complete glyph
+                // count must survive the real resize without a layout post.
+                float titleInset = titleBig.X - cardBig.X;
+                var titleSmall = new RectF(8 + titleInset, 8 + titleBig.Y - cardBig.Y, 324 - 2 * titleInset, titleBig.H);
                 x.Resize(340, 240);
                 var pending = screen.Read(340, 240); pending.Save(tag + "-resize-pending");
                 var ready = pending;
                 var until = DateTime.UtcNow.AddSeconds(3);
                 // Observe the actual front buffer without dispatcher posts, extra
                 // drawing, input or dirty mutations that could manufacture a redraw.
-                while ((!ready.HasCardAtLeftMargin(theme.WindowBackground) || ready.Ink(new RectF(20, 18, 220, 42), theme.WindowBackground) < titleInk * .80) && DateTime.UtcNow < until)
+                while ((!ready.HasCardAtLeftMargin(theme.WindowBackground) || ready.Ink(titleSmall, theme.WindowBackground) < titleInk * .80) && DateTime.UtcNow < until)
                 { await Task.Delay(25); ready = screen.Read(340, 240); }
                 ready.Save(tag + "-settled");
                 Assert.True(ready.HasCardAtLeftMargin(theme.WindowBackground), "Settled pixels must place the card at the new eight-unit margin, not the old 800-wide center.");
-                Assert.True(ready.Ink(new RectF(20, 18, 220, 42), theme.WindowBackground) >= titleInk * .80, "The complete title must be visibly painted near the new top-left card header.");
+                Assert.True(ready.Ink(titleSmall, theme.WindowBackground) >= titleInk * .80, "The complete title must be visibly painted in the new centered header.");
                 RectF saveSmall = default, cancelSmall = default;
                 await window.Dispatcher.InvokeAsync(() =>
                 {
@@ -76,7 +82,7 @@ public class ModalResizePixelsTests
                 await Task.Delay(350);
                 var later = screen.Read(340, 240); later.Save(tag + "-later");
                 Assert.True(later.HasCardAtLeftMargin(theme.WindowBackground));
-                Assert.True(later.Ink(new RectF(20, 18, 220, 42), theme.WindowBackground) >= titleInk * .80);
+                Assert.True(later.Ink(titleSmall, theme.WindowBackground) >= titleInk * .80);
                 Assert.True(later.Ink(saveSmall, theme.WindowBackground) >= saveInk * .80);
                 Assert.True(later.Ink(cancelSmall, theme.WindowBackground) >= cancelInk * .80);
                 x.CloseNormally();
@@ -122,7 +128,9 @@ public class ModalResizePixelsTests
             // Bound its actual composite over the .48-black backdrop; do not
             // mistake that valid composite for the uncomposited source RGB.
             bool Channel(byte pixel, byte source) => pixel >= source * color.A - 3 && pixel <= source * color.A + 255 * .52f * (1 - color.A) + 3;
-            foreach (int y in new[] { 16, 45, 80, 140, 200 })
+            // The full-width gradient now occupies the top of the card. Sample
+            // only the flat body/footer padding when locating the resized card.
+            foreach (int y in new[] { 68, 100, 140, 180, 200 })
             {
                 int at = y * Stride + 16 * 4;
                 if (!Channel(Bytes[at + 2], color.R8) || !Channel(Bytes[at + 1], color.G8) || !Channel(Bytes[at], color.B8)) return false;
