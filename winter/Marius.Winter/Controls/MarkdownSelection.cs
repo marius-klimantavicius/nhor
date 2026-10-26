@@ -35,7 +35,9 @@ internal sealed class MarkdownGlyphs
     }
 }
 
-internal sealed record MarkdownRange(RectF Bounds, int Start, int End, MarkdownGlyphs Glyphs, int[] Offsets, int Line)
+// Inline images have their own baseline-aligned Bounds.Y. LineTop is the
+// shared flow-line origin, including image-only lines in parallel table cells.
+internal sealed record MarkdownRange(RectF Bounds, int Start, int End, MarkdownGlyphs Glyphs, int[] Offsets, int Line, float LineTop)
 {
     internal int HitTest(float x) => Offsets[Glyphs.HitTest(x - Bounds.X)];
     internal float X(int position)
@@ -92,15 +94,23 @@ internal sealed class MarkdownSelectionLayout
     }
     internal int Adjacent(MarkdownRange current, float x, bool down, out bool upstream)
     {
+        float targetTop = down ? float.PositiveInfinity : float.NegativeInfinity;
+        foreach (var range in Ranges)
+        {
+            if (range.Line == current.Line) continue;
+            if (down ? range.LineTop > current.LineTop + .1f && range.LineTop < targetTop
+                : range.LineTop < current.LineTop - .1f && range.LineTop > targetTop)
+                targetTop = range.LineTop;
+        }
+        // Choose the visual row before hit-testing x. Cell-local line IDs may
+        // share a row, and an image's individual top never creates a new row.
         MarkdownRange? target = null;
         float distance = float.MaxValue;
         foreach (var range in Ranges)
         {
-            if (down ? range.Bounds.Y <= current.Bounds.Y + .1f : range.Bounds.Y >= current.Bounds.Y - .1f) continue;
-            float dy = Math.Abs(range.Bounds.Y - current.Bounds.Y);
+            if (Math.Abs(range.LineTop - targetTop) > .1f) continue;
             float dx = x < range.Bounds.X ? range.Bounds.X - x : x > range.Bounds.Right ? x - range.Bounds.Right : 0;
-            float candidate = dy * 100000 + dx;
-            if (candidate < distance) { distance = candidate; target = range; }
+            if (dx < distance) { distance = dx; target = range; }
         }
         int position = target?.HitTest(x) ?? (down ? Ranges[^1].End : Ranges[0].Start);
         upstream = target != null && position == target.End;

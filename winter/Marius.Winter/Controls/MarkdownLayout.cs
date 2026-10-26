@@ -72,7 +72,7 @@ internal sealed class MarkdownLayout
             if (text.Length > 0) _layout.Drawings.Add(new(MarkdownDrawingKind.Text, bounds, text, font, span, baseline));
             if (start < 0) return;
             mapping ??= Enumerable.Range(start, text.Length + 1).ToArray();
-            _layout.Selection.Ranges.Add(new(bounds, start, mapping[^1], glyphs, mapping, _line));
+            _layout.Selection.Ranges.Add(new(bounds, start, mapping[^1], glyphs, mapping, _line, bounds.Y));
         }
 
         public MarkdownLayout Build(MarkdownContent content)
@@ -234,7 +234,7 @@ internal sealed class MarkdownLayout
                         {
                             var glyphs = new MarkdownGlyphs(piece.Span.Text, offset => runWidth * offset / piece.Span.Text.Length);
                             _layout.Selection.Ranges.Add(new(bounds, piece.Start, piece.Start + piece.Span.Text.Length, glyphs,
-                                Enumerable.Range(piece.Start, piece.Span.Text.Length + 1).ToArray(), _line));
+                                Enumerable.Range(piece.Start, piece.Span.Text.Length + 1).ToArray(), _line, y));
                         }
                     }
                     x += runWidth;

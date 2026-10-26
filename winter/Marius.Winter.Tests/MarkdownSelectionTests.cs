@@ -12,6 +12,82 @@ public class MarkdownSelectionTests
     private static MarkdownLayout Layout(MarkdownView view) => (MarkdownLayout)typeof(MarkdownView)
         .GetField("_layout", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(view)!;
 
+    private static MarkdownImage Icon(int height = 8) => new(System.Text.Encoding.UTF8.GetBytes(
+        $"<svg xmlns='http://www.w3.org/2000/svg' width='8' height='{height}'><rect width='8' height='{height}' fill='#2288cc'/></svg>"), "svg");
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public void VerticalNavigationUsesTheWholeInlineImageLine(bool down, bool extend)
+    {
+        WindowRegressionOwner.Run(() =>
+        {
+            using var window = new Window(800, 600, "Inline image visual line", Theme.Light, RenderBackend.SW);
+            var view = new MarkdownView("before ![icon](asset:icon) after\\\nnext line")
+                { Bounds = new(20, 20, 500, 350), ImageResolver = _ => Icon() };
+            window.AddChild(view); WindowRegressionOwner.Flush(window);
+            Assert.Equal("before icon after\nnext line", view.Text);
+            Assert.Equal(8, Layout(view).Drawings.Single(d => d.Kind == MarkdownDrawingKind.Image).Bounds.H);
+            view.Select(down ? 0 : 18, 0);
+            view.OnKeyDown(down ? GLFW_KEY_DOWN : GLFW_KEY_UP, extend ? GLFW_MOD_SHIFT : 0, false);
+            if (extend)
+            {
+                Assert.Equal("before icon after\n", view.SelectedText);
+                view.OnKeyDown(GLFW_KEY_C, GLFW_MOD_CONTROL, false);
+                Assert.Equal("before icon after\n", Glfw.Glfw.glfwGetClipboardString(null));
+            }
+            else
+            {
+                Assert.Equal(down ? 18 : 0, view.SelectionStart);
+                Assert.Equal(0, view.SelectionLength);
+            }
+        });
+    }
+
+    [Fact]
+    public void ImageOnlyTableCellDoesNotCreateAVerticalTargetOnTheSameRow()
+    {
+        WindowRegressionOwner.Run(() =>
+        {
+            using var window = new Window(800, 600, "Image table visual lines", Theme.Light, RenderBackend.SW);
+            var view = new MarkdownView("| left | ![icon](asset:icon) |\n| --- | --- |\n| next | next |")
+                { Bounds = new(20, 20, 500, 350), ImageResolver = _ => Icon() };
+            window.AddChild(view); WindowRegressionOwner.Flush(window);
+            Assert.Equal("left\ticon\nnext\tnext", view.Text);
+            view.Select(0, 0); view.OnKeyDown(GLFW_KEY_DOWN, 0, false);
+            Assert.Equal(10, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_UP, 0, false); Assert.Equal(0, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_DOWN, GLFW_MOD_SHIFT, false);
+            Assert.Equal("left\ticon\n", view.SelectedText);
+        });
+    }
+
+    [Fact]
+    public void VerticalNavigationKeepsPreferredXAcrossWrappedTableCellsAndCodeBlankLines()
+    {
+        WindowRegressionOwner.Run(() =>
+        {
+            using var window = new Window(800, 600, "Wrapped table navigation", Theme.Light, RenderBackend.SW);
+            const string cell = "A long first cell with several words";
+            var view = new MarkdownView($"| {cell} | {cell} |\n| --- | --- |\n| bottom left | bottom right |") { Bounds = new(20, 20, 260, 350) };
+            window.AddChild(view); WindowRegressionOwner.Flush(window);
+            view.Select(0, 0); view.OnKeyDown(GLFW_KEY_DOWN, 0, false);
+            Assert.Equal(13, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_UP, 0, false); Assert.Equal(0, view.SelectionStart);
+            int right = cell.Length + 1;
+            view.Select(right, 0); view.OnKeyDown(GLFW_KEY_DOWN, 0, false);
+            Assert.Equal(right + 13, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_UP, GLFW_MOD_SHIFT, false);
+            Assert.Equal("A long first ", view.SelectedText);
+            view.Markdown = "```\nfirst\n\nlast\n```";
+            view.Select(0, 0); view.OnKeyDown(GLFW_KEY_DOWN, 0, false); Assert.Equal(6, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_DOWN, 0, false); Assert.Equal(7, view.SelectionStart);
+            view.OnKeyDown(GLFW_KEY_UP, GLFW_MOD_SHIFT, false); Assert.Equal("\n", view.SelectedText);
+        });
+    }
+
     [Fact]
     public void ProjectionSeparatorsDecorationsAndAltTextStayStableAcrossWrapping()
     {
