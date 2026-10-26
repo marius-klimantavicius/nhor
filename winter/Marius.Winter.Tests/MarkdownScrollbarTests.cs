@@ -129,6 +129,49 @@ public class MarkdownScrollbarTests
     });
 
     [Fact]
+    public void HeightOnlyGrowthClampsBeforePaintingAndNextWheelKeepsItsNormalStep() => WindowRegressionOwner.Run(() =>
+    {
+        using var window = new Window(800, 600, "Markdown height-only resize", Theme.Light, RenderBackend.SW);
+        var view = Attach(window); view.Select(0, 8); view.ScrollTo(80, float.MaxValue);
+        string selection = view.SelectedText;
+        var layout = typeof(MarkdownView).GetField("_layout", Private)!.GetValue(view);
+        float oldMaximum = view.ScrollOffset.Y;
+        var thumb = Thumb(view, false);
+        AtTrack(window, view, false, thumb.Y + thumb.H / 2); Press(window);
+
+        // Use the actual size-change path, retaining width so layout stays cached.
+        view.Bounds = new(view.Bounds.X, view.Bounds.Y, view.Bounds.W, view.Bounds.H + 140);
+        float maximum = Math.Max(0, view.ContentSize.Y - Page(view, false));
+        Assert.Equal(oldMaximum - 140, maximum, 3);
+        Assert.Equal(maximum, view.ScrollOffset.Y, 3);
+        Assert.Equal(80, view.ScrollOffset.X);
+        Assert.Same(layout, typeof(MarkdownView).GetField("_layout", Private)!.GetValue(view));
+        var trackPaint = (Shape)typeof(MarkdownView).GetField("_vTrack", Private)!.GetValue(view)!;
+        trackPaint.Bounds(out float x, out float y, out float w, out float h);
+        view.WindowToLocal(x, y, out x, out y);
+        var track = new RectF(x, y, w, h);
+        thumb = Thumb(view, false);
+        Assert.InRange(thumb.Y, track.Y, track.Bottom);
+        Assert.InRange(thumb.Bottom, track.Y, track.Bottom);
+        Assert.Equal(track.Bottom, thumb.Bottom, 3);
+
+        // Height-only resize also cancels the captured thumb's old geometry.
+        Move(window, 730, 510); Release(window); window.Animator.Tick(.1f);
+        Assert.Equal(maximum, view.ScrollOffset.Y, 3);
+        Assert.Equal(selection, view.SelectedText); Assert.Equal(8, view.SelectionLength);
+        Assert.False(window.Animator.HasActiveAnimations);
+        AtTrack(window, view, false, track.Y + 20);
+        var native = window.GlfwWindow!;
+        native.Callbacks.Scroll!(native, 0, 1);
+        Assert.Equal(maximum - view.FontSize * 3, view.ScrollOffset.Y, 3);
+        var afterWheel = Thumb(view, false);
+        Assert.InRange(afterWheel.Y, track.Y, track.Bottom);
+        Assert.True(afterWheel.Y < thumb.Y); Assert.True(afterWheel.Bottom < track.Bottom);
+        Assert.Equal(80, view.ScrollOffset.X); Assert.Equal(selection, view.SelectedText);
+        Assert.Same(layout, typeof(MarkdownView).GetField("_layout", Private)!.GetValue(view));
+    });
+
+    [Fact]
     public void ChangedScrollbarGeometryCancelsHeldThumbAndTinyTracksContainTheirThumbs() => WindowRegressionOwner.Run(() =>
     {
         using var window = new Window(800, 600, "Markdown changing geometry", Theme.Light, RenderBackend.SW);

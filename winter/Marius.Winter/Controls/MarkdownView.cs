@@ -268,7 +268,7 @@ public class MarkdownView : Element
         EnsureLayout(Math.Max(1, width - Padding * 2 - Bar));
         return new(width, Math.Min(float.IsFinite(availableHeight) ? availableHeight : 360, _layout!.Height + Padding * 2 + Bar));
     }
-    protected override void OnSizeChanged() { _dragAxis = 0; if (_ready) { EnsureLayout(); Render(); } }
+    protected override void OnSizeChanged() { _dragAxis = 0; if (_ready) { EnsureLayout(); ClampScroll(); Render(); } }
     protected override void ArrangeCore(RectF finalBounds) { if (_ready) { EnsureLayout(); Render(); } }
     protected override void OnThemeChanged() { ClearFonts(); InvalidateLayout(); }
     protected override void OnDetaching()
