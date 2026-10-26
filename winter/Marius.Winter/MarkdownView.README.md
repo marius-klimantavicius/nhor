@@ -33,6 +33,12 @@ style font and foreground; bold and code use Winter's embedded bold and monospac
 fonts. Theme changes and width/font changes invalidate layout without reparsing.
 Use `ContentSize`, `ScrollOffset`, `ScrollTo(x, y)` and `Focus()` as needed.
 
+`Text` is the cached rendered plain-text projection. `SelectionStart`,
+`SelectionLength` and `SelectedText` describe a range in that text using UTF-16
+offsets. `Select(start, length)` expands nonempty ranges to whole graphemes; a
+zero-length range floors to a legal caret. `SelectAll()` selects rendered text;
+`ClearSelection()` collapses the range at its active end.
+
 ## WinterBlazor
 
 ```razor
@@ -58,7 +64,10 @@ Parameters are `Markdown`, nullable `FontSize`, `ImageResolver` and
 `EventCallback<string> LinkClicked`, plus standard Winter component sizing,
 visibility and layout parameters. Replacing/clearing the callback, font or
 resolver takes effect on rerender. `@ref` exposes `Focus()`, `ScrollTo()` and
-`ReloadImages()`. Pending native link events expire when their source/callback
+`ReloadImages()`, plus the same `Text`, selection properties and
+`Select()`, `SelectAll()`, `ClearSelection()` methods. Native input, highlights
+and clipboard behavior are shared by both consumers.
+Pending native link events expire when their source/callback
 changes or their owner is hidden, disabled, detached or disposed.
 
 ## Dialect and interaction
@@ -77,14 +86,45 @@ are display-only. Syntax highlighting, HTML interpretation, math/diagrams,
 footnotes, media playback and other optional Markdig extensions are excluded.
 Winter's existing font/shaping/glyph-coverage limits apply.
 
-Click/release a link to invoke the callback. Tab/Shift+Tab focus the viewer through
-Winter's usual focus traversal; Left/Right move among link occurrences, Enter or
-Space activates one, and Ctrl+Home/End picks the first/last link and reveals it.
-Up/Down, PageUp/PageDown, Home/End and wheel scroll vertically; Shift+wheel or the
-horizontal scrollbar scroll wide code/tables. Focused links are clipped with the
-document. Ctrl+A then Ctrl+C copies the **original Markdown source**; the context
-menu offers the same whole-document operation. Arbitrary text-range selection or
-copying a formatting-free rendered text range is not implemented.
+Drag across styled runs, wrapped lines or blocks to select rendered text. Dragging
+outside the viewport scrolls vertically and horizontally, including wide code and
+tables. Shift+click extends from the anchor. Left/Right move by graphemes;
+Ctrl+Left/Right move by words; Up/Down retain the preferred horizontal position.
+Home/End use the visual line, Ctrl+Home/End use the document. Shift extends these
+movements. PageUp/PageDown and wheel scroll; Shift+PageUp/PageDown extends to the
+viewport edge. Shift+wheel and the horizontal scrollbar scroll wide code/tables.
+Highlights and carets use cached glyph advances and are clipped with the document.
+
+Ctrl+A selects all **rendered text**. Ctrl+C and the context menu's **Copy** action
+copy the selected plain-text range. **Copy Markdown source** is a separate explicit
+context action and does not change the selection. Copy without a range leaves the
+clipboard alone. The viewer remains read-only.
+
+Tab/Shift+Tab use Winter's usual control focus traversal. On initial viewer focus,
+the first link can be activated with Enter/Space. Alt+Left/Right moves among link
+occurrences; Alt+Home/End picks the first/last link and reveals it. Text movement
+returns to caret navigation; Alt link navigation preserves the range. A click and
+release invokes a link; moving at least three logical pixels while pressed
+suppresses activation, including when dragged back to the original link.
+
+The projection joins paragraphs/headings/blocks with blank lines, list items with
+newlines, table cells with tabs and table rows with newlines. Soft breaks are
+spaces and hard breaks are newlines. Visual wrapping never adds characters. Code
+preserves spaces, tabs and blank lines even though visual tabs expand to
+four-column stops. Generated bullet/number labels, task boxes, quote bars and
+rules contribute no text. Images contribute only their alt text, whether resolved
+or shown as a placeholder; the generated `[image: …]` decoration is excluded.
+Resolved images map their alt range across the image rectangle; placeholders
+highlight the alt label itself.
+Literal HTML remains literal text. Style delimiters and link URLs are not added
+to copied labels.
+
+Equal source assignments preserve state. Source replacement clears selection,
+caret, drag, scroll and link focus before rebuilding. Width, scroll, theme, font
+size, resolver changes and `ReloadImages()` preserve projection offsets and
+rebuild geometry as needed. Detach/readd clears selection and cancels
+drag/autoscroll; disposal releases all caches. Blur, hiding or disabling cancels
+input/autoscroll while retaining the range.
 
 ## Images, ownership and cost
 
@@ -103,16 +143,22 @@ width while preserving aspect ratio. Large or untrusted image budgets belong to
 the application resolver, as with Winter's `Image` control.
 
 The parsed model and full block layout are retained; only visible drawing commands
-get native paints. Text measurements are cached per layout, and overlong words
-split on graphemes with linear work rather than repeated prefix measurement.
-Scrolling does not parse or measure text. Source replacement, detachment and
-disposal release image/font/paint caches. There is no arbitrary document-length
+get native paints. Text measurements and range geometry are cached per layout.
+Overlong words split on graphemes with linear work rather than repeated prefix
+measurement.
+Caret advances reuse the log viewer's short scalar-pair font cache, including
+kerning, with global grapheme boundaries across inline styles. Dragging and
+scrolling do not parse or measure text. Source replacement replaces projection,
+layout and image paints; detachment and disposal release image/font/paint caches.
+There is no arbitrary document-length
 truncation. Layout still scales with the whole document; this is not an editor or
 a virtualized multi-gigabyte document system.
 
 Both playgrounds have an interactive **Markdown** scenario with the same shared
 document, an in-memory image, source/width updates, a 24-section document button
-and link destination feedback. Global theme/font controls also apply.
+and link destination feedback. **Select sample** highlights a styled range;
+**Show selection** displays its offsets and plain text. Both demos explain drag,
+keyboard selection and rendered copy. Global theme/font controls also apply.
 
 ## Dependency
 

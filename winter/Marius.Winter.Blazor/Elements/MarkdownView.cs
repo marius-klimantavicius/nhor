@@ -17,6 +17,13 @@ public class MarkdownView : WinterComponentBase
     public void Focus() => Control?.Focus();
     public void ScrollTo(float x, float y) => Control?.ScrollTo(x, y);
     public void ReloadImages() => Control?.ReloadImages();
+    public string Text => Control?.Text ?? "";
+    public int SelectionStart => Control?.SelectionStart ?? 0;
+    public int SelectionLength => Control?.SelectionLength ?? 0;
+    public string SelectedText => Control?.SelectedText ?? "";
+    public void Select(int start, int length) => Control?.Select(start, length);
+    public void SelectAll() => Control?.SelectAll();
+    public void ClearSelection() => Control?.ClearSelection();
     private sealed record Configuration(string Markdown, float? FontSize, Func<string, MarkdownImage?>? Resolver, EventCallback<string> Callback);
     private sealed record Delivery(string Destination, EventCallback<string> Callback);
     private readonly EventCallback<ChangeEventArgs> _clicked;

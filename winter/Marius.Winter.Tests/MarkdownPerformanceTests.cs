@@ -38,14 +38,29 @@ public class MarkdownPerformanceTests
             for (int i = 0; i < 20; i++) { view.ScrollTo(0, i * 120); Contracts.Draw(canvas, true); }
             var scroll = watch.Elapsed.TotalMilliseconds;
             Assert.Same(layout, Field(view, "_layout")); Assert.Same(parsed, Field(view, "_content"));
-            view.OnKeyDown(GLFW_KEY_END, 0, false);
+            view.OnKeyDown(GLFW_KEY_END, GLFW_MOD_CONTROL, false);
             Assert.True(view.ScrollOffset.Y > layout.Height - 900);
             watch.Restart(); view.Bounds = new(10, 10, 560, 800); var resize = watch.Elapsed.TotalMilliseconds;
             Assert.Same(parsed, Field(view, "_content"));
             Assert.NotSame(layout, Field(view, "_layout"));
             view.OnKeyDown(GLFW_KEY_A, GLFW_MOD_CONTROL, false); view.OnKeyDown(GLFW_KEY_C, GLFW_MOD_CONTROL, false);
-            Assert.Equal(source, Glfw.Glfw.glfwGetClipboardString(null));
-            _output.WriteLine($"Debug/SW: UTF16={source.Length}; commands={layout.Drawings.Count}; height={layout.Height:F0}; parse+layout+visible-paints={parseLayout:F2}ms; first-draw={firstDraw:F2}ms; 20 scroll+draw={scroll:F2}ms; half-width-relayout={resize:F2}ms.");
+            Assert.Equal(view.Text, Glfw.Glfw.glfwGetClipboardString(null));
+            Assert.StartsWith("Section 1\n\nWinter field notes\n\nNative Markdown for readable documents", view.SelectedText);
+            Assert.DoesNotContain("**readable documents**", view.SelectedText);
+            Assert.Same(view.SelectedText, view.SelectedText);
+            var selectedGeometry = Field(view, "_selectionRects"); view.SelectAll();
+            Assert.Same(selectedGeometry, Field(view, "_selectionRects"));
+            view.ScrollTo(0, 0);
+            var narrow = (MarkdownLayout)Field(view, "_layout")!;
+            var run = narrow.Drawings.First(d => d.Text.StartsWith("Native Markdown"));
+            float x = 10 + 12 + run.Bounds.X, y = 10 + 12 + run.Bounds.Y + run.Bounds.H / 2;
+            view.OnMouseDown(GLFW_MOUSE_BUTTON_LEFT, x, y);
+            watch.Restart();
+            for (int i = 0; i < 50; i++) view.OnMouseMove(x + 10 + i % 30 * 3, y);
+            view.OnMouseUp(GLFW_MOUSE_BUTTON_LEFT, x + 97, y);
+            double drag = watch.Elapsed.TotalMilliseconds;
+            Assert.Same(narrow, Field(view, "_layout")); Assert.Same(parsed, Field(view, "_content"));
+            _output.WriteLine($"Debug/SW: UTF16={source.Length}; commands={layout.Drawings.Count}; height={layout.Height:F0}; parse+layout+visible-paints={parseLayout:F2}ms; first-draw={firstDraw:F2}ms; 20 scroll+draw={scroll:F2}ms; half-width-relayout={resize:F2}ms; 50 cached drag updates={drag:F2}ms.");
         });
     }
 }

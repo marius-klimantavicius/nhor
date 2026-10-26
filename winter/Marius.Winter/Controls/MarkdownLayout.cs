@@ -15,11 +15,13 @@ internal sealed record MarkdownDrawing(MarkdownDrawingKind Kind, RectF Bounds, s
 internal sealed class MarkdownLayout
 {
     public List<MarkdownDrawing> Drawings { get; } = new();
+    internal MarkdownSelectionLayout Selection { get; } = new();
     public float Width { get; private set; }
     public float Height { get; private set; }
     public static MarkdownLayout Build(MarkdownContent content, float width, float fontSize,
-        Func<string, MarkdownFont, MarkdownTextMetrics> measure, IReadOnlyDictionary<string, Vector2>? images = null)
-        => new Builder(Math.Max(1, width), fontSize, measure, images).Build(content);
+        Func<string, MarkdownFont, MarkdownTextMetrics> measure, IReadOnlyDictionary<string, Vector2>? images = null,
+        Func<string, MarkdownFont, MarkdownGlyphs>? glyphs = null)
+        => new Builder(Math.Max(1, width), fontSize, measure, images, glyphs).Build(content);
 
     private sealed class Builder
     {
@@ -28,8 +30,50 @@ internal sealed class MarkdownLayout
         private readonly Func<string, MarkdownFont, MarkdownTextMetrics> _measure;
         private readonly IReadOnlyDictionary<string, Vector2>? _images;
         private readonly Dictionary<(string, MarkdownFont), MarkdownTextMetrics> _cache = new();
-        public Builder(float width, float size, Func<string, MarkdownFont, MarkdownTextMetrics> measure, IReadOnlyDictionary<string, Vector2>? images)
-        { _width = width; _size = size; _measure = measure; _images = images; }
+        private readonly Dictionary<(string, MarkdownFont), MarkdownGlyphs> _glyphCache = new();
+        private readonly Func<string, MarkdownFont, MarkdownGlyphs>? _glyphs;
+        private int _line;
+        public Builder(float width, float size, Func<string, MarkdownFont, MarkdownTextMetrics> measure, IReadOnlyDictionary<string, Vector2>? images,
+            Func<string, MarkdownFont, MarkdownGlyphs>? glyphs)
+        { _width = width; _size = size; _measure = measure; _images = images; _glyphs = glyphs; }
+
+        private MarkdownGlyphs Glyphs(string text, MarkdownFont font)
+        {
+            var key = (text, font);
+            if (!_glyphCache.TryGetValue(key, out var value))
+            {
+                if (_glyphs != null) value = _glyphs(text, font);
+                else
+                {
+                    // Headless/custom measurement uses short grapheme pairs.
+                    // Native layout supplies the renderer's scalar-pair cache.
+                    var offsets = StringInfo.ParseCombiningCharacters(text);
+                    var widths = new Dictionary<int, float> { [0] = 0 };
+                    float width = 0;
+                    string previous = "";
+                    for (int i = 0; i < offsets.Length; i++)
+                    {
+                        int end = i + 1 < offsets.Length ? offsets[i + 1] : text.Length;
+                        string unit = text[offsets[i]..end];
+                        width += Metrics(previous + unit, font).Width - (previous.Length == 0 ? 0 : Metrics(previous, font).Width);
+                        widths[end] = width; previous = unit;
+                    }
+                    value = new(text, offset => widths[offset]);
+                }
+                _glyphCache[key] = value;
+            }
+            return value;
+        }
+
+        private void Text(string text, MarkdownFont font, MarkdownSpan span, RectF bounds, float baseline, int start, int[]? mapping = null)
+        {
+            var glyphs = Glyphs(text, font);
+            bounds = bounds with { W = glyphs.Width };
+            if (text.Length > 0) _layout.Drawings.Add(new(MarkdownDrawingKind.Text, bounds, text, font, span, baseline));
+            if (start < 0) return;
+            mapping ??= Enumerable.Range(start, text.Length + 1).ToArray();
+            _layout.Selection.Ranges.Add(new(bounds, start, mapping[^1], glyphs, mapping, _line));
+        }
 
         public MarkdownLayout Build(MarkdownContent content)
         {
@@ -64,14 +108,17 @@ internal sealed class MarkdownLayout
                         _layout.Drawings.Add(new(MarkdownDrawingKind.CodeBackground, default));
                         float codeY = y + 10, widest = width;
                         var font = new MarkdownFont(_size * .92f, Code: true);
+                        int codeOffset = block.Spans[0].TextStart;
                         foreach (var line in block.Spans[0].Text.Split('\n'))
                         {
-                            string text = ExpandTabs(line);
+                            string text = ExpandTabs(line, codeOffset, out var mapping);
                             var metrics = Metrics(text.Length == 0 ? " " : text, font);
                             float height = Math.Max(_size * 1.45f, metrics.Ascent + metrics.Descent);
-                            if (text.Length > 0) _layout.Drawings.Add(new(MarkdownDrawingKind.Text, new(x + 10, codeY, metrics.Width, height), text, font,
-                                block.Spans[0], codeY + (height - metrics.Ascent - metrics.Descent) / 2 + metrics.Ascent));
-                            widest = Math.Max(widest, metrics.Width + 20);
+                            Text(text, font, block.Spans[0], new(x + 10, codeY, 0, height),
+                                codeY + (height - metrics.Ascent - metrics.Descent) / 2 + metrics.Ascent, codeOffset, mapping);
+                            widest = Math.Max(widest, Glyphs(text, font).Width + 20);
+                            codeOffset += line.Length + 1;
+                            _line++;
                             codeY += height;
                         }
                         _layout.Drawings[background] = new(MarkdownDrawingKind.CodeBackground, new(x, y, widest, codeY - y + 10));
@@ -137,7 +184,18 @@ internal sealed class MarkdownLayout
         }
 
         private readonly record struct Piece(string Text, MarkdownSpan Span, MarkdownFont Font, float Width, float Ascent, float Descent,
-            MarkdownDrawingKind Kind = MarkdownDrawingKind.Text, float Height = 0);
+            MarkdownDrawingKind Kind = MarkdownDrawingKind.Text, float Height = 0, int Start = -1);
+
+        private float Join(Piece a, Piece b)
+        {
+            if (!SameStyle(a, b) || a.Text.Length == 0 || b.Text.Length == 0) return 0;
+            // Only the adjoining scalars can kern. Never measure growing runs.
+            int last = a.Text.Length - 1;
+            if (char.IsLowSurrogate(a.Text[last]) && last > 0) last--;
+            int first = char.IsHighSurrogate(b.Text[0]) ? 2 : 1;
+            string left = a.Text[last..], right = b.Text[..first];
+            return Metrics(left + right, a.Font).Width - Metrics(left, a.Font).Width - Metrics(right, a.Font).Width;
+        }
 
         private float Flow(IReadOnlyList<MarkdownSpan> spans, float left, float top, float width, float size, bool bold, int alignment = -1)
         {
@@ -161,19 +219,34 @@ internal sealed class MarkdownLayout
                     float runWidth = piece.Width;
                     // Merge once per line, not repeatedly while growing an unbounded token.
                     while (i + 1 < line.Count && SameStyle(piece, line[i + 1]))
-                    { var next = line[++i]; text.Append(next.Text); runWidth += next.Width; }
-                    _layout.Drawings.Add(new(piece.Kind,
-                        new(x, piece.Kind == MarkdownDrawingKind.Image ? baseline - piece.Ascent : y, runWidth, piece.Kind == MarkdownDrawingKind.Image ? piece.Height : height),
-                        text.ToString(), piece.Font, piece.Span, baseline));
+                    { var next = line[++i]; text.Append(next.Text); }
+                    if (piece.Kind == MarkdownDrawingKind.Text)
+                    {
+                        runWidth = Glyphs(text.ToString(), piece.Font).Width;
+                        Text(text.ToString(), piece.Font, piece.Span, new(x, y, runWidth, height), baseline, piece.Start);
+                    }
+                    else
+                    {
+                        var bounds = new RectF(x, piece.Kind == MarkdownDrawingKind.Image ? baseline - piece.Ascent : y, runWidth,
+                            piece.Kind == MarkdownDrawingKind.Image ? piece.Height : height);
+                        _layout.Drawings.Add(new(piece.Kind, bounds, text.ToString(), piece.Font, piece.Span, baseline));
+                        if (piece.Kind == MarkdownDrawingKind.Image && piece.Start >= 0 && piece.Span.Text.Length > 0)
+                        {
+                            var glyphs = new MarkdownGlyphs(piece.Span.Text, offset => runWidth * offset / piece.Span.Text.Length);
+                            _layout.Selection.Ranges.Add(new(bounds, piece.Start, piece.Start + piece.Span.Text.Length, glyphs,
+                                Enumerable.Range(piece.Start, piece.Span.Text.Length + 1).ToArray(), _line));
+                        }
+                    }
                     x += runWidth;
                 }
-                y += height; line.Clear(); used = 0;
+                y += height; line.Clear(); used = 0; _line++;
             }
             void Add(Piece piece, bool whitespace = false, bool preserve = false)
             {
-                if (used + piece.Width > width && line.Count > 0) Flush();
+                float join = line.Count > 0 ? Join(line[^1], piece) : 0;
+                if (used + piece.Width + join > width && line.Count > 0) { Flush(); join = 0; }
                 if (whitespace && line.Count == 0 && !preserve) return;
-                line.Add(piece); used += piece.Width;
+                line.Add(piece); used += piece.Width + join;
             }
             void EndWord()
             {
@@ -182,21 +255,38 @@ internal sealed class MarkdownLayout
                 {
                     // Style/link boundaries are not break opportunities. Move
                     // the complete logical word before appending its fragments.
-                    if (used + wordWidth > width && line.Count > 0) Flush();
-                    line.AddRange(word); used += wordWidth;
+                    float join = line.Count > 0 ? Join(line[^1], word[0]) : 0;
+                    if (used + wordWidth + join > width && line.Count > 0) { Flush(); join = 0; }
+                    line.AddRange(word); used += wordWidth + join;
                 }
                 else
                 {
-                    // Only a genuinely overlong word falls back to graphemes.
-                    // Each fragment is visited once; no growing-prefix measures.
-                    foreach (var piece in word)
+                    // Segment the complete logical word so a style boundary
+                    // inside a combining/ZWJ cluster cannot split that cluster
+                    // across visual lines. Retain styles on its fragments.
+                    string value = string.Concat(word.Select(p => p.Text));
+                    var elements = StringInfo.GetTextElementEnumerator(value);
+                    int pieceIndex = 0, pieceOffset = 0;
+                    while (elements.MoveNext())
                     {
-                        var elements = StringInfo.GetTextElementEnumerator(piece.Text);
-                        while (elements.MoveNext())
+                        int remaining = elements.GetTextElement().Length;
+                        var cluster = new List<Piece>();
+                        float clusterWidth = 0;
+                        while (remaining > 0)
                         {
-                            string unit = elements.GetTextElement(); var m = Metrics(unit, piece.Font);
-                            Add(piece with { Text = unit, Width = m.Width, Ascent = m.Ascent, Descent = m.Descent });
+                            var piece = word[pieceIndex];
+                            int count = Math.Min(remaining, piece.Text.Length - pieceOffset);
+                            string unit = piece.Text.Substring(pieceOffset, count);
+                            var m = Metrics(unit, piece.Font);
+                            var fragment = piece with { Text = unit, Width = Glyphs(unit, piece.Font).Width,
+                                Ascent = m.Ascent, Descent = m.Descent, Start = piece.Start < 0 ? -1 : piece.Start + pieceOffset };
+                            clusterWidth += fragment.Width + (cluster.Count > 0 ? Join(cluster[^1], fragment) : 0);
+                            cluster.Add(fragment); remaining -= count; pieceOffset += count;
+                            if (pieceOffset == piece.Text.Length) { pieceIndex++; pieceOffset = 0; }
                         }
+                        float join = line.Count > 0 ? Join(line[^1], cluster[0]) : 0;
+                        if (used + clusterWidth + join > width && line.Count > 0) { Flush(); join = 0; }
+                        line.AddRange(cluster); used += clusterWidth + join;
                     }
                 }
                 word.Clear(); wordWidth = 0;
@@ -211,7 +301,7 @@ internal sealed class MarkdownLayout
                     EndWord();
                     float imageWidth = Math.Min(width, image.X);
                     float imageHeight = (float)((double)image.Y * imageWidth / image.X);
-                    Add(new("", span, font, imageWidth, imageHeight, 0, MarkdownDrawingKind.Image, imageHeight));
+                    Add(new("", span, font, imageWidth, imageHeight, 0, MarkdownDrawingKind.Image, imageHeight, span.TextStart));
                     continue;
                 }
                 if (span.Task != null)
@@ -220,20 +310,35 @@ internal sealed class MarkdownLayout
                     Add(new("", span, font, size * 1.4f, size * .8f, size * .2f, MarkdownDrawingKind.Task, size));
                     continue;
                 }
-                string value = span.Image == null ? span.Text : $"[image: {span.Text}]";
+                string value = span.Text;
+                if (span.Image != null)
+                {
+                    EndWord();
+                    var prefix = Metrics("[image: ", font);
+                    word.Add(new("[image: ", span, font, Glyphs("[image: ", font).Width, prefix.Ascent, prefix.Descent));
+                    wordWidth = word[0].Width;
+                }
                 int offset = 0;
                 while (offset < value.Length)
                 {
                     bool space = char.IsWhiteSpace(value[offset]);
                     int end = offset + 1;
                     while (end < value.Length && char.IsWhiteSpace(value[end]) == space) end++;
+                    int tokenOffset = offset;
                     string token = value[offset..end]; offset = end;
                     var metrics = Metrics(token, font);
-                    var piece = new Piece(token, span, font, metrics.Width, metrics.Ascent, metrics.Descent);
+                    var piece = new Piece(token, span, font, Glyphs(token, font).Width, metrics.Ascent, metrics.Descent,
+                        Start: span.TextStart < 0 ? -1 : span.TextStart + tokenOffset);
                     if (space)
                     { EndWord(); Add(piece, whitespace: true, preserve: span.Code); }
                     else
-                    { word.Add(piece); wordWidth += piece.Width; }
+                    { wordWidth += piece.Width + (word.Count > 0 ? Join(word[^1], piece) : 0); word.Add(piece); }
+                }
+                if (span.Image != null)
+                {
+                    var suffix = Metrics("]", font);
+                    var piece = new Piece("]", span, font, suffix.Width, suffix.Ascent, suffix.Descent);
+                    wordWidth += piece.Width; word.Add(piece); EndWord();
                 }
             }
             EndWord();
@@ -242,16 +347,23 @@ internal sealed class MarkdownLayout
         }
 
         private static bool SameStyle(Piece a, Piece b) => a.Kind == MarkdownDrawingKind.Text && b.Kind == a.Kind && a.Font == b.Font &&
-            ReferenceEquals(a.Span.LinkIdentity, b.Span.LinkIdentity) && a.Span.Link == b.Span.Link && a.Span.Image == b.Span.Image && a.Span.Task == b.Span.Task;
+            (a.Start < 0) == (b.Start < 0) && ReferenceEquals(a.Span.LinkIdentity, b.Span.LinkIdentity) &&
+            a.Span.Link == b.Span.Link && a.Span.Image == b.Span.Image && a.Span.Task == b.Span.Task;
 
-        private static string ExpandTabs(string line)
+        private static string ExpandTabs(string line, int start, out int[] mapping)
         {
-            if (!line.Contains('\t')) return line;
             var result = new StringBuilder();
+            var offsets = new List<int>();
             int column = 0;
-            foreach (char c in line)
-                if (c == '\t') { int spaces = 4 - column % 4; result.Append(' ', spaces); column += spaces; }
-                else { result.Append(c); column++; }
+            for (int i = 0; i < line.Length; i++)
+                if (line[i] == '\t')
+                {
+                    int spaces = 4 - column % 4;
+                    for (int j = 0; j < spaces; j++) { result.Append(' '); offsets.Add(start + i); }
+                    column += spaces;
+                }
+                else { result.Append(line[i]); offsets.Add(start + i); column++; }
+            offsets.Add(start + line.Length); mapping = offsets.ToArray();
             return result.ToString();
         }
     }

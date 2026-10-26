@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using Markdig;
 using Markdig.Extensions.EmphasisExtras;
 using Markdig.Extensions.Tables;
@@ -13,7 +14,10 @@ namespace Marius.Winter;
 
 internal enum MarkdownBlockKind { Paragraph, Heading, Code, Quote, List, Item, Rule, Table, Row, Cell }
 internal sealed record MarkdownSpan(string Text, TextFormat Format = TextFormat.None, bool Code = false,
-    string? Link = null, string? Image = null, bool Break = false, bool? Task = null, object? LinkIdentity = null);
+    string? Link = null, string? Image = null, bool Break = false, bool? Task = null, object? LinkIdentity = null)
+{
+    internal int TextStart { get; set; } = -1;
+}
 internal sealed record MarkdownBlock(MarkdownBlockKind Kind, IReadOnlyList<MarkdownSpan> Spans,
     IReadOnlyList<MarkdownBlock> Children, int Level = 0, string? Marker = null, int Alignment = 0);
 internal sealed class MarkdownContent
@@ -25,10 +29,42 @@ internal sealed class MarkdownContent
         .UsePipeTables(new PipeTableOptions { UseGfmRules = true })
         .UseTaskLists().UseAutoLinks().Build();
     public IReadOnlyList<MarkdownBlock> Blocks { get; private init; } = new List<MarkdownBlock>();
+    internal string Text { get; private set; } = "";
     public static MarkdownContent Parse(string source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return new() { Blocks = ConvertBlocks(Markdig.Markdown.Parse(source, Pipeline)) };
+        var content = new MarkdownContent { Blocks = ConvertBlocks(Markdig.Markdown.Parse(source, Pipeline)) };
+        var text = new StringBuilder();
+        Project(content.Blocks, text, "\n\n");
+        content.Text = text.ToString();
+        return content;
+    }
+
+    // Offsets belong to the parsed document, never to a visual line or a paint.
+    // Generated list/task decorations and rules are intentionally absent. Image
+    // alt text remains stable when the resolver changes the visual representation.
+    private static void Project(IReadOnlyList<MarkdownBlock> blocks, StringBuilder text, string separator)
+    {
+        bool previous = false;
+        foreach (var block in blocks)
+        {
+            if (block.Kind == MarkdownBlockKind.Rule) continue;
+            if (previous) text.Append(separator);
+            previous = true;
+            if (block.Kind == MarkdownBlockKind.Table)
+                Project(block.Children, text, "\n");
+            else if (block.Kind == MarkdownBlockKind.Row)
+                Project(block.Children, text, "\t");
+            else if (block.Children.Count > 0)
+                Project(block.Children, text, block.Kind == MarkdownBlockKind.List ? "\n" : "\n\n");
+            else
+                foreach (var span in block.Spans)
+                {
+                    if (span.Task != null) continue;
+                    span.TextStart = text.Length;
+                    text.Append(span.Break ? "\n" : span.Text);
+                }
+        }
     }
 
     private static IReadOnlyList<MarkdownBlock> ConvertBlocks(ContainerBlock container)
@@ -93,7 +129,12 @@ internal sealed class MarkdownContent
         {
             switch (inline)
             {
-                case LiteralInline literal: result.Add(new(literal.Content.ToString(), format, Link: link, LinkIdentity: identity)); break;
+                case LiteralInline literal:
+                    string value = literal.Content.ToString();
+                    // The checkbox reserves its own following gap in layout.
+                    // Markdig leaves the task syntax separator in this literal.
+                    if (result.Count > 0 && result[^1].Task != null) value = value.TrimStart(' ');
+                    result.Add(new(value, format, Link: link, LinkIdentity: identity)); break;
                 case HtmlEntityInline entity: result.Add(new(entity.Transcoded.ToString(), format, Link: link, LinkIdentity: identity)); break;
                 case HtmlInline html: result.Add(new(html.Tag, format, Link: link, LinkIdentity: identity)); break;
                 case CodeInline code: result.Add(new(code.Content, format, Code: true, Link: link, LinkIdentity: identity)); break;

@@ -7,19 +7,24 @@
         <FlexLayout Wrap="FlexWrap.Wrap" Gap="8" />
         <Button Text="Update Markdown" OnClick="Update" />
         <Button Text="Toggle width" OnClick="@(() => _narrow = !_narrow)" />
+        <Button Text="Show selection" OnClick="ShowSelection" />
+        <Button Text="Select sample" OnClick="SelectSample" />
         <Button Text="Long document" OnClick="LongDocument" />
         <Button Text="Reset" OnClick="Reset" />
     </Panel>
-    <MarkdownView Markdown="@_source" ImageResolver="MarkdownScenarioData.ResolveImage" LinkClicked="Clicked" MaxWidth="@(_narrow ? 460f : (float?)null)" MinHeight="180" />
+    <MarkdownView @ref="_viewer" Markdown="@_source" ImageResolver="MarkdownScenarioData.ResolveImage" LinkClicked="Clicked" MaxWidth="@(_narrow ? 460f : (float?)null)" MinHeight="180" />
     <Label Text="@_result" TextWrapping="ThorVG.TextWrap.Word" />
 </Panel>
 
 @code {
     private string _source = MarkdownScenarioData.Document;
-    private string _result = "Links stay here. Tab to the viewer; Left/Right selects a link, Enter activates it. Ctrl+A/C copies Markdown source.";
+    private Marius.Winter.Blazor.Elements.MarkdownView? _viewer;
+    private string _result = "Drag across styled text or blocks to select. Shift+arrows extends; Ctrl+A/C copies rendered text. Alt+Left/Right focuses links; Enter activates. Show selection reports your range.";
     private bool _narrow, _updated;
     private void Clicked(string destination) => _result = "Destination: " + destination;
     private void Update() { _updated = !_updated; _source = _updated ? MarkdownScenarioData.Updated : MarkdownScenarioData.Document; }
-    private void LongDocument() { _source = MarkdownScenarioData.Moderate(); _result = "24 sections loaded. Scroll or press End to reach the last section."; }
+    private void ShowSelection() => _result = $"Selected [{_viewer?.SelectionStart}, {_viewer?.SelectionLength}]: {_viewer?.SelectedText}";
+    private void SelectSample() { int start = _viewer?.Text.IndexOf("readable documents", StringComparison.Ordinal) ?? -1; if (start >= 0) { _viewer!.Select(start, 18); _viewer.ScrollTo(0, 0); _viewer.Focus(); } }
+    private void LongDocument() { _source = MarkdownScenarioData.Moderate(); _result = "24 sections loaded. Scroll or press Ctrl+End to reach the last section. Drag outside the viewport to extend selection while scrolling."; }
     private void Reset() { _source = MarkdownScenarioData.Document; _narrow = _updated = false; _result = "Reset field notes."; }
 }

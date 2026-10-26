@@ -83,7 +83,7 @@ public class MarkdownViewTests
             window.AddChild(view); WindowRegressionOwner.Flush(window);
             var clicks = new List<string>(); view.LinkClicked += clicks.Add;
             view.OnFocus(); view.OnKeyDown(GLFW_KEY_ENTER, 0, false);
-            for (int i = 0; i < 3; i++) { view.OnKeyDown(GLFW_KEY_RIGHT, 0, false); view.OnKeyDown(GLFW_KEY_ENTER, 0, false); }
+            for (int i = 0; i < 3; i++) { view.OnKeyDown(GLFW_KEY_RIGHT, GLFW_MOD_ALT, false); view.OnKeyDown(GLFW_KEY_ENTER, 0, false); }
             Assert.Equal(new[] { "action:styled", "action:same", "action:same", "action:last" }, clicks);
             Assert.Contains(Layout(view).Drawings, d => d.Text == "a");
             Assert.Contains(Layout(view).Drawings, d => d.Text == "b");
@@ -127,7 +127,7 @@ public class MarkdownViewTests
             float x = 20 + 12 + first.Bounds.X + 3, y = 20 + 12 + first.Bounds.Y + 3;
             view.OnMouseDown(GLFW_MOUSE_BUTTON_LEFT, x, y); Assert.Empty(clicks);
             view.OnMouseUp(GLFW_MOUSE_BUTTON_LEFT, x, y); Assert.Equal(new[] { "action:first" }, clicks);
-            view.OnFocus(); view.OnKeyDown(GLFW_KEY_END, GLFW_MOD_CONTROL, false);
+            view.OnFocus(); view.OnKeyDown(GLFW_KEY_END, GLFW_MOD_ALT, false);
             view.OnKeyDown(GLFW_KEY_ENTER, 0, false); Assert.Equal("action:last", clicks.Last());
             Assert.True(view.ScrollOffset.Y > 0);
             view.OnMouseDown(GLFW_MOUSE_BUTTON_LEFT, x, 0); view.OnMouseUp(GLFW_MOUSE_BUTTON_LEFT, x, 0); Assert.Equal(2, clicks.Count);

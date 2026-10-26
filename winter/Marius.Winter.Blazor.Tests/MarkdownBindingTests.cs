@@ -10,6 +10,33 @@ namespace Marius.Winter.Blazor.Tests;
 
 public class MarkdownBindingTests
 {
+    [Fact]
+    public async Task RefSelectionApiSharesNativeProjectionAndSurvivesUnrelatedDiffs()
+    {
+        using var renderer = new TestRenderer(); using var root = new Panel();
+        B.MarkdownView? reference = null;
+        RenderFragment Content(string source, float? size = null) => b =>
+        {
+            b.OpenComponent<B.MarkdownView>(0); b.AddAttribute(1, "Markdown", source); b.AddAttribute(2, "FontSize", size);
+            b.AddComponentReferenceCapture(3, value => reference = (B.MarkdownView)value); b.CloseComponent();
+        };
+        var host = await renderer.AddComponent<InputBindingTests.Host>(TestRenderer.CreateRootHandler(renderer, root),
+            new() { ["Content"] = Content("# Heading\n\nA **bold** label") });
+        var native = Assert.IsType<MarkdownView>(Assert.Single(root.Children));
+        Assert.NotNull(reference); Assert.Equal("Heading\n\nA bold label", reference.Text);
+        reference.Select(11, 4); Assert.Equal("bold", reference.SelectedText);
+        Assert.Equal(native.SelectionStart, reference.SelectionStart); Assert.Equal(native.SelectionLength, reference.SelectionLength);
+        await renderer.Dispatcher.InvokeAsync(() => host.Render(Content(native.Markdown, 24)));
+        Assert.Equal("bold", reference.SelectedText);
+        reference.ClearSelection(); Assert.Equal(0, native.SelectionLength);
+        reference.SelectAll(); Assert.Equal(reference.Text, native.SelectedText);
+        await renderer.Dispatcher.InvokeAsync(() => host.Render(Content("replacement")));
+        Assert.Equal("", reference.SelectedText); Assert.Equal(0, reference.SelectionLength);
+        await renderer.Dispatcher.InvokeAsync(() => host.Render(_ => { }));
+        Assert.Equal("", reference.Text); Assert.Equal("", reference.SelectedText);
+        reference.SelectAll(); reference.ClearSelection(); Assert.Equal(0, reference.SelectionLength);
+    }
+
     private static RenderFragment View(string source, EventCallback<string> callback, float? size = null, Func<string, MarkdownImage?>? resolver = null) => b =>
     {
         b.OpenComponent<B.MarkdownView>(0); b.AddAttribute(1, "Markdown", source);
