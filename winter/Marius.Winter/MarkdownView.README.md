@@ -93,6 +93,10 @@ Ctrl+Left/Right move by words; Up/Down retain the preferred horizontal position.
 Home/End use the visual line, Ctrl+Home/End use the document. Shift extends these
 movements. PageUp/PageDown and wheel scroll; Shift+PageUp/PageDown extends to the
 viewport edge. Shift+wheel and the horizontal scrollbar scroll wide code/tables.
+Clicking the track before or after either thumb scrolls one viewport page in that
+direction, clamped to the document ends. Only pressing the thumb starts a scrollbar
+drag; track presses preserve the text range. Resize or relayout cancels a held
+thumb gesture so its old geometry cannot move the new viewport.
 Highlights and carets use cached glyph advances and are clipped with the document.
 
 Ctrl+A selects all **rendered text**. Ctrl+C and the context menu's **Copy** action

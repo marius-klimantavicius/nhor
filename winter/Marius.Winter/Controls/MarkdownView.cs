@@ -133,6 +133,7 @@ public class MarkdownView : Element
         ThrowIfDisposed();
         float width = requestedWidth ?? Math.Max(1, Bounds.W - Padding * 2 - Bar);
         if (_layout != null && _layoutWidth == width) return;
+        _dragAxis = 0; // A thumb gesture belongs to the layout it started on.
         EnsureContent();
         if (_ready && !_imagesResolved) ResolveImages();
         _layout = MarkdownLayout.Build(_content!, width, FontSize, MeasureText, _imageSizes, _ready ? MeasureGlyphs : null);
@@ -267,7 +268,7 @@ public class MarkdownView : Element
         EnsureLayout(Math.Max(1, width - Padding * 2 - Bar));
         return new(width, Math.Min(float.IsFinite(availableHeight) ? availableHeight : 360, _layout!.Height + Padding * 2 + Bar));
     }
-    protected override void OnSizeChanged() { if (_ready) { EnsureLayout(); Render(); } }
+    protected override void OnSizeChanged() { _dragAxis = 0; if (_ready) { EnsureLayout(); Render(); } }
     protected override void ArrangeCore(RectF finalBounds) { if (_ready) { EnsureLayout(); Render(); } }
     protected override void OnThemeChanged() { ClearFonts(); InvalidateLayout(); }
     protected override void OnDetaching()
@@ -374,11 +375,13 @@ public class MarkdownView : Element
         MarkDirty();
     }
 
+    private static float ThumbLength(float viewport, float total) => Math.Min(viewport, Math.Max(20, viewport * viewport / total));
+
     private void Scrollbar(Shape track, Shape thumb, bool horizontal, Color4 color)
     {
         float viewport = horizontal ? ViewWidth : ViewHeight, total = horizontal ? _layout!.Width : _layout!.Height;
         bool visible = total > viewport; track.Visible(visible); thumb.Visible(visible); if (!visible) return;
-        float length = Math.Max(20, viewport * viewport / total), scroll = horizontal ? _scrollX : _scrollY;
+        float length = ThumbLength(viewport, total), scroll = horizontal ? _scrollX : _scrollY;
         float offset = scroll / (total - viewport) * (viewport - length);
         Rect(track, horizontal ? new(Padding, Bounds.H - Bar, viewport, 6) : new(Bounds.W - Bar, Padding, 6, viewport), new Color4(color.R, color.G, color.B, .2f));
         Rect(thumb, horizontal ? new(Padding + offset, Bounds.H - Bar, length, 6) : new(Bounds.W - Bar, Padding + offset, 6, length), color);
@@ -398,10 +401,23 @@ public class MarkdownView : Element
         EnsureLayout(); WindowToLocal(x, y, out var lx, out var ly);
         if (lx < 0 || ly < 0 || lx > Bounds.W || ly > Bounds.H) return false;
         CancelDrag(); Focus();
-        if (lx >= Bounds.W - Bar && _layout!.Height > ViewHeight) _dragAxis = 1;
-        else if (ly >= Bounds.H - Bar && _layout!.Width > ViewWidth) _dragAxis = 2;
-        if (_dragAxis != 0)
-        { _dragStart = _dragAxis == 1 ? y : x; _dragScroll = _dragAxis == 1 ? _scrollY : _scrollX; return true; }
+        int axis = lx >= Bounds.W - Bar && ly >= Padding && ly <= Padding + ViewHeight && _layout!.Height > ViewHeight ? 1
+            : ly >= Bounds.H - Bar && lx >= Padding && lx <= Padding + ViewWidth && _layout!.Width > ViewWidth ? 2 : 0;
+        if (axis != 0)
+        {
+            bool horizontal = axis == 2;
+            float viewport = horizontal ? ViewWidth : ViewHeight, total = horizontal ? _layout!.Width : _layout!.Height;
+            float scroll = horizontal ? _scrollX : _scrollY, pointer = horizontal ? lx : ly;
+            float length = ThumbLength(viewport, total), start = Padding + scroll / (total - viewport) * (viewport - length);
+            if (pointer < start || pointer > start + length)
+            {
+                float value = scroll + (pointer < start ? -viewport : viewport);
+                ScrollTo(horizontal ? value : _scrollX, horizontal ? _scrollY : value);
+            }
+            else
+            { _dragAxis = axis; _dragStart = horizontal ? x : y; _dragScroll = scroll; }
+            return true;
+        }
         if (lx < Padding || ly < Padding || lx > Padding + ViewWidth || ly > Padding + ViewHeight) return true;
         _pressedLink = LinkAt(x, y); _focusedLink = _pressedLink;
         _pointerX = _pressX = lx; _pointerY = _pressY = ly; _selecting = true; _dragged = false;
@@ -428,9 +444,12 @@ public class MarkdownView : Element
         if (_dragAxis != 0)
         {
             float viewport = _dragAxis == 1 ? ViewHeight : ViewWidth, total = _dragAxis == 1 ? _layout!.Height : _layout!.Width;
-            float length = Math.Max(20, viewport * viewport / total);
-            float value = _dragScroll + ((_dragAxis == 1 ? y : x) - _dragStart) * (total - viewport) / Math.Max(1, viewport - length);
-            ScrollTo(_dragAxis == 2 ? value : _scrollX, _dragAxis == 1 ? value : _scrollY);
+            float travel = viewport - ThumbLength(viewport, total);
+            if (travel > 0)
+            {
+                float value = _dragScroll + ((_dragAxis == 1 ? y : x) - _dragStart) * (total - viewport) / travel;
+                ScrollTo(_dragAxis == 2 ? value : _scrollX, _dragAxis == 1 ? value : _scrollY);
+            }
         }
         else if (_selecting)
         {
