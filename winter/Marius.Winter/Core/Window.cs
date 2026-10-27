@@ -1290,19 +1290,28 @@ public unsafe class Window : Element
 
     private void RetargetGlCanvas()
     {
+        var (display, surface, context) = GetGlCanvasTarget(_window!);
+        Check(((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S), "target GL canvas");
+    }
+
+    internal static (nint Display, nint Surface, nint Context) GetGlCanvasTarget(GlfwWindow window)
+    {
         nint display = 0, surface = 0, context = 0;
-        if (_window!.context.glx != null)
+        if (window.context.glx != null)
         {
             display = _glfw.X11?.display ?? 0;
-            surface = (nint)_window.context.glx.window;
-            context = _window.context.glx.handle;
+            surface = (nint)window.context.glx.window;
+            context = window.context.glx.handle;
         }
-        else if (_window.context.wgl != null)
+        else if (window.context.wgl != null)
         {
-            context = _window.context.wgl.handle;
+            // ThorVG's WGL surface is the HDC, borrowed from GLFW for the
+            // lifetime of this window. A HWND or zero cannot rebind its HGLRC.
+            surface = window.context.wgl.dc;
+            context = window.context.wgl.handle;
         }
         if (context == 0) throw new PlatformNotSupportedException("Winter GL requires a supported GLFW GLX or WGL context; no native context handle was available.");
-        Check(((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S), "target GL canvas");
+        return (display, surface, context);
     }
 
     // --- SW backend ---
