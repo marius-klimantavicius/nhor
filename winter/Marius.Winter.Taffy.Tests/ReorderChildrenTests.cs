@@ -206,14 +206,13 @@ public class ReorderChildrenTests
     }
 
     /// <summary>
-    /// ScrollPanel-specific test: the ScrollPanel adds scrollbar shapes
-    /// directly to Scene (not via AddPaint). After reorder, scrollbar shapes
-    /// must not be corrupted and children must be in correct order.
+    /// ScrollPanel keeps children in a clipped scene separate from its chrome.
+    /// Reordering must retain that scene, its clip, and child order/ownership.
     /// </summary>
     [Fact]
     public void ReorderChildren_ScrollPanel_ShuffleDoesNotCrash()
     {
-        var scrollPanel = new ScrollPanel();
+        using var scrollPanel = new ScrollPanel();
         var children = Enumerable.Range(0, 8).Select(i => new Panel()).ToArray();
         foreach (var child in children)
             scrollPanel.AddChild(child);
@@ -224,9 +223,16 @@ public class ReorderChildrenTests
 
         Assert.Equal(shuffled, scrollPanel.Children);
 
-        // All child scenes still present
-        var paints = scrollPanel.Scene.Paints();
+        var content = Assert.IsType<ThorVG.Scene>(children[0].Scene.Parent());
+        Assert.Same(scrollPanel.Scene, content.Parent());
+        Assert.Contains(content, scrollPanel.Scene.Paints());
+        Assert.NotNull(content.GetClipper());
+        Assert.Equal(shuffled.Select(child => child.Scene), content.Paints());
         foreach (var child in children)
-            Assert.Contains(child.Scene, paints);
+        {
+            Assert.Same(scrollPanel, child.Parent);
+            Assert.Same(content, child.Scene.Parent());
+            Assert.DoesNotContain(child.Scene, scrollPanel.Scene.Paints());
+        }
     }
 }
