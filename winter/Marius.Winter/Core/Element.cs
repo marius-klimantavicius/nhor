@@ -19,7 +19,7 @@ public abstract class Element : IDisposable
     private bool _enabled = true;
     private float _opacity = 1f;
     private ElementState _state;
-    private CursorType _cursor = CursorType.Arrow;
+    private CursorType? _cursor;
     private Style? _style;
     private Style? _detachedDefaultStyle;
     private bool _measureDirty = true;
@@ -55,6 +55,8 @@ public abstract class Element : IDisposable
     // --- Properties ---
 
     public Scene Scene => _scene;
+    // Scrollable containers can clip children independently of their own chrome.
+    protected virtual Scene ChildScene => _scene;
     public Element? Parent => _parent;
     public IReadOnlyList<Element> Children => _children;
     internal List<Element> ChildrenMutable => _children;
@@ -148,9 +150,12 @@ public abstract class Element : IDisposable
 
     public CursorType Cursor
     {
-        get => _cursor;
+        get => _cursor ?? CursorType.Arrow;
         set => _cursor = value;
     }
+
+    internal bool HasExplicitCursor => _cursor.HasValue;
+    internal virtual bool IsScrollbarGesture => false;
 
     /// <summary>
     /// Whether this element can receive keyboard focus via Tab navigation.
@@ -265,7 +270,7 @@ public abstract class Element : IDisposable
         _children.Add(child);
         child._parent = this;
         AdjustOutOfFlowDescendantCount(child.OutOfFlowSubtreeCount);
-        _scene.Add(child._scene);
+        ChildScene.Add(child._scene);
         child.NotifyAttached();
 
         // If child subtree was built before joining the widget tree,
@@ -298,9 +303,9 @@ public abstract class Element : IDisposable
         // Scene.Add(target, at) inserts target before at in the paints list,
         // avoiding Remove/re-Add which would destroy existing scenes via Unref.
         if (index + 1 < _children.Count)
-            _scene.Add(child._scene, _children[index + 1]._scene);
+            ChildScene.Add(child._scene, _children[index + 1]._scene);
         else
-            _scene.Add(child._scene);
+            ChildScene.Add(child._scene);
 
         child.NotifyAttached();
 
@@ -323,7 +328,7 @@ public abstract class Element : IDisposable
         child.DetachSubtree();
         AdjustOutOfFlowDescendantCount(-child.OutOfFlowSubtreeCount);
         _children.Remove(child);
-        _scene.Remove(child._scene);
+        ChildScene.Remove(child._scene);
         child._parent = null;
 
         // Re-run layout so remaining children are rearranged
@@ -357,6 +362,7 @@ public abstract class Element : IDisposable
             ordered[i] = child;
         }
 
+        var childScene = ChildScene;
         // Build a set of child scenes for fast lookup.
         var childScenes = new HashSet<Paint>(ordered.Length);
         for (int i = 0; i < ordered.Length; i++)
@@ -365,12 +371,12 @@ public abstract class Element : IDisposable
         // Find which positions in the scene's paints list hold child scenes.
         var paintPositions = new List<int>();
         var presentScenes = new HashSet<Paint>();
-        for (int i = 0; i < _scene.paints.Count; i++)
+        for (int i = 0; i < childScene.paints.Count; i++)
         {
-            if (childScenes.Contains(_scene.paints[i]))
+            if (childScenes.Contains(childScene.paints[i]))
             {
                 paintPositions.Add(i);
-                presentScenes.Add(_scene.paints[i]);
+                presentScenes.Add(childScene.paints[i]);
             }
         }
 
@@ -384,9 +390,9 @@ public abstract class Element : IDisposable
             if (!presentScenes.Contains(ordered[i]._scene)) continue;
             // A pure z-order mutation has no geometry/color changes for the
             // partial renderer to notice. Damage each moved scene's old region.
-            if (!ReferenceEquals(_scene.paints[paintPositions[position]], ordered[i]._scene))
+            if (!ReferenceEquals(childScene.paints[paintPositions[position]], ordered[i]._scene))
                 ordered[i]._scene.pImpl.Damage();
-            _scene.paints[paintPositions[position++]] = ordered[i]._scene;
+            childScene.paints[paintPositions[position++]] = ordered[i]._scene;
         }
 
         // Reorder the children list.
@@ -406,7 +412,7 @@ public abstract class Element : IDisposable
             var child = _children[i];
             child.DetachSubtree();
             AdjustOutOfFlowDescendantCount(-child.OutOfFlowSubtreeCount);
-            _scene.Remove(child._scene);
+            ChildScene.Remove(child._scene);
             child._parent = null;
         }
         _children.Clear();

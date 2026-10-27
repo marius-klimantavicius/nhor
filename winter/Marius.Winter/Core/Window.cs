@@ -57,6 +57,7 @@ public unsafe class Window : Element
     private Element? _hoveredElement;
     private Element? _focusedElement;
     private Element? _capturedElement;
+    private bool _capturedScrollbarGesture;
     private float _mouseX, _mouseY;
 
     // Double-click detection
@@ -953,6 +954,7 @@ public unsafe class Window : Element
 
             if (action == GLFW_PRESS)
             {
+                _capturedScrollbarGesture = false;
                 // Check overlays first
                 var overlayHit = HitTestOverlays(_mouseX, _mouseY);
                 if (overlayHit != null)
@@ -971,6 +973,7 @@ public unsafe class Window : Element
                         var handler = BubbleMouseDown(overlayHit, button, _mouseX, _mouseY);
                         var capture = handler ?? overlayHit;
                         _capturedElement = CanReceiveInput(capture) ? capture : null;
+                        _capturedScrollbarGesture = _capturedElement?.IsScrollbarGesture == true;
                         // Popup rows keep focus at their owning chooser.
                         if (!(_overlayInputOwners.TryGetValue(root, out var popupOwner) && popupOwner is ComboBox))
                         { if (capture.Focusable && !ReferenceEquals(capture, _modal?.ModalRoot)) SetFocus(capture); else EnsureModalFocus(); }
@@ -979,6 +982,7 @@ public unsafe class Window : Element
                     {
                         _capturedElement = overlayHit;
                         overlayHit.OnMouseDown(button, _mouseX, _mouseY);
+                        _capturedScrollbarGesture = overlayHit.IsScrollbarGesture;
                     }
                     _dirty = true;
                     return;
@@ -1019,7 +1023,10 @@ public unsafe class Window : Element
                     var handler = BubbleMouseDown(target2, button, _mouseX, _mouseY);
                     var capture = handler ?? target2;
                     _capturedElement = CanReceiveInput(capture) ? capture : null;
-                    SetFocus(_capturedElement);
+                    _capturedScrollbarGesture = _capturedElement?.IsScrollbarGesture == true;
+                    // A gutter operates its viewport without blurring an editor inside it.
+                    if (!_capturedScrollbarGesture) SetFocus(_capturedElement);
+                    SetCursor(GetEffectiveCursor(_capturedElement));
                     _dirty = true;
                 }
                 else
@@ -1032,12 +1039,13 @@ public unsafe class Window : Element
                 var target = _capturedElement;
                 if (target != null)
                 {
+                    bool scrollbarGesture = _capturedScrollbarGesture;
                     target.OnMouseUp(button, _mouseX, _mouseY);
 
                     // Check if still inside for click — hit can be the captured element
                     // or any descendant of it (e.g. Label inside Button)
                     var hitNow = HitTestOverlays(_mouseX, _mouseY) ?? HitTest(_mouseX, _mouseY);
-                    if (hitNow == target || IsDescendantOf(hitNow, target))
+                    if (!scrollbarGesture && (hitNow == target || IsDescendantOf(hitNow, target)))
                     {
                         long now = Stopwatch.GetTimestamp();
                         bool isDoubleClick = target == _lastClickElement
@@ -1068,6 +1076,7 @@ public unsafe class Window : Element
                     }
 
                     _capturedElement = null;
+                    _capturedScrollbarGesture = false;
                     _dirty = true;
 
                     // Update hover state
@@ -1084,7 +1093,9 @@ public unsafe class Window : Element
 
             if (_capturedElement != null)
             {
-                _capturedElement.OnMouseMove(_mouseX, _mouseY);
+                var captured = _capturedElement;
+                captured.OnMouseMove(_mouseX, _mouseY);
+                SetCursor(GetEffectiveCursor(CanReceiveInput(captured) ? captured : null));
                 _dirty = true;
             }
             else
@@ -1167,7 +1178,8 @@ public unsafe class Window : Element
                 }
             }
 
-            SetCursor(GetEffectiveCursor(hit));
+            if (hit != null && CanReceiveInput(hit)) hit.OnMouseMove(x, y);
+            SetCursor(GetEffectiveCursor(hit != null && CanReceiveInput(hit) ? hit : null));
             _dirty = true;
 
             // Tooltip: new element hovered — reset timer
@@ -1209,12 +1221,12 @@ public unsafe class Window : Element
         return null;
     }
 
-    /// <summary>Walk up the parent chain to find the nearest non-default cursor (like CSS cursor inheritance).</summary>
+    /// <summary>Walk up to the nearest explicitly assigned cursor, including Arrow.</summary>
     private static CursorType GetEffectiveCursor(Element? element)
     {
         for (var el = element; el != null; el = el.Parent)
         {
-            if (el.Cursor != CursorType.Arrow)
+            if (el.HasExplicitCursor)
                 return el.Cursor;
         }
         return CursorType.Arrow;

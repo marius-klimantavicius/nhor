@@ -84,13 +84,14 @@ public class LogView : Element
         // these owned paints before parent removal asks the rendered scene for
         // damage bounds; unprepared text has no renderer bounds yet.
         RebuildLineTexts();
-        _mouseDown = _scrollbarDrag = false;
+        _mouseDown = false; _scrollbars.Cancel();
         base.OnDetaching();
     }
     protected override void OnDisposed() { StopAutoScroll(); Unsubscribe(); FollowTailChanged = null; }
     protected override void OnActivityChanged(bool active)
     {
-        if (!active) { _mouseDown = _scrollbarDrag = false; StopAutoScroll(); }
+        if (!active) { _mouseDown = false; _scrollbars.Cancel(); StopAutoScroll(); }
+        UpdateScrollbar(); MarkDirty();
     }
 
     private sealed class Subscription : IDisposable
@@ -124,7 +125,7 @@ public class LogView : Element
         if (reset)
         {
             _selAnchor = _selEnd = -1; _scrollX = _scrollY = 0;
-            _mouseDown = _scrollbarDrag = false; StopAutoScroll();
+            _mouseDown = false; _scrollbars.Cancel(); StopAutoScroll();
         }
         else if (removed > 0)
         {
@@ -195,10 +196,8 @@ public class LogView : Element
     private int _selAnchor = -1;
     private int _selEnd = -1;
     private bool _mouseDown;
-    private bool _scrollbarDrag;
-    private float _scrollbarDragStartY;
-    private float _scrollbarDragStartScroll;
-    private bool _horizontalDrag;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
     private float _lastMouseX, _lastMouseY;
     private readonly object _autoScrollTag = new();
 
@@ -238,6 +237,7 @@ public class LogView : Element
         {
             _fontSizeSet = true;
             if (_fontSize == value) return;
+            _scrollbars.Cancel();
             float oldHeight = _lineHeight;
             _fontSize = value;
             _effectiveFontSize = EffectiveFontSize(value);
@@ -267,6 +267,7 @@ public class LogView : Element
         set
         {
             if (_fontName == value) return;
+            _scrollbars.Cancel();
             _fontName = value;
             InvalidateLineLayouts();
             ClampScroll();
@@ -538,6 +539,7 @@ public class LogView : Element
 
     protected override void OnSizeChanged()
     {
+        _scrollbars.Cancel();
         _totalContentHeight = _lines.Length * _lineHeight;
         float w = Bounds.W, h = Bounds.H;
         _backgroundShape?.ResetShape();
@@ -567,40 +569,15 @@ public class LogView : Element
         PaintScrollbar(_horizontalTrack, _horizontalThumb, true, _horizontalNeeded);
     }
 
-    private float ThumbSize(bool horizontal)
+    private ScrollbarGeometry ScrollGeometry(bool horizontal)
     {
         float viewport = horizontal ? _viewportW : _viewportH;
-        float content = horizontal ? _totalContentWidth : _totalContentHeight;
-        return Math.Min(viewport, Math.Max(20, content > 0 ? viewport * viewport / content : viewport));
+        return ScrollbarGeometry.Create(horizontal, horizontal ? Bounds.H - ScrollbarWidth - ScrollbarMargin : Bounds.W - ScrollbarWidth - ScrollbarMargin,
+            Padding, viewport, viewport, horizontal ? _totalContentWidth : _totalContentHeight,
+            horizontal ? _scrollX : _scrollY, horizontal ? _horizontalNeeded : _verticalNeeded);
     }
-
-    private float ThumbPosition(bool horizontal)
-    {
-        float viewport = horizontal ? _viewportW : _viewportH;
-        float content = horizontal ? _totalContentWidth : _totalContentHeight;
-        float scroll = horizontal ? _scrollX : _scrollY;
-        return Padding + (content > viewport ? scroll / (content - viewport) * (viewport - ThumbSize(horizontal)) : 0);
-    }
-
-    private void PaintScrollbar(Shape? track, Shape? thumb, bool horizontal, bool needed)
-    {
-        track?.Visible(needed); thumb?.Visible(needed);
-        if (!needed) return;
-        float cross = horizontal ? Bounds.H - Padding - ScrollbarWidth : Bounds.W - Padding - ScrollbarWidth;
-        float viewport = horizontal ? _viewportW : _viewportH;
-        float position = ThumbPosition(horizontal), size = ThumbSize(horizontal);
-        track?.ResetShape(); thumb?.ResetShape();
-        if (horizontal)
-        {
-            track?.AppendRect(Padding, cross, viewport, ScrollbarWidth, 4, 4);
-            thumb?.AppendRect(position, cross, size, ScrollbarWidth, 4, 4);
-        }
-        else
-        {
-            track?.AppendRect(cross, Padding, ScrollbarWidth, viewport, 4, 4);
-            thumb?.AppendRect(cross, position, ScrollbarWidth, size, 4, 4);
-        }
-    }
+    private void PaintScrollbar(Shape? track, Shape? thumb, bool horizontal, bool needed) =>
+        ScrollGeometry(horizontal).Paint(this, track, thumb, _scrollbars.Hovered(horizontal), _scrollbars.Axis == (horizontal ? 2 : 1));
 
     private void ClampScroll()
     {
@@ -646,9 +623,7 @@ public class LogView : Element
         RefreshScroll();
     }
 
-    private bool OverScrollbar(float x, float y, bool horizontal) => horizontal
-        ? _horizontalNeeded && y >= Bounds.H - Padding - ScrollbarWidth && y <= Bounds.H - Padding && x >= Padding && x <= Padding + _viewportW
-        : _verticalNeeded && x >= Bounds.W - Padding - ScrollbarWidth && x <= Bounds.W - Padding && y >= Padding && y <= Padding + _viewportH;
+    private bool OverScrollbar(float x, float y, bool horizontal) => ScrollGeometry(horizontal).Contains(x, y);
 
     public override bool OnMouseDown(int button, float x, float y)
     {
@@ -662,22 +637,14 @@ public class LogView : Element
         {
             SetFollowTail(false, true);
             StopAutoScroll(); _mouseDown = false;
-            float pointer = horizontal ? lx : ly;
-            float position = ThumbPosition(horizontal), size = ThumbSize(horizontal);
-            if (pointer < position || pointer > position + size)
-            {
-                float delta = pointer < position ? -1 : 1;
-                if (horizontal) _scrollX += delta * _viewportW;
-                else _scrollY += delta * _viewportH;
-                RefreshScroll();
-            }
-            _scrollbarDrag = true;
-            _horizontalDrag = horizontal;
-            _scrollbarDragStartY = pointer;
-            _scrollbarDragStartScroll = horizontal ? _scrollX : _scrollY;
+            var geometry = ScrollGeometry(horizontal);
+            float value = _scrollbars.Begin(this, geometry, lx, ly);
+            if (horizontal) _scrollX = value; else _scrollY = value;
+            Cursor = CursorType.Arrow; RefreshScroll();
             return true;
         }
 
+        _scrollbars.Cancel();
         // Text selection
         SetFollowTail(false, true);
         int charIdx = GetCharIndexAtPosition(lx, ly);
@@ -694,10 +661,13 @@ public class LogView : Element
     {
         if (button != 0) return false;
         _mouseDown = false;
-        _scrollbarDrag = false;
+        _scrollbars.Cancel(); UpdateScrollbar(); MarkDirty();
         StopAutoScroll();
         return true;
     }
+
+    public override void OnDragEnd() { _scrollbars.Cancel(); _mouseDown = false; StopAutoScroll(); UpdateScrollbar(); MarkDirty(); }
+    public override void OnMouseLeave() { _scrollbars.Leave(); UpdateScrollbar(); MarkDirty(); }
 
     public override void OnMouseMove(float x, float y)
     {
@@ -706,19 +676,16 @@ public class LogView : Element
         // Change cursor: default arrow over scrollbar, IBeam over text
         Cursor = OverScrollbar(lx, ly, true) || OverScrollbar(lx, ly, false) ? CursorType.Arrow : CursorType.IBeam;
 
-        if (_scrollbarDrag)
+        if (_scrollbars.Hover(lx, ly, ScrollGeometry(false), ScrollGeometry(true))) { UpdateScrollbar(); MarkDirty(); }
+        if (_scrollbars.Pressed)
         {
-            float viewport = _horizontalDrag ? _viewportW : _viewportH;
-            float scrollRange = (_horizontalDrag ? _totalContentWidth : _totalContentHeight) - viewport;
-            if (scrollRange <= 0) return;
-
-            float trackH = viewport - ThumbSize(_horizontalDrag);
-            if (trackH <= 0) return;
-
-            float deltaY = (_horizontalDrag ? lx : ly) - _scrollbarDragStartY;
-            float scroll = _scrollbarDragStartScroll + deltaY / trackH * scrollRange;
-            if (_horizontalDrag) _scrollX = scroll; else _scrollY = scroll;
-            RefreshScroll();
+            Cursor = CursorType.Arrow;
+            int axis = _scrollbars.Axis;
+            if (_scrollbars.Move(this, ScrollGeometry(false), ScrollGeometry(true), lx, ly, out var value))
+            {
+                if (axis == 2) _scrollX = value; else _scrollY = value;
+                RefreshScroll();
+            }
             return;
         }
 
@@ -827,7 +794,7 @@ public class LogView : Element
     {
         State = State & ~ElementState.Focused;
         _mouseDown = false;
-        _scrollbarDrag = false;
+        _scrollbars.Cancel(); UpdateScrollbar(); MarkDirty();
         StopAutoScroll();
         MarkDirty();
     }
@@ -1001,6 +968,7 @@ public class LogView : Element
 
     protected override void OnThemeChanged()
     {
+        _scrollbars.Cancel();
         if (!_shapesCreated) return;
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
@@ -1030,6 +998,7 @@ public class LogView : Element
         if (!_colorSet)
             UpdateTextColors();
 
+        UpdateScrollbar();
         MarkDirty();
     }
 

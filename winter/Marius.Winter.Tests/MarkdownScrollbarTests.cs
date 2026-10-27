@@ -50,7 +50,7 @@ public class MarkdownScrollbarTests
     [InlineData(false, 1)]
     [InlineData(true, -1)]
     [InlineData(true, 1)]
-    public void TrackPressPagesOnceWithoutStartingDragOrChangingSelection(bool horizontal, int direction) => WindowRegressionOwner.Run(() =>
+    public void TrackPressPagesOnceThenSameHeldPressDragsWithoutChangingSelection(bool horizontal, int direction) => WindowRegressionOwner.Run(() =>
     {
         using var window = new Window(800, 600, "Markdown track input", Theme.Light, RenderBackend.SW);
         var view = Attach(window); int links = 0; view.LinkClicked += _ => links++;
@@ -65,16 +65,18 @@ public class MarkdownScrollbarTests
         Press(window);
         float expected = Math.Clamp(before + direction * page, 0, Maximum(view, horizontal));
         Assert.Equal(expected, Offset(view, horizontal), 3);
-        // Moving a held track press, even outside the control, must not grab the thumb or select text.
-        Move(window, 730, 510); window.Animator.Tick(.1f);
-        Assert.Equal(expected, Offset(view, horizontal), 3); Assert.Equal(other, Offset(view, !horizontal), 3);
-        Release(window); Move(window, 720, 500);
-        Assert.Equal(expected, Offset(view, horizontal), 3);
+        // A stationary held track press pages once; that same press remains draggable.
+        window.Animator.Tick(.6f); Assert.Equal(expected, Offset(view, horizontal), 3);
+        Move(window, 1200, 900);
+        Assert.Equal(Maximum(view, horizontal), Offset(view, horizontal), 3); Assert.Equal(other, Offset(view, !horizontal), 3);
+        Release(window); Move(window, -100, -100);
+        Assert.Equal(Maximum(view, horizontal), Offset(view, horizontal), 3);
         Assert.Equal(selection, view.SelectedText); Assert.Equal(0, view.SelectionStart); Assert.Equal(8, view.SelectionLength);
         Assert.Equal(0, links); Assert.False(window.Animator.HasActiveAnimations);
         Assert.Same(layout, typeof(MarkdownView).GetField("_layout", Private)!.GetValue(view));
 
         // Repeated independent clicks page toward, then clamp at, the endpoint.
+        view.ScrollTo(horizontal ? expected : other, horizontal ? other : expected);
         for (int i = 0; i < 30 && Offset(view, horizontal) != (direction < 0 ? 0 : Maximum(view, horizontal)); i++)
         {
             float old = Offset(view, horizontal);

@@ -35,6 +35,9 @@ public class TreeView : Element
     private readonly List<VisibleRow> _visibleRows = new();
     private bool _shapesCreated;
     private int _updateDepth; // > 0 means batching — skip rebuilds
+    private Scene? _rowsScene;
+    private Shape? _contentClip;
+    private float _clipWidth = float.NaN, _clipHeight = float.NaN;
     private Shape? _backgroundShape;
     private Shape? _clipShape;
     private Shape? _selectionHighlight;
@@ -51,12 +54,8 @@ public class TreeView : Element
     private float _scrollH;
     private float _contentHeight;
     private float _contentWidth;
-    private bool _draggingThumb;
-    private float _dragStartScroll;
-    private float _dragStartY;
-    private bool _draggingThumbH;
-    private float _dragStartScrollH;
-    private float _dragStartX;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
     private float? _fontSize;
 
 
@@ -245,15 +244,19 @@ public class TreeView : Element
             _backgroundShape!.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
             AddPaint(_backgroundShape);
 
+            _rowsScene = Scene.Gen()!; AddPaint(_rowsScene);
+            _contentClip = Shape.Gen()!; _contentClip.SetFill(255, 255, 255);
+            _rowsScene.Clip(_contentClip);
+
             // Selection highlight — rendered between background and row content
             _selectionHighlight = Shape.Gen();
             _selectionHighlight!.Visible(false);
-            AddPaint(_selectionHighlight);
+            _rowsScene.Add(_selectionHighlight);
 
             // Hover highlight
             _hoverHighlight = Shape.Gen();
             _hoverHighlight!.Visible(false);
-            AddPaint(_hoverHighlight);
+            _rowsScene.Add(_hoverHighlight);
 
             // Clip
             _clipShape = Shape.Gen();
@@ -314,6 +317,7 @@ public class TreeView : Element
 
     protected override void OnSizeChanged()
     {
+        _scrollbars.Cancel();
         float w = Bounds.W, h = Bounds.H;
 
         _backgroundShape?.ResetShape();
@@ -393,8 +397,7 @@ public class TreeView : Element
                 if (_visibleRows[i].Node == anchor) { anchorNewIndex = i; break; }
             if (anchorNewIndex >= 0)
             {
-                float visibleH = Bounds.H;
-                if (NeedsScrollbarH()) visibleH -= ScrollBarWidth + ScrollBarPadding;
+                float visibleH = ScrollViewport.Height;
                 float scrollRange = _contentHeight - visibleH;
                 if (scrollRange > 0)
                 {
@@ -412,6 +415,7 @@ public class TreeView : Element
 
     private void RebuildVisibleRowsCore()
     {
+        _scrollbars.Cancel();
         ClearRowPaints();
 
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
@@ -458,9 +462,9 @@ public class TreeView : Element
     {
         foreach (var row in _visibleRows)
         {
-            if (row.Arrow != null) RemovePaint(row.Arrow);
-            if (row.IconScene != null) RemovePaint(row.IconScene);
-            RemovePaint(row.TextScene);
+            if (row.Arrow != null) _rowsScene?.Remove(row.Arrow);
+            if (row.IconScene != null) _rowsScene?.Remove(row.IconScene);
+            _rowsScene?.Remove(row.TextScene);
         }
         _visibleRows.Clear();
     }
@@ -490,7 +494,7 @@ public class TreeView : Element
             arrow.StrokeCap(StrokeCap.Round);
             arrow.StrokeJoin(StrokeJoin.Round);
             arrow.SetFill(theme.TextColor.R8, theme.TextColor.G8, theme.TextColor.B8, theme.TextColor.A8);
-            AddPaint(arrow);
+            _rowsScene!.Add(arrow);
         }
 
         // Icon (optional SVG)
@@ -513,7 +517,7 @@ public class TreeView : Element
                     iconPaint = picture;
                     iconScene = Scene.Gen()!;
                     iconScene.Add(iconPaint);
-                    AddPaint(iconScene);
+                    _rowsScene!.Add(iconScene);
                 }
             }
         }
@@ -530,7 +534,7 @@ public class TreeView : Element
 
         var textScene = Scene.Gen()!;
         textScene.Add(textObj);
-        AddPaint(textScene);
+        _rowsScene!.Add(textScene);
 
         _visibleRows.Add(new VisibleRow
         {
@@ -664,92 +668,29 @@ public class TreeView : Element
 
     // --- Scrolling ---
 
-    private float GetScrollOffset()
+    private ScrollbarViewport ScrollViewport => ScrollbarViewport.Resolve(Bounds.W, Bounds.H, _contentWidth, _contentHeight);
+    private float GetScrollOffset() => _scroll * Math.Max(0, _contentHeight - ScrollViewport.Height);
+    private float GetScrollOffsetH() => _scrollH * Math.Max(0, _contentWidth - ScrollViewport.Width);
+    private bool NeedsScrollbar() => ScrollViewport.Vertical;
+    private bool NeedsScrollbarH() => ScrollViewport.Horizontal;
+    private ScrollbarGeometry ScrollGeometry(bool horizontal)
     {
-        float visibleH = Bounds.H;
-        if (NeedsScrollbarH()) visibleH -= ScrollBarWidth + ScrollBarPadding;
-        if (_contentHeight <= visibleH) return 0;
-        return _scroll * (_contentHeight - visibleH);
+        float viewport = horizontal ? ScrollViewport.Width : ScrollViewport.Height;
+        return ScrollbarGeometry.Create(horizontal, horizontal ? Bounds.H - ScrollBarWidth - 2 : Bounds.W - ScrollBarWidth - 2,
+            ScrollBarPadding, viewport - 2 * ScrollBarPadding, viewport, horizontal ? _contentWidth : _contentHeight,
+            horizontal ? GetScrollOffsetH() : GetScrollOffset(), horizontal ? NeedsScrollbarH() : NeedsScrollbar());
     }
-
-    private bool NeedsScrollbar() => _contentHeight > Bounds.H;
-
-    private float GetScrollOffsetH()
-    {
-        float visibleW = Bounds.W;
-        if (NeedsScrollbar()) visibleW -= ScrollBarWidth + 2; // account for vertical scrollbar
-        if (_contentWidth <= visibleW) return 0;
-        return _scrollH * (_contentWidth - visibleW);
-    }
-
-    private bool NeedsScrollbarH()
-    {
-        float visibleW = Bounds.W;
-        if (NeedsScrollbar()) visibleW -= ScrollBarWidth + 2;
-        return _contentWidth > visibleW;
-    }
-
     private void UpdateScrollbar()
     {
-        float w = Bounds.W, h = Bounds.H;
-        bool needsV = NeedsScrollbar();
-        bool needsH = NeedsScrollbarH();
-
-        // --- Vertical scrollbar ---
-        if (!needsV)
+        float width = ScrollViewport.Width, height = ScrollViewport.Height;
+        if (_contentClip != null && (width != _clipWidth || height != _clipHeight))
         {
-            _scrollTrack?.Visible(false);
-            _scrollThumb?.Visible(false);
+            _clipWidth = width; _clipHeight = height;
+            _contentClip.ResetShape(); _contentClip.AppendRect(0, 0, width, height, 0, 0);
+            _rowsScene?.pImpl.Mark(RenderUpdateFlag.Clip | RenderUpdateFlag.Transform);
         }
-        else
-        {
-            _scrollTrack?.Visible(true);
-            _scrollThumb?.Visible(true);
-
-            float trackX = w - ScrollBarWidth - 2;
-            float trackY = ScrollBarPadding;
-            float trackH = h - 2 * ScrollBarPadding;
-            if (needsH) trackH -= ScrollBarWidth + 2; // shrink to leave room for horizontal bar
-
-            _scrollTrack?.ResetShape();
-            _scrollTrack?.AppendRect(trackX, trackY, ScrollBarWidth, trackH, 3, 3);
-
-            float ratio = Math.Min(1f, h / _contentHeight);
-            float thumbH = Math.Max(20, trackH * ratio);
-            float thumbY = trackY + _scroll * (trackH - thumbH);
-
-            _scrollThumb?.ResetShape();
-            _scrollThumb?.AppendRect(trackX + 1, thumbY + 1, ScrollBarWidth - 2, thumbH - 2, 2, 2);
-        }
-
-        // --- Horizontal scrollbar ---
-        if (!needsH)
-        {
-            _scrollTrackH?.Visible(false);
-            _scrollThumbH?.Visible(false);
-        }
-        else
-        {
-            _scrollTrackH?.Visible(true);
-            _scrollThumbH?.Visible(true);
-
-            float trackY = h - ScrollBarWidth - 2;
-            float trackX = ScrollBarPadding;
-            float trackW = w - 2 * ScrollBarPadding;
-            if (needsV) trackW -= ScrollBarWidth + 2; // shrink to leave room for vertical bar
-
-            _scrollTrackH?.ResetShape();
-            _scrollTrackH?.AppendRect(trackX, trackY, trackW, ScrollBarWidth, 3, 3);
-
-            float visibleW = w;
-            if (needsV) visibleW -= ScrollBarWidth + 2;
-            float ratioH = Math.Min(1f, visibleW / _contentWidth);
-            float thumbW = Math.Max(20, trackW * ratioH);
-            float thumbX = trackX + _scrollH * (trackW - thumbW);
-
-            _scrollThumbH?.ResetShape();
-            _scrollThumbH?.AppendRect(thumbX + 1, trackY + 1, thumbW - 2, ScrollBarWidth - 2, 2, 2);
-        }
+        ScrollGeometry(false).Paint(this, _scrollTrack, _scrollThumb, _scrollbars.Hovered(false), _scrollbars.Axis == 1);
+        ScrollGeometry(true).Paint(this, _scrollTrackH, _scrollThumbH, _scrollbars.Hovered(true), _scrollbars.Axis == 2);
     }
 
     // --- Input handling ---
@@ -769,23 +710,16 @@ public class TreeView : Element
         if (!Enabled || button != 0) return false;
         WindowToLocal(x, y, out float lx, out float ly);
 
-        // Horizontal scrollbar drag
-        if (NeedsScrollbarH() && ly >= Bounds.H - ScrollBarWidth - ScrollBarPadding)
+        _scrollbars.Cancel();
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        if (vertical.Contains(lx, ly) || horizontal.Contains(lx, ly))
         {
-            _draggingThumbH = true;
-            _dragStartScrollH = _scrollH;
-            _dragStartX = lx;
+            var geometry = vertical.Contains(lx, ly) ? vertical : horizontal;
+            float value = _scrollbars.Begin(this, geometry, lx, ly);
+            SetScrollbarOffset(geometry, value); UpdateScrollbar(); Cursor = CursorType.Arrow; MarkDirty();
             return true;
         }
-
-        // Vertical scrollbar drag
-        if (NeedsScrollbar() && lx >= Bounds.W - ScrollBarWidth - ScrollBarPadding)
-        {
-            _draggingThumb = true;
-            _dragStartScroll = _scroll;
-            _dragStartY = ly;
-            return true;
-        }
+        if ((NeedsScrollbar() && lx >= ScrollViewport.Width) || (NeedsScrollbarH() && ly >= ScrollViewport.Height)) return true;
 
         float scrollOffset = GetScrollOffset();
         float scrollOffsetH = GetScrollOffsetH();
@@ -839,48 +773,30 @@ public class TreeView : Element
     public override bool OnMouseUp(int button, float x, float y)
     {
         if (button != 0) return false;
-        _draggingThumb = false;
-        _draggingThumbH = false;
-        return true;
+        OnDragEnd(); return true;
+    }
+    public override void OnDragEnd() { _scrollbars.Cancel(); UpdateScrollbar(); MarkDirty(); }
+    protected override void OnActivityChanged(bool active) { if (!active) _scrollbars.Cancel(); UpdateScrollbar(); MarkDirty(); }
+    private void SetScrollbarOffset(ScrollbarGeometry geometry, float value)
+    {
+        float normalized = geometry.Maximum > 0 ? value / geometry.Maximum : 0;
+        if (geometry.Horizontal) SetScrollH(normalized); else SetScroll(normalized);
     }
 
     public override void OnMouseMove(float x, float y)
     {
-        if (_draggingThumbH && NeedsScrollbarH())
-        {
-            WindowToLocal(x, y, out float lxh, out _);
-            float trackW = Bounds.W - 2 * ScrollBarPadding;
-            if (NeedsScrollbar()) trackW -= ScrollBarWidth + 2;
-            float visibleW = Bounds.W;
-            if (NeedsScrollbar()) visibleW -= ScrollBarWidth + 2;
-            float ratioH = Math.Min(1f, visibleW / _contentWidth);
-            float thumbW = Math.Max(20, trackW * ratioH);
-            float scrollableTrack = trackW - thumbW;
-            if (scrollableTrack > 0)
-            {
-                float delta = (lxh - _dragStartX) / scrollableTrack;
-                SetScrollH(_dragStartScrollH + delta);
-            }
-            return;
-        }
-
-        if (_draggingThumb && NeedsScrollbar())
-        {
-            WindowToLocal(x, y, out _, out float ly);
-            float trackH = Bounds.H - 2 * ScrollBarPadding;
-            if (NeedsScrollbarH()) trackH -= ScrollBarWidth + 2;
-            float ratio = Math.Min(1f, Bounds.H / _contentHeight);
-            float thumbH = Math.Max(20, trackH * ratio);
-            float scrollableTrack = trackH - thumbH;
-            if (scrollableTrack > 0)
-            {
-                float delta = (ly - _dragStartY) / scrollableTrack;
-                SetScroll(_dragStartScroll + delta);
-            }
-            return;
-        }
-
         WindowToLocal(x, y, out float lxm, out float lym);
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        Cursor = CursorType.Arrow;
+        if (_scrollbars.Hover(lxm, lym, vertical, horizontal)) { UpdateScrollbar(); MarkDirty(); }
+        if (_scrollbars.Pressed)
+        {
+            int axis = _scrollbars.Axis;
+            if (_scrollbars.Move(this, vertical, horizontal, lxm, lym, out var value))
+                SetScrollbarOffset(axis == 2 ? horizontal : vertical, value);
+            return;
+        }
+        if (vertical.Contains(lxm, lym) || horizontal.Contains(lxm, lym)) return;
         float offset = GetScrollOffset();
         int newHover = (int)((lym + offset) / RowHeight);
         if (newHover < 0 || newHover >= _visibleRows.Count) newHover = -1;
@@ -895,6 +811,7 @@ public class TreeView : Element
 
     public override void OnMouseLeave()
     {
+        _scrollbars.Leave(); UpdateScrollbar(); MarkDirty();
         if (_hoveredIndex >= 0)
         {
             _hoveredIndex = -1;
@@ -1018,8 +935,7 @@ public class TreeView : Element
         float rowTop = index * RowHeight;
         float rowBottom = rowTop + RowHeight;
         float scrollOffset = GetScrollOffset();
-        float visibleH = Bounds.H;
-        if (NeedsScrollbarH()) visibleH -= ScrollBarWidth + ScrollBarPadding;
+        float visibleH = ScrollViewport.Height;
         if (visibleH <= 0) return;
 
         float scrollRange = _contentHeight - visibleH;
@@ -1048,15 +964,13 @@ public class TreeView : Element
 
     protected override void OnThemeChanged()
     {
+        _scrollbars.Cancel();
         if (!_shapesCreated) return;
-        var theme = OwnerWindow?.Theme ?? Theme.Dark;
         var style = Style;
         var bg = style.Background;
         _backgroundShape?.SetFill(bg.R8, bg.G8, bg.B8, bg.A8);
 
-        var thumbColor = new Color4(theme.BorderLight.R, theme.BorderLight.G, theme.BorderLight.B, 0.5f);
-        _scrollThumb?.SetFill(thumbColor.R8, thumbColor.G8, thumbColor.B8, thumbColor.A8);
-        _scrollThumbH?.SetFill(thumbColor.R8, thumbColor.G8, thumbColor.B8, thumbColor.A8);
+        UpdateScrollbar();
 
         ApplyHighlightColors();
 

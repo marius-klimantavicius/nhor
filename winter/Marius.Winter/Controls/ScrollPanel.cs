@@ -22,6 +22,10 @@ public enum ScrollMode
 /// </summary>
 public class ScrollPanel : Element, ILayoutContainer
 {
+    private readonly Scene _contentScene;
+    private readonly Shape _contentClip;
+    private float _clipWidth = float.NaN, _clipHeight = float.NaN;
+    protected override Scene ChildScene => _contentScene;
     private Shape? _backgroundShape;
     private Shape? _clipShape;
     // Vertical scrollbar
@@ -44,10 +48,8 @@ public class ScrollPanel : Element, ILayoutContainer
     private float _contentHeight;
     private float _contentWidth;
 
-    private bool _draggingThumbV;
-    private bool _draggingThumbH;
-    private float _dragStart;
-    private float _dragStartScroll;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
 
     private const float ScrollBarWidth = 8f;
     private const float ScrollBarMargin = 2f;
@@ -56,6 +58,9 @@ public class ScrollPanel : Element, ILayoutContainer
 
     public ScrollPanel()
     {
+        _contentScene = Scene.Gen()!; Scene.Add(_contentScene);
+        _contentClip = Shape.Gen()!; _contentClip.SetFill(255, 255, 255);
+        _contentScene.Clip(_contentClip);
     }
 
     public Color4? Background
@@ -82,6 +87,7 @@ public class ScrollPanel : Element, ILayoutContainer
         get => _layout;
         set
         {
+            _scrollbars.Cancel();
             _layout = value;
             InvalidateMeasure();
         }
@@ -93,6 +99,7 @@ public class ScrollPanel : Element, ILayoutContainer
         set
         {
             if (_verticalScroll == value) return;
+            _scrollbars.Cancel();
             _verticalScroll = value;
             InvalidateMeasure();
         }
@@ -104,6 +111,7 @@ public class ScrollPanel : Element, ILayoutContainer
         set
         {
             if (_horizontalScroll == value) return;
+            _scrollbars.Cancel();
             _horizontalScroll = value;
             InvalidateMeasure();
         }
@@ -139,39 +147,21 @@ public class ScrollPanel : Element, ILayoutContainer
 
     // --- Scrollbar visibility logic ---
 
-    private bool ShowScrollbarV()
-    {
-        if (_verticalScroll == ScrollMode.Never) return false;
-        if (_verticalScroll == ScrollMode.Always) return true;
-        return _contentHeight > Bounds.H;
-    }
-
-    private bool ShowScrollbarH()
-    {
-        if (_horizontalScroll == ScrollMode.Never) return false;
-        if (_horizontalScroll == ScrollMode.Always) return true;
-        float availW = Bounds.W;
-        if (ShowScrollbarV()) availW -= ScrollBarWidth + ScrollBarMargin;
-        return _contentWidth > availW;
-    }
-
+    private ScrollbarViewport ScrollViewport => ScrollbarViewport.Resolve(Bounds.W, Bounds.H, _contentWidth, _contentHeight,
+        _verticalScroll != ScrollMode.Never, _horizontalScroll != ScrollMode.Never,
+        _verticalScroll == ScrollMode.Always, _horizontalScroll == ScrollMode.Always);
+    private bool ShowScrollbarV() => ScrollViewport.Vertical;
+    private bool ShowScrollbarH() => ScrollViewport.Horizontal;
     private bool CanScrollV() => _verticalScroll != ScrollMode.Never && _contentHeight > ViewportH();
     private bool CanScrollH() => _horizontalScroll != ScrollMode.Never && _contentWidth > ViewportW();
-
-    /// <summary>Content area width (excluding scrollbar space if vertical scrollbar is shown).</summary>
-    private float ViewportW()
+    private float ViewportW() => ScrollViewport.Width;
+    private float ViewportH() => ScrollViewport.Height;
+    private ScrollbarGeometry ScrollGeometry(bool horizontal)
     {
-        float w = Bounds.W;
-        if (ShowScrollbarV()) w -= ScrollBarWidth + ScrollBarMargin;
-        return w;
-    }
-
-    /// <summary>Content area height (excluding scrollbar space if horizontal scrollbar is shown).</summary>
-    private float ViewportH()
-    {
-        float h = Bounds.H;
-        if (ShowScrollbarH()) h -= ScrollBarWidth + ScrollBarMargin;
-        return h;
+        float viewport = horizontal ? ViewportW() : ViewportH();
+        return ScrollbarGeometry.Create(horizontal, horizontal ? Bounds.H - ScrollBarWidth - ScrollBarMargin : Bounds.W - ScrollBarWidth - ScrollBarMargin,
+            ScrollBarMargin, viewport - 2 * ScrollBarMargin, viewport, horizontal ? _contentWidth : _contentHeight,
+            horizontal ? GetScrollOffsetH() : GetScrollOffsetV(), horizontal ? ShowScrollbarH() : ShowScrollbarV());
     }
 
     /// <summary>Width available for child layout.</summary>
@@ -288,6 +278,7 @@ public class ScrollPanel : Element, ILayoutContainer
 
     protected override void OnSizeChanged()
     {
+        _scrollbars.Cancel();
         float w = Bounds.W, h = Bounds.H;
 
         _backgroundShape?.ResetShape();
@@ -354,94 +345,24 @@ public class ScrollPanel : Element, ILayoutContainer
 
     private void UpdateScrollbars()
     {
-        float w = Bounds.W, h = Bounds.H;
-        bool showV = ShowScrollbarV();
-        bool showH = ShowScrollbarH();
-        float halfW = ScrollBarWidth / 2;
-
-        // --- Vertical scrollbar ---
-        _scrollTrackV?.ResetShape();
-        _scrollThumbV?.ResetShape();
-
-        if (!showV)
+        float width = ViewportW(), height = ViewportH();
+        if (width != _clipWidth || height != _clipHeight)
         {
-            _scrollTrackV?.Visible(false);
-            _scrollThumbV?.Visible(false);
+            _clipWidth = width; _clipHeight = height;
+            _contentClip.ResetShape(); _contentClip.AppendRect(0, 0, width, height, 0, 0);
+            _contentScene.pImpl.Mark(RenderUpdateFlag.Clip | RenderUpdateFlag.Transform);
         }
-        else
-        {
-            _scrollTrackV?.Visible(true);
-
-            float trackX = w - ScrollBarWidth - ScrollBarMargin;
-            float trackY = ScrollBarMargin;
-            float trackH = ViewportH() - 2 * ScrollBarMargin;
-            if (trackH < 0) trackH = 0;
-
-            _scrollTrackV?.AppendRect(trackX, trackY, ScrollBarWidth, trackH, halfW, halfW);
-
-            if (CanScrollV())
-            {
-                _scrollThumbV?.Visible(true);
-                float ratio = Math.Min(1f, ViewportH() / _contentHeight);
-                float thumbH = Math.Max(20, trackH * ratio);
-                float thumbY = trackY + _scrollV * (trackH - thumbH);
-                _scrollThumbV?.AppendRect(trackX, thumbY, ScrollBarWidth, thumbH, halfW, halfW);
-            }
-            else
-            {
-                // Always mode but no overflow: show track only, no thumb
-                _scrollThumbV?.Visible(false);
-            }
-        }
-
-        // --- Horizontal scrollbar ---
-        _scrollTrackH?.ResetShape();
-        _scrollThumbH?.ResetShape();
-
-        if (!showH)
-        {
-            _scrollTrackH?.Visible(false);
-            _scrollThumbH?.Visible(false);
-        }
-        else
-        {
-            _scrollTrackH?.Visible(true);
-
-            float trackY = h - ScrollBarWidth - ScrollBarMargin;
-            float trackX = ScrollBarMargin;
-            float trackW = ViewportW() - 2 * ScrollBarMargin;
-            if (trackW < 0) trackW = 0;
-
-            _scrollTrackH?.AppendRect(trackX, trackY, trackW, ScrollBarWidth, halfW, halfW);
-
-            if (CanScrollH())
-            {
-                _scrollThumbH?.Visible(true);
-                float ratio = Math.Min(1f, ViewportW() / _contentWidth);
-                float thumbW = Math.Max(20, trackW * ratio);
-                float thumbX = trackX + _scrollH * (trackW - thumbW);
-                _scrollThumbH?.AppendRect(thumbX, trackY, thumbW, ScrollBarWidth, halfW, halfW);
-            }
-            else
-            {
-                _scrollThumbH?.Visible(false);
-            }
-        }
+        if (!CanScrollV()) _scrollV = 0;
+        if (!CanScrollH()) _scrollH = 0;
+        ScrollGeometry(false).Paint(this, _scrollTrackV, _scrollThumbV, _scrollbars.Hovered(false), _scrollbars.Axis == 1);
+        ScrollGeometry(true).Paint(this, _scrollTrackH, _scrollThumbH, _scrollbars.Hovered(true), _scrollbars.Axis == 2);
     }
 
     // --- Input handling ---
 
-    private bool IsOverScrollbarV(float lx, float ly)
-    {
-        if (!ShowScrollbarV()) return false;
-        return lx >= Bounds.W - ScrollBarWidth - ScrollBarMargin;
-    }
+    private bool IsOverScrollbarV(float lx, float ly) => ScrollGeometry(false).Contains(lx, ly);
 
-    private bool IsOverScrollbarH(float lx, float ly)
-    {
-        if (!ShowScrollbarH()) return false;
-        return ly >= Bounds.H - ScrollBarWidth - ScrollBarMargin;
-    }
+    private bool IsOverScrollbarH(float lx, float ly) => ScrollGeometry(true).Contains(lx, ly);
 
     public override void OnScroll(float dx, float dy)
     {
@@ -478,76 +399,43 @@ public class ScrollPanel : Element, ILayoutContainer
 
     public override bool OnMouseDown(int button, float x, float y)
     {
-        if (!Enabled || button != 0) return false;
-
+        if (!IsActive || button != 0) return false;
         WindowToLocal(x, y, out float lx, out float ly);
-
-        // Vertical scrollbar drag
-        if (CanScrollV() && IsOverScrollbarV(lx, ly))
+        _scrollbars.Cancel();
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        if (vertical.Contains(lx, ly) || horizontal.Contains(lx, ly))
         {
-            _draggingThumbV = true;
-            _dragStart = ly;
-            _dragStartScroll = _scrollV;
+            var geometry = vertical.Contains(lx, ly) ? vertical : horizontal;
+            float value = _scrollbars.Begin(this, geometry, lx, ly);
+            SetScrollbarOffset(geometry, value); Cursor = CursorType.Arrow; UpdateScrollbars(); MarkDirty();
             return true;
         }
-
-        // Horizontal scrollbar drag
-        if (CanScrollH() && IsOverScrollbarH(lx, ly))
-        {
-            _draggingThumbH = true;
-            _dragStart = lx;
-            _dragStartScroll = _scrollH;
-            return true;
-        }
-
-        return false;
+        return (ShowScrollbarV() && lx >= ViewportW()) || (ShowScrollbarH() && ly >= ViewportH());
+    }
+    private void SetScrollbarOffset(ScrollbarGeometry geometry, float value)
+    {
+        float normalized = geometry.Maximum > 0 ? value / geometry.Maximum : 0;
+        if (geometry.Horizontal) ScrollHorizontal = normalized; else Scroll = normalized;
     }
 
     public override bool OnMouseUp(int button, float x, float y)
     {
         if (button != 0) return false;
-        _draggingThumbV = false;
-        _draggingThumbH = false;
-        return true;
+        OnDragEnd(); return true;
     }
+    public override void OnDragEnd() { _scrollbars.Cancel(); UpdateScrollbars(); MarkDirty(); }
+    protected override void OnActivityChanged(bool active) { if (!active) _scrollbars.Cancel(); UpdateScrollbars(); MarkDirty(); }
+    public override void OnMouseLeave() { _scrollbars.Leave(); UpdateScrollbars(); MarkDirty(); }
 
     public override void OnMouseMove(float x, float y)
     {
         WindowToLocal(x, y, out float lx, out float ly);
-
-        // Cursor: arrow over scrollbars, default otherwise
-        if (IsOverScrollbarV(lx, ly) || IsOverScrollbarH(lx, ly))
-            Cursor = CursorType.Arrow;
-        else
-            Cursor = CursorType.Arrow; // ScrollPanel default is arrow
-
-        if (_draggingThumbV)
-        {
-            float trackH = ViewportH() - 2 * ScrollBarMargin;
-            float ratio = Math.Min(1f, ViewportH() / _contentHeight);
-            float thumbH = Math.Max(20, trackH * ratio);
-            float scrollableTrack = trackH - thumbH;
-
-            if (scrollableTrack > 0)
-            {
-                float delta = (ly - _dragStart) / scrollableTrack;
-                Scroll = _dragStartScroll + delta;
-            }
-        }
-
-        if (_draggingThumbH)
-        {
-            float trackW = ViewportW() - 2 * ScrollBarMargin;
-            float ratio = Math.Min(1f, ViewportW() / _contentWidth);
-            float thumbW = Math.Max(20, trackW * ratio);
-            float scrollableTrack = trackW - thumbW;
-
-            if (scrollableTrack > 0)
-            {
-                float delta = (lx - _dragStart) / scrollableTrack;
-                ScrollHorizontal = _dragStartScroll + delta;
-            }
-        }
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        Cursor = CursorType.Arrow;
+        if (_scrollbars.Hover(lx, ly, vertical, horizontal)) { UpdateScrollbars(); MarkDirty(); }
+        int axis = _scrollbars.Axis;
+        if (_scrollbars.Move(this, vertical, horizontal, lx, ly, out var value))
+            SetScrollbarOffset(axis == 2 ? horizontal : vertical, value);
     }
 
     public override Element? HitTest(float x, float y)
@@ -561,9 +449,9 @@ public class ScrollPanel : Element, ILayoutContainer
             return null;
 
         // Check scrollbars first
-        if (ShowScrollbarV() && localX >= Bounds.W - ScrollBarWidth - ScrollBarMargin)
+        if (ShowScrollbarV() && localX >= ViewportW() - ScrollBarMargin)
             return this;
-        if (ShowScrollbarH() && localY >= Bounds.H - ScrollBarWidth - ScrollBarMargin)
+        if (ShowScrollbarH() && localY >= ViewportH() - ScrollBarMargin)
             return this;
 
         // Check children
@@ -599,11 +487,12 @@ public class ScrollPanel : Element, ILayoutContainer
 
     protected override void OnThemeChanged()
     {
+        _scrollbars.Cancel();
+        UpdateScrollbars();
         if (!_shapesCreated || _background.HasValue) return;
         var style = Style;
         _backgroundShape?.SetFill(style.Background.R8, style.Background.G8, style.Background.B8, style.Background.A8);
-        _scrollThumbV?.SetFill(128, 128, 128, 100);
-        _scrollThumbH?.SetFill(128, 128, 128, 100);
+
         MarkDirty();
     }
 }

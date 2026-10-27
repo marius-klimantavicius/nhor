@@ -422,8 +422,10 @@ internal sealed class ComboBoxPopup : Element
     private readonly ComboBox _owner;
     private readonly string[] _items;
     private int _highlightedIndex, _pressedIndex = -1, _clickedIndex = -1;
-    private float _scroll, _dragStartY, _dragStartScroll;
-    private bool _scrollPress, _dragging;
+    private float _scroll;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    private bool _scrollPress;
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
     private Shape? _background, _border, _highlight, _clip, _track, _thumb;
     private Scene? _rows;
     private readonly List<Scene> _itemScenes = new();
@@ -436,8 +438,8 @@ internal sealed class ComboBoxPopup : Element
     private float MaxScroll => Math.Max(0, ContentHeight - ViewHeight);
     private bool HasScrollbar => MaxScroll > 0;
     private float RowWidth => Math.Max(0, Bounds.W - 4 - (HasScrollbar ? 12 : 0));
-    private float ThumbHeight => Math.Min(ViewHeight, Math.Max(16, ViewHeight * ViewHeight / Math.Max(1, ContentHeight)));
-    private float ThumbY => 2 + (MaxScroll > 0 ? _scroll / MaxScroll * (ViewHeight - ThumbHeight) : 0);
+    private ScrollbarGeometry ScrollGeometry => ScrollbarGeometry.Create(false, Bounds.W - 10, 2,
+        ViewHeight, ViewHeight, ContentHeight, _scroll, HasScrollbar);
 
     public ComboBoxPopup(ComboBox owner, string[] items, int selectedIndex)
     {
@@ -480,6 +482,7 @@ internal sealed class ComboBoxPopup : Element
     protected override void OnSizeChanged()
     {
         if (!_created) OnAttached();
+        _scrollbars.Cancel();
         _background!.ResetShape(); _background.AppendRect(0, 0, Bounds.W, Bounds.H, 3, 3);
         _border!.ResetShape(); _border.AppendRect(.5f, .5f, Math.Max(0, Bounds.W - 1), Math.Max(0, Bounds.H - 1), 3, 3);
         _clip!.ResetShape(); _clip.AppendRect(2, 2, RowWidth, ViewHeight, 0, 0);
@@ -499,13 +502,7 @@ internal sealed class ComboBoxPopup : Element
         _highlight!.ResetShape();
         _highlight.Visible(_highlightedIndex >= 0);
         if (_highlightedIndex >= 0) _highlight.AppendRect(2, 2 + _highlightedIndex * ItemHeight - _scroll, RowWidth, ItemHeight, 2, 2);
-        _track!.Visible(HasScrollbar); _thumb!.Visible(HasScrollbar);
-        _track.ResetShape(); _thumb.ResetShape();
-        if (HasScrollbar)
-        {
-            _track.AppendRect(Bounds.W - 12, 2, 10, ViewHeight, 3, 3);
-            _thumb.AppendRect(Bounds.W - 11, ThumbY, 8, ThumbHeight, 3, 3);
-        }
+        ScrollGeometry.Paint(this, _track, _thumb, _scrollbars.Hovered(false), _scrollbars.Axis == 1);
         MarkDirty();
     }
 
@@ -548,12 +545,14 @@ internal sealed class ComboBoxPopup : Element
 
     public override void OnMouseMove(float x, float y)
     {
-        if (_dragging)
+        WindowToLocal(x, y, out var lx, out var ly);
+        Cursor = CursorType.Arrow;
+        if (_scrollbars.Hover(lx, ly, ScrollGeometry, default)) PositionRows();
+        if (_scrollbars.Pressed)
         {
-            WindowToLocal(x, y, out _, out var ly);
-            var travel = ViewHeight - ThumbHeight;
-            _scroll = Math.Clamp(_dragStartScroll + (travel > 0 ? (ly - _dragStartY) / travel * MaxScroll : 0), 0, MaxScroll);
-            PositionRows(); return;
+            if (_scrollbars.Move(this, ScrollGeometry, default, lx, ly, out var value))
+            { _scroll = value; PositionRows(); }
+            return;
         }
         var row = RowAt(x, y);
         if (row >= 0 && row != _highlightedIndex) { _highlightedIndex = row; PositionRows(); }
@@ -564,12 +563,12 @@ internal sealed class ComboBoxPopup : Element
         if (button != 0) return false;
         WindowToLocal(x, y, out var lx, out var ly);
         _pressedIndex = _clickedIndex = -1;
-        _scrollPress = HasScrollbar && lx >= Bounds.W - 14;
+        _scrollbars.Cancel();
+        _scrollPress = ScrollGeometry.Contains(lx, ly);
         if (_scrollPress)
         {
-            _dragging = ly >= ThumbY && ly < ThumbY + ThumbHeight;
-            _dragStartY = ly; _dragStartScroll = _scroll;
-            if (!_dragging) { _scroll = Math.Clamp(_scroll + (ly < ThumbY ? -ViewHeight : ViewHeight), 0, MaxScroll); PositionRows(); }
+            _scroll = _scrollbars.Begin(this, ScrollGeometry, lx, ly);
+            Cursor = CursorType.Arrow; PositionRows();
         }
         else
         {
@@ -582,12 +581,13 @@ internal sealed class ComboBoxPopup : Element
     public override bool OnMouseUp(int button, float x, float y)
     {
         if (button != 0) return false;
-        _dragging = false;
+        _scrollbars.Cancel(); PositionRows();
         _clickedIndex = !_scrollPress && _pressedIndex >= 0 && RowAt(x, y) == _pressedIndex ? _pressedIndex : -1;
         return true;
     }
 
-    public override void OnDragEnd() => _dragging = false;
+    public override void OnDragEnd() { _scrollbars.Cancel(); _pressedIndex = _clickedIndex = -1; PositionRows(); }
+    public override void OnMouseLeave() { _scrollbars.Leave(); PositionRows(); }
     public override void OnClick()
     {
         var index = _clickedIndex; _clickedIndex = _pressedIndex = -1;

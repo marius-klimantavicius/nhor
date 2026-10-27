@@ -85,10 +85,10 @@ public class LogView : WinterComponentBase
         {
             if (IsDisposed || _pending is not { } config) return;
             _pending = null;
+            LogViewControl.FollowTail = config.FollowTail;
             if (config.Text != null || _lastText != null) LogViewControl.Text = config.Text ?? "";
             _lastText = config.Text;
             LogViewControl.Buffer = config.Buffer;
-            LogViewControl.FollowTail = config.FollowTail;
         }
 
         public override void Dispose()

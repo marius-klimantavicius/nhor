@@ -29,8 +29,8 @@ public class MarkdownView : Element
     private bool _ready, _batch, _imagesResolved, _detached;
     private float _scrollX, _scrollY;
     private int _focusedLink = -1, _pressedLink = -1;
-    private int _dragAxis;
-    private float _dragStart, _dragScroll;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
     private int _anchor, _caret;
     private readonly TextEditingBoundaries _boundaries = new();
     private Dictionary<RectF, RectF> _selectionRects = new();
@@ -124,6 +124,7 @@ public class MarkdownView : Element
 
     private void InvalidateLayout()
     {
+        _scrollbars.Cancel();
         _layout = null; _layoutWidth = float.NaN; InvalidateMeasure();
         if (_ready && !_batch) { EnsureLayout(); Render(); }
     }
@@ -133,7 +134,7 @@ public class MarkdownView : Element
         ThrowIfDisposed();
         float width = requestedWidth ?? Math.Max(1, Bounds.W - Padding * 2 - Bar);
         if (_layout != null && _layoutWidth == width) return;
-        _dragAxis = 0; // A thumb gesture belongs to the layout it started on.
+        _scrollbars.Cancel(); // A thumb gesture belongs to the layout it started on.
         EnsureContent();
         if (_ready && !_imagesResolved) ResolveImages();
         _layout = MarkdownLayout.Build(_content!, width, FontSize, MeasureText, _imageSizes, _ready ? MeasureGlyphs : null);
@@ -268,14 +269,14 @@ public class MarkdownView : Element
         EnsureLayout(Math.Max(1, width - Padding * 2 - Bar));
         return new(width, Math.Min(float.IsFinite(availableHeight) ? availableHeight : 360, _layout!.Height + Padding * 2 + Bar));
     }
-    protected override void OnSizeChanged() { _dragAxis = 0; if (_ready) { EnsureLayout(); ClampScroll(); Render(); } }
+    protected override void OnSizeChanged() { _scrollbars.Cancel(); if (_ready) { EnsureLayout(); ClampScroll(); Render(); } }
     protected override void ArrangeCore(RectF finalBounds) { if (_ready) { EnsureLayout(); Render(); } }
     protected override void OnThemeChanged() { ClearFonts(); InvalidateLayout(); }
     protected override void OnDetaching()
     {
         CancelDrag(); _anchor = _caret = 0; _selectedText = null; _selectionRects.Clear();
         _ready = false; _detached = true; _drawings?.Remove(); ClearImages(); ClearFonts();
-        _layout = null; _pressedLink = -1; _dragAxis = 0;
+        _layout = null; _pressedLink = -1; _scrollbars.Cancel();
         _selectionLayout = null;
     }
     protected override void OnDisposed()
@@ -371,20 +372,21 @@ public class MarkdownView : Element
         }
         _focus.SetFill(0, 0, 0, 0); _focus.StrokeWidth(1); _focus.StrokeFill(link.R8, link.G8, link.B8);
         _outline.SetFill(0, 0, 0, 0); _outline.StrokeWidth(1); _outline.StrokeFill(link.R8, link.G8, link.B8);
-        Scrollbar(_vTrack!, _vThumb!, false, border); Scrollbar(_hTrack!, _hThumb!, true, border);
+        UpdateScrollbars();
         MarkDirty();
     }
 
-    private static float ThumbLength(float viewport, float total) => Math.Min(viewport, Math.Max(20, viewport * viewport / total));
-
-    private void Scrollbar(Shape track, Shape thumb, bool horizontal, Color4 color)
+    private ScrollbarGeometry ScrollGeometry(bool horizontal)
     {
-        float viewport = horizontal ? ViewWidth : ViewHeight, total = horizontal ? _layout!.Width : _layout!.Height;
-        bool visible = total > viewport; track.Visible(visible); thumb.Visible(visible); if (!visible) return;
-        float length = ThumbLength(viewport, total), scroll = horizontal ? _scrollX : _scrollY;
-        float offset = scroll / (total - viewport) * (viewport - length);
-        Rect(track, horizontal ? new(Padding, Bounds.H - Bar, viewport, 6) : new(Bounds.W - Bar, Padding, 6, viewport), new Color4(color.R, color.G, color.B, .2f));
-        Rect(thumb, horizontal ? new(Padding + offset, Bounds.H - Bar, length, 6) : new(Bounds.W - Bar, Padding + offset, 6, length), color);
+        float viewport = horizontal ? ViewWidth : ViewHeight;
+        float total = horizontal ? _layout?.Width ?? 0 : _layout?.Height ?? 0;
+        return ScrollbarGeometry.Create(horizontal, horizontal ? Bounds.H - Bar : Bounds.W - Bar,
+            Padding, viewport, viewport, total, horizontal ? _scrollX : _scrollY, total > viewport && viewport > 0);
+    }
+    private void UpdateScrollbars()
+    {
+        ScrollGeometry(false).Paint(this, _vTrack, _vThumb, _scrollbars.Hovered(false), _scrollbars.Axis == 1);
+        ScrollGeometry(true).Paint(this, _hTrack, _hThumb, _scrollbars.Hovered(true), _scrollbars.Axis == 2);
     }
 
     private int LinkAt(float x, float y)
@@ -400,24 +402,17 @@ public class MarkdownView : Element
         if (button != GLFW_MOUSE_BUTTON_LEFT || IsDisposed || _detached || !IsEffectivelyEnabled || !IsEffectivelyVisible) return false;
         EnsureLayout(); WindowToLocal(x, y, out var lx, out var ly);
         if (lx < 0 || ly < 0 || lx > Bounds.W || ly > Bounds.H) return false;
-        CancelDrag(); Focus();
-        int axis = lx >= Bounds.W - Bar && ly >= Padding && ly <= Padding + ViewHeight && _layout!.Height > ViewHeight ? 1
-            : ly >= Bounds.H - Bar && lx >= Padding && lx <= Padding + ViewWidth && _layout!.Width > ViewWidth ? 2 : 0;
-        if (axis != 0)
+        CancelDrag();
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        if (vertical.Contains(lx, ly) || horizontal.Contains(lx, ly))
         {
-            bool horizontal = axis == 2;
-            float viewport = horizontal ? ViewWidth : ViewHeight, total = horizontal ? _layout!.Width : _layout!.Height;
-            float scroll = horizontal ? _scrollX : _scrollY, pointer = horizontal ? lx : ly;
-            float length = ThumbLength(viewport, total), start = Padding + scroll / (total - viewport) * (viewport - length);
-            if (pointer < start || pointer > start + length)
-            {
-                float value = scroll + (pointer < start ? -viewport : viewport);
-                ScrollTo(horizontal ? value : _scrollX, horizontal ? _scrollY : value);
-            }
-            else
-            { _dragAxis = axis; _dragStart = horizontal ? x : y; _dragScroll = scroll; }
+            var geometry = vertical.Contains(lx, ly) ? vertical : horizontal;
+            float value = _scrollbars.Begin(this, geometry, lx, ly);
+            Cursor = CursorType.Arrow;
+            ScrollTo(geometry.Horizontal ? value : _scrollX, geometry.Horizontal ? _scrollY : value);
             return true;
         }
+        Focus();
         if (lx < Padding || ly < Padding || lx > Padding + ViewWidth || ly > Padding + ViewHeight) return true;
         _pressedLink = LinkAt(x, y); _focusedLink = _pressedLink;
         _pointerX = _pressX = lx; _pointerY = _pressY = ly; _selecting = true; _dragged = false;
@@ -433,7 +428,7 @@ public class MarkdownView : Element
     {
         if (button != GLFW_MOUSE_BUTTON_LEFT || IsDisposed || _detached || !IsEffectivelyEnabled || !IsEffectivelyVisible) return false;
         int pressed = _pressedLink; bool activate = _selecting && !_dragged && !_extendPress;
-        CancelDrag();
+        CancelDrag(); UpdateScrollbars(); MarkDirty();
         if (activate && pressed >= 0 && pressed < _links.Count && pressed == LinkAt(x, y))
         { _focusedLink = pressed; _textNavigation = false; Render(); LinkClicked?.Invoke(_links[pressed].Url); }
         return true;
@@ -441,23 +436,25 @@ public class MarkdownView : Element
     public override void OnMouseMove(float x, float y)
     {
         if (IsDisposed || _detached || !IsEffectivelyEnabled || !IsEffectivelyVisible) return;
-        if (_dragAxis != 0)
+        WindowToLocal(x, y, out var lx, out var ly);
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        if (_scrollbars.Hover(lx, ly, vertical, horizontal)) { UpdateScrollbars(); MarkDirty(); }
+        if (_scrollbars.Pressed)
         {
-            float viewport = _dragAxis == 1 ? ViewHeight : ViewWidth, total = _dragAxis == 1 ? _layout!.Height : _layout!.Width;
-            float travel = viewport - ThumbLength(viewport, total);
-            if (travel > 0)
-            {
-                float value = _dragScroll + ((_dragAxis == 1 ? y : x) - _dragStart) * (total - viewport) / travel;
-                ScrollTo(_dragAxis == 2 ? value : _scrollX, _dragAxis == 1 ? value : _scrollY);
-            }
+            Cursor = CursorType.Arrow;
+            int axis = _scrollbars.Axis;
+            if (_scrollbars.Move(this, vertical, horizontal, lx, ly, out var value))
+                ScrollTo(axis == 2 ? value : _scrollX, axis == 1 ? value : _scrollY);
+            return;
         }
-        else if (_selecting)
+        if (_selecting)
         {
             WindowToLocal(x, y, out _pointerX, out _pointerY);
             if (Math.Abs(_pointerX - _pressX) + Math.Abs(_pointerY - _pressY) >= 3) _dragged = true;
             if (_dragged) { _preferredX = null; _focusedLink = -1; MoveCaret(TextAt(_pointerX, _pointerY), true); Render(); StartAutoScroll(); }
         }
-        Cursor = _selecting ? CursorType.IBeam : LinkAt(x, y) >= 0 ? CursorType.Hand : CursorType.IBeam;
+        Cursor = vertical.Contains(lx, ly) || horizontal.Contains(lx, ly) ? CursorType.Arrow
+            : _selecting ? CursorType.IBeam : LinkAt(x, y) >= 0 ? CursorType.Hand : CursorType.IBeam;
     }
     public override void OnScroll(float dx, float dy)
     {
@@ -551,9 +548,10 @@ public class MarkdownView : Element
         });
     }
     private void StopAutoScroll() => OwnerWindow?.Animator.Cancel(_autoScrollTag);
-    private void CancelDrag() { StopAutoScroll(); _selecting = false; _pressedLink = -1; _dragAxis = 0; }
-    protected override void OnActivityChanged(bool active) { if (!active) CancelDrag(); }
-    public override void OnDragEnd() => CancelDrag();
+    private void CancelDrag() { StopAutoScroll(); _selecting = false; _pressedLink = -1; _scrollbars.Cancel(); }
+    protected override void OnActivityChanged(bool active) { if (!active) CancelDrag(); UpdateScrollbars(); MarkDirty(); }
+    public override void OnDragEnd() { CancelDrag(); UpdateScrollbars(); }
+    public override void OnMouseLeave() { _scrollbars.Leave(); UpdateScrollbars(); MarkDirty(); }
     private void CopySelection() { if (SelectionLength > 0 && OwnerWindow != null) Glfw.Glfw.glfwSetClipboardString(null, SelectedText); }
     public override void OnBuildContextMenu(Menu menu)
     {

@@ -101,10 +101,8 @@ public class RichTextBox : Element
     private object? _blinkTag;
     private object? _autoScrollTag;
     private bool _mouseDown;
-    private bool _scrollbarDragV;
-    private bool _scrollbarDragH;
-    private float _scrollbarDragStart;
-    private float _scrollbarDragStartScroll;
+    private readonly ScrollbarInteraction _scrollbars = new();
+    internal override bool IsScrollbarGesture => _scrollbars.Pressed;
     private float _lastMouseLx;
     private float _lastMouseLy;
 
@@ -232,6 +230,7 @@ public class RichTextBox : Element
 
     private void LoadDocument(RichDocument document, bool clearSelection)
     {
+        _scrollbars.Cancel();
         _text = document.Text; _runs.Clear();
         foreach (var run in document.Runs)
             _runs.Add(new TextRun { Start = run.Start, Length = run.Length, Format = run.Style.Format, Color = run.Style.Color });
@@ -366,7 +365,7 @@ public class RichTextBox : Element
     {
         StopAutoScroll();
         StopBlinkAnimation();
-        _mouseDown = _scrollbarDragV = _scrollbarDragH = false;
+        _mouseDown = false; _scrollbars.Cancel();
         // Formatting/restoration can grow the run pool after the last frame.
         // Release editor-owned glyph/decorations before the parent scene asks
         // for damage bounds: newly added text has not been prepared by a canvas.
@@ -479,6 +478,8 @@ public class RichTextBox : Element
 
     protected override void OnSizeChanged()
     {
+        _scrollbars.Cancel();
+        ClampScroll();
         float w = Bounds.W, h = Bounds.H;
 
         _backgroundShape?.ResetShape();
@@ -488,7 +489,7 @@ public class RichTextBox : Element
         _borderShape?.AppendRect(0.5f, 0.5f, w - 1, h - 1, 2.5f, 2.5f);
 
         _clipShape?.ResetShape();
-        _clipShape?.AppendRect(Padding, Padding - 1, w - 2 * Padding, h - 2 * Padding + 1, 0, 0);
+        _clipShape?.AppendRect(Padding, Padding - 1, ViewportW(), ViewportH() + 1, 0, 0);
 
         UpdateContent();
     }
@@ -514,6 +515,7 @@ public class RichTextBox : Element
 
     public override void OnBlur()
     {
+        OnDragEnd();
         State = State & ~ElementState.Focused;
         _cursorShape?.Visible(false);
         _selectionShape?.Visible(false);
@@ -687,31 +689,17 @@ public class RichTextBox : Element
 
     private float LineBaseline(float lineY) => Padding + lineY + LineLeading + _ascent;
 
-    private bool NeedsScrollbarV()
+    private ScrollbarViewport ScrollViewport => ScrollbarViewport.Resolve(Bounds.W - 2 * Padding, Bounds.H - 2 * Padding, _maxLineWidth, _totalContentHeight);
+    private bool NeedsScrollbarV() => ScrollViewport.Vertical;
+    private bool NeedsScrollbarH() => ScrollViewport.Horizontal;
+    private float ViewportW() => ScrollViewport.Width;
+    private float ViewportH() => ScrollViewport.Height;
+    private ScrollbarGeometry ScrollGeometry(bool horizontal)
     {
-        float viewportH = Bounds.H - 2 * Padding;
-        return _totalContentHeight > viewportH;
-    }
-
-    private bool NeedsScrollbarH()
-    {
-        float viewportW = Bounds.W - 2 * Padding;
-        if (NeedsScrollbarV()) viewportW -= ScrollbarWidth + ScrollbarMargin;
-        return _maxLineWidth > viewportW;
-    }
-
-    private float ViewportW()
-    {
-        float w = Bounds.W - 2 * Padding;
-        if (NeedsScrollbarV()) w -= ScrollbarWidth + ScrollbarMargin;
-        return w;
-    }
-
-    private float ViewportH()
-    {
-        float h = Bounds.H - 2 * Padding;
-        if (NeedsScrollbarH()) h -= ScrollbarWidth + ScrollbarMargin;
-        return h;
+        float viewport = horizontal ? ViewportW() : ViewportH();
+        return ScrollbarGeometry.Create(horizontal, horizontal ? Bounds.H - ScrollbarWidth - ScrollbarMargin : Bounds.W - ScrollbarWidth - ScrollbarMargin,
+            Padding, viewport, viewport, horizontal ? _maxLineWidth : _totalContentHeight,
+            horizontal ? _scrollX : _scrollY, horizontal ? NeedsScrollbarH() : NeedsScrollbarV());
     }
 
     private void UpdateContent()
@@ -908,64 +896,10 @@ public class RichTextBox : Element
 
     private void UpdateScrollbars()
     {
-        float w = Bounds.W, h = Bounds.H;
-        bool needsV = NeedsScrollbarV();
-        bool needsH = NeedsScrollbarH();
-        float halfW = ScrollbarWidth / 2;
-
-        _scrollTrackV?.ResetShape();
-        _scrollThumbV?.ResetShape();
-
-        if (!needsV)
-        {
-            _scrollTrackV?.Visible(false);
-            _scrollThumbV?.Visible(false);
-        }
-        else
-        {
-            _scrollTrackV?.Visible(true);
-            _scrollThumbV?.Visible(true);
-
-            float trackX = w - ScrollbarWidth - ScrollbarMargin;
-            float trackY = Padding;
-            float trackH = ViewportH();
-
-            _scrollTrackV?.AppendRect(trackX, trackY, ScrollbarWidth, trackH, halfW, halfW);
-
-            float ratio = trackH / _totalContentHeight;
-            float thumbH = Math.Max(20, trackH * ratio);
-            float maxScroll = _totalContentHeight - trackH;
-            float thumbY = trackY + (maxScroll > 0 ? (_scrollY / maxScroll) * (trackH - thumbH) : 0);
-
-            _scrollThumbV?.AppendRect(trackX, thumbY, ScrollbarWidth, thumbH, halfW, halfW);
-        }
-
-        _scrollTrackH?.ResetShape();
-        _scrollThumbH?.ResetShape();
-
-        if (!needsH)
-        {
-            _scrollTrackH?.Visible(false);
-            _scrollThumbH?.Visible(false);
-        }
-        else
-        {
-            _scrollTrackH?.Visible(true);
-            _scrollThumbH?.Visible(true);
-
-            float trackY = h - ScrollbarWidth - ScrollbarMargin;
-            float trackX = Padding;
-            float trackW = ViewportW();
-
-            _scrollTrackH?.AppendRect(trackX, trackY, trackW, ScrollbarWidth, halfW, halfW);
-
-            float ratio = trackW / _maxLineWidth;
-            float thumbW = Math.Max(20, trackW * ratio);
-            float maxScroll = _maxLineWidth - trackW;
-            float thumbX = trackX + (maxScroll > 0 ? (_scrollX / maxScroll) * (trackW - thumbW) : 0);
-
-            _scrollThumbH?.AppendRect(thumbX, trackY, thumbW, ScrollbarWidth, halfW, halfW);
-        }
+        _clipShape?.ResetShape();
+        _clipShape?.AppendRect(Padding, Padding - 1, ViewportW(), ViewportH() + 1, 0, 0);
+        ScrollGeometry(false).Paint(this, _scrollTrackV, _scrollThumbV, _scrollbars.Hovered(false), _scrollbars.Axis == 1);
+        ScrollGeometry(true).Paint(this, _scrollTrackH, _scrollThumbH, _scrollbars.Hovered(true), _scrollbars.Axis == 2);
     }
 
     // --- Text measurement ---
@@ -1348,30 +1282,17 @@ public class RichTextBox : Element
 
         WindowToLocal(x, y, out float lx, out float ly);
 
-        // Check vertical scrollbar hit
-        if (NeedsScrollbarV())
+        _scrollbars.Cancel();
+        var vertical = ScrollGeometry(false); var horizontal = ScrollGeometry(true);
+        if (vertical.Contains(lx, ly) || horizontal.Contains(lx, ly))
         {
-            float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin * 2;
-            if (lx >= trackX && ly >= Padding && ly <= Padding + ViewportH())
-            {
-                _scrollbarDragV = true;
-                _scrollbarDragStart = ly;
-                _scrollbarDragStartScroll = _scrollY;
-                return true;
-            }
-        }
-
-        // Check horizontal scrollbar hit
-        if (NeedsScrollbarH())
-        {
-            float trackY = Bounds.H - ScrollbarWidth - ScrollbarMargin * 2;
-            if (ly >= trackY && lx >= Padding && lx <= Padding + ViewportW())
-            {
-                _scrollbarDragH = true;
-                _scrollbarDragStart = lx;
-                _scrollbarDragStartScroll = _scrollX;
-                return true;
-            }
+            StopAutoScroll(); _mouseDown = false;
+            var geometry = vertical.Contains(lx, ly) ? vertical : horizontal;
+            float value = _scrollbars.Begin(this, geometry, lx, ly);
+            if (geometry.Horizontal) _scrollX = value; else _scrollY = value;
+            Cursor = CursorType.Arrow;
+            ClampScroll(); UpdateContent(); MarkDirty();
+            return true;
         }
 
         _cursorPos = GetCharIndexAtPosition(lx, ly);
@@ -1394,30 +1315,21 @@ public class RichTextBox : Element
     {
         if (button != 0) return false;
         _mouseDown = false;
-        _scrollbarDragV = false;
-        _scrollbarDragH = false;
+        _scrollbars.Cancel(); UpdateScrollbars(); MarkDirty();
         StopAutoScroll();
         if (_selectionStart == _cursorPos)
             _selectionStart = -1;
         return true;
     }
 
-    private bool IsOverScrollbar(float lx, float ly)
+    private bool IsOverScrollbar(float lx, float ly) => ScrollGeometry(false).Contains(lx, ly) || ScrollGeometry(true).Contains(lx, ly);
+
+    public override void OnDragEnd()
     {
-        if (NeedsScrollbarV())
-        {
-            float trackX = Bounds.W - ScrollbarWidth - ScrollbarMargin * 2;
-            if (lx >= trackX && ly >= Padding && ly <= Padding + ViewportH())
-                return true;
-        }
-        if (NeedsScrollbarH())
-        {
-            float trackY = Bounds.H - ScrollbarWidth - ScrollbarMargin * 2;
-            if (ly >= trackY && lx >= Padding && lx <= Padding + ViewportW())
-                return true;
-        }
-        return false;
+        _scrollbars.Cancel(); _mouseDown = false; StopAutoScroll(); UpdateScrollbars(); MarkDirty();
     }
+    public override void OnMouseLeave() { _scrollbars.Leave(); UpdateScrollbars(); MarkDirty(); }
+    protected override void OnActivityChanged(bool active) { if (!active) OnDragEnd(); else { UpdateScrollbars(); MarkDirty(); } }
 
     public override void OnMouseMove(float x, float y)
     {
@@ -1425,40 +1337,15 @@ public class RichTextBox : Element
 
         Cursor = IsOverScrollbar(lx, ly) ? CursorType.Arrow : CursorType.IBeam;
 
-        if (_scrollbarDragV)
+        if (_scrollbars.Hover(lx, ly, ScrollGeometry(false), ScrollGeometry(true))) { UpdateScrollbars(); MarkDirty(); }
+        if (_scrollbars.Pressed)
         {
-            float viewportH = ViewportH();
-            float maxScroll = Math.Max(0, _totalContentHeight - viewportH);
-            float ratio = viewportH / _totalContentHeight;
-            float thumbH = Math.Max(20, viewportH * ratio);
-            float trackH = viewportH - thumbH;
-
-            if (trackH > 0)
+            Cursor = CursorType.Arrow;
+            int axis = _scrollbars.Axis;
+            if (_scrollbars.Move(this, ScrollGeometry(false), ScrollGeometry(true), lx, ly, out var value))
             {
-                float delta = ly - _scrollbarDragStart;
-                _scrollY = _scrollbarDragStartScroll + delta * maxScroll / trackH;
-                ClampScroll();
-                UpdateContent();
-                MarkDirty();
-            }
-            return;
-        }
-
-        if (_scrollbarDragH)
-        {
-            float viewportW = ViewportW();
-            float maxScroll = Math.Max(0, _maxLineWidth - viewportW);
-            float ratio = viewportW / _maxLineWidth;
-            float thumbW = Math.Max(20, viewportW * ratio);
-            float trackW = viewportW - thumbW;
-
-            if (trackW > 0)
-            {
-                float delta = lx - _scrollbarDragStart;
-                _scrollX = _scrollbarDragStartScroll + delta * maxScroll / trackW;
-                ClampScroll();
-                UpdateContent();
-                MarkDirty();
+                if (axis == 2) _scrollX = value; else _scrollY = value;
+                ClampScroll(); UpdateContent(); MarkDirty();
             }
             return;
         }
@@ -1799,6 +1686,7 @@ public class RichTextBox : Element
 
     protected override void OnThemeChanged()
     {
+        _scrollbars.Cancel();
         if (!_shapesCreated) return;
         var style = Style;
         var theme = OwnerWindow?.Theme ?? Theme.Dark;
