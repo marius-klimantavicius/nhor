@@ -53,17 +53,27 @@ public class tvgLoaderStateUpdateTests
     }
 
     [Fact]
-    public void LoaderRetrievalAllowsCacheAccessWhileCloseWaitsForAWorker()
+    public async System.Threading.Tasks.Task LoaderRetrievalAllowsCacheAccessWhileCloseWaitsForAWorker()
     {
         Assert.Equal(Result.Success, Initializer.Init(2));
         var loader = new CacheWorkerLoader();
         try
         {
             Assert.True(LoaderMgr.Retrieve(loader));
-            loader.Worker!.GetAwaiter().GetResult();
+            Assert.NotNull(loader.Worker);
+            await loader.Worker;
             Assert.True(loader.CompletedDuringClose);
         }
-        finally { Initializer.Term(); }
+        finally
+        {
+            try
+            {
+                // A failing retrieval assertion must not tear down the cache
+                // while the worker started by Close can still be accessing it.
+                if (loader.Worker != null) await loader.Worker;
+            }
+            finally { Initializer.Term(); }
+        }
     }
 
     [Fact]

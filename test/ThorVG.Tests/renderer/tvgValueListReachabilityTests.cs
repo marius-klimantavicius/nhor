@@ -86,7 +86,7 @@ public class tvgValueListReachabilityTests
         var (canvas, references) = CreateRemovedScene(depth, image);
         try
         {
-            Assert.Equal(0, canvas.GetPaints().Count);
+            Assert.Empty(canvas.GetPaints());
             AssertCollected(references);
         }
         finally { canvas.Dispose(); GC.KeepAlive(canvas); }

@@ -65,6 +65,7 @@ namespace ThorVG.Tests
             try
             {
                 using var canvas = SwCanvas.Gen(option);
+                Assert.NotNull(canvas);
                 Assert.Equal(Result.Success, canvas.Target(new uint[64 * 64], 64, 64, 64, ColorSpace.ABGR8888));
                 Assert.Equal(0u, canvas.DirtyRegions());
                 var regions = new Region[2];
@@ -98,6 +99,7 @@ namespace ThorVG.Tests
             try
             {
                 using var canvas = SwCanvas.Gen(EngineOption.SmartRender);
+                Assert.NotNull(canvas);
                 var pixels = new uint[64 * 64];
                 canvas.Target(pixels, 64, 64, 64, ColorSpace.ABGR8888);
                 var shape = Shape.Gen();

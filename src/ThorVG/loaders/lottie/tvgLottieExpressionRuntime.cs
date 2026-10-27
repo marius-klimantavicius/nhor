@@ -40,7 +40,8 @@ internal static class LottieExpressionRuntime
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicFields, "Jint.Runtime.EventLoop", "Jint")]
     private static FieldInfo FindWaitingThreadField() =>
-        EventLoopField.FieldType.GetField("_waitingThreadId", BindingFlags.Instance | BindingFlags.NonPublic)
+        System.Type.GetType("Jint.Runtime.EventLoop, Jint", throwOnError: true)
+            ?.GetField("_waitingThreadId", BindingFlags.Instance | BindingFlags.NonPublic)
         ?? throw new MissingFieldException("The pinned Jint event-loop host configuration is unavailable.");
 
     internal static Engine CreateEngine()

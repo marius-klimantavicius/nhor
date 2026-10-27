@@ -291,6 +291,7 @@ namespace ThorVG.Tests
             Assert.Equal(Result.Success, Initializer.Init());
             {
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
                 var buffer = new uint[200 * 200];
                 Assert.Equal(Result.Success, canvas.Target(buffer, 200, 200, 200, ColorSpace.ARGB8888));
 

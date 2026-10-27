@@ -143,6 +143,7 @@ namespace ThorVG.Tests
             {
                 var buffer = new uint[500 * 500];
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
                 canvas.Target(buffer, 500, 500, 500, ColorSpace.ARGB8888);
 
                 var shape = Shape.Gen();
@@ -362,6 +363,7 @@ namespace ThorVG.Tests
             Initializer.Init();
             {
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
 
                 shape = Shape.Gen();
                 Assert.Equal((ushort)1, shape.Ref());

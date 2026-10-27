@@ -1271,8 +1271,8 @@ namespace ThorVG
             var paint = Text.Gen();
             if (paint.SetFont(doc.name) != Result.Success)
             {
-                string? src;
-                if (text.font?.external == true) src = text.font.b64src;
+                string src;
+                if (text.font?.external == true && text.font.b64src is { } path) src = path;
                 else src = $"name:{doc.name}";
 
                 if (resolver == null || resolver.func == null || !resolver.func(paint, src, resolver.data))

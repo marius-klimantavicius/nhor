@@ -88,22 +88,20 @@ namespace ThorVG
 
         public Result Update(Fill.ColorStop[]? stops, uint cnt)
         {
-            if (stops == null && cnt > 0) return Result.InvalidArguments;
-            if (stops != null && cnt == 0) return Result.InvalidArguments;
-            if (stops != null && cnt > stops.Length) return Result.InvalidArguments;
-
-            if (cnt == 0)
+            if (stops == null)
             {
+                if (cnt > 0) return Result.InvalidArguments;
                 colorStops = null;
                 this.cnt = 0;
                 return Result.Success;
             }
+            if (cnt == 0 || cnt > stops.Length) return Result.InvalidArguments;
 
             // Native reallocates only when the count changes. Preserve the
             // storage returned by GetColorStops across same-count updates,
             // including updates whose source is that same owned buffer.
-            if (cnt != this.cnt) colorStops = new Fill.ColorStop[cnt];
-            System.Array.Copy(stops!, colorStops, cnt);
+            if (cnt != this.cnt || colorStops == null) colorStops = new Fill.ColorStop[cnt];
+            System.Array.Copy(stops, colorStops, cnt);
             this.cnt = (ushort)cnt;
             return Result.Success;
         }

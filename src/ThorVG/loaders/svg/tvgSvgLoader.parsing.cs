@@ -1638,13 +1638,13 @@ namespace ThorVG
             grad.flags = from.flags;
             grad.transform = from.transform;
 
-            if (from.linear != null)
+            if (from.linear is { } linear)
             {
                 grad.linear = new SvgLinearGradient
                 {
-                    x1 = (from.linear?.x1 ?? 0), y1 = (from.linear?.y1 ?? 0), x2 = (from.linear?.x2 ?? 0), y2 = (from.linear?.y2 ?? 0),
-                    isX1Percentage = (from.linear?.isX1Percentage ?? false), isY1Percentage = (from.linear?.isY1Percentage ?? false),
-                    isX2Percentage = (from.linear?.isX2Percentage ?? false), isY2Percentage = from.linear.isY2Percentage
+                    x1 = linear.x1, y1 = linear.y1, x2 = linear.x2, y2 = linear.y2,
+                    isX1Percentage = linear.isX1Percentage, isY1Percentage = linear.isY1Percentage,
+                    isX2Percentage = linear.isX2Percentage, isY2Percentage = linear.isY2Percentage
                 };
             }
             if (from.radial != null)

@@ -35,6 +35,7 @@ public class tvgSvgScenesNativeUpdateTests
                 Assert.Equal(Result.Success, picture.SetSize(192, 128));
                 var pixels = new uint[192 * 128];
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
                 Assert.Equal(Result.Success, canvas.Target(pixels, 192, 192, 128, ColorSpace.ABGR8888));
                 Assert.Equal(Result.Success, canvas.Add(picture));
                 try

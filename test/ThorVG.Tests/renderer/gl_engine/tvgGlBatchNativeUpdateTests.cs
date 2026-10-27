@@ -25,6 +25,7 @@ public unsafe class tvgGlBatchNativeUpdateTests
 
         var method = typeof(GlStencilCoverBatch).GetMethod("Mergeable", BindingFlags.NonPublic | BindingFlags.Instance)!;
         bool Mergeable(GlStencilCoverBatch b, GlRenderPass p, RenderRegion r, GlGeometryBuffer m) => (bool)method.Invoke(b, new object[] { p, GlStencilMode.FillNonZero, false, r, m })!;
+        uint* indices = stackalloc uint[3];
         for (int vertical = 0; vertical < 2; ++vertical)
         {
             using var target = new GlRenderTarget
@@ -82,12 +83,11 @@ public unsafe class tvgGlBatchNativeUpdateTests
                     stencil.SetViewport(box);
                     stencil.SetDrawRange(n * 12, 3);
                     stencil.AddVertexLayout(new() { index = 0, size = 2, stride = 8, offset = n * 24, type = GL.GL_FLOAT, normalized = GL.GL_FALSE, arrayBufferId = 7 });
-                    uint* indices = stackalloc uint[3]
-                    {
-                        0,
-                        1,
-                        2
-                    };
+                    // Draw rewrites merged indices. Restore the original input
+                    // for every draw when reusing the allocation outside the loops.
+                    indices[0] = 0;
+                    indices[1] = 1;
+                    indices[2] = 2;
                     bool merge = Mergeable(batch, pass, box, mesh);
                     batch.Draw(pass, stencil, cover, merge, GlStencilMode.FillNonZero, false, box, target.viewport, mesh, indices);
                     var root = (GlStencilCoverTask)pass.LastTask()!;

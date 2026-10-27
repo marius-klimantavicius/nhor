@@ -540,8 +540,6 @@ namespace ThorVG
                 var obj = jv.AsObject();
                 var v0 = obj.Get("0");
                 var v1 = obj.Get("1");
-                if (v0 != null && !v0.IsUndefined() && v1 != null && !v1.IsUndefined())
-                    return new Point(Numeric(v0), Numeric(v1));
                 return new Point(Numeric(v0), Numeric(v1));
             }
             return default;

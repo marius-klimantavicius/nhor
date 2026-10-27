@@ -177,6 +177,7 @@ namespace ThorVG.Tests
                 picture.SetSize(w, h);
 
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
                 var buffer = new uint[w * h];
                 Assert.Equal(Result.Success, canvas.Target(buffer, w, w, h, ColorSpace.ABGR8888S));
                 Assert.Equal(Result.Success, canvas.Add(picture));
@@ -220,6 +221,7 @@ namespace ThorVG.Tests
 
                 // This is what GifSaver.Run does:
                 using var canvas = SwCanvas.Gen();
+                Assert.NotNull(canvas);
                 var buffer = new uint[w * h];
                 Assert.Equal(Result.Success, canvas.Target(buffer, w, w, h, ColorSpace.ABGR8888S));
                 Assert.Equal(Result.Success, canvas.Add(picture));
@@ -261,6 +263,7 @@ namespace ThorVG.Tests
                     Assert.Equal(Result.Success, p.Load(Path.Combine(TEST_DIR, "test.lot")));
                     p.SetSize(w, h);
                     using var c = SwCanvas.Gen(); var buf = new uint[w * h];
+                    Assert.NotNull(c);
                     c.Target(buf, w, w, h, ColorSpace.ABGR8888S); c.Add(p);
 
                     a.Frame(1);
@@ -279,6 +282,7 @@ namespace ThorVG.Tests
                     Assert.Equal(Result.Success, p.Load(Path.Combine(TEST_DIR, "test.lot")));
                     p.SetSize(w, h);
                     using var c = SwCanvas.Gen(); var buf = new uint[w * h];
+                    Assert.NotNull(c);
                     c.Target(buf, w, w, h, ColorSpace.ABGR8888S); c.Add(p);
 
                     a.Frame(30);

@@ -211,7 +211,13 @@ public unsafe class tvgLottieModifierNativeUpdateTests
                 }
                 else
                     prop.value = Copy();
-                var b = i % 2 != 0 ? prop.frames[0].value : prop.value;
+                PathSet b;
+                if (i % 2 != 0)
+                {
+                    Assert.NotNull(prop.frames);
+                    b = prop.frames[0].value;
+                }
+                else b = prop.value;
                 fixed (PathCommand* c = b.cmds)
                 fixed (Point* p = b.pts)
                 {

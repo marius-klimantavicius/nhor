@@ -91,6 +91,7 @@ public unsafe class tvgLottieModelNativeUpdateTests
                 Word(g.opaque ? 1u : 0u);
                 for (int k = 0; k < n; ++k)
                 {
+                    Assert.NotNull(c.data);
                     var s = c.data[k];
                     Number(s.offset);
                     Word(s.r);
@@ -115,6 +116,7 @@ public unsafe class tvgLottieModelNativeUpdateTests
                 g.colorStops.count = 2;
                 g.colorStops.populated = true;
                 var f = g.CreateFill(0, 173, tween, null);
+                Assert.NotNull(f);
                 if (g.gradientId == 1)
                 {
                     Word((uint)((LinearGradient)f).Linear(out var x1, out var y1, out var x2, out var y2));
@@ -150,6 +152,7 @@ public unsafe class tvgLottieModelNativeUpdateTests
                 Word(n);
                 for (int j = 0; j < n; ++j)
                 {
+                    Assert.NotNull(s);
                     Number(s[j].offset);
                     Word(s[j].r);
                     Word(s[j].g);

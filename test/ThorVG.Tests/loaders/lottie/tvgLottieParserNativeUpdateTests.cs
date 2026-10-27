@@ -27,7 +27,7 @@ public class tvgLottieParserNativeUpdateTests
                 using var row = new BinaryWriter(memory);
                 void Word(uint v) => row.Write(v);
                 void Number(float v) => Word(BitConverter.SingleToUInt32Bits(v));
-                void StringWords(string s)
+                void StringWords(string? s)
                 {
                     if (s == null)
                     {
@@ -49,7 +49,9 @@ public class tvgLottieParserNativeUpdateTests
                 LottieExpressions.SeedRandom((uint)(17 + i));
                 var parser = new LottieParser(text, "normal-base", false);
                 Word(parser.Parse() ? 1u : 0u);
-                var comp = parser.comp!;
+                var comp = parser.comp;
+                Assert.NotNull(comp);
+                Assert.NotNull(comp.root);
                 if (kind == "effect")
                 {
                     var layer = (LottieLayer)comp.root.children[0];
@@ -60,7 +62,7 @@ public class tvgLottieParserNativeUpdateTests
                     {
                         Word((uint)p.nm);
                         Word((uint)p.mn);
-                        Number(((LottieFloat)p.property).Evaluate(0));
+                        Number(Assert.IsType<LottieFloat>(p.property).Evaluate(0));
                     }
                 }
                 else if (kind == "random")
@@ -109,7 +111,7 @@ public class tvgLottieParserNativeUpdateTests
                         else
                         {
                             var audio = (LottieAudio)asset;
-                            StringWords((string)audio.data);
+                            StringWords((string?)audio.data);
                             Word(audio.external ? 1u : 0u);
                         }
                     }

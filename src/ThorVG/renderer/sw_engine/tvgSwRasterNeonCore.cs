@@ -100,7 +100,9 @@ namespace ThorVG
             {
                 var source = AdvSimd.LoadVector64((byte*)(src + i));
                 if (opacity != 255) source = neonScalePixels(source, opacityVector);
-                var inverse = AdvSimd.Subtract(Vector64.Create(256u), AdvSimd.ShiftRightLogical(source.AsUInt32(), 24));
+                // Vector64 preserves the 32-bit USHR operation without .NET 8's
+                // incorrect 16-bit immediate bound on this AdvSimd overload.
+                var inverse = AdvSimd.Subtract(Vector64.Create(256u), Vector64.ShiftRightLogical(source.AsUInt32(), 24));
                 var target = AdvSimd.LoadVector64((byte*)(dst + i));
                 AdvSimd.Store((byte*)(dst + i), AdvSimd.Add(source, neonScalePixels(target, inverse)));
             }

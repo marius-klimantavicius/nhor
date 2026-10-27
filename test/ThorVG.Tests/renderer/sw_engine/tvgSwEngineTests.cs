@@ -384,6 +384,7 @@ namespace ThorVG.Tests
         public void SwCanvas_FullPipeline_DrawRedRect()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             Assert.Equal(Result.Success, canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888));
 
@@ -401,6 +402,7 @@ namespace ThorVG.Tests
         public void SwCanvas_FullPipeline_DrawWithClear()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[50 * 50];
             canvas.Target(buffer, 50, 50, 50, ColorSpace.ARGB8888);
 
@@ -417,6 +419,7 @@ namespace ThorVG.Tests
         public void SwCanvas_MultipleShapes()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[200 * 200];
             canvas.Target(buffer, 200, 200, 200, ColorSpace.ARGB8888);
 
@@ -438,6 +441,7 @@ namespace ThorVG.Tests
         public void SwCanvas_EmptyCanvas_DrawSucceeds()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -449,6 +453,7 @@ namespace ThorVG.Tests
         public void SwCanvas_UpdateTwice_SecondIsNoop()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -465,6 +470,7 @@ namespace ThorVG.Tests
         public void SwCanvas_Target_ABGR8888()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             Assert.Equal(Result.Success, canvas.Target(buffer, 100, 100, 100, ColorSpace.ABGR8888));
         }
@@ -473,6 +479,7 @@ namespace ThorVG.Tests
         public void SwCanvas_Target_Grayscale_NotSupported()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             Assert.Equal(Result.NonSupport, canvas.Target(buffer, 100, 100, 100, ColorSpace.Grayscale8));
         }
@@ -481,6 +488,7 @@ namespace ThorVG.Tests
         public void SwCanvas_Target_Unknown_InvalidArgs()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             Assert.Equal(Result.NonSupport, canvas.Target(buffer, 100, 100, 100, ColorSpace.Unknown));
         }
@@ -489,6 +497,7 @@ namespace ThorVG.Tests
         public void SwCanvas_Target_InsufficientManagedBuffer_InvalidArgs()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             Assert.Equal(Result.InvalidArguments, canvas.Target(new uint[99], 100, 100, 1, ColorSpace.ARGB8888));
         }
 
@@ -500,6 +509,7 @@ namespace ThorVG.Tests
         public void SwCanvas_ShapeWithStroke()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -518,6 +528,7 @@ namespace ThorVG.Tests
         public void SwCanvas_ShapeWithLinearGradient()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -542,6 +553,7 @@ namespace ThorVG.Tests
         public void SwCanvas_ShapeWithRadialGradient()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -566,6 +578,7 @@ namespace ThorVG.Tests
         public void SwCanvas_TranslucentShape()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -583,6 +596,7 @@ namespace ThorVG.Tests
         public void SwCanvas_ShapeWithPathCommands()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -607,6 +621,7 @@ namespace ThorVG.Tests
         public void SwCanvas_SceneWithShapes()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -630,6 +645,7 @@ namespace ThorVG.Tests
         public void SwCanvas_NestedScenes()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -656,6 +672,7 @@ namespace ThorVG.Tests
         public void SwCanvas_ViewportClipping()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 
@@ -672,6 +689,7 @@ namespace ThorVG.Tests
         public void SwCanvas_RedrawCycle()
         {
             using var canvas = SwCanvas.Gen();
+            Assert.NotNull(canvas);
             var buffer = new uint[100 * 100];
             canvas.Target(buffer, 100, 100, 100, ColorSpace.ARGB8888);
 

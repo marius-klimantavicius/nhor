@@ -14,6 +14,7 @@ namespace ThorVG.Tests
             fill.SetSpread(FillSpread.Repeat); shape.SetFill(fill);
             var pixels = new uint[128 * 128];
             using var canvas = SwCanvas.Gen(EngineOption.None);
+            Assert.NotNull(canvas);
             canvas.Target(pixels, 128, 128, 128, ColorSpace.ABGR8888); canvas.Add(shape);
             if (update) { Assert.Equal(Result.Success, canvas.Draw(true)); canvas.Sync(); }
             shape.Scale(2);

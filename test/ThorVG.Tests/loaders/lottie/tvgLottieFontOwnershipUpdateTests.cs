@@ -7,6 +7,38 @@ namespace ThorVG.Tests;
 public class tvgLottieFontOwnershipUpdateTests
 {
     [Theory]
+    [InlineData(null, "name:missing-resolver-font")]
+    [InlineData("https://example.invalid/font.ttf", "https://example.invalid/font.ttf")]
+    public void ExternalFontResolverUsesNameWhenNoPathIsAvailable(string? path, string expectedSource)
+    {
+        Assert.Equal(Result.Success, Initializer.Init(0));
+        var font = new LottieFont { name = "missing-resolver-font", external = true, path = path };
+        var text = new LottieText();
+        text.doc.value = new TextDocument { name = font.name, text = "Text", size = 12, height = 14 };
+        var layer = new LottieLayer { layerType = LottieLayer.LayerType.Text, outFrame = 60 };
+        layer.children.Add(text);
+        var root = new LottieRootLayer { outFrame = 60 };
+        root.children.Add(layer);
+        var comp = new LottieComposition { root = root, w = 64, h = 64, frameRate = 30 };
+        comp.fonts.Add(font);
+        var sources = new System.Collections.Generic.List<string>();
+        try
+        {
+            using var builder = new LottieBuilder
+            {
+                resolver = new AssetResolver
+                {
+                    func = (paint, source, data) => { sources.Add(source); return false; }
+                }
+            };
+            builder.Build(comp);
+            Assert.True(builder.Update(comp, 0));
+            Assert.Equal(expectedSource, Assert.Single(sources));
+        }
+        finally { comp.Release(); Assert.Equal(Result.Success, Initializer.Term()); }
+    }
+
+    [Theory]
     [InlineData("standard")]
     [InlineData("unpadded")]
     [InlineData("web-safe")]

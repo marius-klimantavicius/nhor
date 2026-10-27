@@ -46,7 +46,7 @@ public unsafe class tvgLottieBuilderNativeUpdateTests
                         Number(v);
                 }
 
-                void Gradient(Fill f)
+                void Gradient(Fill? f)
                 {
                     Word(f != null ? 1u : 0u);
                     if (f == null)
@@ -58,6 +58,7 @@ public unsafe class tvgLottieBuilderNativeUpdateTests
                     Word(n);
                     for (int j = 0; j < n; ++j)
                     {
+                        Assert.NotNull(stops);
                         Number(stops[j].offset);
                         Word(stops[j].r);
                         Word(stops[j].g);
@@ -97,7 +98,7 @@ public unsafe class tvgLottieBuilderNativeUpdateTests
                     }
                 }
 
-                void PaintWords(Paint p)
+                void PaintWords(Paint? p)
                 {
                     Word(p != null ? 1u : 0u);
                     if (p == null)
@@ -152,7 +153,9 @@ public unsafe class tvgLottieBuilderNativeUpdateTests
                 LottieExpressions.SeedRandom((uint)(17 + i));
                 var parser = new LottieParser(text, "", false);
                 Word(parser.Parse() ? 1u : 0u);
-                var comp = parser.comp!;
+                var comp = parser.comp;
+                Assert.NotNull(comp);
+                Assert.NotNull(comp.root);
                 using (var builder = new LottieBuilder())
                 {
                     builder.Build(comp);

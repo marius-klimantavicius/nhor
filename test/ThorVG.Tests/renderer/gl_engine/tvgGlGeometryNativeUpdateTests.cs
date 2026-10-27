@@ -67,6 +67,7 @@ public unsafe class tvgGlGeometryNativeUpdateTests
             StrokeJoin.Round,
             StrokeJoin.Bevel
         };
+        float* matrix = stackalloc float[12];
         Assert.Equal(Result.Success, Initializer.Init(0));
         try
         {
@@ -228,10 +229,9 @@ public unsafe class tvgGlGeometryNativeUpdateTests
                     Mesh(g.fill);
                     Region(g.fillBounds);
                     Region(g.GetBounds());
-                    float* m = stackalloc float[12];
-                    GlMatrixHelper.GetMatrix3Std140(g.InverseMatrix(), new Span<float>(m, 12));
+                    GlMatrixHelper.GetMatrix3Std140(g.InverseMatrix(), new Span<float>(matrix, 12));
                     for (int i = 0; i < 12; ++i)
-                        Number(m[i]);
+                        Number(matrix[i]);
                     Word(g.Drawable(RenderUpdateFlag.Image) ? 1u : 0u);
                     Word((uint)g.GetStencilMode(RenderUpdateFlag.Image));
                     var intersector = new GlIntersector();
