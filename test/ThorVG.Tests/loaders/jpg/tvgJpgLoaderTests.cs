@@ -2,37 +2,48 @@
 
 using System.IO;
 using Xunit;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Formats.Jpeg;
+using StbImageWriteSharp;
 
 namespace ThorVG.Tests
 {
     public class JpgLoaderTests
     {
         /// <summary>
-        /// Generate a minimal valid JPEG image in memory using ImageSharp.
+        /// Generate a minimal valid JPEG with an independent encoder.
         /// </summary>
         private static byte[] CreateTestJpeg(int width = 4, int height = 4)
         {
-            using var image = new Image<Rgba32>(width, height);
-
-            // Fill with solid blue
-            image.ProcessPixelRows(accessor =>
+            var pixels = new byte[width * height * 4];
+            for (int i = 0; i < pixels.Length; i += 4)
             {
-                for (int y = 0; y < accessor.Height; y++)
-                {
-                    var row = accessor.GetRowSpan(y);
-                    for (int x = 0; x < row.Length; x++)
-                    {
-                        row[x] = new Rgba32(0, 0, 255, 255);
-                    }
-                }
-            });
+                pixels[i + 2] = 255;
+                pixels[i + 3] = 255;
+            }
 
             using var ms = new MemoryStream();
-            image.SaveAsJpeg(ms, new JpegEncoder { Quality = 90 });
+            new ImageWriter().WriteJpg(pixels, width, height, ColorComponents.RedGreenBlueAlpha, ms, 90);
             return ms.ToArray();
+        }
+
+        [Theory]
+        [InlineData(4, 4)]
+        [InlineData(8, 6)]
+        [InlineData(8, 8)]
+        [InlineData(16, 12)]
+        public void GeneratedJpegPreservesDimensionsAndSolidBlue(int width, int height)
+        {
+            using var decoded = SkiaSharp.SKBitmap.Decode(CreateTestJpeg(width, height));
+            Assert.NotNull(decoded);
+            Assert.Equal(width, decoded.Width);
+            Assert.Equal(height, decoded.Height);
+            foreach (var pixel in decoded.Pixels)
+            {
+                // JPEG is lossy; a uniform primary color can round by one unit.
+                Assert.InRange(pixel.Red, (byte)0, (byte)2);
+                Assert.InRange(pixel.Green, (byte)0, (byte)2);
+                Assert.InRange(pixel.Blue, (byte)253, (byte)255);
+                Assert.Equal(255, pixel.Alpha);
+            }
         }
 
         // ---- Open from data tests ----
@@ -143,7 +154,7 @@ namespace ThorVG.Tests
         public void Open_FromFile_ValidJpeg()
         {
             var jpg = CreateTestJpeg(16, 12);
-            var tmpFile = Path.GetTempFileName() + ".jpg";
+            var tmpFile = Path.Combine(Path.GetTempPath(), "thorvg-jpeg-" + System.Guid.NewGuid() + ".jpg");
             var loader = new JpgLoader();
             try
             {

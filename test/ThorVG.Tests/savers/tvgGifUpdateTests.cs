@@ -2,9 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.Json;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Gif;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 using Xunit;
 
 namespace ThorVG.Tests
@@ -153,11 +151,35 @@ namespace ThorVG.Tests
             var bytes = File.ReadAllBytes(path);
             Assert.Equal(expected.GetProperty("bytes").GetInt32(), bytes.Length);
             Assert.Equal(expected.GetProperty("sha256").GetString(), Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
-            using var decoded = Image.Load<Rgba32>(bytes);
+            using var stream = new SKMemoryStream(bytes);
+            using var decoded = SKCodec.Create(stream);
+            Assert.NotNull(decoded);
             var delays = expected.GetProperty("delaysCentiseconds");
-            Assert.Equal(delays.GetArrayLength(), decoded.Frames.Count);
-            for (int i = 0; i < decoded.Frames.Count; ++i)
-                Assert.Equal(delays[i].GetInt32(), decoded.Frames[i].Metadata.GetGifMetadata().FrameDelay);
+            Assert.Equal(delays.GetArrayLength(), decoded.FrameCount);
+            var info = new SKImageInfo(decoded.Info.Width, decoded.Info.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+            using var frame = new SKBitmap(info);
+            for (int i = 0; i < decoded.FrameCount; ++i)
+            {
+                Assert.Equal(delays[i].GetInt32() * 10, decoded.FrameInfo[i].Duration);
+                // With no prior frame, the independent decoder reconstructs the
+                // complete displayed RGBA frame, including transparent deltas.
+                Assert.Equal(SKCodecResult.Success, decoded.GetPixels(info, frame.GetPixels(), new SKCodecOptions(i)));
+                int size = mode == "encode" ? 32 : 64;
+                Assert.Equal(size, frame.Width);
+                Assert.Equal(size, frame.Height);
+                var pixels = frame.Bytes;
+                Assert.Equal(size * size * 4, pixels.Length);
+                if (mode == "encode" && scenario == 1)
+                {
+                    for (int pixel = 0; pixel < pixels.Length; pixel += 4)
+                        Assert.Equal(new byte[] { 40, 80, 120, 255 }, pixels.AsSpan(pixel, 4).ToArray());
+                }
+                if (mode == "encode" && scenario == 3 && i == 0)
+                {
+                    for (int pixel = 3; pixel < pixels.Length; pixel += 4)
+                        Assert.Equal(0, pixels[pixel]);
+                }
+            }
         }
     }
 }

@@ -2,13 +2,24 @@
 
 using System.IO;
 using Xunit;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using StbImageWriteSharp;
 
 namespace ThorVG.Tests
 {
     public class LoaderMgrTests
     {
+        [Fact]
+        public void GeneratedPngPreservesTwoByTwoTransparentBlackPixels()
+        {
+            using var output = new MemoryStream();
+            new ImageWriter().WritePng(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, output);
+            using var decoded = SkiaSharp.SKBitmap.Decode(output.ToArray());
+            Assert.NotNull(decoded);
+            Assert.Equal(2, decoded.Width);
+            Assert.Equal(2, decoded.Height);
+            Assert.All(decoded.Pixels, pixel => Assert.Equal(new SkiaSharp.SKColor(0, 0, 0, 0), pixel));
+        }
+
         // ---- Find tests ----
 
         [Fact]
@@ -102,18 +113,20 @@ namespace ThorVG.Tests
         public void Loader_ByPath_JpegExtension()
         {
             // Create a temp JPEG file
-            using var image = new Image<Rgba32>(2, 2);
-            var tmpFile = Path.GetTempFileName() + ".jpg";
+            var tmpFile = Path.Combine(Path.GetTempPath(), "thorvg-loader-" + System.Guid.NewGuid() + ".jpg");
+            Loader? loader = null;
             try
             {
-                image.SaveAsJpeg(tmpFile);
-                var loader = LoaderMgr.Loader(tmpFile, out var invalid);
+                using (var output = File.Create(tmpFile))
+                    new ImageWriter().WriteJpg(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, output, 75);
+                loader = LoaderMgr.Loader(tmpFile, out var invalid);
                 Assert.NotNull(loader);
                 Assert.False(invalid);
                 Assert.IsType<JpgLoader>(loader);
             }
             finally
             {
+                if (loader != null) LoaderMgr.Retrieve(loader);
                 if (File.Exists(tmpFile)) File.Delete(tmpFile);
             }
         }
@@ -131,9 +144,8 @@ namespace ThorVG.Tests
         [Fact]
         public void Loader_FromData_JpegMime()
         {
-            using var image = new Image<Rgba32>(2, 2);
             using var ms = new MemoryStream();
-            image.SaveAsJpeg(ms);
+            new ImageWriter().WriteJpg(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, ms, 75);
             var data = ms.ToArray();
 
             var loader = LoaderMgr.Loader(data, (uint)data.Length, "jpg", null, true);
@@ -144,9 +156,8 @@ namespace ThorVG.Tests
         [Fact]
         public void Loader_FromData_PngMime()
         {
-            using var image = new Image<Rgba32>(2, 2);
             using var ms = new MemoryStream();
-            image.SaveAsPng(ms);
+            new ImageWriter().WritePng(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, ms);
             var data = ms.ToArray();
 
             var loader = LoaderMgr.Loader(data, (uint)data.Length, "png", null, true);
@@ -157,9 +168,8 @@ namespace ThorVG.Tests
         [Fact]
         public void Loader_DataCache_UsesArrayIdentity()
         {
-            using var image = new Image<Rgba32>(2, 2);
             using var ms = new MemoryStream();
-            image.SaveAsPng(ms);
+            new ImageWriter().WritePng(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, ms);
             var data = ms.ToArray();
             var distinct = (byte[])data.Clone();
 
@@ -189,9 +199,8 @@ namespace ThorVG.Tests
         [Fact]
         public void Loader_FromData_NoMime_AutoDetects()
         {
-            using var image = new Image<Rgba32>(2, 2);
             using var ms = new MemoryStream();
-            image.SaveAsPng(ms);
+            new ImageWriter().WritePng(new byte[2 * 2 * 4], 2, 2, ColorComponents.RedGreenBlueAlpha, ms);
             var data = ms.ToArray();
 
             // No MIME type -- should auto-detect as PNG
