@@ -1,8 +1,10 @@
+using System;
 using System.Linq;
 using Marius.Winter;
 using Marius.Winter.Playground.Scenarios;
 
 var backend = args.Contains("--gl") ? RenderBackend.GL : RenderBackend.SW;
+if (args.Contains("--graphics-diagnostics")) return GraphicsDiagnostics.Run(Console.Out, backend);
 var window = new Window(900, 720, "Winter GUI Playground" + (backend == RenderBackend.GL ? " [GL]" : " [SW]"), Theme.Light, backend);
 using var profile = new ProfileAndVolume(window);
 using var help = new HelpRichDisplayScenario(window);
@@ -36,3 +38,4 @@ scenarios.AddScenario("Markdown", markdown.Content);
 window.AddChild(scenarios.Content);
 window.SetAutoLayout(scenarios.Content);
 window.Run();
+return 0;

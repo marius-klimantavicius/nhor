@@ -340,6 +340,8 @@ namespace ThorVG
         private static bool _loaded;
         private enum ContextApi : byte { Unknown, Wgl, Glx, Cgl, Egl }
         private static ContextApi _contextApi;
+        [System.ThreadStatic]
+        internal static string? LastContextError;
 
         // ============================================================
         //  LoadFunction helper — returns raw pointer as nint
@@ -417,7 +419,7 @@ namespace ThorVG
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate nint WglGetCurrentDcDelegate();
 
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
         private delegate int WglMakeCurrentDelegate(nint deviceContext, nint context);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -443,6 +445,8 @@ namespace ThorVG
         private delegate nint EglGetCurrentSurfaceDelegate(int selector);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint EglMakeCurrentDelegate(nint display, nint draw, nint read, nint context);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint EglGetErrorDelegate();
 
         private static EglGetCurrentContextDelegate? _eglGetCurrentContext;
         private static EglGetCurrentDisplayDelegate? _eglGetCurrentDisplay;
@@ -501,40 +505,54 @@ namespace ThorVG
 
         internal static bool MakeCurrent(nint display, nint surface, nint context)
         {
-            if (!_loaded || context == 0) return false;
+            LastContextError = null;
+            bool Failure(string reason) { LastContextError = reason; return false; }
+            if (!_loaded || context == 0)
+                return Failure($"GL context binding: library loaded={_loaded}, context present={context != 0}.");
 
             if (_contextApi == ContextApi.Egl)
             {
                 if (_eglGetCurrentContext!() == context) return true;
-                return display != 0 && surface != 0 && _eglMakeCurrent!(display, surface, surface, context) != 0;
+                if (display == 0 || surface == 0)
+                    return Failure($"EGL context binding: display present={display != 0}, surface present={surface != 0}.");
+                if (_eglMakeCurrent!(display, surface, surface, context) != 0) return true;
+                if (NativeLibrary.TryGetExport(_libEGL, "eglGetError", out var errorPtr))
+                    return Failure($"eglMakeCurrent failed: eglGetError=0x{Marshal.GetDelegateForFunctionPointer<EglGetErrorDelegate>(errorPtr)():X4}.");
+                return Failure("eglMakeCurrent failed; eglGetError unavailable.");
             }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                if (_contextApi != ContextApi.Wgl) return false;
+                if (_contextApi != ContextApi.Wgl) return Failure($"WGL context binding: selected API is {_contextApi}.");
                 if (!NativeLibrary.TryGetExport(_libGL, "wglGetCurrentContext", out var getPtr) ||
                     !NativeLibrary.TryGetExport(_libGL, "wglGetCurrentDC", out var getDcPtr) ||
-                    !NativeLibrary.TryGetExport(_libGL, "wglMakeCurrent", out var makePtr)) return false;
+                    !NativeLibrary.TryGetExport(_libGL, "wglMakeCurrent", out var makePtr))
+                    return Failure("WGL context binding: required context management entry point unavailable.");
                 var getCurrent = Marshal.GetDelegateForFunctionPointer<WglGetCurrentContextDelegate>(getPtr);
                 var getCurrentDc = Marshal.GetDelegateForFunctionPointer<WglGetCurrentDcDelegate>(getDcPtr);
                 if (getCurrent() == context && getCurrentDc() == surface) return true;
-                if (surface == 0) return false;
+                if (surface == 0) return Failure("WGL context binding: surface HDC is missing (context HGLRC is present).");
                 var makeCurrent = Marshal.GetDelegateForFunctionPointer<WglMakeCurrentDelegate>(makePtr);
-                return makeCurrent(surface, context) != 0;
+                if (makeCurrent(surface, context) != 0) return true;
+                // The delegate captures the native error before any other P/Invoke.
+                int error = Marshal.GetLastPInvokeError();
+                return Failure($"wglMakeCurrent(HDC, HGLRC) failed: GetLastError=0x{error:X8} ({error}).");
             }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                if (_contextApi != ContextApi.Glx) return false;
+                if (_contextApi != ContextApi.Glx) return Failure($"GLX context binding: selected API is {_contextApi}.");
                 if (!NativeLibrary.TryGetExport(_libGL, "glXGetCurrentContext", out var getPtr) ||
                     !NativeLibrary.TryGetExport(_libGL, "glXGetCurrentDrawable", out var getDrawablePtr) ||
-                    !NativeLibrary.TryGetExport(_libGL, "glXMakeCurrent", out var makePtr)) return false;
+                    !NativeLibrary.TryGetExport(_libGL, "glXMakeCurrent", out var makePtr))
+                    return Failure("GLX context binding: required context management entry point unavailable.");
                 var getCurrent = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentContextDelegate>(getPtr);
                 var getCurrentDrawable = Marshal.GetDelegateForFunctionPointer<GlXGetCurrentDrawableDelegate>(getDrawablePtr);
                 if (getCurrent() == context && getCurrentDrawable() == unchecked((nuint)surface)) return true;
-                if (display == 0 || surface == 0) return false;
+                if (display == 0 || surface == 0)
+                    return Failure($"GLX context binding: display present={display != 0}, drawable present={surface != 0}.");
                 var makeCurrent = Marshal.GetDelegateForFunctionPointer<GlXMakeCurrentDelegate>(makePtr);
-                return makeCurrent(display, unchecked((nuint)surface), context) != 0;
+                return makeCurrent(display, unchecked((nuint)surface), context) != 0 || Failure("glXMakeCurrent returned false.");
             }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
@@ -545,7 +563,7 @@ namespace ThorVG
                 return getCurrent() == context;
             }
 
-            return false;
+            return Failure($"GL context binding: unsupported context API {_contextApi}.");
         }
 
         // ============================================================

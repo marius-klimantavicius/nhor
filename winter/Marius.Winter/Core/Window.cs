@@ -130,6 +130,7 @@ public unsafe class Window : Element
 
     private uint _texId, _vao, _vbo, _shaderProgram;
     private bool _glReady;
+    internal string GraphicsInformation { get; private set; } = "";
 
     // GLFW cursors
     private GlfwCursor?[] _cursors = new GlfwCursor?[8];
@@ -167,6 +168,7 @@ public unsafe class Window : Element
         _theme = theme ?? Theme.Dark;
         _backend = backend;
         _animator.Changed = () => Dirty = true;
+        string stage = "validate window arguments";
         try
         {
             if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Window dimensions must be positive.");
@@ -175,9 +177,11 @@ public unsafe class Window : Element
                 if (_sessionActive) throw new InvalidOperationException("Winter supports one live Window session per process. Dispose the current Window before constructing another.");
                 _sessionActive = _ownsSession = true;
             }
-            Check(Initializer.Init(0), "initialize ThorVG");
+            stage = "initialize ThorVG";
+            Check(Initializer.Init(0), stage);
             _graphicsInitialized = true;
 
+            stage = "initialize GLFW";
             if (Glfw.Glfw.glfwInit() != GLFW_TRUE)
                 throw NativeFailure("initialize GLFW");
             _glfwInitialized = true;
@@ -192,11 +196,16 @@ public unsafe class Window : Element
             Glfw.Glfw.glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
             Glfw.Glfw.glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
+            stage = "create GLFW OpenGL 3.3 core window";
             _window = Glfw.Glfw.glfwCreateWindow(width, height, title, null, null);
             if (_window == null)
                 throw NativeFailure("create GLFW OpenGL 3.3 window");
 
+            stage = "make GLFW context current";
             Glfw.Glfw.glfwMakeContextCurrent(_window);
+            if (Glfw.Glfw.glfwGetCurrentContext() != _window) throw NativeFailure(stage);
+            GraphicsInformation = GraphicsDiagnostics.DescribeContext(_window);
+            stage = "retain OpenGL library";
             OpenGlLibraryLifetime.Retain();
             Glfw.Glfw.glfwSwapInterval(0);
             Glfw.Glfw.glfwGetWindowSize(_window, out _logicalWidth, out _logicalHeight);
@@ -205,31 +214,40 @@ public unsafe class Window : Element
             Glfw.Glfw.glfwGetWindowContentScale(_window, out float contentX, out float contentY);
             ContentScaleX = contentX; ContentScaleY = contentY;
             _width = (uint)Math.Max(1, initialW); _height = (uint)Math.Max(1, initialH);
+            stage = "initialize GLFW cursors";
             InitCursors();
 
             if (_backend == RenderBackend.GL)
             {
+                stage = "create ThorVG GL canvas";
                 var glCanvas = GlCanvas.Gen();
                 if (glCanvas == null)
                     throw new InvalidOperationException("Winter initialization failed: ThorVG GL canvas is unavailable.");
                 _canvas = glCanvas;
+                stage = "target GL canvas";
                 RetargetGlCanvas();
             }
             else
             {
+                stage = "load SW OpenGL upload functions";
                 if (!LoadGlFunctions())
                     throw new InvalidOperationException("Winter initialization failed: required OpenGL 3.3 SW upload functions are unavailable.");
+                stage = "initialize SW OpenGL upload pipeline";
                 InitBlitPipeline();
 
+                stage = "create ThorVG SW canvas";
                 var swCanvas = SwCanvas.Gen();
                 if (swCanvas == null)
                     throw new InvalidOperationException("Winter initialization failed: ThorVG SW canvas is unavailable.");
                 _canvas = swCanvas;
+                stage = "target SW canvas";
                 RetargetSwCanvas();
             }
 
+            stage = "load default font";
             LoadDefaultFont();
 
+            stage = "attach Window scenes and callbacks";
             // Background shape
             _backgroundShape = Shape.Gen();
             _backgroundShape!.AppendRect(0, 0, _logicalWidth, _logicalHeight, 0, 0);
@@ -251,9 +269,10 @@ public unsafe class Window : Element
             _clock = Stopwatch.StartNew();
             _initialized = true;
         }
-        catch
+        catch (Exception failure)
         {
-            Dispose();
+            // Capture diagnostics before disposal can replace the native error.
+            GraphicsDiagnostics.CleanupFailedInitialization(failure, stage, GraphicsInformation, Dispose);
             throw;
         }
     }
@@ -314,6 +333,15 @@ public unsafe class Window : Element
             }
         }
         finally { _running = false; Dispose(); }
+    }
+
+    internal void DrawDiagnosticFrame()
+    {
+        Dispatcher.VerifyAccess();
+        Check(_canvas!.Update(), "update diagnostic canvas");
+        Check(_canvas.Draw(true), "draw diagnostic canvas");
+        Check(_canvas.Sync(), "synchronize diagnostic canvas");
+        if (_backend == RenderBackend.SW) BlitToScreen();
     }
 
     public override void Dispose()
@@ -1291,7 +1319,15 @@ public unsafe class Window : Element
     private void RetargetGlCanvas()
     {
         var (display, surface, context) = GetGlCanvasTarget(_window!);
-        Check(((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S), "target GL canvas");
+        var result = ((GlCanvas)_canvas!).Target(display, surface, context, 0, _width, _height, ColorSpace.ABGR8888S);
+        if (result != Result.Success)
+        {
+            string native = GL.LastContextError ?? "No native context binding error was recorded.";
+            int code = Glfw.Glfw.glfwGetError(out string? detail);
+            throw new InvalidOperationException($"Winter failed to target GL canvas: ThorVG returned {result}. {native} " +
+                $"Target handles: display present={display != 0}, surface present={surface != 0}, context present={context != 0}. " +
+                $"GLFW error 0x{code:X}: {detail ?? "none"}.");
+        }
     }
 
     internal static (nint Display, nint Surface, nint Context) GetGlCanvasTarget(GlfwWindow window)
